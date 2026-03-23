@@ -1,0 +1,10 @@
+-r base.txt
+
+# ASGI server
+daphne>=4.1
+
+# Error tracking
+sentry-sdk>=2.17
+
+# Security
+django-security>=0.16

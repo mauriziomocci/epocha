@@ -1,0 +1,6 @@
+#!/bin/bash
+set -o errexit
+set -o pipefail
+set -o nounset
+
+celery -A config.celery worker -l INFO --concurrency=2
