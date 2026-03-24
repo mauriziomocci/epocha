@@ -1,0 +1,56 @@
+# Stage 1: Build dependencies
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements/ /app/requirements/
+RUN pip install --no-cache-dir --prefix=/install -r requirements/production.txt
+
+
+# Stage 2: Runtime image (minimal)
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DJANGO_SETTINGS_MODULE=config.settings.production
+
+WORKDIR /app
+
+# Install only runtime system dependencies (no build tools)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system epocha \
+    && adduser --system --ingroup epocha epocha
+
+# Copy pre-built Python packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy application code
+COPY . /app/
+
+# Copy and set entrypoints
+COPY compose/django/entrypoint.sh /entrypoint.sh
+COPY compose/django/start.production.sh /start.sh
+COPY compose/celery/start.sh /start-celery.sh
+COPY compose/celerybeat/start.sh /start-celerybeat.sh
+RUN chmod +x /entrypoint.sh /start.sh /start-celery.sh /start-celerybeat.sh
+
+# Collect static files (for Django admin)
+RUN python manage.py collectstatic --noinput 2>/dev/null || true
+
+# Run as non-root user
+USER epocha
+
+EXPOSE 8000
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/start.sh"]

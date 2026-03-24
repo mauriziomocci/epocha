@@ -1927,6 +1927,88 @@ git commit -m "test: add full MVP integration test (Express → world → tick �
 
 ---
 
+## Task 13: Production Docker Setup
+
+Production-ready Docker configuration with multi-stage build, Nginx reverse proxy, health checks, and security hardening.
+
+**Files:**
+- Already created: `compose/django/Dockerfile.production`
+- Already created: `compose/django/start.production.sh`
+- Already created: `compose/nginx/nginx.conf`
+- Already created: `docker-compose.production.yml`
+
+- [ ] **Step 1: Verify production Dockerfile builds**
+
+```bash
+docker build -f compose/django/Dockerfile.production -t epocha:prod .
+```
+Expected: Multi-stage build completes, image size significantly smaller than local image
+
+- [ ] **Step 2: Verify production image runs**
+
+```bash
+docker run --rm epocha:prod python -c "import django; print(django.get_version())"
+```
+Expected: Prints Django version without errors
+
+- [ ] **Step 3: Verify production compose starts**
+
+```bash
+cp .env.production.example .envs/.production/.django
+cp .env.postgres.example .envs/.production/.postgres
+# Edit .envs/.production/.django with real values
+docker compose -f docker-compose.production.yml up --build
+```
+Expected: All 6 services start (web, nginx, db, redis, celery-worker, celery-beat)
+
+- [ ] **Step 4: Verify Nginx proxies correctly**
+
+```bash
+# HTTP API
+curl http://localhost/api/v1/simulations/
+
+# WebSocket (should upgrade)
+curl -i -N \
+  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  http://localhost/ws/simulation/1/
+```
+Expected: API returns JSON, WebSocket returns 101 Switching Protocols
+
+- [ ] **Step 5: Verify health checks pass**
+
+```bash
+docker compose -f docker-compose.production.yml ps
+```
+Expected: All services show "healthy" status
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add compose/django/Dockerfile.production compose/django/start.production.sh \
+  compose/nginx/nginx.conf docker-compose.production.yml
+git commit -m "feat(infra): add production Docker setup with Nginx, multi-stage build, health checks"
+```
+
+### Key differences from local Docker setup
+
+| Aspect | Local | Production |
+|--------|-------|------------|
+| Dockerfile | Single stage, includes dev tools | Multi-stage, minimal runtime image |
+| Image size | ~800MB+ | ~300MB (no build tools, no dev deps) |
+| User | root | Non-root `epocha` user |
+| Nginx | Not used (Django serves directly) | Reverse proxy for HTTP + WebSocket |
+| Static files | Not served | Nginx serves from shared volume |
+| Volumes | Code mounted (hot reload) | No code mount (baked into image) |
+| Ports | 8000 exposed directly | Only 80 (Nginx) exposed |
+| Health checks | None | PostgreSQL + Redis health checks with conditions |
+| Restart policy | None | `unless-stopped` on all services |
+| Resource limits | None | Memory limit on Celery worker (1G) |
+| Redis | Default config | AOF persistence + memory limit + eviction policy |
+| Backups | No volume | Dedicated backup volume for PostgreSQL |
+
+---
+
 ## Summary
 
 | Task | Component | What it builds |
@@ -1944,8 +2026,9 @@ git commit -m "test: add full MVP integration test (Express → world → tick �
 | 10 | Chat | WebSocket chat with agents |
 | 11 | Simulation | Play/pause wiring + Docker verification |
 | 12 | Integration | Full flow test |
+| 13 | Infra | Production Docker setup (Nginx, multi-stage, health checks) |
 
-**Estimated time:** 13 tasks, each 20-60 minutes = 6-12 hours of focused work.
+**Estimated time:** 14 tasks, each 20-60 minutes = 7-14 hours of focused work.
 
 **After completion, the MVP can:**
 1. Accept a text prompt ("A medieval village...")
