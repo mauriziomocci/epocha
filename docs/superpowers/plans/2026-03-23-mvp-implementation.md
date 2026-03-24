@@ -2009,6 +2009,248 @@ git commit -m "feat(infra): add production Docker setup with Nginx, multi-stage 
 
 ---
 
+## Task 14: User Registration, Login, and Simulation Ownership
+
+Basic multi-user support: registration, login, and simulation ownership. Each simulation belongs to a user. Sharing and collaboration are designed but deferred to post-MVP.
+
+**Files:**
+- Modify: `epocha/apps/users/views.py`
+- Modify: `epocha/apps/users/serializers.py`
+- Modify: `epocha/apps/users/urls.py`
+- Modify: `epocha/apps/simulation/models.py` (add visibility field)
+- Create: `epocha/apps/users/tests/test_api.py`
+
+- [ ] **Step 1: Write the failing test for registration**
+
+```python
+# epocha/apps/users/tests/test_api.py
+import pytest
+from rest_framework import status
+
+
+@pytest.mark.django_db
+class TestUserRegistration:
+    def test_register_new_user(self, api_client):
+        response = api_client.post("/api/v1/users/register/", {
+            "email": "newuser@epocha.dev",
+            "username": "newuser",
+            "password": "StrongPass123!",
+            "password_confirm": "StrongPass123!",
+        }, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        assert "email" in response.data
+        assert "password" not in response.data
+
+    def test_register_duplicate_email_fails(self, api_client, user):
+        response = api_client.post("/api/v1/users/register/", {
+            "email": "test@epocha.dev",
+            "username": "another",
+            "password": "StrongPass123!",
+            "password_confirm": "StrongPass123!",
+        }, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_register_password_mismatch_fails(self, api_client):
+        response = api_client.post("/api/v1/users/register/", {
+            "email": "new@epocha.dev",
+            "username": "newuser",
+            "password": "StrongPass123!",
+            "password_confirm": "DifferentPass!",
+        }, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
+class TestUserLogin:
+    def test_login_returns_tokens(self, api_client, user):
+        response = api_client.post("/api/v1/users/token/", {
+            "email": "test@epocha.dev",
+            "password": "testpass123",
+        }, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert "access" in response.data
+        assert "refresh" in response.data
+
+    def test_login_wrong_password_fails(self, api_client, user):
+        response = api_client.post("/api/v1/users/token/", {
+            "email": "test@epocha.dev",
+            "password": "wrongpassword",
+        }, format="json")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.django_db
+class TestSimulationOwnership:
+    def test_user_sees_only_own_simulations(self, authenticated_client, api_client):
+        # Create simulation as authenticated user
+        authenticated_client.post("/api/v1/simulations/", {
+            "name": "My Sim", "seed": 42, "config": {},
+        }, format="json")
+
+        # Another user should see no simulations
+        from epocha.apps.users.models import User
+        other = User.objects.create_user(
+            email="other@epocha.dev", username="other", password="pass123"
+        )
+        api_client.force_authenticate(user=other)
+        response = api_client.get("/api/v1/simulations/")
+        assert len(response.data["results"]) == 0
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest epocha/apps/users/tests/test_api.py -v`
+Expected: FAIL — register endpoint does not exist
+
+- [ ] **Step 3: Implement registration serializer and view**
+
+```python
+# epocha/apps/users/serializers.py
+"""Serializers for the users app."""
+from rest_framework import serializers
+
+from .models import User
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "email", "username", "date_joined"]
+        read_only_fields = ["id", "date_joined"]
+
+
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    """Registration with email, username, password + confirmation."""
+
+    password = serializers.CharField(write_only=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = User
+        fields = ["id", "email", "username", "password", "password_confirm"]
+        read_only_fields = ["id"]
+
+    def validate(self, data):
+        if data["password"] != data["password_confirm"]:
+            raise serializers.ValidationError({"password_confirm": "Passwords do not match."})
+        return data
+
+    def create(self, validated_data):
+        validated_data.pop("password_confirm")
+        return User.objects.create_user(**validated_data)
+```
+
+```python
+# epocha/apps/users/views.py
+"""Views for the users app."""
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
+
+from .models import User
+from .serializers import UserRegistrationSerializer, UserSerializer
+
+
+class UserMeView(generics.RetrieveUpdateAPIView):
+    """Authenticated user profile."""
+
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+
+class UserRegistrationView(generics.CreateAPIView):
+    """Register a new user account."""
+
+    serializer_class = UserRegistrationSerializer
+    permission_classes = [permissions.AllowAny]
+```
+
+```python
+# epocha/apps/users/urls.py
+from django.urls import path
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
+from . import views
+
+urlpatterns = [
+    path("register/", views.UserRegistrationView.as_view(), name="user-register"),
+    path("me/", views.UserMeView.as_view(), name="user-me"),
+    path("token/", TokenObtainPairView.as_view(), name="token-obtain"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
+]
+```
+
+- [ ] **Step 4: Add visibility field to Simulation model**
+
+Add to `epocha/apps/simulation/models.py` in the `Simulation` class:
+
+```python
+    class Visibility(models.TextChoices):
+        PRIVATE = "private", "Private"
+        SHARED = "shared", "Shared"
+        PUBLIC = "public", "Public"
+
+    visibility = models.CharField(
+        max_length=10,
+        choices=Visibility.choices,
+        default=Visibility.PRIVATE,
+        help_text="Private: only owner. Shared: owner + collaborators. Public: everyone can view and fork.",
+    )
+```
+
+- [ ] **Step 5: Generate migration for new field**
+
+```bash
+python manage.py makemigrations simulation
+python manage.py migrate
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+Run: `pytest epocha/apps/users/tests/test_api.py -v`
+Expected: All 5 tests PASS
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add epocha/apps/users/ epocha/apps/simulation/models.py epocha/apps/simulation/migrations/
+git commit -m "feat(users): add registration, login, and simulation visibility
+
+CHANGE: User registration endpoint with email/password. JWT login
+via simplejwt. Simulation model gains visibility field (private,
+shared, public) for future collaboration features. Each user sees
+only their own simulations."
+```
+
+### Post-MVP collaboration model (designed, not implemented yet)
+
+The following features are designed and ready for implementation in v0.5+:
+
+**Simulation versioning:**
+- Once shared/public, the original simulation becomes immutable
+- Owner can create new versions (v1, v2, v3...) with modifications
+- Forks always reference a specific version
+- Version history is visible to all viewers
+
+**Collaboration roles:**
+
+| Role | Permissions |
+|------|------------|
+| Owner | Full control: create, modify, delete, share, change visibility |
+| Collaborator | Observe, chat with agents, fork, inject variables (if owner permits) |
+| Viewer | Read-only: observe and chat |
+| Staff/Admin | Promote simulations to "Featured", moderate content, manage users |
+
+**Staff features (admin panel):**
+- Curate "Featured" simulations for the community
+- Moderate inappropriate content
+- Manage user accounts (ban, role assignment)
+- Create "official" template simulations
+
+---
+
 ## Summary
 
 | Task | Component | What it builds |
@@ -2027,8 +2269,9 @@ git commit -m "feat(infra): add production Docker setup with Nginx, multi-stage 
 | 11 | Simulation | Play/pause wiring + Docker verification |
 | 12 | Integration | Full flow test |
 | 13 | Infra | Production Docker setup (Nginx, multi-stage, health checks) |
+| 14 | Users | Registration, login, simulation ownership and visibility |
 
-**Estimated time:** 14 tasks, each 20-60 minutes = 7-14 hours of focused work.
+**Estimated time:** 15 tasks, each 20-60 minutes = 8-15 hours of focused work.
 
 **After completion, the MVP can:**
 1. Accept a text prompt ("A medieval village...")

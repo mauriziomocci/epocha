@@ -974,6 +974,38 @@ L'architettura del core e predisposta per una futura piattaforma di condivisione
 - Sfide/esperimenti collettivi: stesso mondo di partenza, variabili diverse, confronto risultati
 - Rating e discovery delle simulazioni piu interessanti
 
+### Visibilita e versioning delle simulazioni
+
+Ogni simulazione ha un livello di visibilita che l'owner controlla:
+
+| Visibilita | Chi vede | Chi puo forkare | Chi puo modificare |
+|------------|---------|-----------------|-------------------|
+| **Private** (default) | Solo l'owner | Nessuno | Solo l'owner |
+| **Shared** | Owner + collaboratori invitati | I collaboratori | Owner (collaboratori possono iniettare variabili se permesso) |
+| **Public** | Tutti gli utenti | Tutti | Nessuno (immutabile una volta pubblica) |
+
+**Versioning:**
+- Una volta resa pubblica o condivisa, la simulazione diventa **immutabile** (nessuno puo modificarla, nemmeno l'owner)
+- L'owner puo creare **nuove versioni** (v1, v2, v3...) con modifiche
+- I fork partono sempre da una versione specifica e immutabile
+- Lo storico delle versioni e visibile a tutti i viewer
+- Questo protegge chi forka: il mondo da cui sei partito non cambia sotto i piedi
+
+**Ruoli utente:**
+
+| Ruolo | Permessi |
+|-------|----------|
+| **Owner** | Controllo totale: crea, modifica, cancella, condivide, cambia visibilita, crea versioni |
+| **Collaborator** | Osserva, chatta con agenti, forka, inietta variabili (se l'owner lo permette) |
+| **Viewer** | Solo lettura: osserva e chatta con gli agenti |
+| **Staff/Admin** | Promuove simulazioni in "Featured", modera contenuti, gestisce utenti, crea template ufficiali |
+
+**Staff/Admin:**
+- Curano una sezione "Featured" con le simulazioni piu interessanti della community
+- Moderano contenuti inappropriati
+- Gestiscono utenti (ban, assegnazione ruoli)
+- Possono creare simulazioni "ufficiali" come template per la community (es. "Ancient Rome", "Medieval Europe")
+
 ### Mondi collaborativi e multiplayer
 
 Epocha supporta diverse modalita di collaborazione tra utenti sullo stesso mondo.
@@ -981,8 +1013,8 @@ Epocha supporta diverse modalita di collaborazione tra utenti sullo stesso mondo
 #### Modalita di collaborazione
 
 **1. Fork e divergenza (asincrono)**
-- Un utente pubblica la propria simulazione
-- Un altro utente fa un fork da qualsiasi punto temporale
+- Un utente pubblica la propria simulazione (visibilita Public o Shared)
+- Un altro utente fa un fork da qualsiasi punto temporale di una versione specifica
 - Ognuno prosegue in modo indipendente con le proprie scelte
 - I risultati possono essere confrontati: "stesso mondo, scelte diverse, esiti diversi"
 - Non serve essere online contemporaneamente
