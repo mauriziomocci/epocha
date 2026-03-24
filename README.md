@@ -442,8 +442,6 @@ Every pull request goes through four stages automatically:
 
 **Sid Meier's Civilization.** The intuition that complex historical dynamics can be modeled in a playable, interactive form. Epocha takes the same thesis seriously and attempts to replace abstracted game mechanics with scientifically grounded simulation.
 
-**MiroFish.** An early demonstration that agent-based social simulation with LLMs can produce genuinely interesting emergent behavior. Epocha extends that premise with scientific models, multi-scale aggregation, and a structured knowledge layer.
-
 **Giambattista Vico** — The theory of historical cycles: societies move through recurring phases of growth, consolidation, and decline (corsi e ricorsi). These cycles are a structural feature of the Epocha simulation, not a forced script.
 
 **Ibn Khaldun** — The 14th century sociologist who described how civilizations rise through social cohesion (asabiyyah) and fall through its erosion. The dynamics he identified — elite overreach, bureaucratic calcification, loss of legitimacy — are modeled explicitly in Epocha's political and institutional systems.
