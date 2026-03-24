@@ -103,6 +103,12 @@ A single text field. Type a prompt and get a world.
 resources, and religious tension between a solar cult and a lunar cult."
 
 "What would have happened if the Roman Empire had not collapsed in 476?"
+
+"Europe in 1945, but the Axis powers won the war. Simulate 80 years of this
+alternate history: politics, economy, resistance movements, cultural evolution."
+
+"A small island nation discovers a massive energy source. Simulate 500 years:
+who controls it, what wars it causes, how the society transforms."
 ```
 
 The system analyzes the input, builds the knowledge base, generates the world, selects optimal parameters, and starts the simulation. No configuration required. Express mode uses the same engine as the advanced mode — the system makes all the configuration decisions instead of you.
@@ -149,7 +155,7 @@ Every simulation is reproducible. The system produces statistical reproducibilit
 
 ## Use Cases
 
-**"What if" historical scenarios** — Fork history at a specific moment and inject a different variable. What if the Library of Alexandria had survived? What if the Black Death had been twice as lethal? What if the Roman Empire had discovered printing before collapse? The simulation plays out the consequences over centuries with scientific rigor.
+**Alternate history** — What if the Axis powers had won World War II? What if the Library of Alexandria had survived? What if the Roman Empire had discovered printing before collapse? Fork history at a specific moment, change one variable, and watch the consequences unfold over decades or centuries. Simulate resistance movements, cultural shifts, economic restructuring, and political evolution in worlds that never existed but could have.
 
 **Future projection** — Start from 2026 and simulate to 2126 or 3026. The Knowledge Engine grounds the first decades in current real-world data and trend extrapolations, then follows the emergent consequences wherever the simulation leads. Watch the plausible futures of AI disruption, climate pressure, energy transitions, and demographic shifts play out through the lives of individual agents.
 

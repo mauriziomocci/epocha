@@ -103,6 +103,13 @@ Un singolo campo di testo. Digita un prompt e ottieni un mondo.
 scarse e tensione religiosa tra un culto solare e un culto lunare."
 
 "Cosa sarebbe successo se l'Impero Romano non fosse caduto nel 476?"
+
+"Europa nel 1945, ma le potenze dell'Asse hanno vinto la guerra. Simula 80 anni
+di questa storia alternativa: politica, economia, movimenti di resistenza,
+evoluzione culturale."
+
+"Una piccola nazione insulare scopre un'enorme fonte di energia. Simula 500 anni:
+chi la controlla, quali guerre provoca, come si trasforma la società."
 ```
 
 Il sistema analizza l'input, costruisce la base di conoscenza, genera il mondo, seleziona i parametri ottimali e avvia la simulazione. Nessuna configurazione necessaria. La modalità Express utilizza lo stesso motore della modalità avanzata -- il sistema prende tutte le decisioni di configurazione al posto tuo.
@@ -149,7 +156,7 @@ Ogni simulazione è riproducibile. Il sistema garantisce riproducibilità statis
 
 ## Casi d'uso
 
-**Scenari storici "e se"** -- Crea un fork della storia in un momento specifico e inietta una variabile diversa. Cosa sarebbe successo se la Biblioteca di Alessandria fosse sopravvissuta? Se la Peste Nera fosse stata due volte più letale? Se l'Impero Romano avesse scoperto la stampa prima del collasso? La simulazione sviluppa le conseguenze nel corso dei secoli con rigore scientifico.
+**Storia alternativa** -- E se le potenze dell'Asse avessero vinto la Seconda Guerra Mondiale? Se la Biblioteca di Alessandria fosse sopravvissuta? Se l'Impero Romano avesse scoperto la stampa prima del collasso? Crea un fork della storia in un momento specifico, cambia una variabile e osserva le conseguenze dispiegarsi nel corso di decenni o secoli. Simula movimenti di resistenza, mutamenti culturali, ristrutturazioni economiche e evoluzioni politiche in mondi che non sono mai esistiti ma che avrebbero potuto.
 
 **Proiezione futura** -- Parti dal 2026 e simula fino al 2126 o al 3026. Il Motore della conoscenza ancora i primi decenni ai dati reali del mondo attuale e alle estrapolazioni delle tendenze, poi segue le conseguenze emergenti ovunque la simulazione conduca. Osserva i futuri plausibili della disruzione dell'AI, della pressione climatica, delle transizioni energetiche e dei cambiamenti demografici attraverso le vite dei singoli agenti.
 
