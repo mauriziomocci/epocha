@@ -1,5 +1,7 @@
 # Epocha
 
+English | [Italiano](README.it.md)
+
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Status](https://img.shields.io/badge/status-MVP%20in%20development-yellow.svg)]()
