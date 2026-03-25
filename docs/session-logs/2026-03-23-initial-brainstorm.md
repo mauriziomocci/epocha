@@ -195,6 +195,20 @@ Spec review identified:
 
 All critical and important issues were addressed in the design doc.
 
+## Post-session additions (2026-03-25)
+
+### Simulation persistence and shutdown behavior
+
+Decision: simulation state is persisted in PostgreSQL at every completed tick. If the system shuts down (computer off, Docker stopped, crash), the simulation pauses at the last completed tick and resumes cleanly on restart.
+
+Implementation:
+- `acks_late=True` on Celery tasks: task acknowledged only after completion, re-delivered if worker dies mid-tick
+- `stop_grace_period: 60s` (local) / `120s` (production) in Docker Compose: allows current tick to finish before container stops
+- Celery worker started with `--without-mingle --without-gossip` for faster boot and cleaner shutdown
+- Two deployment modes: local (stops with computer) and cloud (runs 24/7 on server/VPS)
+
+---
+
 ## Current state at end of session
 
 - **Repository:** github.com/mauriziomocci/epocha (Apache 2.0)

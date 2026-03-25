@@ -1533,9 +1533,15 @@ from config.celery import app
 logger = logging.getLogger(__name__)
 
 
-@app.task(bind=True)
+@app.task(bind=True, acks_late=True)
 def run_tick(self, simulation_id):
-    """Execute a simulation tick in background."""
+    """Execute a simulation tick in background.
+
+    Uses acks_late=True so the task is only acknowledged after completion.
+    If the worker shuts down mid-tick, the task will be re-delivered and
+    re-executed from the start of that tick (the previous tick's state
+    is already persisted in PostgreSQL).
+    """
     from .engine import SimulationEngine
     from .models import Simulation
 

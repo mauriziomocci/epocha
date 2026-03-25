@@ -244,6 +244,19 @@ Il cuore del sistema. Gestisce il ciclo di vita della simulazione.
 - L'utente puo definire un limite temporale (es. "simula 200 anni e fermati")
 - Condizioni di auto-stop configurabili (es. "fermati quando la civilta collassa", "fermati quando la popolazione scende sotto X")
 
+**Persistenza e shutdown:**
+- Lo stato della simulazione e salvato in PostgreSQL ad ogni tick completato
+- Se il sistema si spegne (computer spento, Docker fermato, crash), la simulazione si ferma al tick corrente senza perdita di dati
+- Al riavvio, l'utente preme "play" e la simulazione riparte esattamente dal tick salvato
+- **Graceful shutdown**: quando Docker riceve il segnale di stop, il tick in corso deve completarsi prima della chiusura per evitare stati inconsistenti
+- Su deployment cloud (server/VPS), la simulazione continua 24/7 indipendentemente dal computer dell'utente
+- Con `restart: unless-stopped` in Docker Compose, il sistema si auto-ripristina dopo crash
+
+| Modalita | Comportamento | Quando usarla |
+|----------|-------------|---------------|
+| Locale (computer utente) | Si ferma quando Docker si ferma, riprende al riavvio | Esperimenti brevi, testing, sviluppo |
+| Cloud (server/VPS) | Continua 24/7, indipendente dal computer | Simulazioni lunghe (secoli), multiplayer |
+
 **Branching:**
 - Fork di una simulazione da qualsiasi punto nel tempo
 - Ogni branch e una simulazione indipendente con il proprio stato
