@@ -2855,6 +2855,187 @@ Report is saved to the simulation for future retrieval without re-generation."
 
 ---
 
+## Task 18: Real-Time Event Feed via WebSocket
+
+Wire the simulation engine to broadcast events to connected WebSocket clients after each tick. The user sees the simulation unfolding live.
+
+**Files:**
+- Modify: `epocha/apps/simulation/engine.py` (broadcast after tick)
+- Modify: `epocha/apps/simulation/consumers.py` (already has the handler, verify)
+- Create: `epocha/apps/simulation/tests/test_websocket_feed.py`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# epocha/apps/simulation/tests/test_websocket_feed.py
+from unittest.mock import patch, MagicMock, AsyncMock
+from channels.testing import WebsocketCommunicator
+from channels.layers import get_channel_layer
+
+import pytest
+
+from epocha.apps.agents.models import Agent
+from epocha.apps.simulation.consumers import SimulationConsumer
+from epocha.apps.simulation.models import Simulation
+from epocha.apps.world.models import World
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+class TestSimulationWebSocketFeed:
+    @pytest.fixture
+    def sim_with_world(self, user):
+        sim = Simulation.objects.create(
+            name="Test", seed=42, owner=user, status="running"
+        )
+        world = World.objects.create(simulation=sim)
+        Agent.objects.create(
+            simulation=sim, name="Marco", role="blacksmith",
+            personality={"openness": 0.5, "conscientiousness": 0.5,
+                        "extraversion": 0.5, "agreeableness": 0.5,
+                        "neuroticism": 0.5}
+        )
+        return sim
+
+    async def test_client_receives_tick_update(self, sim_with_world):
+        communicator = WebsocketCommunicator(
+            SimulationConsumer.as_asgi(),
+            f"/ws/simulation/{sim_with_world.id}/",
+        )
+        connected, _ = await communicator.connect()
+        assert connected
+
+        # Simulate what the engine would broadcast
+        channel_layer = get_channel_layer()
+        await channel_layer.group_send(
+            f"simulation_{sim_with_world.id}",
+            {
+                "type": "simulation_update",
+                "data": {
+                    "tick": 1,
+                    "events": [{"title": "Market crash", "severity": 0.7}],
+                    "agents_summary": {"alive": 1, "avg_mood": 0.5},
+                    "world": {"stability": 0.6},
+                },
+            },
+        )
+
+        response = await communicator.receive_json_from(timeout=5)
+        assert response["tick"] == 1
+        assert len(response["events"]) == 1
+        assert response["events"][0]["title"] == "Market crash"
+        assert "agents_summary" in response
+        assert "world" in response
+
+        await communicator.disconnect()
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest epocha/apps/simulation/tests/test_websocket_feed.py -v`
+Expected: May pass already (consumer handler exists) or fail on channel layer config
+
+- [ ] **Step 3: Add broadcast to the simulation engine**
+
+Add a `_broadcast_tick` method to `SimulationEngine` in `epocha/apps/simulation/engine.py`:
+
+```python
+    def run_tick(self):
+        """Execute a single simulation tick."""
+        tick = self.simulation.current_tick + 1
+        world = self.simulation.world
+
+        logger.info(f"Simulation {self.simulation.id}: running tick {tick}")
+
+        # 1. Economy
+        process_economy_tick(world, tick)
+
+        # 2. Agent decisions (re-fetch after economy tick to get updated state)
+        agents = list(Agent.objects.filter(simulation=self.simulation, is_alive=True))
+        tick_events = []
+        for agent in agents:
+            agent.refresh_from_db()
+            try:
+                action = process_agent_decision(agent, world, tick)
+                self._apply_action(agent, action, tick)
+                if action.get("action") in ("argue", "help", "explore"):
+                    tick_events.append({
+                        "title": f"{agent.name} decided to {action['action']}",
+                        "severity": 0.3,
+                        "agent": agent.name,
+                        "reason": action.get("reason", ""),
+                    })
+            except Exception as e:
+                logger.error(f"Agent {agent.name} failed at tick {tick}: {e}")
+
+        # 3. Memory decay (every 10 ticks to save processing)
+        if tick % 10 == 0:
+            for agent in agents:
+                decay_memories(agent, tick)
+
+        # 4. Advance tick
+        self.simulation.current_tick = tick
+        self.simulation.save(update_fields=["current_tick", "updated_at"])
+
+        # 5. Broadcast to WebSocket clients
+        self._broadcast_tick(tick, tick_events)
+
+        logger.info(f"Simulation {self.simulation.id}: tick {tick} complete")
+
+    def _broadcast_tick(self, tick, events):
+        """Send tick update to all connected WebSocket clients."""
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+
+        agents = Agent.objects.filter(simulation=self.simulation, is_alive=True)
+        world = self.simulation.world
+
+        data = {
+            "tick": tick,
+            "events": events,
+            "agents_summary": {
+                "alive": agents.count(),
+                "avg_mood": round(
+                    sum(a.mood for a in agents) / max(agents.count(), 1), 2
+                ),
+                "avg_wealth": round(
+                    sum(a.wealth for a in agents) / max(agents.count(), 1), 2
+                ),
+            },
+            "world": {
+                "stability": round(world.stability_index, 2),
+            },
+        }
+
+        async_to_sync(channel_layer.group_send)(
+            f"simulation_{self.simulation.id}",
+            {"type": "simulation_update", "data": data},
+        )
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest epocha/apps/simulation/tests/test_websocket_feed.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add epocha/apps/simulation/engine.py epocha/apps/simulation/tests/test_websocket_feed.py
+git commit -m "feat(simulation): broadcast tick events to WebSocket clients in real-time
+
+CHANGE: After each tick, the simulation engine broadcasts events, agent
+summary, and world state to all connected WebSocket clients. Users see
+the simulation unfolding live: events appear as they happen, mood and
+wealth averages update in real-time, world stability is tracked."
+```
+
+---
+
 ## Summary
 
 | Task | Component | What it builds |
@@ -2877,8 +3058,9 @@ Report is saved to the simulation for future retrieval without re-generation."
 | 15 | World | Document upload (PDF, DOCX, MD, TXT) for Express mode |
 | 16 | LLM Adapter | Real-time cost tracking per simulation |
 | 17 | Simulation | Auto-generated narrative report |
+| 18 | Simulation | Real-time event feed via WebSocket |
 
-**Estimated time:** 18 tasks, each 20-60 minutes = 10-18 hours of focused work.
+**Estimated time:** 19 tasks, each 20-60 minutes = 10-19 hours of focused work.
 
 **After completion, the MVP can:**
 1. Accept a text prompt OR a document upload (PDF, DOCX, MD, TXT)
