@@ -2815,6 +2815,107 @@ Il branching (fork di simulazioni) e una feature critica. Strategia scelta: **Co
 
 ---
 
+## LLM Bias Correction
+
+I modelli LLM tendono a produrre comportamenti degli agenti piu polarizzati, piu gregari e piu drammatici di quanto gli esseri umani reali farebbero nella stessa situazione. Senza correzione, le simulazioni esagerano sistematicamente conflitti, estremismo e pensiero di gruppo.
+
+### Meccanismi di correzione
+
+**Parametro di attenuazione (configurabile):**
+- Ogni simulazione ha un parametro `bias_correction` (0.0 = nessuna correzione, 1.0 = massima attenuazione)
+- Il sistema post-processa le decisioni degli agenti attenuando le reazioni estreme:
+  - Se un agente decide un'azione molto aggressiva, il bias correction riduce la probabilita che venga eseguita
+  - Se tutti gli agenti convergono sulla stessa opinione troppo velocemente (comportamento gregario), il sistema introduce dissenso artificiale proporzionale al parametro
+
+**Calibrazione su dati storici:**
+- Il Knowledge Engine confronta i pattern comportamentali della simulazione con quelli storici reali
+- Se la polarizzazione nella simulazione cresce 5x piu velocemente di quanto storicamente documentato, il sistema segnala l'anomalia
+- L'utente puo decidere se accettare il risultato o aumentare la correzione
+
+**Trasparenza:**
+- Ogni correzione applicata viene loggata nel DecisionLog
+- La dashboard mostra un indicatore di "bias level" per la simulazione
+- L'utente puo disattivare completamente la correzione per osservare il comportamento "raw" dell'LLM
+
+---
+
+## Stima pre-simulazione dei costi
+
+Prima di avviare una simulazione, il sistema calcola e mostra una stima dettagliata di costi e tempi.
+
+### Cosa viene stimato
+
+| Metrica | Come si calcola | Esempio |
+|---------|----------------|---------|
+| Costo LLM totale | (agenti x tick stimati x costo medio per decisione) + generazione mondo | "$3.50 per 200 agenti, 100 tick" |
+| Tempo di calcolo | tick stimati x tempo medio per tick (basato su provider e concorrenza) | "~2 ore con Gemini free tier" |
+| Numero di richieste API | agenti x tick + chat stimate + generazione | "2.150 richieste, entro il limite free tier" |
+| Spazio disco | agenti x tick x dimensione media record | "~150 MB di database" |
+
+### Presentazione all'utente
+
+Prima dell'avvio, il sistema mostra:
+```
+Stima simulazione:
+- Agenti: 30
+- Durata simulata: 200 anni (~500 tick a risoluzione adattiva)
+- Costo LLM stimato: $2.80 (Gemini Flash-Lite)
+- Tempo di calcolo: ~1.5 ore
+- Richieste API: ~1.800 (entro limite free tier giornaliero)
+- Spazio disco: ~100 MB
+
+[Avvia] [Modifica parametri]
+```
+
+Se il costo supera il budget impostato dall'utente, il sistema suggerisce come ridurlo (meno agenti, risoluzione piu bassa, modello piu economico).
+
+---
+
+## Report automatico di fine simulazione
+
+Al termine di una simulazione (raggiunto il tempo massimo, condizione di arresto, o pausa manuale), il sistema genera automaticamente un report narrativo strutturato che analizza cosa e successo.
+
+### Contenuto del report
+
+**Sezione 1 — Panoramica:**
+- Periodo simulato (dal tick X al tick Y, corrispondente agli anni A-B)
+- Numero di agenti coinvolti, gruppi formati, eventi significativi
+- Posizione nella scala di Kardashev (se applicabile)
+
+**Sezione 2 — Eventi chiave:**
+- Timeline degli eventi piu significativi (auto-milestone) con descrizione narrativa
+- Crisi Seldon rilevate e come sono state risolte (o non risolte)
+- Scoperte tecnologiche e il loro impatto
+
+**Sezione 3 — Analisi dei pattern:**
+- Cicli storici identificati (ascesa/declino, cicli economici)
+- Correlazioni rilevate ("ogni volta che X e successo, Y e seguito entro Z anni")
+- Confronto con pattern storici reali ("questa dinamica ricorda la caduta dell'Impero Romano per...")
+
+**Sezione 4 — Agenti notevoli:**
+- Gli individui che hanno avuto il maggiore impatto sulla storia
+- Leader, innovatori, rivoluzionari, distruttori emersi dalla simulazione
+- Il loro profilo di personalita e come ha influenzato le loro azioni
+
+**Sezione 5 — Confronto tra branch (se esistono):**
+- Dove e quando i branch hanno diverguto
+- Quali variabili hanno causato le differenze
+- Quale branch ha prodotto l'esito "migliore" (per varie metriche)
+
+**Sezione 6 — Metriche finali:**
+- Stabilita sociale finale, distribuzione ricchezza (Gini), demografia
+- Costo LLM effettivo vs stimato
+- Statistiche di performance (tick/secondo, decisioni/tick)
+
+### Formato e export
+
+Il report e generato dall'LLM in stile narrativo professionale (come una voce dell'Enciclopedia Galattica) e puo essere esportato in:
+- Markdown
+- PDF
+- JSON (dati strutturati per analisi programmatica)
+
+---
+
 ## Gestione errori LLM
 
 ### Scenari di errore e risposte
