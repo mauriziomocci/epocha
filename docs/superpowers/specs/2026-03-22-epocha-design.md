@@ -283,8 +283,72 @@ In pratica funziona come un film: le parti tranquille passano velocemente ("10 a
 | Locale (computer utente) | Si ferma quando Docker si ferma, riprende al riavvio | Esperimenti brevi, testing, sviluppo |
 | Cloud (server/VPS) | Continua 24/7, indipendente dal computer | Simulazioni lunghe (secoli), multiplayer |
 
+**Controlli di navigazione temporale:**
+
+La simulazione funziona come un player multimediale per la storia. L'utente ha il pieno controllo del flusso temporale:
+
+| Controllo | Funzione | Comportamento |
+|-----------|---------|---------------|
+| ⏸ Pausa | Ferma la simulazione | Il tempo si congela, l'utente puo esplorare lo stato corrente |
+| ▷ Play | Riprende la simulazione | Avanza tick per tick alla velocita impostata |
+| ▷▷ Fast forward | Avanzamento rapido | Salta i tick non significativi, si ferma automaticamente al prossimo evento importante |
+| ◁ Rewind | Torna indietro di un tick | Ricarica lo stato dal tick precedente (dal DB) |
+| ◁◁ Fast rewind | Torna indietro veloce | Salta al punto saliente precedente (auto-milestone o bookmark) |
+| ▷▷\| Vai alla fine | Salta all'ultimo tick | Utile dopo un rewind per tornare al presente della simulazione |
+| \|◁◁ Vai all'inizio | Torna al tick 0 | Ricarica lo stato iniziale della simulazione |
+| 🔖 Bookmark | Salva il momento corrente | Crea un bookmark con label personalizzata |
+| ↗ Fork da qui | Crea un branch | Fork della simulazione dal tick corrente |
+
+**Rewind e replay:**
+- Il rewind non "cancella" la storia: i tick futuri restano nel DB
+- L'utente puo navigare avanti e indietro nella timeline liberamente
+- Se l'utente fa "play" dopo un rewind, ha due opzioni:
+  - **Riprodurre**: rivisita i tick gia calcolati (replay dal log, nessun costo LLM)
+  - **Forkare e divergere**: crea un branch dal punto corrente e la simulazione riparte con nuove decisioni
+
+**Punti salienti e bookmark:**
+
+Il sistema mantiene due tipi di punti di riferimento sulla timeline:
+
+*Auto-milestone (generati automaticamente):*
+Il sistema rileva e salva automaticamente i momenti significativi:
+- Crisi Seldon rilevate
+- Guerre, rivoluzioni, colpi di stato
+- Scoperte scientifiche e tecnologiche
+- Cambi di governo o sistema politico
+- Crolli o boom economici
+- Nascita o estinzione di gruppi/fazioni rilevanti
+- Primo contatto tra civilta
+- Raggiungimento di soglie sulla scala di Kardashev
+- Qualsiasi evento con severity > soglia configurabile
+
+Ogni auto-milestone include: tick, titolo, descrizione, tipo evento, agenti coinvolti.
+
+*Bookmark utente (creati manualmente):*
+L'utente puo salvare qualsiasi momento con una label personalizzata:
+- "Il fabbro sta per tradire il sindaco"
+- "Situazione pre-rivoluzionaria interessante"
+- "Punto di partenza per esperimento A/B"
+- "Momento di massima stabilita — confronto futuro"
+
+**Snapshot:**
+Ogni punto saliente (auto-milestone o bookmark) include uno **snapshot completo** dello stato della simulazione:
+- Stato di tutti gli agenti (posizione, salute, ricchezza, umore, relazioni)
+- Stato del mondo (economia, risorse, zone)
+- Stato politico e sociale
+- Questo permette di tornare a quel punto e ripartire esattamente da li, o confrontare lo stato in due momenti diversi
+
+**Navigazione visuale:**
+La timeline e visualizzata come una barra con marcatori:
+```
+|----*--------*--*-----*---------*-----|
+tick 0   auto   auto bookmark auto  ultimo tick
+         milestone       utente
+```
+L'utente puo cliccare su qualsiasi marcatore per saltare a quel punto.
+
 **Branching:**
-- Fork di una simulazione da qualsiasi punto nel tempo
+- Fork di una simulazione da qualsiasi punto nel tempo (tick corrente, milestone, o bookmark)
 - Ogni branch e una simulazione indipendente con il proprio stato
 - Confronto parallelo tra branch (gruppo di controllo vs sperimentale)
 - Gestito tramite namespace/prefissi nel DB e in Redis
