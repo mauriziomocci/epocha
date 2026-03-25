@@ -236,9 +236,35 @@ Il cuore del sistema. Gestisce il ciclo di vita della simulazione.
 
 **Tempo ibrido controllabile:**
 - Play/Pausa/Velocita variabile
-- Ogni "tick" rappresenta un'unita di tempo simulato (configurabile: ora, giorno, settimana)
 - L'utente puo accelerare, rallentare, mettere in pausa
 - La simulazione puo girare autonomamente anche quando l'utente non la guarda
+
+**Risoluzione temporale adattiva:**
+
+Ogni tick rappresenta un'unita di tempo simulato variabile. La risoluzione si adatta automaticamente a cio che sta succedendo nella simulazione:
+
+| Risoluzione | 1 tick = | Quando si attiva | Cosa processa |
+|------------|---------|-----------------|---------------|
+| Ore | 1 ora simulata | Crisi acute, battaglie, negoziazioni | Ogni agente via LLM, dettaglio massimo |
+| Giorni | 1 giorno simulato | Vita quotidiana, decisioni individuali | Ogni agente via LLM |
+| Settimane | 1 settimana simulata | Dinamiche sociali, commercio | Agenti rilevanti via LLM, altri via regole |
+| Mesi | 1 mese simulato | Economia, politica, stagioni | Modelli matematici + agenti chiave via LLM |
+| Anni | 1 anno simulato | Evoluzione lenta, peacetime | Modelli matematici, solo eventi significativi via LLM |
+| Decenni | 10 anni simulati | Cicli storici, ascesa/declino | Modelli matematici macro, aggregazione gruppi |
+| Secoli | 100 anni simulati | Evoluzione civilizzazionale | Solo modelli macro e milestone tecnologiche |
+
+**Risoluzione adattiva automatica:**
+- Quando "non succede niente di importante" → risoluzione bassa (anni, decenni)
+- Quando il sistema rileva una crisi, un conflitto, un evento significativo → **rallenta automaticamente** e passa a risoluzione alta (giorni, ore)
+- Dopo la crisi → torna a risoluzione bassa
+- L'utente puo anche forzare la risoluzione manualmente
+
+In pratica funziona come un film: le parti tranquille passano velocemente ("10 anni dopo..."), i momenti cruciali si vivono in dettaglio.
+
+**Coerenza scientifica a ogni risoluzione:**
+- A risoluzione bassa (anni/decenni/secoli): il sistema usa i **modelli matematici** per calcolare i trend macro (demografia, economia, tecnologia) senza chiamare l'LLM per ogni agente. Genera solo gli eventi significativi.
+- A risoluzione alta (ore/giorni): ogni agente prende decisioni individuali via LLM con contesto completo.
+- La transizione tra risoluzioni e trasparente: i modelli macro e le decisioni individuali sono coerenti tra loro.
 
 **Tempo massimo e condizioni di arresto:**
 - L'utente puo definire un limite temporale (es. "simula 200 anni e fermati")
@@ -603,6 +629,40 @@ Gestisce l'interazione tra l'utente e gli agenti.
   - Un ribelle potrebbe ignorare i comandi
   - Un leader religioso potrebbe seguire ciecamente
   - Un razionalista potrebbe mettere in dubbio l'esistenza divina
+
+**Adattamento del tempo durante la chat:**
+
+Quando l'utente apre una chat, il tempo della simulazione si adatta automaticamente per evitare che un personaggio invecchi o muoia tra un messaggio e l'altro:
+
+| Modalita | Comportamento del tempo durante la chat |
+|----------|----------------------------------------|
+| Osservatore | La chat avviene "fuori dal tempo". E come un'intervista a un momento congelato. La simulazione puo continuare in background, ma l'agente risponde dallo stato in cui si trovava quando la chat e stata aperta. |
+| Abitante | La simulazione **rallenta automaticamente** a risoluzione ore/giorni. Le parole dell'utente hanno conseguenze e servono tick lenti per simularle. Quando la chat si chiude, il tempo torna alla velocita precedente. |
+| Dio | Come l'abitante: la simulazione rallenta. I comandi divini devono essere processati in tempo "umano". |
+| Seconda Fondazione | La simulazione **si mette in pausa**. Le manipolazioni invisibili sono delicate e richiedono precisione. |
+
+Flusso:
+```
+Simulazione a 10 anni/tick (velocita massima)
+    ↓
+L'utente apre la chat con un agente
+    ↓
+Il sistema automaticamente:
+    1. Completa il tick corrente
+    2. Riduce la risoluzione a giorni/ore
+    3. Rallenta la velocita
+    ↓
+L'utente chatta (tempo "umano")
+    ↓
+L'utente chiude la chat
+    ↓
+Il sistema torna alla risoluzione e velocita precedenti
+```
+
+**Se il personaggio e gia morto:**
+- L'utente puo consultare l'**Enciclopedia Galattica**: "Chi era Marco il fabbro? Cosa ha fatto nella sua vita?"
+- Il sistema suggerisce i **discendenti o successori** con cui chattare
+- L'utente puo fare un **fork** per tornare al periodo in cui il personaggio era vivo e parlare con lui
 
 ### 7. Analytics Module — Dashboard Psicostoriografica
 
