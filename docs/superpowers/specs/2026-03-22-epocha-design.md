@@ -567,11 +567,112 @@ Le regole del mondo in cui vivono gli agenti.
 
 L'utente sceglie il livello di complessita economica prima di avviare la simulazione.
 
-**Politica:**
-- Sistemi di governo (democrazia, autocrazia, anarchia, teocrazia...)
-- Elezioni, colpi di stato, rivoluzioni
-- Leggi che influenzano il comportamento degli agenti
-- Istituzioni (giustizia, istruzione, sanita, esercito)
+**Sistemi politici e di governo:**
+
+Ogni civilta ha un sistema di governo che non e una label statica ma un **meccanismo funzionante** con regole proprie. Il sistema puo cambiare nel tempo (transizioni, rivoluzioni, degenerazione).
+
+*Sistemi di governo simulabili:*
+
+| Sistema | Come funziona nella simulazione | Come mantiene il potere | Come cade |
+|---------|-------------------------------|------------------------|-----------|
+| Democrazia | Elezioni periodiche, gli agenti votano in base a personalita e condizioni. Candidati emergono dai gruppi. Partiti si formano per aggregazione | Legittimita popolare, istituzioni indipendenti, alternanza | Crisi economica → populismo, corruzione → sfiducia, emergenza → poteri speciali che non finiscono |
+| Democrazia illiberale / Democratura | Elezioni formali ma manipolate. Media controllati, opposizione indebolita. L'apparenza democratica maschera il controllo autoritario | Propaganda, controllo dell'informazione, repressione selettiva, clientelismo | Crisi economica che il regime non puo nascondere, leader che perde il controllo della narrazione |
+| Autocrazia / Dittatura | Un agente con tratti autoritari concentra il potere. Decisioni centralizzate, nessun contrappeso | Forza militare, lealta comprata, paura, culto della personalita | Morte del dittatore (crisi di successione), rivolta popolare, colpo di stato interno |
+| Monarchia | Potere ereditario. Il monarca governa, la corte compete per influenza | Legittimita dinastica, tradizione, esercito leale, alleanze matrimoniali | Incompetenza dell'erede, rivolta nobiliare, rivoluzione popolare |
+| Oligarchia | Un gruppo ristretto (ricchi, militari, clan) controlla il potere. Decisioni prese tra pochi | Ricchezza concentrata, controllo delle risorse, rete di favori | Conflitto interno tra oligarchi, rivolta della popolazione esclusa |
+| Teocrazia | Autorita religiosa = autorita politica. Le leggi derivano dalla dottrina | Fede come legittimita, controllo dell'educazione, conformismo sociale | Secolarizzazione, scandali religiosi, generazioni che perdono la fede |
+| Regime totalitario | Controllo totale: politica, economia, cultura, vita privata. Polizia segreta, delazione | Terrore, propaganda pervasiva, eliminazione del dissenso | Morte del leader, stagnazione economica, pressione esterna |
+| Regime terroristico | Governo basato sul terrore sistematico. Esecuzioni pubbliche, persecuzioni di gruppo | Paura paralizzante, eliminazione di chiunque possa organizzare resistenza | Esaurimento (il terrore non e sostenibile a lungo), intervento esterno |
+| Anarchia | Assenza di governo centrale. Autogestione locale, assemblee | Non serve mantenerlo — e l'assenza di struttura | Emerge spontaneamente un leader forte, o un gruppo si impone con la forza |
+| Federazione | Entita autonome unite da un patto. Governo centrale limitato | Beneficio reciproco, difesa comune, commercio | Divergenza di interessi, secessione, centralizzazione eccessiva |
+| Cleptocrazia | Governanti che usano il potere per arricchirsi. Corruzione sistematica | Rete di corruzione che coinvolge tutti i livelli, chi denuncia viene eliminato | Collasso economico, intervento esterno, rivolta quando la popolazione non ha piu nulla da perdere |
+| Giunta militare | Militari al potere dopo un colpo di stato | Forza delle armi, coprifuoco, soppressione liberta | Divisioni interne, pressione internazionale, transizione negoziata |
+
+*Transizioni tra sistemi:*
+
+Le transizioni non sono casuali — seguono pattern storici documentati:
+
+```
+Democrazia → Democratura → Autocrazia
+    (erosione graduale: emergenza, poteri speciali, media controllati, elezioni manipolate)
+
+Autocrazia → Caos → Democrazia o nuova autocrazia
+    (rivolta, vuoto di potere, chi lo riempie per primo vince)
+
+Monarchia → Rivoluzione → Repubblica o Dittatura
+    (dipende da chi guida la rivoluzione e quanto e organizzato)
+
+Anarchia → Autocrazia
+    (il vuoto di potere viene riempito dal piu forte o dal piu organizzato)
+
+Qualsiasi sistema → Regime totalitario
+    (in condizioni di crisi estrema, paura, e un leader carismatico/spietato)
+```
+
+Il sistema monitora gli indicatori che precedono le transizioni (fiducia nelle istituzioni, disuguaglianza, corruzione, coesione militare) e le rende possibili quando le condizioni sono mature.
+
+**Stratificazione sociale e disuguaglianza:**
+
+La societa simulata non e piatta — ha classi, caste, disuguaglianze che emergono e si evolvono:
+
+| Strato | Come emerge | Effetto sulla societa |
+|--------|------------|----------------------|
+| Elite / Ultra-ricchi | Accumulo di ricchezza generazionale, posizioni di potere, monopoli | Influenzano la politica, accesso esclusivo a risorse, possono corrompere istituzioni |
+| Classe agiata | Professionisti, mercanti di successo, proprietari | Stabilita sociale, consumo, aspirazione di mobilita verso l'alto |
+| Classe media | Lavoratori qualificati, artigiani, piccoli commercianti | Spina dorsale dell'economia, piu vulnerabile alle crisi, motore delle rivoluzioni quando si impoverisce |
+| Classe lavoratrice | Lavoratori manuali, operai, contadini dipendenti | Forza lavoro, vulnerabile a sfruttamento, potenziale rivoluzionario |
+| Poveri / Emarginati | Disoccupati, malati, senza risorse | Tensione sociale, criminalita per sopravvivenza, invisibili al potere |
+| Schiavi / Sottomessi | Prigionieri di guerra, debitori, nascita in schiavitu | Lavoro forzato, nessun diritto, fonte di rivolta se le catene si indeboliscono |
+
+*Dinamiche di classe:*
+- La disuguaglianza cresce naturalmente se non controbilanciata (chi ha ricchezza accumula piu ricchezza)
+- Mobilita sociale: un individuo puo salire o scendere in base a talento, fortuna, relazioni, circostanze
+- Quando il Gini coefficient supera una soglia critica, la probabilita di rivolta cresce esponenzialmente
+- Le rivoluzioni spesso partono dalla classe media impoverita, non dai piu poveri (che non hanno le risorse per organizzarsi)
+
+**Criminalita e economia sommersa:**
+
+La criminalita non e un evento casuale — e un fenomeno sociale con cause e struttura:
+
+*Criminalita individuale:*
+- Agenti in poverta estrema con bassa agreeableness hanno probabilita di commettere crimini per sopravvivenza
+- Agenti con alta neuroticism e bassa conscientiousness in ambienti degradati tendono al comportamento antisociale
+- Il furto, la violenza, la truffa sono azioni possibili per qualsiasi agente in condizioni sufficientemente disperate
+
+*Criminalita organizzata:*
+- Emerge dove lo stato e debole e la disuguaglianza e alta
+- Si struttura come un gruppo con gerarchia, leader, territorio, economia parallela
+- Offre "servizi" che lo stato non fornisce: protezione, giustizia informale, credito
+- Corrompe le istituzioni, creando un ciclo vizioso (stato piu debole → crimine piu forte)
+- Mafie, cartelli, bande: gruppi emergenti con obiettivi economici e territoriali
+
+*Terrorismo:*
+- Emerge da ideologie estreme (politiche, religiose, nazionaliste) in condizioni di oppressione o radicalizzazione
+- Piccoli gruppi con alta coesione e obiettivi distruttivi
+- Impatto sproporzionato rispetto alla dimensione del gruppo (pochi individui destabilizzano un'intera societa)
+- Genera reazione dello stato che puo essere proporzionata (intelligence, giustizia) o sproporzionata (repressione di massa, che alimenta altro terrorismo)
+
+*Corruzione:*
+- Presente in qualsiasi sistema ma con intensita diversa
+- Cresce con: burocrazia eccessiva, stipendi pubblici bassi, assenza di controlli, cultura dell'impunita
+- Erode le istituzioni dall'interno — tra le cause principali del collasso delle civilta
+- Puo diventare sistemica: non un'eccezione ma la norma ("se tutti rubano, chi non ruba e lo stupido")
+
+**Istituzioni:**
+
+Le istituzioni non sono astrazioni — sono strutture con persone, risorse, legittimita:
+
+| Istituzione | Funzione | Quando funziona | Quando fallisce |
+|-------------|---------|-----------------|-----------------|
+| Giustizia | Risolvere conflitti, punire crimini | Indipendente, finanziata, rispettata | Corrotta, lenta, politicizzata |
+| Istruzione | Trasmettere conoscenza, formare cittadini | Accessibile, finanziata, libera | Censurata, elitaria, sottofinanziata |
+| Sanita | Curare malati, prevenire epidemie | Universale, competente | Accessibile solo ai ricchi, sottofinanziata |
+| Esercito | Difesa, ordine interno | Leale allo stato, professionale | Politicizzato, usato per repressione, corsa a colpo di stato |
+| Media | Informare, controllare il potere | Liberi, plurali, indipendenti | Controllati dal governo o dai ricchi, propaganda |
+| Religione organizzata | Senso, comunita, etica | Separata dal potere politico | Fusa con il potere, corrotta, fanatica |
+| Burocrazia | Amministrare lo stato | Efficiente, meritocratica | Elefantiaca, corrotta, auto-referenziale |
+
+Ogni istituzione ha un livello di "salute" che influenza il funzionamento della societa. Istituzioni sane stabilizzano, istituzioni malate destabilizzano.
 
 **Geografia (PostGIS + GeoDjango):**
 - Mappa con zone distinte (quartieri, citta, campagna) rappresentate come poligoni PostGIS
