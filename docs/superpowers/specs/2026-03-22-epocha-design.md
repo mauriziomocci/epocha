@@ -232,7 +232,155 @@ L'utente configura il suo client (Claude Code, Cursor, ecc.) puntando all'MCP se
 
 ### 1. Simulation Engine
 
-Il cuore del sistema. Gestisce il ciclo di vita della simulazione.
+Il cuore del sistema. Gestisce il ciclo di vita della simulazione con un'architettura di orchestrazione gerarchica ispirata ai sistemi distribuiti.
+
+**Orchestrazione gerarchica della societa:**
+
+La simulazione non processa gli agenti in modo piatto (tutti uguali, uno per uno). La societa e organizzata gerarchicamente e il tick segue questa struttura:
+
+```
+Orchestratore Globale (control plane)
+    |
+    +-- Civilta / Macro-regioni (politica estera, guerre, trattati)
+    |       |
+    |       +-- Nazioni / Regioni (economia regionale, leggi, tasse)
+    |       |       |
+    |       |       +-- Citta / Comunita (economia locale, ordine pubblico)
+    |       |       |       |
+    |       |       |       +-- Gruppi / Fazioni (obiettivi collettivi, proteste)
+    |       |       |       |       |
+    |       |       |       |       +-- Individui (decisioni personali)
+    |       |       |       |
+    |       |       |       +-- Individui liberi (non affiliati)
+    |       |       |
+    |       |       +-- Altra citta ...
+    |       |
+    |       +-- Altra nazione ...
+    |
+    +-- Altra civilta ... (processata indipendentemente)
+```
+
+Ogni livello e un "nodo" che orchestra quelli sotto di se. Le decisioni cascadano verso il basso e i feedback risalgono verso l'alto.
+
+**Ciclo di processing per tick:**
+
+Il tick non e un singolo passaggio ma un ciclo a tre fasi:
+
+```
+FASE 1 — Top-down (decisioni macro cascadano verso il basso)
+
+    Orchestratore: valuta lo stato globale
+        ↓
+    Civilta: decisioni di politica estera (guerra, embargo, alleanza)
+        ↓
+    Nazioni: reagiscono alle decisioni macro (redistribuzione risorse, mobilitazione)
+        ↓
+    Citta: adattano le politiche locali (tasse, ordine pubblico)
+        ↓
+    Gruppi: reagiscono alle condizioni (proteste, cooperazione, scissione)
+        ↓
+    Individui: decidono in base al contesto (il loro mondo e cambiato dall'alto)
+
+
+FASE 2 — Bottom-up (feedback individuali risalgono)
+
+    Individui: le loro azioni (protesta, lavoro, migrazione) producono effetti
+        ↑
+    Gruppi: aggregano il comportamento dei membri (la protesta ha massa critica?)
+        ↑
+    Citta: il malcontento aggregato impatta la stabilita locale
+        ↑
+    Nazioni: l'instabilita delle citta impatta l'economia e la politica nazionale
+        ↑
+    Civilta: le crisi nazionali cambiano gli equilibri internazionali
+        ↑
+    Orchestratore: aggiorna lo stato globale
+
+
+FASE 3 — Consolidamento
+
+    - Applicare le conseguenze incrociate (la protesta in Citta A
+      ispira una protesta in Citta B)
+    - Aggiornare relazioni
+    - Registrare eventi
+    - Broadcast WebSocket
+    - Avanzare il tick
+```
+
+**Frequenza di processing per livello:**
+
+Non ogni livello processa ad ogni tick. I livelli alti (civilta, nazioni) prendono decisioni meno frequentemente degli individui:
+
+| Livello | Frequenza di processing | Tipo di decisione |
+|---------|------------------------|-------------------|
+| Orchestratore globale | Ogni tick | Valutazione stato, coordinamento |
+| Civilta | Ogni 10-50 tick | Politica estera, guerre, trattati |
+| Nazione | Ogni 5-20 tick | Leggi, tasse, economia nazionale |
+| Citta | Ogni 2-10 tick | Politiche locali, ordine pubblico |
+| Gruppo | Ogni 1-5 tick | Azioni collettive, strategie di gruppo |
+| Individuo | Ogni tick (se risoluzione alta) | Decisioni personali quotidiane |
+
+A risoluzione temporale bassa (anni/decenni), solo i livelli alti processano. A risoluzione alta (ore/giorni), tutti i livelli processano.
+
+**Propagazione degli eventi con ritardo:**
+
+Le decisioni prese ai livelli alti non raggiungono istantaneamente gli individui. L'informazione viaggia attraverso la gerarchia con ritardi e distorsione (collegato all'Information Flow Module):
+
+- Una dichiarazione di guerra della civilta raggiunge le nazioni immediatamente
+- Le nazioni comunicano alle citta in 1-2 tick
+- Le citta informano i cittadini in 1-3 tick
+- La notizia arriva agli individui periferici (campagna, zone isolate) con ulteriore ritardo
+- Ad ogni passaggio l'informazione puo distorcersi (passaparola, propaganda, censura)
+
+Questo significa che un individuo in una zona remota potrebbe scoprire una guerra giorni dopo che e iniziata — realistico.
+
+**Conflitto tra livelli:**
+
+Cosa succede quando un livello inferiore si oppone a quello superiore? Questo e il meccanismo delle ribellioni, degli scismi, delle guerre civili:
+
+- Un individuo rifiuta l'ordine del suo gruppo → possibile espulsione o scissione
+- Un gruppo sfida la citta → protesta, rivolta, repressione
+- Una citta sfida la nazione → secessione, guerra civile
+- Una nazione sfida la civilta → uscita dall'alleanza, guerra
+
+Il conflitto tra livelli e uno dei motori principali della storia. Non e un bug, e una feature.
+
+**Leadership emergente:**
+
+La gerarchia non e statica. I leader emergono dal basso:
+
+- Un individuo con tratti di leadership + carisma + circostanze favorevoli sale nella gerarchia
+- Il sistema traccia individualmente gli agenti che accumulano influenza
+- Quando un gruppo non ha un leader, il sistema valuta chi tra i membri ha le caratteristiche per emergere
+- Un leader puo essere rovesciato se perde legittimita (feedback dal basso)
+
+**Rami indipendenti (parallelismo reale):**
+
+Civilta o regioni che non interagiscono tra loro possono essere processate in parallelo reale:
+
+```
+Tick 42:
+    Civilta A (continente ovest) ──→ [Worker 1] processa indipendentemente
+    Civilta B (continente est)   ──→ [Worker 2] processa indipendentemente
+
+    → Si sincronizzano SOLO se c'e un'interazione (commercio, guerra, contatto)
+```
+
+Questo e un'ottimizzazione naturale: due civilta che non si conoscono non hanno dipendenze di processing.
+
+**Implementazione progressiva:**
+
+| Fase | Orchestrazione | MVP? |
+|------|---------------|------|
+| MVP | Piatto (tutti gli agenti sequenziali) | Si |
+| v0.2 | Fan-out Celery (agenti in parallelo, stesso tick) | No |
+| v0.3 | Gerarchico a 3 livelli (individuo, gruppo, mondo) | No |
+| v0.5 | Gerarchico completo (tutti i livelli) | No |
+| v1.0 | Gerarchico + parallelismo per civilta indipendenti | No |
+
+L'MVP processa tutto in modo piatto per semplicita. L'interfaccia (`process_single_agent(agent_id, tick)`) e gia progettata per essere compatibile con il fan-out e con l'orchestrazione gerarchica futura.
+
+---
 
 **Tempo ibrido controllabile:**
 - Play/Pausa/Velocita variabile
