@@ -3036,6 +3036,391 @@ wealth averages update in real-time, world stability is tracked."
 
 ---
 
+## Task 19: Living Relationships
+
+Make the existing Relationship model alive: relationships form, evolve, break, and influence agent decisions. This is what turns isolated agents into a society.
+
+**Files:**
+- Create: `epocha/apps/agents/relationships.py`
+- Modify: `epocha/apps/agents/decision.py` (include relationships in context)
+- Modify: `epocha/apps/simulation/engine.py` (process relationships each tick)
+- Create: `epocha/apps/agents/tests/test_relationships.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# epocha/apps/agents/tests/test_relationships.py
+import pytest
+
+from epocha.apps.agents.models import Agent, Relationship
+from epocha.apps.agents.relationships import (
+    evolve_relationships,
+    find_potential_relationships,
+    update_relationship_from_interaction,
+)
+from epocha.apps.simulation.models import Simulation
+from epocha.apps.world.models import World
+
+
+@pytest.mark.django_db
+class TestFindPotentialRelationships:
+    @pytest.fixture
+    def sim_with_agents(self, user):
+        sim = Simulation.objects.create(name="Test", seed=42, owner=user)
+        World.objects.create(simulation=sim)
+        a1 = Agent.objects.create(simulation=sim, name="Marco", role="blacksmith",
+                                  position_x=10, position_y=10, personality={"agreeableness": 0.8})
+        a2 = Agent.objects.create(simulation=sim, name="Elena", role="farmer",
+                                  position_x=12, position_y=10, personality={"agreeableness": 0.7})
+        a3 = Agent.objects.create(simulation=sim, name="Luca", role="priest",
+                                  position_x=90, position_y=90, personality={"agreeableness": 0.3})
+        return sim, a1, a2, a3
+
+    def test_nearby_agents_are_candidates(self, sim_with_agents):
+        sim, marco, elena, luca = sim_with_agents
+        candidates = find_potential_relationships(marco, proximity_threshold=20)
+        agent_names = [a.name for a in candidates]
+        assert "Elena" in agent_names
+        assert "Luca" not in agent_names  # Too far away
+
+    def test_existing_relationships_excluded(self, sim_with_agents):
+        sim, marco, elena, luca = sim_with_agents
+        Relationship.objects.create(
+            agent_from=marco, agent_to=elena,
+            relation_type="friendship", strength=0.5, sentiment=0.5, since_tick=1
+        )
+        candidates = find_potential_relationships(marco, proximity_threshold=20)
+        agent_names = [a.name for a in candidates]
+        assert "Elena" not in agent_names
+
+
+@pytest.mark.django_db
+class TestUpdateRelationshipFromInteraction:
+    @pytest.fixture
+    def two_agents(self, user):
+        sim = Simulation.objects.create(name="Test", seed=42, owner=user)
+        a1 = Agent.objects.create(simulation=sim, name="Marco", role="blacksmith", personality={})
+        a2 = Agent.objects.create(simulation=sim, name="Elena", role="farmer", personality={})
+        return a1, a2
+
+    def test_positive_interaction_creates_friendship(self, two_agents):
+        marco, elena = two_agents
+        update_relationship_from_interaction(marco, elena, interaction="help", tick=5)
+
+        rel = Relationship.objects.get(agent_from=marco, agent_to=elena)
+        assert rel.relation_type == "friendship"
+        assert rel.sentiment > 0
+        assert rel.since_tick == 5
+
+    def test_negative_interaction_creates_rivalry(self, two_agents):
+        marco, elena = two_agents
+        update_relationship_from_interaction(marco, elena, interaction="argue", tick=5)
+
+        rel = Relationship.objects.get(agent_from=marco, agent_to=elena)
+        assert rel.relation_type == "rivalry"
+        assert rel.sentiment < 0
+
+    def test_repeated_positive_interactions_strengthen(self, two_agents):
+        marco, elena = two_agents
+        update_relationship_from_interaction(marco, elena, interaction="help", tick=1)
+        initial_strength = Relationship.objects.get(agent_from=marco, agent_to=elena).strength
+
+        update_relationship_from_interaction(marco, elena, interaction="help", tick=5)
+        new_strength = Relationship.objects.get(agent_from=marco, agent_to=elena).strength
+
+        assert new_strength > initial_strength
+
+    def test_betrayal_flips_friendship_to_rivalry(self, two_agents):
+        marco, elena = two_agents
+        Relationship.objects.create(
+            agent_from=marco, agent_to=elena,
+            relation_type="friendship", strength=0.6, sentiment=0.7, since_tick=1
+        )
+        update_relationship_from_interaction(marco, elena, interaction="betray", tick=10)
+
+        rel = Relationship.objects.get(agent_from=marco, agent_to=elena)
+        assert rel.relation_type == "rivalry"
+        assert rel.sentiment < 0
+
+
+@pytest.mark.django_db
+class TestEvolveRelationships:
+    @pytest.fixture
+    def agents_with_relationship(self, user):
+        sim = Simulation.objects.create(name="Test", seed=42, owner=user)
+        a1 = Agent.objects.create(simulation=sim, name="Marco", role="blacksmith", personality={})
+        a2 = Agent.objects.create(simulation=sim, name="Elena", role="farmer", personality={})
+        Relationship.objects.create(
+            agent_from=a1, agent_to=a2,
+            relation_type="friendship", strength=0.3, sentiment=0.3, since_tick=1
+        )
+        return sim, a1, a2
+
+    def test_weak_old_relationships_decay(self, agents_with_relationship):
+        sim, marco, elena = agents_with_relationship
+        evolve_relationships(sim, current_tick=200)
+
+        rel = Relationship.objects.get(agent_from=marco, agent_to=elena)
+        assert rel.strength < 0.3  # Weakened over time
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `pytest epocha/apps/agents/tests/test_relationships.py -v`
+Expected: FAIL — module does not exist
+
+- [ ] **Step 3: Implement relationship system**
+
+```python
+# epocha/apps/agents/relationships.py
+"""Relationship formation, evolution, and decay."""
+import logging
+import math
+
+from .models import Agent, Relationship
+
+logger = logging.getLogger(__name__)
+
+# Interaction effects on sentiment and relationship type
+INTERACTION_EFFECTS = {
+    "help": {"sentiment_delta": 0.15, "strength_delta": 0.1, "type": "friendship"},
+    "socialize": {"sentiment_delta": 0.1, "strength_delta": 0.08, "type": "friendship"},
+    "trade": {"sentiment_delta": 0.05, "strength_delta": 0.05, "type": "professional"},
+    "work": {"sentiment_delta": 0.03, "strength_delta": 0.05, "type": "professional"},
+    "argue": {"sentiment_delta": -0.2, "strength_delta": 0.1, "type": "rivalry"},
+    "betray": {"sentiment_delta": -0.8, "strength_delta": 0.3, "type": "rivalry"},
+    "avoid": {"sentiment_delta": -0.05, "strength_delta": -0.05, "type": "distrust"},
+}
+
+# Relationship decay rate per tick of no interaction
+DECAY_RATE = 0.002
+DECAY_THRESHOLD_TICKS = 30
+MIN_STRENGTH_TO_SURVIVE = 0.05
+
+
+def find_potential_relationships(agent, proximity_threshold=20):
+    """Find nearby agents who don't already have a relationship with this agent.
+
+    Uses simple Euclidean distance on position_x, position_y.
+    """
+    existing_ids = set(
+        Relationship.objects.filter(agent_from=agent)
+        .values_list("agent_to_id", flat=True)
+    )
+
+    nearby = Agent.objects.filter(
+        simulation=agent.simulation,
+        is_alive=True,
+    ).exclude(
+        id=agent.id
+    ).exclude(
+        id__in=existing_ids
+    )
+
+    # Filter by proximity
+    candidates = []
+    for other in nearby:
+        distance = math.sqrt(
+            (agent.position_x - other.position_x) ** 2
+            + (agent.position_y - other.position_y) ** 2
+        )
+        if distance <= proximity_threshold:
+            candidates.append(other)
+
+    return candidates
+
+
+def update_relationship_from_interaction(agent_from, agent_to, interaction, tick):
+    """Update or create a relationship based on an interaction.
+
+    Positive interactions build friendship, negative build rivalry.
+    Strong enough betrayals can flip a friendship into rivalry.
+    """
+    effects = INTERACTION_EFFECTS.get(interaction, {"sentiment_delta": 0, "strength_delta": 0, "type": "professional"})
+
+    try:
+        rel = Relationship.objects.get(agent_from=agent_from, agent_to=agent_to)
+
+        # Update existing relationship
+        rel.sentiment = max(-1.0, min(1.0, rel.sentiment + effects["sentiment_delta"]))
+        rel.strength = max(0.0, min(1.0, rel.strength + abs(effects["strength_delta"])))
+
+        # Flip type on strong negative shift (betrayal of a friend)
+        if rel.sentiment < -0.3 and rel.relation_type == "friendship":
+            rel.relation_type = "rivalry"
+            logger.info(f"{agent_from.name} and {agent_to.name}: friendship turned to rivalry")
+        elif rel.sentiment > 0.3 and rel.relation_type == "rivalry":
+            rel.relation_type = "friendship"
+
+        rel.save(update_fields=["sentiment", "strength", "relation_type"])
+
+    except Relationship.DoesNotExist:
+        # Create new relationship
+        Relationship.objects.create(
+            agent_from=agent_from,
+            agent_to=agent_to,
+            relation_type=effects["type"],
+            strength=abs(effects["strength_delta"]),
+            sentiment=effects["sentiment_delta"],
+            since_tick=tick,
+        )
+
+
+def evolve_relationships(simulation, current_tick):
+    """Decay relationships that have had no recent interaction.
+
+    Weak relationships that decay below threshold are deleted.
+    Strong relationships (high emotional bonds) decay much slower.
+    """
+    relationships = Relationship.objects.filter(
+        agent_from__simulation=simulation
+    )
+
+    for rel in relationships:
+        age = current_tick - rel.since_tick
+        if age < DECAY_THRESHOLD_TICKS:
+            continue
+
+        # Strong sentiment (love or hate) resists decay
+        emotional_anchor = abs(rel.sentiment)
+        effective_decay = DECAY_RATE * (1 - emotional_anchor * 0.8)
+
+        rel.strength = max(0.0, rel.strength - effective_decay)
+
+        if rel.strength < MIN_STRENGTH_TO_SURVIVE:
+            logger.debug(f"Relationship {rel.agent_from.name} → {rel.agent_to.name} faded away")
+            rel.delete()
+        else:
+            rel.save(update_fields=["strength"])
+```
+
+- [ ] **Step 4: Integrate relationships into agent decisions**
+
+Update `_build_context` in `epocha/apps/agents/decision.py` to include relationships:
+
+```python
+def _build_context(agent, world_state, tick, memories):
+    """Build the context string for the LLM prompt."""
+    parts = [
+        f"You are {agent.name}, a {agent.role}.",
+        f"Current tick: {tick}. Your health: {agent.health:.1f}, wealth: {agent.wealth:.1f}, mood: {agent.mood:.1f}.",
+        f"World stability: {world_state.stability_index:.1f}.",
+    ]
+
+    if memories:
+        parts.append("\nYour recent memories:")
+        for m in memories[:5]:
+            source_label = f" ({m.source_type})" if m.source_type != "direct" else ""
+            parts.append(f"- {m.content}{source_label}")
+
+    # Add relationships
+    from epocha.apps.agents.models import Relationship
+    relationships = Relationship.objects.filter(agent_from=agent).select_related("agent_to")[:10]
+    if relationships:
+        parts.append("\nYour relationships:")
+        for rel in relationships:
+            sentiment_word = "positively" if rel.sentiment > 0 else "negatively"
+            parts.append(
+                f"- {rel.agent_to.name} ({rel.relation_type}, "
+                f"you feel {sentiment_word} about them, strength: {rel.strength:.1f})"
+            )
+
+    return "\n".join(parts)
+```
+
+- [ ] **Step 5: Wire relationship evolution into the engine**
+
+Update `run_tick` in `epocha/apps/simulation/engine.py` — add after agent decisions:
+
+```python
+        # 3. Update relationships based on actions
+        from epocha.apps.agents.relationships import (
+            evolve_relationships,
+            find_potential_relationships,
+            update_relationship_from_interaction,
+        )
+
+        for agent in agents:
+            action = ...  # Need to store actions from step 2
+            target_name = action.get("target", "")
+            if target_name:
+                target_agent = Agent.objects.filter(
+                    simulation=self.simulation, name__icontains=target_name, is_alive=True
+                ).first()
+                if target_agent:
+                    update_relationship_from_interaction(
+                        agent, target_agent, action["action"], tick
+                    )
+
+        # 4. Relationship decay (every 10 ticks, same as memory decay)
+        if tick % 10 == 0:
+            evolve_relationships(self.simulation, tick)
+```
+
+Note: the engine's `run_tick` needs refactoring to store agent actions before applying them, so relationships can be updated. This is a structural change within Task 8's code.
+
+- [ ] **Step 6: Include relationships in WebSocket broadcast**
+
+Add to `_broadcast_tick` data in `epocha/apps/simulation/engine.py`:
+
+```python
+        # Add notable relationship changes to events
+        new_relationships = Relationship.objects.filter(
+            agent_from__simulation=self.simulation, since_tick=tick
+        ).select_related("agent_from", "agent_to")
+
+        for rel in new_relationships:
+            events.append({
+                "title": f"{rel.agent_from.name} formed a {rel.relation_type} with {rel.agent_to.name}",
+                "severity": 0.2 if rel.relation_type in ("friendship", "professional") else 0.4,
+                "type": "social",
+            })
+```
+
+- [ ] **Step 7: Run all tests**
+
+Run: `pytest epocha/apps/agents/tests/test_relationships.py -v`
+Expected: All 7 tests PASS
+
+Run: `pytest --cov=epocha -v`
+Expected: Full suite PASS
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add epocha/apps/agents/relationships.py epocha/apps/agents/tests/test_relationships.py \
+  epocha/apps/agents/decision.py epocha/apps/simulation/engine.py
+git commit -m "feat(agents): implement living relationships system
+
+CHANGE: Relationships now form from interactions (help → friendship,
+argue → rivalry, trade → professional), evolve over time (strengthening
+or weakening based on interactions), and can flip (betrayal turns
+friendship into rivalry). Weak unused relationships decay and disappear.
+Agent decisions now include relationship context. Relationship changes
+broadcast via WebSocket. Proximity-based candidate discovery for new
+relationships."
+```
+
+### Relationship dynamics in the simulation
+
+After this task, the simulation produces social fabric:
+
+```
+[Tick 5]  Marco helped Elena → friendship formed (strength: 0.1)
+[Tick 12] Marco and Elena traded goods → friendship strengthened (0.18)
+[Tick 15] Luca argued with Marco → rivalry formed (strength: 0.1)
+[Tick 23] Marco helped Elena again → friendship strong (0.28)
+[Tick 30] Elena argued with Luca → rivalry formed
+          → Marco and Elena are now allies against Luca
+[Tick 45] Luca betrayed Marco's trust → rivalry deepened (-0.8 sentiment)
+[Tick 60] Marco and Elena's shared enemy strengthens their bond
+          → Faction emerging: Marco+Elena vs Luca
+```
+
+This is how factions, alliances, feuds, and social dynamics emerge naturally from individual interactions.
+
+---
+
 ## Summary
 
 | Task | Component | What it builds |
@@ -3059,8 +3444,9 @@ wealth averages update in real-time, world stability is tracked."
 | 16 | LLM Adapter | Real-time cost tracking per simulation |
 | 17 | Simulation | Auto-generated narrative report |
 | 18 | Simulation | Real-time event feed via WebSocket |
+| 19 | Agents | Living relationships (form, evolve, break, influence decisions) |
 
-**Estimated time:** 19 tasks, each 20-60 minutes = 10-19 hours of focused work.
+**Estimated time:** 20 tasks, each 20-60 minutes = 10-20 hours of focused work.
 
 **After completion, the MVP can:**
 1. Accept a text prompt OR a document upload (PDF, DOCX, MD, TXT)
