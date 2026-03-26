@@ -1019,11 +1019,48 @@ Il sistema sceglie automaticamente il modello in base alla complessita della dec
 
 | Livello | % Chiamate | Tipo decisione | Modelli consigliati | Costo indicativo |
 |---------|-----------|----------------|--------------------|--------------------|
-| Livello 1 - Locale | ~90% | Azioni quotidiane, movimenti, reazioni semplici | vLLM/Ollama + Qwen 3.5 7B | $0 (solo hardware) |
+| Livello 1 - Locale | ~88% | Azioni quotidiane, movimenti, reazioni semplici | vLLM/Ollama + Qwen 3.5 7B | $0 (solo hardware) |
 | Livello 2 - API economica | ~8% | Decisioni sociali, commercio, voto | GPT-5 Nano ($0.05/M), Gemini Flash-Lite ($0.10/M), Haiku 4.5 ($1/M) | ~$0.001/richiesta |
 | Livello 3 - API premium | ~2% | Crisi, leadership, discorsi, svolte storiche | Sonnet 4.6 ($3/M), Opus 4.6 ($5/M), GPT-5.4 ($1.25/M) | ~$0.02/richiesta |
+| Livello 4 - Subagent | ~2% | Strategie complesse, Crisi Seldon, leader in momenti critici | Claude Agent SDK, OpenAI Agents SDK | ~$0.10-0.50/decisione |
 
 **Stima costi:** 200 agenti, 20.000 decisioni/giorno → ~$6-18/giorno (vs $200-500 con solo modelli premium).
+
+#### Livello 4: Subagent per decisioni critiche
+
+La maggior parte delle decisioni degli agenti e semplice ("lavoro", "riposo", "commercio") e una singola API call basta. Ma nei momenti critici — una Crisi Seldon, un leader che decide se dichiarare guerra, uno scienziato che fa una scoperta rivoluzionaria — serve un ragionamento multi-step.
+
+In questi casi il sistema promuove la decisione a un **subagent** dotato di tools:
+
+```
+Situazione critica rilevata (alta severity, agente leader, Crisi Seldon)
+    ↓
+Subagent attivato con tools:
+    - query_world_state()      → economia, risorse, stabilita
+    - query_relationships()    → alleati, nemici, forza relativa
+    - query_recent_events()    → cosa e successo di recente
+    - query_knowledge()        → precedenti storici, conseguenze note
+    - evaluate_options()       → pro/contro di ogni possibile azione
+    ↓
+Ragionamento multi-step (5-15 chiamate interne)
+    ↓
+Decisione strategica argomentata
+```
+
+**Quando si attiva il subagent:**
+- Crisi Seldon rilevata dal sistema
+- Agente con ruolo di leader (capo di stato, generale, leader religioso)
+- Decisione con severity > 0.7 (guerra, rivoluzione, scoperta epocale)
+- L'utente sta osservando specificamente quell'agente
+- Il tick e a risoluzione alta (ore/giorni) e il momento e narrativamente importante
+
+**Quando NON si attiva:**
+- Decisioni quotidiane (90% dei casi)
+- Agenti generici senza ruolo di leadership
+- Tick a risoluzione bassa (anni/decenni)
+- Budget in esaurimento
+
+La differenza qualitativa e significativa. Un'API call semplice produce: `{"action": "declare_war", "reason": "they attacked us"}`. Un subagent produce: "Ho valutato la situazione: la nostra economia e forte ma l'esercito e indebolito dalla recente epidemia. Il nemico ha piu soldati ma e diviso internamente. Le mie alleanze con il Nord sono solide. Il popolo chiede vendetta per l'attacco. Dichiaro guerra, ma con una strategia difensiva iniziale per guadagnare tempo mentre l'esercito si riprende."
 
 #### Provider supportati
 
