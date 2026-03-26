@@ -207,16 +207,36 @@ Implementation:
 - Celery worker started with `--without-mingle --without-gossip` for faster boot and cleaner shutdown
 - Two deployment modes: local (stops with computer) and cloud (runs 24/7 on server/VPS)
 
+### Additional design decisions (2026-03-25 / 2026-03-26)
+
+**Adaptive time resolution:** Simulation ticks cover variable time spans (hours to centuries). The system automatically slows down during crises and speeds up during peaceful periods. At low resolution, only mathematical models run. At high resolution, every agent thinks via LLM.
+
+**Chat time adaptation:** When the user opens a chat, the simulation automatically adjusts speed to prevent agents from aging/dying between messages. Observer mode freezes time, Inhabitant/God mode slows it, Second Foundation pauses it.
+
+**Timeline navigation:** Full media-player controls (play, pause, rewind, fast forward, go to start/end). Auto-milestones for significant events. Manual bookmarks with labels. Complete state snapshots at every milestone for instant time-travel and forking.
+
+**Hierarchical society orchestration:** Three-phase tick cycle (top-down cascade → bottom-up feedback → consolidation). Each hierarchy level has its own processing frequency. Events propagate with delay. Conflict between levels drives rebellions and civil wars. Leadership emerges from below.
+
+**Comprehensive political systems:** 12 government types with full operational mechanics (democracy, autocracy, democratura, theocracy, kleptocracy, etc.). Transition patterns between systems. Social stratification with 6 classes. Crime system (individual, organized, terrorism, corruption). 7 institutional types with health indicators.
+
+**Living relationships (Task 19):** Relationships form from interactions, evolve over time, flip on betrayal, decay when unused. Agent decisions include relationship context. Factions and alliances emerge naturally.
+
+**High-value MVP additions:** Document upload (PDF, DOCX, MD, TXT), real-time LLM cost tracking, auto-generated narrative report, WebSocket event feed.
+
+**Subagent for critical decisions:** Level 4 in model routing — subagents with tools for multi-step reasoning during Seldon Crises and leader decisions. Deferred to v0.2 (too complex for MVP debugging).
+
+**LLM bias correction:** Configurable parameter to counteract LLM tendency toward polarization and herd behavior.
+
 ---
 
 ## Current state at end of session
 
 - **Repository:** github.com/mauriziomocci/epocha (Apache 2.0)
 - **Branch:** feature/mvp (active), develop (default), main (releases)
-- **Structure:** 97+ files, complete Django scaffold with 6 apps
-- **Design doc:** ~2500 lines covering everything from agent personality to interstellar civilization
-- **MVP plan:** 15 tasks (Task 0-14), estimated 8-15 hours
-- **README:** Bilingual, professional, comprehensive
-- **Docker:** Local + Production setups ready
+- **Structure:** 100+ files, complete Django scaffold with 6 apps
+- **Design doc:** ~3000+ lines covering everything from agent personality to interstellar civilization
+- **MVP plan:** 20 tasks (Task 0-19), estimated 10-20 hours
+- **README:** Bilingual (EN + IT), professional, comprehensive
+- **Docker:** Local + Production setups ready (Nginx, multi-stage, health checks)
 - **LLM:** Configured for Google Gemini free tier
 - **Next step:** Execute MVP plan starting from Task 0 (migrations)
