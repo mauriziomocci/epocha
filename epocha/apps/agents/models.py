@@ -5,20 +5,65 @@ from epocha.apps.simulation.models import Simulation
 
 
 class Agent(models.Model):
-    """An AI agent with personality and state."""
+    """An AI agent — a complete person with identity, personality, abilities, and state."""
 
+    class Gender(models.TextChoices):
+        MALE = "male", "Male"
+        FEMALE = "female", "Female"
+        NON_BINARY = "non_binary", "Non-binary"
+
+    class SexualOrientation(models.TextChoices):
+        HETEROSEXUAL = "heterosexual", "Heterosexual"
+        HOMOSEXUAL = "homosexual", "Homosexual"
+        BISEXUAL = "bisexual", "Bisexual"
+        ASEXUAL = "asexual", "Asexual"
+
+    # Identity
     simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="agents")
     name = models.CharField(max_length=255)
     age = models.PositiveIntegerField(default=25)
-    personality = models.JSONField(default=dict, help_text="Big Five traits + background + values + weaknesses")
+    gender = models.CharField(max_length=20, choices=Gender.choices, default=Gender.MALE)
+    sexual_orientation = models.CharField(max_length=20, choices=SexualOrientation.choices, default=SexualOrientation.HETEROSEXUAL)
+    role = models.CharField(max_length=100, blank=True, help_text="Role in society (blacksmith, priest, farmer...)")
+
+    # Personality and psychology (Big Five + extended traits stored as JSONB)
+    personality = models.JSONField(default=dict, help_text=(
+        "Full personality profile: Big Five (openness, conscientiousness, extraversion, "
+        "agreeableness, neuroticism), character traits, temperament, ambitions, fears, "
+        "values, beliefs, humor style, attachment style"
+    ))
+
+    # Cognitive abilities
+    intelligence = models.FloatField(default=0.5, help_text="0.0 = very low, 0.5 = average, 1.0 = genius")
+    emotional_intelligence = models.FloatField(default=0.5, help_text="0.0 = oblivious, 1.0 = deeply empathetic")
+    creativity = models.FloatField(default=0.5, help_text="0.0 = conventional, 1.0 = highly creative")
+    cunning = models.FloatField(default=0.5, help_text="0.0 = naive, 1.0 = extremely shrewd")
+
+    # Physical abilities
+    strength = models.FloatField(default=0.5, help_text="0.0 = frail, 1.0 = extremely strong")
+    stamina = models.FloatField(default=0.5, help_text="0.0 = no endurance, 1.0 = tireless")
+    agility = models.FloatField(default=0.5, help_text="0.0 = clumsy, 1.0 = extremely agile")
+
+    # Health
+    health = models.FloatField(default=1.0, help_text="0.0 = dead, 1.0 = perfect health")
+    mental_health = models.FloatField(default=0.8, help_text="0.0 = severe disorder, 1.0 = thriving")
+    conditions = models.JSONField(default=list, help_text="List of active conditions: diseases, disabilities, addictions")
+    fertility = models.FloatField(default=0.8, help_text="0.0 = infertile, 1.0 = highly fertile")
+
+    # Social and economic state
+    wealth = models.FloatField(default=50.0)
+    mood = models.FloatField(default=0.5, help_text="0.0 = desperate, 1.0 = euphoric")
+    charisma = models.FloatField(default=0.5, help_text="0.0 = repulsive, 1.0 = magnetic")
+    education_level = models.FloatField(default=0.3, help_text="0.0 = illiterate, 1.0 = scholar")
+    social_class = models.CharField(max_length=30, default="working", help_text="elite, wealthy, middle, working, poor, enslaved")
+
+    # Position and status
     position_x = models.FloatField(default=0.0)
     position_y = models.FloatField(default=0.0)
-    health = models.FloatField(default=1.0, help_text="0.0 = dead, 1.0 = perfect health")
-    wealth = models.FloatField(default=50.0)
-    role = models.CharField(max_length=100, blank=True, help_text="Role in society (blacksmith, priest, farmer...)")
-    mood = models.FloatField(default=0.5, help_text="0.0 = desperate, 1.0 = euphoric")
     is_alive = models.BooleanField(default=True)
     group = models.ForeignKey("Group", null=True, blank=True, on_delete=models.SET_NULL, related_name="members")
+    parent_agent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children", help_text="Biological parent (for lineage tracking)")
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

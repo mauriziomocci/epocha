@@ -505,15 +505,91 @@ L'utente puo cliccare su qualsiasi marcatore per saltare a quel punto.
 
 Gestisce gli agenti AI — il cuore della simulazione sociale.
 
-**Personalita:**
-Ogni agente ha un profilo che include:
-- Tratti caratteriali (Big Five o modello equivalente): apertura, coscienziosita, estroversione, amabilita, neuroticismo
-- Storia personale: background, esperienze formative, traumi, successi
-- Ambizioni e obiettivi: cosa vuole ottenere nella vita
-- Debolezze e paure: vulnerabilita che influenzano le decisioni
-- Capacita di leadership: naturale, acquisita, assente
-- Attitudine: positivo/negativo, attivo/passivo
-- Valori morali e credenze
+**Profilo completo dell'agente:**
+
+Ogni agente e una persona completa, non una caricatura. Il profilo comprende tutte le dimensioni che definiscono un essere umano reale:
+
+*Identita e anagrafica:*
+- Nome, eta, genere (maschio, femmina, non-binario)
+- Orientamento sessuale (eterosessuale, omosessuale, bisessuale, asessuale)
+- Etnia e aspetto fisico (altezza, corporatura, tratti distintivi)
+- Lingua madre e lingue parlate
+
+*Personalita (Big Five + estensioni):*
+- **Apertura**: curiosita intellettuale, creativita, apertura a nuove esperienze (0.0 → 1.0)
+- **Coscienziosita**: disciplina, organizzazione, affidabilita (0.0 → 1.0)
+- **Estroversione**: socievolezza, energia, assertivita (0.0 → 1.0)
+- **Amabilita**: cooperazione, fiducia, empatia (0.0 → 1.0)
+- **Neuroticismo**: instabilita emotiva, ansia, reattivita (0.0 → 1.0)
+- Carattere: coraggioso/codardo, generoso/avaro, onesto/disonesto, paziente/impulsivo
+- Temperamento: calmo, irascibile, melanconico, sanguigno
+- Senso dell'umorismo: assente, sarcastico, empatico, nero
+
+*Capacita cognitive:*
+- QI / intelligenza generale (basso, medio, alto, geniale)
+- Intelligenza emotiva (capacita di leggere e gestire le emozioni altrui)
+- Creativita (pensiero laterale, innovazione)
+- Astuzia / intelligenza pratica (furbizia, street smart)
+- Capacita di apprendimento (veloce, lenta, specifica per dominio)
+
+*Capacita fisiche:*
+- Forza fisica (debole, media, forte, atletica)
+- Resistenza / stamina
+- Agilita e coordinazione
+- Capacita atletiche specifiche (nuoto, corsa, combattimento, equitazione)
+- Aspettativa di vita base (influenzata da genetica e condizioni)
+
+*Salute e condizioni:*
+- Stato di salute attuale (sano, malato, cronico, disabile)
+- Patologie congenite o acquisite (cecita, sordita, malattie croniche, disturbi mentali)
+- Dipendenze (alcol, sostanze, gioco)
+- Disabilita fisiche (mobilita ridotta, menomazioni)
+- Salute mentale (depressione, ansia, PTSD da eventi traumatici nella simulazione)
+- Fertilita (influenza la demografia)
+
+*Background e storia:*
+- Storia personale: esperienze formative, traumi, successi
+- Classe sociale di origine (influenza opportunita e visione del mondo)
+- Educazione ricevuta (analfabeta, base, avanzata, specialistica)
+- Professione e competenze lavorative
+- Stato economico (povero, medio, ricco, ereditato vs guadagnato)
+
+*Psicologia e motivazioni:*
+- Ambizioni e obiettivi: cosa vuole dalla vita (potere, ricchezza, amore, conoscenza, pace, vendetta)
+- Paure e fobie (morte, solitudine, poverta, fallimento, altezze, buio)
+- Debolezze (vizi, tentazioni, punti ciechi)
+- Valori morali (cosa considera giusto/sbagliato, quanto e disposto a compromettere)
+- Credenze religiose/spirituali (fervente, tiepido, ateo, agnostico, superstizioso)
+- Ideologia politica (conservatore, progressista, radicale, apatico)
+
+*Capacita sociali:*
+- Capacita di leadership (naturale, acquisita, assente)
+- Carisma (quanto influenza gli altri con la presenza)
+- Capacita di persuasione e manipolazione
+- Empatia (alta → si preoccupa degli altri, bassa → egocentrico)
+- Attitudine: ottimista/pessimista, attivo/passivo, proattivo/reattivo
+- Affinita e compatibilita: tratti che attraggono o respingono certi tipi di persone
+
+*Sessuali e relazionali:*
+- Orientamento sessuale (influenza con chi forma relazioni romantiche)
+- Stile di attaccamento (sicuro, ansioso, evitante — influenza la qualita delle relazioni)
+- Desiderio di famiglia (forte, debole, assente)
+- Fedeltà (leale, opportunista, seriale)
+
+**Generazione del profilo:**
+
+Non tutti i tratti vengono specificati esplicitamente per ogni agente. Il sistema funziona a livelli:
+
+| Livello | Cosa si specifica | Quando |
+|---------|------------------|--------|
+| Generazione Express | L'LLM genera un profilo completo coerente da una descrizione breve ("un fabbro ambizioso") | Creazione del mondo |
+| Tratti critici | Big Five, genere, eta, ruolo, background — sempre definiti esplicitamente | Sempre |
+| Tratti secondari | QI, capacita fisiche, patologie — generati con distribuzione realistica | Se non specificati dall'utente |
+| Tratti emergenti | Dipendenze, PTSD, cambiamenti di personalita — emergono dalla simulazione | Durante la simulazione |
+
+I tratti secondari seguono **distribuzioni realistiche**: il QI segue una curva gaussiana (media 100, deviazione standard 15), le patologie hanno prevalenze basate su dati reali, l'orientamento sessuale segue le statistiche demografiche del contesto storico/culturale.
+
+I tratti non sono statici: un evento traumatico puo aumentare il neuroticismo, una posizione di leadership puo aumentare l'assertivita, una dipendenza puo emergere da stress prolungato, la salute mentale puo deteriorarsi.
 
 **Memoria umana realistica:**
 - Ricordi recenti: vividi e dettagliati
