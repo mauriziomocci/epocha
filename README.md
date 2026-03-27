@@ -336,7 +336,27 @@ Epocha uses the OpenAI SDK with a configurable `base_url`, making it compatible 
 
 **Get a free Gemini API key:** [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
-**Run models locally (free, offline, no limits):** [lmstudio.ai](https://lmstudio.ai/) — Download, load a model, start the local server, and point Epocha to `http://localhost:1234/v1`.
+**Run models locally with LM Studio (free, offline, no limits):**
+
+1. Download and install from [lmstudio.ai](https://lmstudio.ai/)
+2. Open LM Studio, go to the **Discover** tab and search for `qwen3-8b` (or `gemma3-4b` for lighter hardware)
+3. Click **Download** and wait for the model to finish downloading
+4. Go to the **Developer** tab (or **Local Server** in older versions)
+5. Select the downloaded model from the dropdown
+6. Click **Start Server** — it will start on `http://localhost:1234`
+7. Configure Epocha's `.envs/.local/.django`:
+
+```
+EPOCHA_LLM_API_KEY=lm-studio
+EPOCHA_LLM_MODEL=qwen3-8b
+EPOCHA_LLM_BASE_URL=http://localhost:1234/v1
+```
+
+The server must be running whenever the simulation is active. LM Studio runs on macOS (Apple Silicon recommended), Windows, and Linux.
+
+**Minimum hardware for agent simulation:**
+- 8B models (Qwen3, Llama 3.1): 8 GB RAM, any modern CPU. GPU recommended but not required.
+- 4B models (Gemma3): 4 GB RAM, runs on most machines.
 
 ### Capacity estimate with Gemini free tier
 
