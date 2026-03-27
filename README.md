@@ -331,9 +331,12 @@ Epocha uses the OpenAI SDK with a configurable `base_url`, making it compatible 
 | OpenAI | *(leave empty)* | `gpt-4o-mini` | Initial credits |
 | Together AI | `https://api.together.xyz/v1` | Various | Initial credits |
 | Mistral | `https://api.mistral.ai/v1` | `mistral-small-latest` | No |
-| Local (Ollama) | `http://localhost:11434/v1` | `qwen2.5:7b` | Unlimited |
+| LM Studio | `http://localhost:1234/v1` | `qwen3-8b`, `gemma3-4b` | Unlimited, fully offline |
+| Ollama | `http://localhost:11434/v1` | `qwen2.5:7b` | Unlimited |
 
 **Get a free Gemini API key:** [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+
+**Run models locally (free, offline, no limits):** [lmstudio.ai](https://lmstudio.ai/) — Download, load a model, start the local server, and point Epocha to `http://localhost:1234/v1`.
 
 ### Capacity estimate with Gemini free tier
 

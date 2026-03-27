@@ -16,19 +16,26 @@
 
 The MVP uses a single provider via the OpenAI SDK with configurable `base_url`, making it compatible with multiple providers without code changes.
 
-### Recommended provider for development: Google Gemini (free)
+### Recommended providers for development
 
-All Gemini models have a free tier with 1000 requests/day — more than enough for MVP testing.
+Two recommended options, both free:
 
-| Model | Input/1M tokens | Output/1M tokens | Best for |
-|-------|----------------|------------------|----------|
-| `gemini-2.5-flash-lite` | Free / $0.10 | Free / $0.40 | Agent decisions (fast, cheap) |
-| `gemini-2.5-flash` | Free / $0.30 | Free / $2.50 | World generation (more capable) |
-| `gemini-2.5-pro` | Free / $1.25 | Free / $10.00 | Complex reasoning (most powerful) |
+**Option A: LM Studio (local, offline, no limits)**
 
-**Free tier limits:** 30 req/min, 1000 req/day, 1M tokens/min.
+Download from [lmstudio.ai](https://lmstudio.ai/), load a model (Qwen3 8B recommended), start the local server, and configure:
 
-**Setup:** Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey) and configure `.envs/.local/.django`:
+```
+EPOCHA_LLM_PROVIDER=openai
+EPOCHA_LLM_API_KEY=lm-studio
+EPOCHA_LLM_MODEL=qwen3-8b
+EPOCHA_LLM_BASE_URL=http://localhost:1234/v1
+```
+
+Zero cost, zero limits, fully offline, complete privacy. Best for daily development.
+
+**Option B: Google Gemini (cloud, free tier)**
+
+Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey) and configure:
 
 ```
 EPOCHA_LLM_PROVIDER=openai
@@ -37,28 +44,34 @@ EPOCHA_LLM_MODEL=gemini-2.5-flash-lite
 EPOCHA_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
 ```
 
-### Alternative providers (all OpenAI SDK compatible)
+Free tier: 1000 req/day, 30 req/min. Best for validating cloud API compatibility.
+
+**Recommended workflow:** Use LM Studio for daily development (no limits, fast iteration), switch to Gemini to verify cloud compatibility before release.
+
+### All supported providers (OpenAI SDK compatible)
 
 Switch provider by changing only `.env` variables — no code changes needed:
 
 | Provider | `EPOCHA_LLM_BASE_URL` | Recommended model | Free tier |
 |----------|----------------------|-------------------|-----------|
+| LM Studio (local) | `http://localhost:1234/v1` | `qwen3-8b`, `gemma3-4b` | Unlimited, offline |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-2.5-flash-lite` | 1000 req/day |
 | Groq | `https://api.groq.com/openai/v1` | `llama-3.1-8b-instant` | Limited |
 | OpenRouter | `https://openrouter.ai/api/v1` | Free models available | 200 req/day |
+| Ollama (local) | `http://localhost:11434/v1` | `qwen2.5:7b` | Unlimited |
 | OpenAI | *(leave empty)* | `gpt-4o-mini` | $5 initial credits |
 | Together AI | `https://api.together.xyz/v1` | Various | Initial credits |
 | Mistral | `https://api.mistral.ai/v1` | `mistral-small-latest` | No |
 
 ### Capacity estimate for MVP testing
 
-With 20 agents and Gemini free tier (1000 req/day):
+With LM Studio (local): **unlimited** ticks and chat, limited only by hardware speed.
+
+With Gemini free tier (1000 req/day):
 - World generation: ~1 request
 - Per tick: ~20 requests (1 per agent)
 - **~50 ticks per day** within free limits
 - Chat with agents: additional requests (budget ~100/day for chat)
-
-This is sufficient for development and testing. For longer simulations, upgrade to paid tier or switch to a provider with higher limits.
 
 ---
 
