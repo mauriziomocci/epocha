@@ -20,4 +20,5 @@ urlpatterns = [
     path("simulations/<int:sim_id>/report/", views.simulation_report_view, name="simulation-report"),
     path("simulations/<int:sim_id>/inject/", views.inject_event_view, name="inject-event"),
     path("simulations/<int:sim_id>/chat/<int:agent_id>/", views.chat_view, name="chat"),
+    path("simulations/<int:sim_id>/group-chat/", views.group_chat_view, name="group-chat"),
 ]

@@ -21,6 +21,8 @@
                 <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-medium">Pause</button>
             </form>
             {% endif %}
+            <a href="{% url 'dashboard:group-chat' sim_id=simulation.id %}"
+               class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded font-medium">Group Chat</a>
             <a href="{% url 'dashboard:simulation-report' sim_id=simulation.id %}"
                class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded font-medium">Report</a>
         </div>

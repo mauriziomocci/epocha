@@ -332,3 +332,77 @@ def chat_view(request, sim_id, agent_id):
         "agent": agent,
         "chat_history_json": json.dumps(chat_history),
     })
+
+
+@login_required(login_url="/login/")
+def group_chat_view(request, sim_id):
+    """Group chat: user talks with multiple agents at once.
+
+    Each agent responds in sequence, seeing what previous agents said.
+    This creates natural group dynamics — agreements, disagreements,
+    alliances forming in real-time conversation.
+    """
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+    all_agents = Agent.objects.filter(simulation=simulation, is_alive=True).order_by("name")
+
+    if request.method == "POST" and request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        data = json.loads(request.body)
+        message = data.get("message", "").strip()
+        agent_ids = data.get("agent_ids", [])
+
+        if not message or not agent_ids:
+            return JsonResponse({"responses": []})
+
+        from epocha.apps.agents.memory import get_relevant_memories
+        from epocha.apps.agents.personality import build_personality_prompt
+        from epocha.apps.llm_adapter.client import get_llm_client
+
+        client = get_llm_client()
+        agents = Agent.objects.filter(id__in=agent_ids, simulation=simulation, is_alive=True)
+
+        # Gather recent events
+        recent_events = Event.objects.filter(
+            simulation=simulation,
+            tick__gte=max(0, simulation.current_tick - 10),
+        ).order_by("-tick")[:5]
+        events_text = ""
+        if recent_events:
+            events_text = "\nRecent events: " + "; ".join(f"{e.title}" for e in recent_events)
+
+        responses = []
+        conversation_so_far = f"Visitor: {message}"
+
+        for agent in agents:
+            personality_prompt = build_personality_prompt(agent.personality)
+            memories = get_relevant_memories(agent, current_tick=simulation.current_tick)
+            memory_text = ""
+            if memories:
+                memory_text = "\nYour memories: " + "; ".join(m.content for m in memories[:3])
+
+            system_prompt = (
+                f"{personality_prompt}\n\n"
+                f"You are {agent.name}, a {agent.role}. "
+                f"You are in a group conversation. Respond in character, briefly (1-2 sentences). "
+                f"React to what others said.{events_text}{memory_text}"
+            )
+
+            try:
+                response = client.complete(
+                    prompt=f"{conversation_so_far} /no_think",
+                    system_prompt=system_prompt,
+                    temperature=0.8,
+                    max_tokens=100,
+                    simulation_id=simulation.id,
+                )
+            except Exception:
+                response = "*remains silent*"
+
+            responses.append({"agent_name": agent.name, "agent_role": agent.role, "content": response})
+            conversation_so_far += f"\n{agent.name}: {response}"
+
+        return JsonResponse({"responses": responses})
+
+    return render(request, "dashboard/group_chat.html", {
+        "simulation": simulation,
+        "agents": all_agents,
+    })
