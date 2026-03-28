@@ -241,6 +241,17 @@ def chat_view(request, sim_id, agent_id):
             if memories:
                 memory_text = "\n\nYour recent memories:\n" + "\n".join(f"- {m.content}" for m in memories[:5])
 
+            # Include recent events (injected by user) so the agent knows what happened
+            recent_events = Event.objects.filter(
+                simulation=simulation,
+                tick__gte=max(0, simulation.current_tick - 10),
+            ).order_by("-tick")[:5]
+            events_text = ""
+            if recent_events:
+                events_text = "\n\nIMPORTANT - Recent events in your world:\n" + "\n".join(
+                    f"- {e.title}: {e.description}" for e in recent_events
+                ) + "\nYou are aware of these events and they affect you."
+
             # Include recent chat history for continuity
             recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:10]
             chat_history = ""
@@ -254,7 +265,8 @@ def chat_view(request, sim_id, agent_id):
                 f"{personality_prompt}\n\n"
                 f"You are {agent.name}, a {agent.role}. "
                 f"Someone is talking to you. Respond in character, briefly and naturally. "
-                f"Keep your response to 2-3 sentences maximum.{memory_text}{chat_history}"
+                f"Keep your response to 2-3 sentences maximum."
+                f"{events_text}{memory_text}{chat_history}"
             )
 
             prompt_with_hint = f"{message} /no_think"
