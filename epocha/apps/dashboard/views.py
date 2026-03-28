@@ -199,14 +199,18 @@ def chat_view(request, sim_id, agent_id):
             system_prompt = (
                 f"{personality_prompt}\n\n"
                 f"You are {agent.name}, a {agent.role}. "
-                f"Someone is talking to you. Respond in character.{memory_text}"
+                f"Someone is talking to you. Respond in character, briefly and naturally. "
+                f"Keep your response to 2-3 sentences maximum.{memory_text}"
             )
 
+            # /no_think disables Qwen3's internal reasoning for faster responses
+            prompt_with_hint = f"{message} /no_think"
+
             response = client.complete(
-                prompt=message,
+                prompt=prompt_with_hint,
                 system_prompt=system_prompt,
                 temperature=0.8,
-                max_tokens=300,
+                max_tokens=150,
                 simulation_id=simulation.id,
             )
             return JsonResponse({"role": "agent", "content": response})

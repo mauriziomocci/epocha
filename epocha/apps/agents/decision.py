@@ -86,12 +86,12 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     personality_prompt = build_personality_prompt(agent.personality)
     system_prompt = f"{personality_prompt}\n\n{_DECISION_SYSTEM_PROMPT}"
 
-    # 3. Call LLM
+    # 3. Call LLM (/no_think disables Qwen3 reasoning for faster responses)
     raw_response = client.complete(
-        prompt=context,
+        prompt=f"{context} /no_think",
         system_prompt=system_prompt,
         temperature=0.7,
-        max_tokens=200,
+        max_tokens=150,
     )
 
     # 4. Parse response (strip markdown fences if present)
