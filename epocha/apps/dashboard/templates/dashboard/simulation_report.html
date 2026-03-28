@@ -2,18 +2,73 @@
 {% block title %}Report - {{ simulation.name }} - Epocha{% endblock %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto">
+<div class="max-w-3xl mx-auto" x-data="reportApp()">
     <h1 class="text-2xl font-bold mb-2">Simulation Report</h1>
     <p class="text-gray-400 text-sm mb-6">{{ simulation.name }} | Tick {{ simulation.current_tick }}</p>
 
     {% if simulation.report %}
-    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 prose prose-invert max-w-none">
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 text-gray-200 leading-relaxed">
         {{ simulation.report|linebreaksbr }}
     </div>
     {% else %}
-    <p class="text-gray-400">No report generated yet. Run the simulation first.</p>
+    <div x-show="!report && !loading && !error">
+        <p class="text-gray-400 mb-4">No report generated yet.</p>
+        <button @click="generateReport()"
+                class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded font-medium">
+            Generate Report
+        </button>
+    </div>
+
+    <div x-show="loading" class="text-center py-8">
+        <svg class="animate-spin h-8 w-8 mx-auto text-indigo-400 mb-3" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+        <p class="text-gray-400">Generating report... This may take 30-60 seconds with a local model.</p>
+    </div>
+
+    <div x-show="error" class="bg-red-900/50 border border-red-600 rounded p-4 text-red-300">
+        <p x-text="error"></p>
+        <button @click="generateReport()" class="mt-2 text-sm text-red-400 hover:text-red-300 underline">Retry</button>
+    </div>
+
+    <div x-show="report" class="bg-gray-800 border border-gray-700 rounded-lg p-6 text-gray-200 leading-relaxed">
+        <div x-html="report.replace(/\n/g, '<br>')"></div>
+    </div>
     {% endif %}
 
     <a href="{% url 'dashboard:simulation-detail' sim_id=simulation.id %}" class="inline-block mt-6 text-sm text-gray-400 hover:text-gray-300">Back to simulation</a>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function reportApp() {
+    return {
+        report: '',
+        loading: false,
+        error: '',
+
+        async generateReport() {
+            this.loading = true;
+            this.error = '';
+            try {
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                const data = await response.json();
+                if (data.status === 'ready') {
+                    this.report = data.report;
+                } else {
+                    this.error = data.error || 'Failed to generate report.';
+                }
+            } catch (err) {
+                this.error = 'Connection error. Make sure LM Studio is running.';
+            }
+            this.loading = false;
+        }
+    }
+}
+</script>
 {% endblock %}

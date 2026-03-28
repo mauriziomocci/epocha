@@ -206,11 +206,21 @@ def inject_event_view(request, sim_id):
 def simulation_report_view(request, sim_id):
     simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
 
-    if not simulation.report:
-        from epocha.apps.simulation.report import generate_simulation_report
+    # AJAX request to generate report in background
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        if request.method == "POST":
+            if not simulation.report:
+                from epocha.apps.simulation.report import generate_simulation_report
 
-        generate_simulation_report(simulation)
-        simulation.refresh_from_db()
+                try:
+                    generate_simulation_report(simulation)
+                    simulation.refresh_from_db()
+                    return JsonResponse({"status": "ready", "report": simulation.report})
+                except Exception as e:
+                    return JsonResponse({"status": "error", "error": str(e)})
+            return JsonResponse({"status": "ready", "report": simulation.report})
+        # GET check
+        return JsonResponse({"status": "ready" if simulation.report else "pending", "report": simulation.report or ""})
 
     return render(request, "dashboard/simulation_report.html", {"simulation": simulation})
 

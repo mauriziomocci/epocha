@@ -182,16 +182,10 @@ function simulationDashboard() {
         interval: null,
         startPolling() {
             {% if simulation.status == 'running' %}
+            // Auto-refresh every 15 seconds when simulation is running
             this.interval = setInterval(() => {
-                fetch(window.location.href)
-                    .then(r => r.text())
-                    .then(html => {
-                        // Simple reload approach for MVP
-                        if (this.status === 'running') {
-                            window.location.reload();
-                        }
-                    });
-            }, 10000);
+                window.location.reload();
+            }, 15000);
             {% endif %}
         }
     }

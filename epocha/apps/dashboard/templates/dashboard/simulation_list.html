@@ -28,7 +28,22 @@
                 <p class="text-sm text-gray-500 mt-1">Tick {{ sim.current_tick }}</p>
             </div>
         </div>
-        <p class="text-xs text-gray-500 mt-2">Created {{ sim.created_at|timesince }} ago</p>
+        <div class="flex justify-between items-center mt-2">
+            <p class="text-xs text-gray-500">Created {{ sim.created_at|timesince }} ago</p>
+            <div class="flex gap-2">
+                {% if sim.status == 'paused' %}
+                <form method="post" action="{% url 'dashboard:simulation-play' sim_id=sim.id %}" onclick="event.stopPropagation();">
+                    {% csrf_token %}
+                    <button class="text-xs bg-green-700 hover:bg-green-600 text-white px-2 py-1 rounded">Resume</button>
+                </form>
+                {% elif sim.status == 'running' %}
+                <form method="post" action="{% url 'dashboard:simulation-pause' sim_id=sim.id %}" onclick="event.stopPropagation();">
+                    {% csrf_token %}
+                    <button class="text-xs bg-yellow-700 hover:bg-yellow-600 text-white px-2 py-1 rounded">Pause</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
     </a>
     {% endfor %}
 </div>
