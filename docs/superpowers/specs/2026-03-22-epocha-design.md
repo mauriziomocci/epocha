@@ -24,6 +24,20 @@ L'utente può osservare, analizzare, interagire e influenzare il mondo a diversi
 2. **Emergenza** — Le crisi, le alleanze, i conflitti nascono dal basso, dall'interazione tra agenti e regole di sistema
 3. **Sperimentazione** — L'utente può iniettare eventi, personaggi, modificare regole e osservare le conseguenze
 4. **Analisi** — Dashboard psicostoriografica con trend, pattern, confronto tra scenari su scala generazionale
+5. **Rigore scientifico** — Ogni modello matematico, formula, algoritmo e parametro deve essere fondato su scienza consolidata, documentato con le fonti, e validato contro dati reali
+
+### Principio fondamentale: rigore scientifico
+
+Epocha e un simulatore scientifico, non un gioco. Il rigore scientifico non e un obiettivo aspirazionale ma un requisito non negoziabile che si applica a ogni aspetto del sistema:
+
+- **Modelli matematici**: ogni formula implementata deve citare la fonte (paper, textbook, dataset). Nessun modello viene inventato — si usano modelli pubblicati e validati dalla comunita scientifica.
+- **Parametri e costanti**: ogni valore numerico deve provenire da dati reali. Se il tasso di crescita demografica e 0.02, deve esserci un riferimento che lo giustifica. Nessun "numero magico" senza spiegazione.
+- **Validazione**: ogni modello deve essere testato contro dati storici reali o risultati pubblicati prima di essere integrato. Se il modello SIR produce una curva epidemica, questa deve essere coerente con epidemie documentate.
+- **Teoria dei giochi**: gli equilibri di Nash, i valori di Shapley, e gli altri calcoli game-theoretic devono usare algoritmi corretti, non approssimazioni arbitrarie.
+- **Limiti dichiarati**: quando un modello e semplificato o i dati di calibrazione sono limitati, questo deve essere documentato esplicitamente. La trasparenza sui limiti e parte del rigore.
+- **Semplicita vs correttezza**: un modello semplice con assunzioni corrette e sempre preferibile a un modello complesso con parametri inventati. Se non abbiamo dati, usiamo la versione piu semplice difendibile.
+
+Questo principio si applica a tutti i livelli di rigore configurabili (semplificato, standard, rigoroso): anche al livello semplificato, le regole qualitative devono essere derivate da conoscenza scientifica, non inventate.
 
 ---
 
