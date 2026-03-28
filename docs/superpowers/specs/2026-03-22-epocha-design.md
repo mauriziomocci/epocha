@@ -25,6 +25,7 @@ L'utente può osservare, analizzare, interagire e influenzare il mondo a diversi
 3. **Sperimentazione** — L'utente può iniettare eventi, personaggi, modificare regole e osservare le conseguenze
 4. **Analisi** — Dashboard psicostoriografica con trend, pattern, confronto tra scenari su scala generazionale
 5. **Rigore scientifico** — Ogni modello matematico, formula, algoritmo e parametro deve essere fondato su scienza consolidata, documentato con le fonti, e validato contro dati reali
+6. **Qualita del codice** — Codice elegante, scalabile, Pythonico. DRY rigoroso. Best practices Django (documentazione ufficiale + Two Scoops of Django). Ogni componente riutilizzabile dove ha senso
 
 ### Principio fondamentale: rigore scientifico
 
