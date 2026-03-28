@@ -33,6 +33,7 @@ class Simulation(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="simulations")
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, help_text="Simulation from which this was forked")
     branch_point = models.PositiveIntegerField(null=True, blank=True, help_text="Divergence tick from parent")
+    report = models.TextField(blank=True, default="", help_text="Auto-generated narrative report")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

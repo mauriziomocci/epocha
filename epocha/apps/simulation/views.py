@@ -109,6 +109,22 @@ class SimulationViewSet(viewsets.ModelViewSet):
         })
 
     @action(detail=True, methods=["get"])
+    def report(self, request, pk=None):
+        """Get or generate the simulation narrative report."""
+        from .report import generate_simulation_report
+
+        simulation = self.get_object()
+        if not simulation.report:
+            generate_simulation_report(simulation)
+            simulation.refresh_from_db()
+
+        return Response({
+            "simulation_id": simulation.id,
+            "report": simulation.report,
+            "current_tick": simulation.current_tick,
+        })
+
+    @action(detail=True, methods=["get"])
     def events(self, request, pk=None):
         """List simulation events ordered by tick."""
         simulation = self.get_object()
