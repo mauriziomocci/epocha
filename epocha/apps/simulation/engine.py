@@ -78,11 +78,21 @@ class SimulationEngine:
         agents = list(
             Agent.objects.filter(simulation=self.simulation, is_alive=True)
         )
+        tick_events = []
         for agent in agents:
             agent.refresh_from_db()
             try:
                 action = process_agent_decision(agent, world, tick)
                 self._apply_action(agent, action, tick)
+                # Track notable actions for the event feed
+                action_type = action.get("action", "rest")
+                if action_type not in ("rest", "work"):
+                    tick_events.append({
+                        "title": f"{agent.name} decided to {action_type}",
+                        "severity": _ACTION_EMOTIONAL_WEIGHT.get(action_type, 0.1),
+                        "agent": agent.name,
+                        "reason": action.get("reason", ""),
+                    })
             except Exception:
                 logger.exception("Agent %s failed at tick %d", agent.name, tick)
 
@@ -94,6 +104,9 @@ class SimulationEngine:
         # 4. Advance tick counter
         self.simulation.current_tick = tick
         self.simulation.save(update_fields=["current_tick", "updated_at"])
+
+        # 5. Broadcast to WebSocket clients
+        self._broadcast_tick(tick, tick_events, agents, world)
 
         logger.info("Simulation %d: tick %d complete", self.simulation.id, tick)
 
@@ -121,3 +134,40 @@ class SimulationEngine:
             source_type="direct",
             tick_created=tick,
         )
+
+    def _broadcast_tick(self, tick: int, events: list, agents: list, world) -> None:
+        """Send tick update to all connected WebSocket clients.
+
+        Broadcasts events, agent summary, and world state via the
+        Channels layer. Clients subscribed to the simulation group
+        receive real-time updates.
+        """
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+
+            channel_layer = get_channel_layer()
+            if channel_layer is None:
+                return
+
+            agent_count = len(agents)
+            data = {
+                "tick": tick,
+                "events": events,
+                "agents_summary": {
+                    "alive": agent_count,
+                    "avg_mood": round(sum(a.mood for a in agents) / max(agent_count, 1), 2),
+                    "avg_wealth": round(sum(a.wealth for a in agents) / max(agent_count, 1), 2),
+                },
+                "world": {
+                    "stability": round(world.stability_index, 2),
+                },
+            }
+
+            async_to_sync(channel_layer.group_send)(
+                f"simulation_{self.simulation.id}",
+                {"type": "simulation_update", "data": data},
+            )
+        except Exception:
+            # Broadcasting failure should never crash the simulation
+            logger.exception("Failed to broadcast tick %d", tick)
