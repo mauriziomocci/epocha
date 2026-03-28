@@ -94,9 +94,16 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
         max_tokens=200,
     )
 
-    # 4. Parse response
+    # 4. Parse response (strip markdown fences if present)
+    cleaned = raw_response.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned[cleaned.index("\n") + 1:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+
     try:
-        action = json.loads(raw_response)
+        action = json.loads(cleaned)
     except json.JSONDecodeError:
         logger.warning("Agent %s returned non-JSON at tick %d: %s", agent.name, tick, raw_response[:100])
         action = {**_FALLBACK_ACTION, "raw": raw_response}
