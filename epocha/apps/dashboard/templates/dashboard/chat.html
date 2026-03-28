@@ -37,23 +37,35 @@
     </div>
 
     <!-- Input -->
+    <!-- File attachment indicator -->
+    <div x-show="attachedFile" class="mb-2 bg-gray-800 border border-indigo-600 rounded px-3 py-2 flex justify-between items-center text-sm">
+        <span class="text-indigo-300" x-text="attachedFile ? attachedFile.name : ''"></span>
+        <button @click="attachedFile = null; $refs.fileInput.value = ''" class="text-red-400 hover:text-red-300 ml-2">Remove</button>
+    </div>
+
     <form @submit.prevent="sendMessage()" class="flex gap-2">
+        <input type="file" x-ref="fileInput" @change="attachedFile = $refs.fileInput.files[0]" class="hidden"
+               accept=".pdf,.docx,.doc,.md,.txt,.png,.jpg,.jpeg,.gif,.webp">
+        <button type="button" @click="$refs.fileInput.click()" :disabled="loading"
+                class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded" title="Attach file or image">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+        </button>
         <input type="text" x-model="newMessage" :disabled="loading"
                placeholder="Say something to {{ agent.name }}..."
                class="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white focus:border-indigo-500 focus:outline-none"
                autofocus>
-        <button type="submit" :disabled="loading || !newMessage.trim()"
+        <button type="submit" :disabled="loading || (!newMessage.trim() && !attachedFile)"
                 class="bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 text-white px-4 py-2 rounded font-medium">
             Send
         </button>
     </form>
+    <p class="text-xs text-gray-600 mt-1">Attach documents (PDF, DOCX, TXT, MD) or images (PNG, JPG) for the agent to react to.</p>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
 function chatApp() {
-    // Load persisted chat history
     const savedHistory = JSON.parse('{{ chat_history_json|escapejs }}' || '[]');
     let counter = 0;
     const initialMessages = savedHistory.map(m => ({ id: ++counter, role: m.role, content: m.content }));
@@ -63,27 +75,52 @@ function chatApp() {
         newMessage: '',
         loading: false,
         msgCounter: counter,
+        attachedFile: null,
 
         async sendMessage() {
-            if (!this.newMessage.trim() || this.loading) return;
+            if ((!this.newMessage.trim() && !this.attachedFile) || this.loading) return;
 
             const userMsg = this.newMessage.trim();
-            this.messages.push({ id: ++this.msgCounter, role: 'user', content: userMsg });
-            this.newMessage = '';
-            this.loading = true;
+            const file = this.attachedFile;
 
+            // Display user message
+            let displayMsg = userMsg;
+            if (file) {
+                displayMsg = (userMsg ? userMsg + ' ' : '') + '[Attached: ' + file.name + ']';
+            }
+            this.messages.push({ id: ++this.msgCounter, role: 'user', content: displayMsg });
+            this.newMessage = '';
+            this.attachedFile = null;
+            if (this.$refs.fileInput) this.$refs.fileInput.value = '';
+            this.loading = true;
             this.scrollToBottom();
 
             try {
-                const response = await fetch(window.location.href, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}',
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                    body: JSON.stringify({ message: userMsg }),
-                });
+                let response;
+                if (file) {
+                    // Send as FormData with file
+                    const formData = new FormData();
+                    formData.append('message', userMsg);
+                    formData.append('file', file);
+                    response = await fetch(window.location.href, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': '{{ csrf_token }}',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: formData,
+                    });
+                } else {
+                    response = await fetch(window.location.href, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: JSON.stringify({ message: userMsg }),
+                    });
+                }
 
                 const data = await response.json();
                 this.messages.push({ id: ++this.msgCounter, role: data.role, content: data.content });

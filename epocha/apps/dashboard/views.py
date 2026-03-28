@@ -220,13 +220,44 @@ def chat_view(request, sim_id, agent_id):
         simulation=simulation, user=request.user, agent=agent,
     )
 
-    # Handle AJAX chat messages
+    # Handle AJAX chat messages (JSON or FormData with file)
     if request.method == "POST" and request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        message = json.loads(request.body).get("message", "")
-        if message.strip():
-            # Save user message
+        # Parse message and optional file from request
+        if request.content_type and "multipart" in request.content_type:
+            message = request.POST.get("message", "")
+            uploaded_file = request.FILES.get("file")
+        else:
+            data = json.loads(request.body)
+            message = data.get("message", "")
+            uploaded_file = None
+
+        # Extract text from uploaded file
+        file_context = ""
+        if uploaded_file:
+            import tempfile
+
+            from epocha.apps.world.document_parser import SUPPORTED_EXTENSIONS, extract_text
+
+            suffix = f".{uploaded_file.name.rsplit('.', 1)[-1]}" if "." in uploaded_file.name else ""
+            if suffix.lower() in SUPPORTED_EXTENSIONS:
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                    for chunk in uploaded_file.chunks():
+                        tmp.write(chunk)
+                    tmp.flush()
+                    extracted = extract_text(tmp.name)
+                    file_context = f"\n\n[The visitor hands you a document titled '{uploaded_file.name}'. Its content is:]\n{extracted[:2000]}"
+            elif suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+                file_context = f"\n\n[The visitor shows you an image: {uploaded_file.name}. React to it based on the conversation context.]"
+            else:
+                file_context = f"\n\n[The visitor shows you a file: {uploaded_file.name}]"
+
+        if message.strip() or file_context:
+            # Save user message (include file reference if any)
+            save_content = message
+            if uploaded_file:
+                save_content += f" [Attached: {uploaded_file.name}]"
             ChatMessage.objects.create(
-                session=session, role="user", content=message,
+                session=session, role="user", content=save_content,
                 tick_at=simulation.current_tick,
             )
 
@@ -269,7 +300,7 @@ def chat_view(request, sim_id, agent_id):
                 f"{events_text}{memory_text}{chat_history}"
             )
 
-            prompt_with_hint = f"{message} /no_think"
+            prompt_with_hint = f"{message}{file_context} /no_think"
 
             response = client.complete(
                 prompt=prompt_with_hint,
