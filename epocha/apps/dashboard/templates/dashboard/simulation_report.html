@@ -1,0 +1,19 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Report - {{ simulation.name }} - Epocha{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <h1 class="text-2xl font-bold mb-2">Simulation Report</h1>
+    <p class="text-gray-400 text-sm mb-6">{{ simulation.name }} | Tick {{ simulation.current_tick }}</p>
+
+    {% if simulation.report %}
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 prose prose-invert max-w-none">
+        {{ simulation.report|linebreaksbr }}
+    </div>
+    {% else %}
+    <p class="text-gray-400">No report generated yet. Run the simulation first.</p>
+    {% endif %}
+
+    <a href="{% url 'dashboard:simulation-detail' sim_id=simulation.id %}" class="inline-block mt-6 text-sm text-gray-400 hover:text-gray-300">Back to simulation</a>
+</div>
+{% endblock %}

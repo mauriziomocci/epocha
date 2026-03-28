@@ -1,0 +1,102 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Chat with {{ agent.name }} - Epocha{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto" x-data="chatApp()">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-4">
+        <div>
+            <h1 class="text-xl font-bold">{{ agent.name }}</h1>
+            <p class="text-sm text-gray-400">{{ agent.role }} | Health: {{ agent.health|floatformat:1 }} | Mood: {{ agent.mood|floatformat:1 }}</p>
+        </div>
+        <a href="{% url 'dashboard:simulation-detail' sim_id=simulation.id %}" class="text-sm text-gray-400 hover:text-gray-300">Back</a>
+    </div>
+
+    <!-- Personality summary -->
+    <div class="bg-gray-800 border border-gray-700 rounded p-3 mb-4 text-sm text-gray-400">
+        {% if agent.personality.background %}
+            <p>{{ agent.personality.background }}</p>
+        {% endif %}
+    </div>
+
+    <!-- Chat messages -->
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 h-96 overflow-y-auto mb-4" id="chat-messages">
+        <template x-for="msg in messages" :key="msg.id">
+            <div class="mb-3" :class="msg.role === 'user' ? 'text-right' : ''">
+                <span class="text-xs text-gray-500" x-text="msg.role === 'user' ? 'You' : '{{ agent.name }}'"></span>
+                <div class="inline-block max-w-sm px-3 py-2 rounded-lg text-sm mt-1"
+                     :class="msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-200'">
+                    <span x-text="msg.content"></span>
+                </div>
+            </div>
+        </template>
+
+        <div x-show="loading" class="text-gray-500 text-sm">
+            {{ agent.name }} is thinking...
+        </div>
+    </div>
+
+    <!-- Input -->
+    <form @submit.prevent="sendMessage()" class="flex gap-2">
+        <input type="text" x-model="newMessage" :disabled="loading"
+               placeholder="Say something to {{ agent.name }}..."
+               class="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white focus:border-indigo-500 focus:outline-none"
+               autofocus>
+        <button type="submit" :disabled="loading || !newMessage.trim()"
+                class="bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 text-white px-4 py-2 rounded font-medium">
+            Send
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function chatApp() {
+    return {
+        messages: [],
+        newMessage: '',
+        loading: false,
+        msgCounter: 0,
+
+        async sendMessage() {
+            if (!this.newMessage.trim() || this.loading) return;
+
+            const userMsg = this.newMessage.trim();
+            this.messages.push({ id: ++this.msgCounter, role: 'user', content: userMsg });
+            this.newMessage = '';
+            this.loading = true;
+
+            this.scrollToBottom();
+
+            try {
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify({ message: userMsg }),
+                });
+
+                const data = await response.json();
+                this.messages.push({ id: ++this.msgCounter, role: data.role, content: data.content });
+            } catch (err) {
+                this.messages.push({ id: ++this.msgCounter, role: 'system', content: 'Error: Could not reach the agent.' });
+            }
+
+            this.loading = false;
+            this.scrollToBottom();
+        },
+
+        scrollToBottom() {
+            this.$nextTick(() => {
+                const el = document.getElementById('chat-messages');
+                if (el) el.scrollTop = el.scrollHeight;
+            });
+        }
+    }
+}
+</script>
+{% endblock %}

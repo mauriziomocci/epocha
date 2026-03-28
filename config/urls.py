@@ -3,6 +3,9 @@ from django.contrib import admin
 from django.urls import include, path
 
 urlpatterns = [
+    # Dashboard (web UI)
+    path("", include("epocha.apps.dashboard.urls")),
+    # Admin
     path("admin/", admin.site.urls),
     # API v1
     path("api/v1/users/", include("epocha.apps.users.urls")),

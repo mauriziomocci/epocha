@@ -1,0 +1,45 @@
+{% extends "dashboard/base.html" %}
+{% block title %}New Simulation - Epocha{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <h1 class="text-2xl font-bold mb-2">Create a New World</h1>
+    <p class="text-gray-400 mb-6">Describe the world you want to simulate. The AI will generate zones, agents, and an economy based on your description.</p>
+
+    {% if error %}
+    <div class="bg-red-900/50 border border-red-500 rounded p-3 mb-4">
+        <p class="text-red-300 text-sm">{{ error }}</p>
+    </div>
+    {% endif %}
+
+    <form method="post" x-data="{ loading: false }" @submit="loading = true">
+        {% csrf_token %}
+        <div class="mb-4">
+            <label class="block text-sm text-gray-400 mb-1">Describe your world</label>
+            <textarea name="prompt" rows="6" required
+                class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white focus:border-indigo-500 focus:outline-none resize-y"
+                placeholder="A medieval village with 10 people, a corrupt priest, a blacksmith who wants to become mayor, and scarce food resources..."></textarea>
+        </div>
+
+        <div class="mb-6">
+            <p class="text-xs text-gray-500">Examples:</p>
+            <ul class="text-xs text-gray-500 mt-1 space-y-1">
+                <li>"A medieval village with 5 people and rising tensions over scarce resources"</li>
+                <li>"Ancient Rome under Emperor Trajan, 50 citizens of different social classes"</li>
+                <li>"A post-apocalyptic community trying to rebuild civilization"</li>
+                <li>"Europe in 1945, but the Axis won the war. Simulate 80 years of alternate history"</li>
+            </ul>
+        </div>
+
+        <button type="submit" :disabled="loading"
+            class="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 text-white font-medium py-3 rounded flex items-center justify-center gap-2">
+            <template x-if="loading">
+                <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+            </template>
+            <span x-text="loading ? 'Generating world...' : 'Generate World'"></span>
+        </button>
+    </form>
+
+    <a href="{% url 'dashboard:home' %}" class="inline-block mt-4 text-sm text-gray-400 hover:text-gray-300">Back to simulations</a>
+</div>
+{% endblock %}
