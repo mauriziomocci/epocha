@@ -13,6 +13,7 @@ def get_llm_client() -> BaseLLMProvider:
         return OpenAIProvider(
             api_key=settings.EPOCHA_LLM_API_KEY,
             model=settings.EPOCHA_LLM_MODEL,
+            base_url=settings.EPOCHA_LLM_BASE_URL or None,
         )
 
     raise ValueError(f"Unknown LLM provider: {provider_name}")
