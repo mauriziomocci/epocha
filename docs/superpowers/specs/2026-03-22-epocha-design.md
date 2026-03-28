@@ -938,7 +938,8 @@ I modelli non sostituiscono gli agenti: li informano. Un agente non "sa" che l'i
 | Epidemie | Modello SIR/SEIR (Susceptible-Infected-Recovered) | Epidemiologia matematica | Diffusione malattie, ondate pandemiche, immunita |
 | Clima | Modelli di feedback climatico semplificati, bilancio radiativo | IPCC, climatologia | Temperature, eventi estremi, impatto su agricoltura |
 | Diffusione innovazione | Curva S di Rogers, modello Bass | Sociologia dell'innovazione | Adozione tecnologie, diffusione idee |
-| Conflitti | Modelli di Lanchester (attrition), teoria dei giochi | Studi strategici | Esiti militari, equilibri di deterrenza |
+| Conflitti | Modelli di Lanchester (attrition) | Studi strategici | Esiti militari, equilibri di deterrenza |
+| Teoria dei giochi | Nash, dilemma del prigioniero iterato, Shapley, aste, voto | Economia comportamentale, scienze politiche | Interazioni strategiche, cooperazione, alleanze, negoziazione |
 | Reti sociali | Granovetter (weak/strong ties), cascate informative, soglie di attivazione | Sociologia delle reti | Formazione gruppi, viralita, mobilitazione |
 | Risorse | Curva di Hubbert (deplezione), carrying capacity, rendimenti decrescenti | Ecologia, geologia | Esaurimento risorse, sostenibilita, carestie |
 | Commercio | Vantaggio comparato (Ricardo), gravita del commercio | Economia internazionale | Flussi commerciali, specializzazione, dipendenze |
@@ -967,6 +968,109 @@ I modelli vengono **calibrati sui dati storici** prima dell'avvio: se la simulaz
 | Rigoroso | Modelli completi con parametri da paper scientifici, validazione incrociata | Esperimenti sociali seri, ricerca |
 
 L'utente sceglie il livello di rigore nelle impostazioni, analogamente al livello di complessita economica.
+
+#### Teoria dei giochi come framework trasversale
+
+La teoria dei giochi non e un dominio specifico (come economia o clima) ma un framework trasversale che attraversa tutte le interazioni strategiche tra agenti. E il ponte matematico tra i modelli macro e le decisioni individuali.
+
+**Principio di integrazione:**
+
+La teoria dei giochi non sostituisce l'LLM nelle decisioni — calcola l'**esito razionale** di un'interazione e lo passa come contesto all'LLM, che poi decide tenendo conto della personalita dell'agente. Un agente razionale seguira l'equilibrio di Nash; un agente impulsivo no. Questo produce comportamenti realistici: a volte le persone fanno la scelta sbagliata, ed e proprio quello che genera storie interessanti.
+
+```
+Interazione strategica rilevata (commercio, conflitto, alleanza, voto)
+    ↓
+Game Theory Engine:
+    1. Classifica il tipo di gioco
+    2. Calcola equilibrio/esito ottimale
+    3. Calcola payoff per ogni strategia possibile
+    ↓
+Contesto arricchito passato all'LLM:
+    "L'equilibrio razionale sarebbe cooperare (payoff: +5 per entrambi).
+     Tradire darebbe +8 a te ma -3 all'altro.
+     Tu sei impulsivo (neuroticism: 0.8) e diffidente (agreeableness: 0.2).
+     L'altro ti ha tradito 2 volte in passato."
+    ↓
+LLM decide in base a personalita + contesto strategico
+```
+
+**Modelli di gioco implementati:**
+
+*Interazioni bilaterali (2 agenti):*
+
+| Tipo di gioco | Quando si attiva | Cosa calcola | Esempio nella simulazione |
+|---------------|-----------------|-------------|--------------------------|
+| Dilemma del prigioniero (singolo) | Due agenti devono scegliere se cooperare o tradire senza comunicare | Equilibrio di Nash: tradire e dominante, ma cooperare e Pareto-ottimale | Due mercanti decidono se rispettare un accordo commerciale |
+| Dilemma del prigioniero iterato | Stessi agenti interagiscono ripetutamente nel tempo | Strategia ottimale cambia: Tit-for-Tat, perdono, reputazione | Vicini di casa, colleghi, partner commerciali abituali |
+| Gioco della fiducia (trust game) | Un agente deve fidarsi di un altro (investimento, prestito, delega) | Quantifica il rischio razionale della fiducia dato lo storico | Un contadino presta sementi a un vicino — le restituira? |
+| Gioco del pollo (chicken) | Due agenti in rotta di collisione, chi cede per primo? | Equilibrio misto: nessuno vuole cedere ma lo scontro e il peggiore esito | Due fazioni rivali che si contendono un territorio |
+| Contrattazione di Nash | Due parti negoziano la divisione di un surplus | Punto di Nash: divisione ottimale dato il potere negoziale di ciascuno | Negoziazione salariale, trattato di pace, accordo commerciale |
+| Gioco dell'ultimatum | Una parte propone, l'altra accetta o rifiuta (niente per entrambi) | Soglia di accettabilita: offerte troppo basse vengono rifiutate per orgoglio | Tributo imposto da un conquistatore — troppo alto e la rivolta e piu conveniente |
+
+*Interazioni collettive (N agenti):*
+
+| Tipo di gioco | Quando si attiva | Cosa calcola | Esempio nella simulazione |
+|---------------|-----------------|-------------|--------------------------|
+| Tragedia dei beni comuni | Risorsa condivisa sfruttata da molti agenti | Tasso di deplezione vs cooperazione; punto di collasso | Pascolo condiviso, pesca, acqua |
+| Problema del bene pubblico (free rider) | Contribuzione volontaria a un bene che beneficia tutti | Chi contribuisce? Chi fa il free rider? Soglia di contribuzione minima | Difesa comune, manutenzione strade, sistema educativo |
+| Giochi di coalizione (Shapley value) | Formazione di alleanze tra gruppi/nazioni | Valore marginale di ogni membro della coalizione; chi e indispensabile? | Alleanza militare: ogni membro quanto contribuisce? Chi esce? |
+| Gioco di coordinamento | Agenti devono accordarsi su una scelta comune senza comunicazione diretta | Equilibri multipli: quale prevale dipende da aspettative e focal points | Adozione di uno standard (moneta, lingua franca, sistema di misura) |
+| Voto strategico (teoria del voto) | Elezioni, referendum, decisioni assembleari | Vincitore di Condorcet, paradosso di Arrow, voto strategico vs sincero | Elezioni: gli agenti votano per chi preferiscono o per il "male minore"? |
+| Asta | Vendita di risorse scarse al miglior offerente | Prezzo di equilibrio, maledizione del vincitore, strategie di offerta | Concessione mineraria, appalto pubblico, vendita di terra |
+| Deterrenza (MAD) | Due potenze con capacita distruttiva reciproca | Equilibrio del terrore: nessuno attacca per primo perche la risposta e catastrofica | Nazioni con armi potenti; civilta avanzate con tecnologie devastanti |
+
+**Integrazione efficiente nel tick:**
+
+La teoria dei giochi non si applica a ogni interazione — sarebbe troppo costoso. Il sistema la attiva **solo quando rileva interazioni strategiche significative**:
+
+```
+Per ogni tick:
+    1. L'economia e il mondo si aggiornano (modelli macro)
+    2. Per ogni agente, il sistema valuta le sue interazioni:
+        a. Interazione di routine (lavoro, riposo) → decisione semplice, NO game theory
+        b. Interazione strategica rilevata:
+           - L'agente e in conflitto con un altro → game theory
+           - L'agente deve negoziare risorse → game theory
+           - C'e una risorsa condivisa contesa → game theory
+           - C'e un'elezione/voto → game theory
+        c. Game Theory Engine calcola l'equilibrio
+        d. L'equilibrio viene passato come contesto all'LLM
+    3. Le decisioni vengono applicate
+```
+
+**Trigger per l'attivazione:**
+- Due agenti con relazione di rivalita nella stessa zona → potenziale dilemma/chicken
+- Risorsa condivisa con piu di 3 agenti che la usano → tragedia dei beni comuni
+- Agente che deve decidere se fidarsi di qualcuno → trust game
+- Negoziazione commerciale tra agenti o gruppi → contrattazione di Nash
+- Elezione o decisione assembleare → voto strategico
+- Alleanza militare in formazione → gioco di coalizione
+
+**Performance:**
+- I calcoli di game theory sono **deterministici e veloci** (millisecondi, non richiedono LLM)
+- Si attivano solo per il ~10% delle interazioni (quelle strategicamente rilevanti)
+- Il costo computazionale e trascurabile rispetto alle chiamate LLM
+- Possono essere pre-calcolati in batch per tutte le interazioni del tick
+
+**Evoluzione delle strategie nel tempo:**
+
+Il sistema traccia le strategie adottate dagli agenti nel tempo:
+- Un agente che coopera sempre viene sfruttato → impara a difendersi (o no, se la sua personalita e troppo amabile)
+- Un agente che tradisce sempre perde alleati → si ritrova isolato
+- Le strategie vincenti si diffondono nella societa (gli agenti osservano e imitano chi ha successo)
+- Emergono norme sociali: "qui si coopera" o "qui ognuno per se" a seconda della storia della comunita
+
+Questo crea **evoluzione culturale delle strategie** — esattamente quello che Axelrod ha dimostrato nei tornei del dilemma del prigioniero iterato (1984). Le societa che sviluppano norme cooperative prosperano; quelle che non lo fanno si frammentano.
+
+**Dilemma del prigioniero iterato — il cuore della cooperazione sociale:**
+
+Il dilemma del prigioniero giocato una volta porta al tradimento razionale. Ma iterato (stessi agenti che si reincontrano), la cooperazione emerge naturalmente perche tradire ha costi futuri. Epocha simula questo con la memoria e le relazioni:
+
+- L'agente A tradisce l'agente B → B lo ricorda → B non coopera piu con A → A perde un alleato
+- La reputazione si diffonde via passaparola (Information Flow) → anche C e D sanno che A e inaffidabile
+- A lungo termine, gli agenti che cooperano costruiscono reti di fiducia piu forti
+
+La strategia Tit-for-Tat (coopera, poi imita l'altro) emerge naturalmente dagli agenti con buona memoria e amabilita media. Gli agenti troppo amabili vengono sfruttati; quelli troppo diffidenti restano isolati. Il punto di equilibrio dipende dalla composizione della societa — e questo e un risultato emergente, non scriptato.
 
 #### Validazione e calibrazione continua
 
