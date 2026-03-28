@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import random
 
+from django.contrib import messages as django_messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
@@ -192,6 +193,12 @@ def inject_event_view(request, sim_id):
         caused_by="user_injection",
     )
 
+    django_messages.success(request, f"Event injected: {title}")
+
+    # Redirect back to the referring page (chat or simulation detail)
+    referer = request.META.get("HTTP_REFERER", "")
+    if referer and ("/chat/" in referer or "/group-chat/" in referer):
+        return redirect(referer)
     return redirect("dashboard:simulation-detail", sim_id=simulation.id)
 
 
@@ -273,15 +280,19 @@ def chat_view(request, sim_id, agent_id):
                 memory_text = "\n\nYour recent memories:\n" + "\n".join(f"- {m.content}" for m in memories[:5])
 
             # Include recent events (injected by user) so the agent knows what happened
-            recent_events = Event.objects.filter(simulation=simulation).order_by("-tick")[:5]
+            recent_events = list(Event.objects.filter(simulation=simulation).order_by("-tick")[:5])
             events_text = ""
             if recent_events:
                 events_text = (
-                    "\n\n*** CRITICAL CONTEXT - THESE THINGS HAVE HAPPENED TO YOU ***\n"
+                    "\n\n*** CRITICAL: THESE EVENTS HAPPENED TO YOU AND AFFECT YOU NOW ***\n"
                     + "\n".join(f"- {e.title}: {e.description}" for e in recent_events)
-                    + "\nYou MUST acknowledge and react to these events. They are real and happening to you right now. "
-                    "Your physical and emotional state is affected by them. Do NOT ignore them."
+                    + f"\nYou ({agent.name}) are directly affected by these events. "
+                    "React emotionally and physically. Show pain, fear, anger, or distress as appropriate. "
+                    "Do NOT pretend everything is fine if something bad happened to you."
                 )
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("CHAT CONTEXT for %s: events=%d, events_text_len=%d", agent.name, len(recent_events), len(events_text))
 
             # Include recent chat history for continuity
             recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:10]
