@@ -61,10 +61,45 @@ class OpenAIProvider(BaseLLMProvider):
         system_prompt: str = "",
         temperature: float = 0.7,
         max_tokens: int = 1000,
+        simulation_id: int | None = None,
     ) -> str:
-        """Send a chat completion request and return the response text."""
-        result = self._call_api(prompt, system_prompt, temperature, max_tokens)
-        return result["content"]
+        """Send a chat completion request, log cost, and return response text."""
+        import time
+
+        from epocha.apps.llm_adapter.models import LLMRequest
+
+        start = time.monotonic()
+        try:
+            result = self._call_api(prompt, system_prompt, temperature, max_tokens)
+            latency = int((time.monotonic() - start) * 1000)
+
+            LLMRequest.objects.create(
+                provider="openai",
+                model=self.model,
+                input_tokens=result["input_tokens"],
+                output_tokens=result["output_tokens"],
+                cost_usd=self.get_cost(result["input_tokens"], result["output_tokens"]),
+                latency_ms=latency,
+                success=True,
+                simulation_id=simulation_id,
+            )
+
+            return result["content"]
+
+        except Exception as e:
+            latency = int((time.monotonic() - start) * 1000)
+            LLMRequest.objects.create(
+                provider="openai",
+                model=self.model,
+                input_tokens=0,
+                output_tokens=0,
+                cost_usd=0,
+                latency_ms=latency,
+                success=False,
+                error_message=str(e),
+                simulation_id=simulation_id,
+            )
+            raise
 
     def _call_api(
         self,

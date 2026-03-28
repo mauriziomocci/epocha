@@ -85,6 +85,30 @@ class SimulationViewSet(viewsets.ModelViewSet):
         return Response(SimulationSerializer(simulation).data)
 
     @action(detail=True, methods=["get"])
+    def costs(self, request, pk=None):
+        """Get LLM cost breakdown for this simulation."""
+        from django.db.models import Count, Sum
+
+        from epocha.apps.llm_adapter.models import LLMRequest
+
+        simulation = self.get_object()
+        stats = LLMRequest.objects.filter(
+            simulation_id=simulation.id, success=True,
+        ).aggregate(
+            total_cost=Sum("cost_usd"),
+            total_input_tokens=Sum("input_tokens"),
+            total_output_tokens=Sum("output_tokens"),
+            total_requests=Count("id"),
+        )
+        return Response({
+            "simulation_id": simulation.id,
+            "total_cost_usd": round(stats["total_cost"] or 0, 6),
+            "total_input_tokens": stats["total_input_tokens"] or 0,
+            "total_output_tokens": stats["total_output_tokens"] or 0,
+            "total_requests": stats["total_requests"] or 0,
+        })
+
+    @action(detail=True, methods=["get"])
     def events(self, request, pk=None):
         """List simulation events ordered by tick."""
         simulation = self.get_object()

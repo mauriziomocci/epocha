@@ -7,6 +7,7 @@ from epocha.apps.llm_adapter.client import get_llm_client
 from epocha.apps.llm_adapter.providers.openai import OpenAIProvider
 
 
+@pytest.mark.django_db
 class TestOpenAIProvider:
     def test_complete_returns_string(self):
         """Provider.complete() should return a string response."""
