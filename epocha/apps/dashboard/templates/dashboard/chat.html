@@ -53,11 +53,16 @@
 {% block extra_scripts %}
 <script>
 function chatApp() {
+    // Load persisted chat history
+    const savedHistory = JSON.parse('{{ chat_history_json|escapejs }}' || '[]');
+    let counter = 0;
+    const initialMessages = savedHistory.map(m => ({ id: ++counter, role: m.role, content: m.content }));
+
     return {
-        messages: [],
+        messages: initialMessages,
         newMessage: '',
         loading: false,
-        msgCounter: 0,
+        msgCounter: counter,
 
         async sendMessage() {
             if (!this.newMessage.trim() || this.loading) return;

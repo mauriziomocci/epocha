@@ -164,6 +164,38 @@ def simulation_pause_view(request, sim_id):
 
 
 @login_required(login_url="/login/")
+@require_POST
+def inject_event_view(request, sim_id):
+    """Inject a user-defined event into the simulation.
+
+    The event is saved to the Event model and will be included in the
+    context of all agent decisions for the next 5 ticks, causing agents
+    to react to it according to their personality.
+    """
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+
+    title = request.POST.get("title", "").strip()
+    description = request.POST.get("description", "").strip()
+    event_type = request.POST.get("event_type", "custom")
+    severity = float(request.POST.get("severity", "0.5"))
+
+    if not title or not description:
+        return redirect("dashboard:simulation-detail", sim_id=simulation.id)
+
+    Event.objects.create(
+        simulation=simulation,
+        tick=simulation.current_tick,
+        event_type=event_type,
+        title=title,
+        description=description,
+        severity=min(1.0, max(0.0, severity)),
+        caused_by="user_injection",
+    )
+
+    return redirect("dashboard:simulation-detail", sim_id=simulation.id)
+
+
+@login_required(login_url="/login/")
 def simulation_report_view(request, sim_id):
     simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
 
@@ -181,10 +213,23 @@ def chat_view(request, sim_id, agent_id):
     simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
     agent = get_object_or_404(Agent, id=agent_id, simulation=simulation)
 
+    from epocha.apps.chat.models import ChatMessage, ChatSession
+
+    # Get or create chat session
+    session, _ = ChatSession.objects.get_or_create(
+        simulation=simulation, user=request.user, agent=agent,
+    )
+
     # Handle AJAX chat messages
     if request.method == "POST" and request.headers.get("X-Requested-With") == "XMLHttpRequest":
         message = json.loads(request.body).get("message", "")
         if message.strip():
+            # Save user message
+            ChatMessage.objects.create(
+                session=session, role="user", content=message,
+                tick_at=simulation.current_tick,
+            )
+
             from epocha.apps.agents.memory import get_relevant_memories
             from epocha.apps.agents.personality import build_personality_prompt
             from epocha.apps.llm_adapter.client import get_llm_client
@@ -196,14 +241,22 @@ def chat_view(request, sim_id, agent_id):
             if memories:
                 memory_text = "\n\nYour recent memories:\n" + "\n".join(f"- {m.content}" for m in memories[:5])
 
+            # Include recent chat history for continuity
+            recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:10]
+            chat_history = ""
+            if recent_chat.count() > 1:
+                msgs = list(reversed(recent_chat))
+                chat_history = "\n\nPrevious conversation:\n" + "\n".join(
+                    f"{'Visitor' if m.role == 'user' else agent.name}: {m.content}" for m in msgs[:-1]
+                )
+
             system_prompt = (
                 f"{personality_prompt}\n\n"
                 f"You are {agent.name}, a {agent.role}. "
                 f"Someone is talking to you. Respond in character, briefly and naturally. "
-                f"Keep your response to 2-3 sentences maximum.{memory_text}"
+                f"Keep your response to 2-3 sentences maximum.{memory_text}{chat_history}"
             )
 
-            # /no_think disables Qwen3's internal reasoning for faster responses
             prompt_with_hint = f"{message} /no_think"
 
             response = client.complete(
@@ -213,8 +266,26 @@ def chat_view(request, sim_id, agent_id):
                 max_tokens=150,
                 simulation_id=simulation.id,
             )
+
+            # Save agent response
+            ChatMessage.objects.create(
+                session=session, role="agent", content=response,
+                tick_at=simulation.current_tick,
+            )
+
             return JsonResponse({"role": "agent", "content": response})
 
         return JsonResponse({"role": "system", "content": "Empty message."})
 
-    return render(request, "dashboard/chat.html", {"simulation": simulation, "agent": agent})
+    # Load chat history for initial page render
+    chat_history = list(
+        ChatMessage.objects.filter(session=session)
+        .order_by("created_at")
+        .values("role", "content")
+    )
+
+    return render(request, "dashboard/chat.html", {
+        "simulation": simulation,
+        "agent": agent,
+        "chat_history_json": json.dumps(chat_history),
+    })

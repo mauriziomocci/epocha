@@ -18,5 +18,6 @@ urlpatterns = [
     path("simulations/<int:sim_id>/play/", views.simulation_play_view, name="simulation-play"),
     path("simulations/<int:sim_id>/pause/", views.simulation_pause_view, name="simulation-pause"),
     path("simulations/<int:sim_id>/report/", views.simulation_report_view, name="simulation-report"),
+    path("simulations/<int:sim_id>/inject/", views.inject_event_view, name="inject-event"),
     path("simulations/<int:sim_id>/chat/<int:agent_id>/", views.chat_view, name="chat"),
 ]

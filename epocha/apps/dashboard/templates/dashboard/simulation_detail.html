@@ -117,6 +117,55 @@
             </div>
         </div>
     </div>
+
+    <!-- Inject Event Panel -->
+    <div class="mt-6" x-data="{ open: false }">
+        <button @click="open = !open" class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-medium">
+            Inject Event
+        </button>
+        <div x-show="open" x-cloak class="mt-3 bg-gray-800 border border-gray-700 rounded-lg p-4">
+            <h3 class="font-semibold mb-3">Inject an event into the simulation</h3>
+            <p class="text-xs text-gray-400 mb-3">The event will be included in every agent's context for the next 5 ticks, causing them to react according to their personality.</p>
+            <form method="post" action="{% url 'dashboard:inject-event' sim_id=simulation.id %}" class="space-y-3">
+                {% csrf_token %}
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Event title</label>
+                    <input type="text" name="title" required placeholder="A devastating flood hits the village"
+                           class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-yellow-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Description</label>
+                    <textarea name="description" rows="3" required
+                              placeholder="Heavy rains caused the river to overflow, destroying crops and flooding the lower village. Several houses are damaged and food supplies are ruined."
+                              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-yellow-500 focus:outline-none resize-y"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Type</label>
+                        <select name="event_type" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                            <option value="economic">Economic</option>
+                            <option value="political">Political</option>
+                            <option value="social">Social</option>
+                            <option value="military">Military</option>
+                            <option value="natural">Natural</option>
+                            <option value="scientific">Scientific</option>
+                            <option value="cultural">Cultural</option>
+                            <option value="custom" selected>Custom</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Severity (0.0 - 1.0)</label>
+                        <input type="number" name="severity" value="0.5" min="0" max="1" step="0.1"
+                               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-yellow-500 focus:outline-none">
+                    </div>
+                </div>
+                <div class="text-xs text-gray-500">
+                    Examples: "A plague arrives from a merchant ship" | "The landowner raises taxes by 50%" | "A charismatic stranger arrives preaching revolution"
+                </div>
+                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-medium text-sm">Inject Event</button>
+            </form>
+        </div>
+    </div>
 </div>
 
 <a href="{% url 'dashboard:home' %}" class="inline-block mt-6 text-sm text-gray-400 hover:text-gray-300">Back to simulations</a>

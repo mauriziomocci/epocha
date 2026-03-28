@@ -33,13 +33,20 @@ Respond ONLY with a JSON object:
 _FALLBACK_ACTION = {"action": "rest", "reason": "confused"}
 
 
-def _build_context(agent, world_state, tick: int, memories, relationships) -> str:
+def _build_context(agent, world_state, tick: int, memories, relationships, recent_events=None) -> str:
     """Assemble the situational context string sent as the LLM user prompt."""
     parts = [
         f"You are {agent.name}, a {agent.role}.",
         f"Tick: {tick}. Health: {agent.health:.1f}, wealth: {agent.wealth:.1f}, mood: {agent.mood:.1f}.",
         f"World stability: {world_state.stability_index:.1f}.",
     ]
+
+    # Injected events that the agent should react to
+    if recent_events:
+        parts.append("\nIMPORTANT - Recent events that happened in your world:")
+        for event in recent_events:
+            parts.append(f"- {event.title}: {event.description}")
+        parts.append("React to these events based on your personality and situation.")
 
     if memories:
         parts.append("\nYour recent memories:")
@@ -75,12 +82,19 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     client = get_llm_client()
 
     # 1. Gather context
+    from epocha.apps.simulation.models import Event
+
     memories = get_relevant_memories(agent, current_tick=tick, max_memories=5)
     relationships = list(
         Relationship.objects.filter(agent_from=agent)
         .select_related("agent_to")[:10]
     )
-    context = _build_context(agent, world_state, tick, memories, relationships)
+    # Include recent events (injected by user or system) from last 5 ticks
+    recent_events = list(
+        Event.objects.filter(simulation=agent.simulation, tick__gte=max(0, tick - 5))
+        .order_by("-tick")[:5]
+    )
+    context = _build_context(agent, world_state, tick, memories, relationships, recent_events)
 
     # 2. Build system prompt with personality
     personality_prompt = build_personality_prompt(agent.personality)
