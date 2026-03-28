@@ -289,20 +289,15 @@ def chat_view(request, sim_id, agent_id):
             if memories:
                 memory_text = "\n\nYour recent memories:\n" + "\n".join(f"- {m.content}" for m in memories[:5])
 
-            # Include recent events (injected by user) so the agent knows what happened
-            recent_events = list(Event.objects.filter(simulation=simulation).order_by("-tick")[:5])
-            events_text = ""
+            # Include the most recent events — put in USER prompt for higher attention
+            recent_events = list(Event.objects.filter(simulation=simulation).order_by("-id")[:3])
+            events_context = ""
             if recent_events:
-                events_text = (
-                    "\n\n*** CRITICAL: THESE EVENTS HAPPENED TO YOU AND AFFECT YOU NOW ***\n"
-                    + "\n".join(f"- {e.title}: {e.description}" for e in recent_events)
-                    + f"\nYou ({agent.name}) are directly affected by these events. "
-                    "React emotionally and physically. Show pain, fear, anger, or distress as appropriate. "
-                    "Do NOT pretend everything is fine if something bad happened to you."
+                events_context = (
+                    "\n\n[CONTEXT: " + " ".join(
+                        f"{e.title} - {e.description}" for e in reversed(recent_events)
+                    ) + f" — React to this as {agent.name}.]"
                 )
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning("CHAT CONTEXT for %s: events=%d, events_text_len=%d", agent.name, len(recent_events), len(events_text))
 
             # Include recent chat history for continuity
             recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:10]
@@ -315,14 +310,14 @@ def chat_view(request, sim_id, agent_id):
 
             system_prompt = (
                 f"You are {agent.name}, a {agent.role}. "
-                f"Someone is talking to you. Respond in character, briefly and naturally. "
-                f"Keep your response to 2-3 sentences maximum."
-                f"{events_text}\n\n"
+                f"Respond in character, briefly (1-2 sentences). "
+                f"If something happened to you (injury, death, gift), acknowledge it.\n\n"
                 f"{personality_prompt}"
                 f"{memory_text}{chat_history}"
             )
 
-            prompt_with_hint = f"{message}{file_context} /no_think"
+            # Events go in the USER prompt where the model pays most attention
+            prompt_with_hint = f"{message}{file_context}{events_context} /no_think"
 
             response = client.complete(
                 prompt=prompt_with_hint,
