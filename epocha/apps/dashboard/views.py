@@ -14,7 +14,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from epocha.apps.agents.models import Agent
+from epocha.apps.agents.models import Agent, DecisionLog
 from epocha.apps.llm_adapter.models import LLMRequest
 from epocha.apps.simulation.models import Event, Simulation
 from epocha.apps.users.models import User
@@ -107,11 +107,16 @@ def simulation_create_view(request):
 
 
 @login_required(login_url="/login/")
-def simulation_detail_view(request):
-    sim_id = request.resolver_match.kwargs["sim_id"]
+def simulation_detail_view(request, sim_id):
     simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
     agents = Agent.objects.filter(simulation=simulation).order_by("name")
     events = Event.objects.filter(simulation=simulation).order_by("-tick")[:50]
+    # Show agent decisions as activity feed (DecisionLog is populated every tick)
+    decisions = (
+        DecisionLog.objects.filter(simulation=simulation)
+        .select_related("agent")
+        .order_by("-tick")[:30]
+    )
     world = World.objects.filter(simulation=simulation).first()
 
     # Cost summary
@@ -128,6 +133,7 @@ def simulation_detail_view(request):
         "simulation": simulation,
         "agents": agents,
         "events": events,
+        "decisions": decisions,
         "world": world,
         "total_cost": round(cost_stats["total_cost"] or 0, 4),
         "total_requests": cost_stats["total_requests"] or 0,
