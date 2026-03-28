@@ -28,6 +28,36 @@
         <button @click="selectAll()" class="mt-2 text-xs text-indigo-400 hover:text-indigo-300">Select all</button>
     </div>
 
+    <!-- Inject event from group chat -->
+    <div x-data="{ showInject: false }" class="mb-4">
+        <button @click="showInject = !showInject"
+                class="text-xs bg-yellow-700 hover:bg-yellow-600 text-yellow-100 px-3 py-1 rounded">
+            Inject Event
+        </button>
+        <div x-show="showInject" x-cloak class="mt-2 bg-gray-800 border border-yellow-700 rounded p-3">
+            <form method="post" action="{% url 'dashboard:inject-event' sim_id=simulation.id %}" class="space-y-2">
+                {% csrf_token %}
+                <input type="text" name="title" required placeholder="Event title (e.g., A storm destroys the harvest)"
+                       class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none">
+                <textarea name="description" rows="2" required
+                          placeholder="What happens in the world that everyone will react to..."
+                          class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none resize-y"></textarea>
+                <div class="grid grid-cols-2 gap-2">
+                    <select name="event_type" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm">
+                        <option value="economic">Economic</option>
+                        <option value="political">Political</option>
+                        <option value="social">Social</option>
+                        <option value="natural">Natural</option>
+                        <option value="custom" selected>Custom</option>
+                    </select>
+                    <input type="number" name="severity" value="0.7" min="0" max="1" step="0.1"
+                           class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm" placeholder="Severity">
+                </div>
+                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 rounded text-sm">Inject</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Chat messages -->
     <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 h-96 overflow-y-auto mb-4" id="group-messages">
         <template x-for="msg in messages" :key="msg.id">

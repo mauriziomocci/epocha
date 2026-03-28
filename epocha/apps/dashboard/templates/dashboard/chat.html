@@ -19,6 +19,27 @@
         {% endif %}
     </div>
 
+    <!-- Inject event from chat -->
+    <div x-data="{ showInject: false }" class="mb-4">
+        <button @click="showInject = !showInject"
+                class="text-xs bg-yellow-700 hover:bg-yellow-600 text-yellow-100 px-3 py-1 rounded">
+            Inject Event
+        </button>
+        <div x-show="showInject" x-cloak class="mt-2 bg-gray-800 border border-yellow-700 rounded p-3">
+            <form method="post" action="{% url 'dashboard:inject-event' sim_id=simulation.id %}" class="space-y-2">
+                {% csrf_token %}
+                <input type="text" name="title" required placeholder="Event title (e.g., Loses all his money)"
+                       class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none">
+                <textarea name="description" rows="2" required
+                          placeholder="Detailed description of what happens to {{ agent.name }}..."
+                          class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none resize-y"></textarea>
+                <input type="hidden" name="event_type" value="custom">
+                <input type="hidden" name="severity" value="0.7">
+                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 rounded text-sm">Inject</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Chat messages -->
     <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 h-96 overflow-y-auto mb-4" id="chat-messages">
         <template x-for="msg in messages" :key="msg.id">

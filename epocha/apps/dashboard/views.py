@@ -273,15 +273,15 @@ def chat_view(request, sim_id, agent_id):
                 memory_text = "\n\nYour recent memories:\n" + "\n".join(f"- {m.content}" for m in memories[:5])
 
             # Include recent events (injected by user) so the agent knows what happened
-            recent_events = Event.objects.filter(
-                simulation=simulation,
-                tick__gte=max(0, simulation.current_tick - 10),
-            ).order_by("-tick")[:5]
+            recent_events = Event.objects.filter(simulation=simulation).order_by("-tick")[:5]
             events_text = ""
             if recent_events:
-                events_text = "\n\nIMPORTANT - Recent events in your world:\n" + "\n".join(
-                    f"- {e.title}: {e.description}" for e in recent_events
-                ) + "\nYou are aware of these events and they affect you."
+                events_text = (
+                    "\n\n*** CRITICAL CONTEXT - THESE THINGS HAVE HAPPENED TO YOU ***\n"
+                    + "\n".join(f"- {e.title}: {e.description}" for e in recent_events)
+                    + "\nYou MUST acknowledge and react to these events. They are real and happening to you right now. "
+                    "Your physical and emotional state is affected by them. Do NOT ignore them."
+                )
 
             # Include recent chat history for continuity
             recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:10]
@@ -293,11 +293,12 @@ def chat_view(request, sim_id, agent_id):
                 )
 
             system_prompt = (
-                f"{personality_prompt}\n\n"
                 f"You are {agent.name}, a {agent.role}. "
                 f"Someone is talking to you. Respond in character, briefly and naturally. "
                 f"Keep your response to 2-3 sentences maximum."
-                f"{events_text}{memory_text}{chat_history}"
+                f"{events_text}\n\n"
+                f"{personality_prompt}"
+                f"{memory_text}{chat_history}"
             )
 
             prompt_with_hint = f"{message}{file_context} /no_think"
