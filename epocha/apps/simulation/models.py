@@ -14,9 +14,18 @@ class Simulation(models.Model):
         STOPPED = "stopped", "Stopped"
         ERROR = "error", "Error"
 
+    class Visibility(models.TextChoices):
+        PRIVATE = "private", "Private"
+        SHARED = "shared", "Shared"
+        PUBLIC = "public", "Public"
+
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.CREATED)
+    visibility = models.CharField(
+        max_length=10, choices=Visibility.choices, default=Visibility.PRIVATE,
+        help_text="Private: only owner. Shared: owner + collaborators. Public: everyone can view and fork.",
+    )
     seed = models.BigIntegerField(help_text="Seed for reproducibility (non-LLM part)")
     current_tick = models.PositiveIntegerField(default=0)
     speed = models.FloatField(default=1.0, help_text="Simulation speed multiplier")

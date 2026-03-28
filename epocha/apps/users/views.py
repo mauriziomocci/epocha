@@ -1,8 +1,7 @@
 """Views for the users app."""
 from rest_framework import generics, permissions
 
-from .models import User
-from .serializers import UserSerializer
+from .serializers import UserRegistrationSerializer, UserSerializer
 
 
 class UserMeView(generics.RetrieveUpdateAPIView):
@@ -13,3 +12,10 @@ class UserMeView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class UserRegistrationView(generics.CreateAPIView):
+    """Register a new user account."""
+
+    serializer_class = UserRegistrationSerializer
+    permission_classes = [permissions.AllowAny]
