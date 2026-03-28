@@ -31,16 +31,16 @@ class SimulationViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"], serializer_class=SimulationCreateExpressSerializer)
     def express(self, request):
-        """Create a simulation from a text prompt (Express mode).
+        """Create a simulation from a text prompt, file upload, or both.
 
         Generates a complete world (zones, agents, economy) from the
-        user's description via LLM, then sets the simulation to PAUSED
+        user's input via LLM, then sets the simulation to PAUSED
         so the user can review before pressing play.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        prompt = serializer.validated_data["prompt"]
+        prompt = self._build_prompt_from_input(serializer.validated_data)
         simulation = Simulation.objects.create(
             name="Express Simulation",
             description=prompt[:500],
@@ -90,3 +90,26 @@ class SimulationViewSet(viewsets.ModelViewSet):
         simulation = self.get_object()
         events = Event.objects.filter(simulation=simulation).order_by("tick")
         return Response(EventSerializer(events, many=True).data)
+
+    @staticmethod
+    def _build_prompt_from_input(validated_data: dict) -> str:
+        """Combine text prompt and uploaded file into a single prompt string."""
+        import tempfile
+
+        from epocha.apps.world.document_parser import extract_text
+
+        parts = []
+
+        if validated_data.get("prompt"):
+            parts.append(validated_data["prompt"])
+
+        if validated_data.get("file"):
+            uploaded = validated_data["file"]
+            suffix = f".{uploaded.name.rsplit('.', 1)[-1]}" if "." in uploaded.name else ".txt"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                for chunk in uploaded.chunks():
+                    tmp.write(chunk)
+                tmp.flush()
+                parts.append(extract_text(tmp.name))
+
+        return "\n\n".join(parts)
