@@ -478,9 +478,9 @@ def chat_view(request, sim_id, agent_id):
             system_prompt = (
                 f"You are {agent.name}, a {agent.role}. "
                 f"You are in a face-to-face conversation. Respond in character, briefly (1-2 sentences). "
+                f"IMPORTANT: Always respond in the same language the visitor uses. If they speak Italian, respond in Italian. "
                 f"The visitor can speak to you AND perform physical actions (kick, punch, hug, give gifts, etc). "
-                f"If they perform an action, react physically and emotionally as your character would. "
-                f"For example: if kicked, express pain and anger. If hugged, react based on your personality.\n\n"
+                f"If they perform an action, react physically and emotionally as your character would.\n\n"
                 f"{personality_prompt}"
                 f"{memory_text}{chat_history}"
             )
@@ -573,6 +573,7 @@ def group_chat_view(request, sim_id):
                 f"{personality_prompt}\n\n"
                 f"You are {agent.name}, a {agent.role}. "
                 f"You are in a group conversation. Respond in character, briefly (1-2 sentences). "
+                f"IMPORTANT: Always respond in the same language the visitor uses. "
                 f"React to what others said.{events_text}{memory_text}"
             )
 
