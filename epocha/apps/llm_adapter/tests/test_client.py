@@ -81,8 +81,18 @@ class TestGetLLMClient:
         assert client.base_url == "http://localhost:1234/v1"
 
     @pytest.mark.django_db
-    def test_unknown_provider_raises(self, settings):
-        settings.EPOCHA_DEFAULT_LLM_PROVIDER = "unknown"
+    def test_chat_client_falls_back_to_main(self, settings):
+        """Chat client should fall back to main provider when not configured."""
+        from epocha.apps.llm_adapter.client import get_chat_llm_client
 
-        with pytest.raises(ValueError, match="Unknown LLM provider"):
-            get_llm_client()
+        settings.EPOCHA_DEFAULT_LLM_PROVIDER = "openai"
+        settings.EPOCHA_LLM_API_KEY = "test-key"
+        settings.EPOCHA_LLM_MODEL = "gpt-4o-mini"
+        settings.EPOCHA_LLM_BASE_URL = ""
+        settings.EPOCHA_CHAT_LLM_API_KEY = ""
+        settings.EPOCHA_CHAT_LLM_MODEL = ""
+        settings.EPOCHA_CHAT_LLM_BASE_URL = ""
+
+        client = get_chat_llm_client()
+        assert isinstance(client, OpenAIProvider)
+        assert client.model == "gpt-4o-mini"  # Fell back to main

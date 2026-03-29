@@ -58,14 +58,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
         from epocha.apps.agents.memory import get_relevant_memories
         from epocha.apps.agents.models import Agent
         from epocha.apps.agents.personality import build_personality_prompt
-        from epocha.apps.llm_adapter.client import get_llm_client
+        from epocha.apps.llm_adapter.client import get_chat_llm_client
 
         try:
             agent = Agent.objects.select_related("simulation").get(id=self.agent_id)
         except Agent.DoesNotExist:
             return "Agent not found."
 
-        client = get_llm_client()
+        client = get_chat_llm_client()
 
         # Build personality context
         personality_prompt = build_personality_prompt(agent.personality)

@@ -447,9 +447,9 @@ def chat_view(request, sim_id, agent_id):
 
             from epocha.apps.agents.memory import get_relevant_memories
             from epocha.apps.agents.personality import build_personality_prompt
-            from epocha.apps.llm_adapter.client import get_llm_client
+            from epocha.apps.llm_adapter.client import get_chat_llm_client
 
-            client = get_llm_client()
+            client = get_chat_llm_client()
             personality_prompt = build_personality_prompt(agent.personality)
             memories = get_relevant_memories(agent, current_tick=simulation.current_tick)
             memory_text = ""
@@ -545,9 +545,9 @@ def group_chat_view(request, sim_id):
 
         from epocha.apps.agents.memory import get_relevant_memories
         from epocha.apps.agents.personality import build_personality_prompt
-        from epocha.apps.llm_adapter.client import get_llm_client
+        from epocha.apps.llm_adapter.client import get_chat_llm_client
 
-        client = get_llm_client()
+        client = get_chat_llm_client()
         agents = Agent.objects.filter(id__in=agent_ids, simulation=simulation, is_alive=True)
 
         # Gather recent events
