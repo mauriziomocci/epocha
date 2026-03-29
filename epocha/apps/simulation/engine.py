@@ -53,6 +53,44 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
 _MEMORY_DECAY_INTERVAL = 10
 
 
+def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
+    """Apply consequences of an agent's action and create a memory.
+
+    Extracted as a standalone function so it can be called from both
+    the SimulationEngine and the process_agent_turn Celery task.
+
+    Args:
+        agent: The agent performing the action.
+        action: Dict with at least "action" key (e.g. "work", "rest", "argue")
+            and optionally "reason".
+        tick: Current simulation tick number.
+    """
+    action_type = action.get("action", "rest")
+
+    # Mood adjustment
+    mood_delta = _ACTION_MOOD_DELTA.get(action_type, 0.0)
+    agent.mood = max(0.0, min(1.0, agent.mood + mood_delta))
+
+    # Rest restores a small amount of health
+    if action_type == "rest":
+        agent.health = min(1.0, agent.health + 0.02)
+
+    agent.save(update_fields=["mood", "health"])
+
+    # Create memory of the action
+    emotional_weight = _ACTION_EMOTIONAL_WEIGHT.get(
+        action_type, _DEFAULT_EMOTIONAL_WEIGHT
+    )
+    reason = action.get("reason", "")
+    Memory.objects.create(
+        agent=agent,
+        content=f"I decided to {action_type}. {reason}".strip(),
+        emotional_weight=emotional_weight,
+        source_type="direct",
+        tick_created=tick,
+    )
+
+
 class SimulationEngine:
     """Orchestrates one tick of the simulation.
 
@@ -111,29 +149,12 @@ class SimulationEngine:
         logger.info("Simulation %d: tick %d complete", self.simulation.id, tick)
 
     def _apply_action(self, agent: Agent, action: dict, tick: int) -> None:
-        """Apply consequences of an agent's action and create a memory."""
-        action_type = action.get("action", "rest")
+        """Apply consequences of an agent's action and create a memory.
 
-        # Mood adjustment
-        mood_delta = _ACTION_MOOD_DELTA.get(action_type, 0.0)
-        agent.mood = max(0.0, min(1.0, agent.mood + mood_delta))
-
-        # Rest restores a small amount of health
-        if action_type == "rest":
-            agent.health = min(1.0, agent.health + 0.02)
-
-        agent.save(update_fields=["mood", "health"])
-
-        # Create memory of the action
-        emotional_weight = _ACTION_EMOTIONAL_WEIGHT.get(action_type, _DEFAULT_EMOTIONAL_WEIGHT)
-        reason = action.get("reason", "")
-        Memory.objects.create(
-            agent=agent,
-            content=f"I decided to {action_type}. {reason}".strip(),
-            emotional_weight=emotional_weight,
-            source_type="direct",
-            tick_created=tick,
-        )
+        Delegates to the module-level apply_agent_action function, which
+        is shared with the process_agent_turn Celery task.
+        """
+        apply_agent_action(agent, action, tick)
 
     def _broadcast_tick(self, tick: int, events: list, agents: list, world) -> None:
         """Send tick update to all connected WebSocket clients.
