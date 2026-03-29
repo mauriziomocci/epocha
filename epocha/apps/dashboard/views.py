@@ -169,10 +169,16 @@ def simulation_pause_view(request, sim_id):
 def inject_event_view(request, sim_id):
     """Inject a user-defined event into the simulation.
 
-    The event is saved to the Event model and will be included in the
-    context of all agent decisions for the next 5 ticks, causing agents
-    to react to it according to their personality.
+    The event has immediate effects on all living agents:
+    1. Saved as an Event in the database
+    2. Mood and health adjusted based on severity
+    3. A Memory is created for every living agent (so they know what happened)
+    4. Agents with severity >= 0.9 can be killed by the event
+
+    The event is also included in agent decision context for future ticks.
     """
+    from epocha.apps.agents.models import Agent, Memory
+
     simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
 
     title = request.POST.get("title", "").strip()
@@ -183,17 +189,77 @@ def inject_event_view(request, sim_id):
     if not title or not description:
         return redirect("dashboard:simulation-detail", sim_id=simulation.id)
 
+    severity = min(1.0, max(0.0, severity))
+
     Event.objects.create(
         simulation=simulation,
         tick=simulation.current_tick,
         event_type=event_type,
         title=title,
         description=description,
-        severity=min(1.0, max(0.0, severity)),
+        severity=severity,
         caused_by="user_injection",
     )
 
-    django_messages.success(request, f"Event injected: {title}")
+    # Apply immediate effects to all living agents
+    agents = Agent.objects.filter(simulation=simulation, is_alive=True)
+    affected_count = 0
+    description_lower = description.lower()
+
+    for agent in agents:
+        # Check if this agent is specifically named in the event
+        is_targeted = agent.name.lower() in description_lower or agent.role.lower() in description_lower
+
+        # Determine impact multiplier (targeted agents feel it more)
+        impact = severity if is_targeted else severity * 0.3
+
+        # Mood impact (negative events reduce mood, positive can increase it)
+        negative_keywords = ("morte", "death", "kill", "uccis", "distrugg", "destroy", "plague",
+                           "famine", "carestia", "guerra", "war", "attack", "attacc", "pain",
+                           "dolor", "ferit", "wound", "perd", "lose", "lost", "ruin")
+        positive_keywords = ("ricch", "rich", "wealth", "gift", "regalo", "vittoria", "victory",
+                           "scopert", "discover", "cur", "heal", "pace", "peace")
+
+        is_negative = any(kw in description_lower for kw in negative_keywords)
+        is_positive = any(kw in description_lower for kw in positive_keywords)
+
+        if is_negative:
+            agent.mood = max(0.0, agent.mood - impact * 0.5)
+            if is_targeted:
+                agent.health = max(0.0, agent.health - impact * 0.3)
+        elif is_positive:
+            agent.mood = min(1.0, agent.mood + impact * 0.3)
+            if is_targeted and "ricch" in description_lower or "rich" in description_lower:
+                agent.wealth += impact * 100
+
+        # Death events
+        death_keywords = ("morte", "death", "kill", "uccis", "muore", "dies", "dead",
+                         "pugnalat", "stab", "assassin")
+        if is_targeted and any(kw in description_lower for kw in death_keywords) and severity >= 0.7:
+            agent.is_alive = False
+            agent.health = 0.0
+            agent.mood = 0.0
+
+        agent.save(update_fields=["mood", "health", "wealth", "is_alive"])
+
+        # Create memory of the event for this agent
+        if is_targeted:
+            memory_content = f"{title}: {description}"
+            emotional_weight = min(1.0, severity + 0.2)
+        else:
+            memory_content = f"I heard that: {title}"
+            emotional_weight = severity * 0.5
+
+        Memory.objects.create(
+            agent=agent,
+            content=memory_content,
+            emotional_weight=emotional_weight,
+            source_type="direct" if is_targeted else "hearsay",
+            tick_created=simulation.current_tick,
+        )
+        affected_count += 1
+
+    django_messages.success(request, f"Event injected: {title} — {affected_count} agents affected")
 
     # Redirect back to the referring page (chat or simulation detail)
     referer = request.META.get("HTTP_REFERER", "")
