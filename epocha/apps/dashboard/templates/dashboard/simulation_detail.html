@@ -21,155 +21,120 @@
                 <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-medium">Pause</button>
             </form>
             {% endif %}
-            <a href="{% url 'dashboard:group-chat' sim_id=simulation.id %}"
-               class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded font-medium">Group Chat</a>
-            <a href="{% url 'dashboard:simulation-report' sim_id=simulation.id %}"
-               class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded font-medium">Report</a>
+            <a href="{% url 'dashboard:group-chat' sim_id=simulation.id %}" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded font-medium">Group Chat</a>
+            <a href="{% url 'dashboard:simulation-report' sim_id=simulation.id %}" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded font-medium">Report</a>
         </div>
     </div>
 
-    <!-- Status bar -->
+    <!-- Status bar (live) -->
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <div class="bg-gray-800 rounded-lg p-3">
             <p class="text-xs text-gray-500">Status</p>
-            <p class="text-lg font-bold
-                {% if simulation.status == 'running' %}text-green-400
-                {% elif simulation.status == 'paused' %}text-yellow-400
-                {% elif simulation.status == 'error' %}text-red-400
-                {% else %}text-gray-300{% endif %}"
-               x-text="status || '{{ simulation.get_status_display }}'">{{ simulation.get_status_display }}</p>
+            <p class="text-lg font-bold" :class="{'text-green-400': liveStatus==='running', 'text-yellow-400': liveStatus==='paused', 'text-red-400': liveStatus==='error'}" x-text="liveStatus">{{ simulation.get_status_display }}</p>
         </div>
         <div class="bg-gray-800 rounded-lg p-3">
             <p class="text-xs text-gray-500">Tick</p>
-            <p class="text-lg font-bold" x-text="tick || '{{ simulation.current_tick }}'">{{ simulation.current_tick }}</p>
+            <p class="text-lg font-bold" x-text="liveTick">{{ simulation.current_tick }}</p>
         </div>
         <div class="bg-gray-800 rounded-lg p-3">
             <p class="text-xs text-gray-500">Agents</p>
-            <p class="text-lg font-bold">{{ agents|length }}</p>
+            <p class="text-lg font-bold" x-text="liveAgents.filter(a=>a.alive).length + '/' + liveAgents.length">{{ agents|length }}</p>
         </div>
         <div class="bg-gray-800 rounded-lg p-3">
             <p class="text-xs text-gray-500">Stability</p>
-            <p class="text-lg font-bold">{% if world %}{{ world.stability_index|floatformat:2 }}{% else %}N/A{% endif %}</p>
+            <p class="text-lg font-bold" x-text="liveStability">0</p>
         </div>
         <div class="bg-gray-800 rounded-lg p-3">
             <p class="text-xs text-gray-500">LLM Cost</p>
-            <p class="text-lg font-bold">${{ total_cost }}</p>
-            <p class="text-xs text-gray-500">{{ total_requests }} calls</p>
+            <p class="text-lg font-bold">$<span x-text="liveCost">0</span></p>
+            <p class="text-xs text-gray-500"><span x-text="liveRequests">0</span> calls</p>
         </div>
     </div>
 
-    <!-- Two columns: Agents | Events -->
+    <!-- Two columns -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Agents -->
+        <!-- Agents with health/mood bars -->
         <div>
             <h2 class="text-lg font-semibold mb-3">Agents</h2>
-            <div class="space-y-2 max-h-96 overflow-y-auto">
-                {% for agent in agents %}
-                <a href="{% url 'dashboard:chat' sim_id=simulation.id agent_id=agent.id %}"
-                   class="block bg-gray-800 border border-gray-700 rounded p-3 hover:border-indigo-500 transition">
-                    <div class="flex justify-between">
-                        <div>
-                            <span class="font-medium">{{ agent.name }}</span>
-                            <span class="text-gray-400 text-sm">({{ agent.role }})</span>
+            <div class="space-y-2 max-h-[500px] overflow-y-auto">
+                <template x-for="agent in liveAgents" :key="agent.id">
+                    <a :href="'/simulations/{{ simulation.id }}/chat/' + agent.id + '/'" class="block bg-gray-800 border border-gray-700 rounded p-3 hover:border-indigo-500 transition">
+                        <div class="flex justify-between">
+                            <div>
+                                <span class="font-medium" x-text="agent.name"></span>
+                                <span class="text-gray-400 text-sm" x-text="'(' + agent.role + ')'"></span>
+                            </div>
+                            <span class="text-xs" :class="agent.alive ? 'text-green-400' : 'text-red-400'" x-text="agent.alive ? 'Alive' : 'Dead'"></span>
                         </div>
-                        <span class="text-xs {% if agent.is_alive %}text-green-400{% else %}text-red-400{% endif %}">
-                            {% if agent.is_alive %}Alive{% else %}Dead{% endif %}
-                        </span>
-                    </div>
-                    <div class="flex gap-4 mt-1 text-xs text-gray-500">
-                        <span>Health: {{ agent.health|floatformat:1 }}</span>
-                        <span>Mood: {{ agent.mood|floatformat:1 }}</span>
-                        <span>Wealth: {{ agent.wealth|floatformat:0 }}</span>
-                    </div>
-                </a>
-                {% empty %}
-                <p class="text-gray-500">No agents.</p>
-                {% endfor %}
+                        <div class="mt-2 space-y-1">
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="text-gray-500 w-12">Health</span>
+                                <div class="flex-1 bg-gray-700 rounded-full h-2"><div class="h-2 rounded-full transition-all" :class="agent.health > 0.5 ? 'bg-green-500' : agent.health > 0.2 ? 'bg-yellow-500' : 'bg-red-500'" :style="'width:' + (agent.health * 100) + '%'"></div></div>
+                                <span class="text-gray-400 w-8" x-text="agent.health"></span>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="text-gray-500 w-12">Mood</span>
+                                <div class="flex-1 bg-gray-700 rounded-full h-2"><div class="h-2 rounded-full transition-all" :class="agent.mood > 0.5 ? 'bg-blue-500' : agent.mood > 0.2 ? 'bg-yellow-500' : 'bg-red-500'" :style="'width:' + (agent.mood * 100) + '%'"></div></div>
+                                <span class="text-gray-400 w-8" x-text="agent.mood"></span>
+                            </div>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">Wealth: <span x-text="agent.wealth"></span></div>
+                    </a>
+                </template>
             </div>
         </div>
 
-        <!-- Activity Feed -->
+        <!-- Live Activity Feed -->
         <div>
-            <h2 class="text-lg font-semibold mb-3">Activity Feed</h2>
-            <div class="space-y-2 max-h-96 overflow-y-auto">
-                {% for decision in decisions %}
-                <div class="bg-gray-800 border border-gray-700 rounded p-3">
-                    <div class="flex justify-between">
-                        <span class="font-medium text-sm">{{ decision.agent.name }}</span>
-                        <span class="text-xs text-gray-500">Tick {{ decision.tick }}</span>
+            <h2 class="text-lg font-semibold mb-3">Live Activity <span x-show="liveStatus === 'running'" class="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse ml-1"></span></h2>
+            <div class="space-y-2 max-h-[500px] overflow-y-auto">
+                <template x-for="event in liveEvents" :key="event.title + event.tick">
+                    <div class="bg-gray-800 border border-yellow-700 rounded p-2">
+                        <div class="flex justify-between">
+                            <span class="font-medium text-sm text-yellow-300" x-text="event.title"></span>
+                            <span class="text-xs text-gray-500" x-text="'Tick ' + event.tick"></span>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1" x-text="event.description"></p>
                     </div>
-                    <p class="text-xs text-gray-400 mt-1">{{ decision.output_decision|truncatewords:15 }}</p>
-                </div>
-                {% empty %}
-                <p class="text-gray-500">No activity yet. Press Play to start the simulation.</p>
-                {% endfor %}
-
-                {% if events %}
-                <h3 class="text-md font-semibold mt-4 mb-2 text-yellow-400">Major Events</h3>
-                {% for event in events %}
-                <div class="bg-gray-800 border border-yellow-700 rounded p-3">
-                    <div class="flex justify-between">
-                        <span class="font-medium text-sm text-yellow-300">{{ event.title }}</span>
-                        <span class="text-xs text-gray-500">Tick {{ event.tick }}</span>
+                </template>
+                <template x-for="(d, i) in liveDecisions" :key="i">
+                    <div class="bg-gray-800 border border-gray-700 rounded p-2">
+                        <div class="flex justify-between">
+                            <span class="text-sm text-indigo-300" x-text="d.agent"></span>
+                            <span class="text-xs text-gray-500" x-text="'Tick ' + d.tick"></span>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1" x-text="d.decision"></p>
                     </div>
-                    <p class="text-xs text-gray-400 mt-1">{{ event.description|truncatewords:20 }}</p>
-                </div>
-                {% endfor %}
-                {% endif %}
+                </template>
+                <p x-show="liveDecisions.length === 0 && liveEvents.length === 0" class="text-gray-500">No activity yet. Press Play to start.</p>
             </div>
         </div>
     </div>
 
-    <!-- Inject Event Panel -->
+    <!-- Inject Event -->
     <div class="mt-6" x-data="{ open: false }">
-        <button @click="open = !open" class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-medium">
-            Inject Event
-        </button>
+        <button @click="open = !open" class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-medium">Inject Event</button>
         <div x-show="open" x-cloak class="mt-3 bg-gray-800 border border-gray-700 rounded-lg p-4">
-            <h3 class="font-semibold mb-3">Inject an event into the simulation</h3>
-            <p class="text-xs text-gray-400 mb-3">The event will be included in every agent's context for the next 5 ticks, causing them to react according to their personality.</p>
+            <h3 class="font-semibold mb-3">Inject an event</h3>
+            <p class="text-xs text-gray-400 mb-3">The AI determines who is affected and how.</p>
             <form method="post" action="{% url 'dashboard:inject-event' sim_id=simulation.id %}" class="space-y-3">
                 {% csrf_token %}
-                <div>
-                    <label class="block text-sm text-gray-400 mb-1">Event title</label>
-                    <input type="text" name="title" required placeholder="A devastating flood hits the village"
-                           class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-yellow-500 focus:outline-none">
-                </div>
-                <div>
-                    <label class="block text-sm text-gray-400 mb-1">Description</label>
-                    <textarea name="description" rows="3" required
-                              placeholder="Heavy rains caused the river to overflow, destroying crops and flooding the lower village. Several houses are damaged and food supplies are ruined."
-                              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-yellow-500 focus:outline-none resize-y"></textarea>
-                </div>
+                <input type="text" name="title" required placeholder="Event title" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-yellow-500 focus:outline-none">
+                <textarea name="description" rows="2" required placeholder="What happens..." class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-yellow-500 focus:outline-none resize-y"></textarea>
                 <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Type</label>
-                        <select name="event_type" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
-                            <option value="economic">Economic</option>
-                            <option value="political">Political</option>
-                            <option value="social">Social</option>
-                            <option value="military">Military</option>
-                            <option value="natural">Natural</option>
-                            <option value="scientific">Scientific</option>
-                            <option value="cultural">Cultural</option>
-                            <option value="custom" selected>Custom</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Severity (0.0 - 1.0)</label>
-                        <input type="number" name="severity" value="0.5" min="0" max="1" step="0.1"
-                               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-yellow-500 focus:outline-none">
-                    </div>
+                    <select name="event_type" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                        <option value="economic">Economic</option><option value="political">Political</option>
+                        <option value="social">Social</option><option value="military">Military</option>
+                        <option value="natural">Natural</option><option value="custom" selected>Custom</option>
+                    </select>
+                    <input type="number" name="severity" value="0.5" min="0" max="1" step="0.1" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
                 </div>
-                <div class="text-xs text-gray-500">
-                    Examples: "A plague arrives from a merchant ship" | "The landowner raises taxes by 50%" | "A charismatic stranger arrives preaching revolution"
-                </div>
-                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-medium text-sm">Inject Event</button>
+                <p class="text-xs text-gray-500">Severity 0.7+ can kill. The AI understands natural language.</p>
+                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded text-sm">Inject</button>
             </form>
         </div>
     </div>
 </div>
-
 <a href="{% url 'dashboard:home' %}" class="inline-block mt-6 text-sm text-gray-400 hover:text-gray-300">Back to simulations</a>
 {% endblock %}
 
@@ -177,17 +142,32 @@
 <script>
 function simulationDashboard() {
     return {
-        tick: null,
-        status: null,
+        liveStatus: '{{ simulation.status }}',
+        liveTick: {{ simulation.current_tick }},
+        liveStability: '{% if world %}{{ world.stability_index|floatformat:2 }}{% else %}0{% endif %}',
+        liveCost: '{{ total_cost }}',
+        liveRequests: '{{ total_requests }}',
+        liveAgents: {{ agents_json|safe }},
+        liveDecisions: {{ decisions_json|safe }},
+        liveEvents: {{ events_json|safe }},
         interval: null,
         startPolling() {
-            {% if simulation.status == 'running' %}
-            // Auto-refresh every 15 seconds when simulation is running
-            this.interval = setInterval(() => {
-                window.location.reload();
-            }, 15000);
-            {% endif %}
-        }
+            this.interval = setInterval(() => this.fetchFeed(), 5000);
+        },
+        async fetchFeed() {
+            try {
+                const r = await fetch('{% url "dashboard:simulation-feed" sim_id=simulation.id %}');
+                const data = await r.json();
+                this.liveStatus = data.status;
+                this.liveTick = data.tick;
+                this.liveStability = data.stability;
+                this.liveCost = data.total_cost;
+                this.liveRequests = data.total_requests;
+                this.liveAgents = data.agents;
+                this.liveDecisions = data.decisions;
+                this.liveEvents = data.events;
+            } catch (e) {}
+        },
     }
 }
 </script>

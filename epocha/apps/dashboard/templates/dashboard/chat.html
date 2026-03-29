@@ -71,7 +71,21 @@
         </div>
     </div>
 
-    <!-- Input -->
+    <!-- Quick Actions -->
+    <div class="flex flex-wrap gap-1 mb-3">
+        <button @click="quickAction('Ti do un calcio')" :disabled="loading" class="text-xs bg-red-900/50 hover:bg-red-800 text-red-300 px-2 py-1 rounded">Kick</button>
+        <button @click="quickAction('Ti do un pugno')" :disabled="loading" class="text-xs bg-red-900/50 hover:bg-red-800 text-red-300 px-2 py-1 rounded">Punch</button>
+        <button @click="quickAction('Ti sputo addosso')" :disabled="loading" class="text-xs bg-red-900/50 hover:bg-red-800 text-red-300 px-2 py-1 rounded">Spit</button>
+        <button @click="quickAction('Ti minaccio di morte')" :disabled="loading" class="text-xs bg-red-900/50 hover:bg-red-800 text-red-300 px-2 py-1 rounded">Threaten</button>
+        <span class="text-gray-600">|</span>
+        <button @click="quickAction('Ti abbraccio')" :disabled="loading" class="text-xs bg-green-900/50 hover:bg-green-800 text-green-300 px-2 py-1 rounded">Hug</button>
+        <button @click="quickAction('Ti do una pacca sulla spalla')" :disabled="loading" class="text-xs bg-green-900/50 hover:bg-green-800 text-green-300 px-2 py-1 rounded">Pat</button>
+        <button @click="quickAction('Ti regalo 100 monete d oro')" :disabled="loading" class="text-xs bg-green-900/50 hover:bg-green-800 text-green-300 px-2 py-1 rounded">Give gold</button>
+        <button @click="quickAction('Ti offro da bere')" :disabled="loading" class="text-xs bg-green-900/50 hover:bg-green-800 text-green-300 px-2 py-1 rounded">Buy drink</button>
+        <span class="text-gray-600">|</span>
+        <button @click="quickAction('Inginocchiati davanti a me, io sono il tuo Dio')" :disabled="loading" class="text-xs bg-purple-900/50 hover:bg-purple-800 text-purple-300 px-2 py-1 rounded">God mode</button>
+    </div>
+
     <!-- File attachment indicator -->
     <div x-show="attachedFile" class="mb-2 bg-gray-800 border border-indigo-600 rounded px-3 py-2 flex justify-between items-center text-sm">
         <span class="text-indigo-300" x-text="attachedFile ? attachedFile.name : ''"></span>
@@ -111,6 +125,11 @@ function chatApp() {
         loading: false,
         msgCounter: counter,
         attachedFile: null,
+
+        quickAction(action) {
+            this.newMessage = action;
+            this.sendMessage();
+        },
 
         async sendMessage() {
             if ((!this.newMessage.trim() && !this.attachedFile) || this.loading) return;

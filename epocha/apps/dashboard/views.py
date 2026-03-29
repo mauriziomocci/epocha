@@ -108,6 +108,47 @@ def simulation_create_view(request):
 
 
 @login_required(login_url="/login/")
+def simulation_feed_api(request, sim_id):
+    """AJAX endpoint for live feed polling."""
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+    agents = Agent.objects.filter(simulation=simulation).order_by("name")
+    decisions = (
+        DecisionLog.objects.filter(simulation=simulation)
+        .select_related("agent")
+        .order_by("-tick")[:15]
+    )
+    events = Event.objects.filter(simulation=simulation).order_by("-tick")[:10]
+    world = World.objects.filter(simulation=simulation).first()
+
+    from django.db.models import Count, Sum
+
+    cost_stats = LLMRequest.objects.filter(
+        simulation_id=simulation.id, success=True,
+    ).aggregate(total_cost=Sum("cost_usd"), total_requests=Count("id"))
+
+    return JsonResponse({
+        "status": simulation.status,
+        "tick": simulation.current_tick,
+        "stability": round(world.stability_index, 2) if world else 0,
+        "total_cost": round(cost_stats["total_cost"] or 0, 4),
+        "total_requests": cost_stats["total_requests"] or 0,
+        "agents": [
+            {"id": a.id, "name": a.name, "role": a.role, "alive": a.is_alive,
+             "health": round(a.health, 1), "mood": round(a.mood, 1), "wealth": round(a.wealth, 0)}
+            for a in agents
+        ],
+        "decisions": [
+            {"agent": d.agent.name, "tick": d.tick, "decision": d.output_decision[:100]}
+            for d in decisions
+        ],
+        "events": [
+            {"title": e.title, "tick": e.tick, "description": e.description[:80]}
+            for e in events
+        ],
+    })
+
+
+@login_required(login_url="/login/")
 def simulation_detail_view(request, sim_id):
     simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
     agents = Agent.objects.filter(simulation=simulation).order_by("name")
@@ -130,9 +171,27 @@ def simulation_detail_view(request, sim_id):
         total_requests=Count("id"),
     )
 
+    # JSON for Alpine.js live feed initialization
+    agents_json = json.dumps([
+        {"id": a.id, "name": a.name, "role": a.role, "alive": a.is_alive,
+         "health": round(a.health, 1), "mood": round(a.mood, 1), "wealth": round(a.wealth, 0)}
+        for a in agents
+    ])
+    decisions_json = json.dumps([
+        {"agent": d.agent.name, "tick": d.tick, "decision": d.output_decision[:100]}
+        for d in decisions
+    ])
+    events_json = json.dumps([
+        {"title": e.title, "tick": e.tick, "description": e.description[:80]}
+        for e in events
+    ])
+
     context = {
         "simulation": simulation,
         "agents": agents,
+        "agents_json": agents_json,
+        "decisions_json": decisions_json,
+        "events_json": events_json,
         "events": events,
         "decisions": decisions,
         "world": world,

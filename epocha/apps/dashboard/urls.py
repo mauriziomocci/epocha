@@ -15,6 +15,7 @@ urlpatterns = [
     path("", views.simulation_list_view, name="home"),
     path("simulations/create/", views.simulation_create_view, name="simulation-create"),
     path("simulations/<int:sim_id>/", views.simulation_detail_view, name="simulation-detail"),
+    path("simulations/<int:sim_id>/feed/", views.simulation_feed_api, name="simulation-feed"),
     path("simulations/<int:sim_id>/play/", views.simulation_play_view, name="simulation-play"),
     path("simulations/<int:sim_id>/pause/", views.simulation_pause_view, name="simulation-pause"),
     path("simulations/<int:sim_id>/report/", views.simulation_report_view, name="simulation-report"),
