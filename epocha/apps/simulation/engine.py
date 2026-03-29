@@ -10,7 +10,12 @@ Each tick is a discrete time step where:
 
 Agent failures are isolated: if one agent's LLM call fails, the tick
 continues for all other agents. This ensures simulation resilience.
+
+Module-level functions (run_economy, run_memory_decay, broadcast_tick) are
+used by both the SimulationEngine (synchronous path) and the Celery chord
+tasks (production path). This avoids duplicating logic across execution modes.
 """
+
 from __future__ import annotations
 
 import logging
@@ -91,104 +96,124 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
     )
 
 
+def run_economy(simulation) -> None:
+    """Run the economy tick for a simulation's world."""
+    world = simulation.world
+    process_economy_tick(world, simulation.current_tick + 1)
+
+
+def run_memory_decay(simulation, tick: int) -> None:
+    """Decay memories for all living agents if at the decay interval.
+
+    Memory decay runs every _MEMORY_DECAY_INTERVAL ticks to reduce the
+    number of DB writes. On non-decay ticks this is a no-op.
+
+    Args:
+        simulation: The simulation instance.
+        tick: The current tick number (decay runs when tick % interval == 0).
+    """
+    if tick % _MEMORY_DECAY_INTERVAL != 0:
+        return
+    agents = Agent.objects.filter(simulation=simulation, is_alive=True)
+    for agent in agents:
+        decay_memories(agent, tick)
+
+
+def broadcast_tick(simulation, tick: int, events: list) -> None:
+    """Send tick update to all connected WebSocket clients.
+
+    Broadcasts events, agent summary, and world state via the Channels
+    layer. Clients subscribed to the simulation group receive real-time
+    updates. Failures are logged but never crash the simulation.
+
+    Args:
+        simulation: The simulation instance.
+        tick: The tick number to broadcast.
+        events: List of event dicts from agent actions.
+    """
+    try:
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+
+        agents = list(Agent.objects.filter(simulation=simulation, is_alive=True))
+        agent_count = len(agents)
+        world = simulation.world
+        data = {
+            "tick": tick,
+            "events": events,
+            "agents_summary": {
+                "alive": agent_count,
+                "avg_mood": round(sum(a.mood for a in agents) / max(agent_count, 1), 2),
+                "avg_wealth": round(
+                    sum(a.wealth for a in agents) / max(agent_count, 1), 2
+                ),
+            },
+            "world": {
+                "stability": round(world.stability_index, 2),
+            },
+        }
+
+        async_to_sync(channel_layer.group_send)(
+            f"simulation_{simulation.id}",
+            {"type": "simulation_update", "data": data},
+        )
+    except Exception:
+        logger.exception("Failed to broadcast tick %d", tick)
+
+
 class SimulationEngine:
     """Orchestrates one tick of the simulation.
 
-    Usage:
-        engine = SimulationEngine(simulation)
-        engine.run_tick()  # advances by one tick
+    For synchronous execution (tests, dashboard). The Celery-based
+    production path uses run_simulation_loop which launches a chord.
     """
 
     def __init__(self, simulation):
         self.simulation = simulation
 
     def run_tick(self) -> None:
-        """Execute a single simulation tick."""
+        """Execute a single simulation tick synchronously."""
         tick = self.simulation.current_tick + 1
         world = self.simulation.world
 
         logger.info("Simulation %d: running tick %d", self.simulation.id, tick)
 
-        # 1. Economy (updates wealth, mood, health, stability)
+        # 1. Economy
         process_economy_tick(world, tick)
 
-        # 2. Agent decisions (re-fetch from DB after economy changes)
-        agents = list(
-            Agent.objects.filter(simulation=self.simulation, is_alive=True)
-        )
+        # 2. Agent decisions (sequential fallback)
+        agents = list(Agent.objects.filter(simulation=self.simulation, is_alive=True))
         tick_events = []
         for agent in agents:
             agent.refresh_from_db()
             try:
                 action = process_agent_decision(agent, world, tick)
-                self._apply_action(agent, action, tick)
-                # Track notable actions for the event feed
+                apply_agent_action(agent, action, tick)
                 action_type = action.get("action", "rest")
                 if action_type not in ("rest", "work"):
-                    tick_events.append({
-                        "title": f"{agent.name} decided to {action_type}",
-                        "severity": _ACTION_EMOTIONAL_WEIGHT.get(action_type, 0.1),
-                        "agent": agent.name,
-                        "reason": action.get("reason", ""),
-                    })
+                    tick_events.append(
+                        {
+                            "title": f"{agent.name} decided to {action_type}",
+                            "severity": _ACTION_EMOTIONAL_WEIGHT.get(action_type, 0.1),
+                            "agent": agent.name,
+                            "reason": action.get("reason", ""),
+                        }
+                    )
             except Exception:
                 logger.exception("Agent %s failed at tick %d", agent.name, tick)
 
-        # 3. Memory decay (periodic, to reduce DB writes)
-        if tick % _MEMORY_DECAY_INTERVAL == 0:
-            for agent in agents:
-                decay_memories(agent, tick)
+        # 3. Memory decay
+        run_memory_decay(self.simulation, tick)
 
-        # 4. Advance tick counter
+        # 4. Advance tick
         self.simulation.current_tick = tick
         self.simulation.save(update_fields=["current_tick", "updated_at"])
 
-        # 5. Broadcast to WebSocket clients
-        self._broadcast_tick(tick, tick_events, agents, world)
+        # 5. Broadcast
+        broadcast_tick(self.simulation, tick, tick_events)
 
         logger.info("Simulation %d: tick %d complete", self.simulation.id, tick)
-
-    def _apply_action(self, agent: Agent, action: dict, tick: int) -> None:
-        """Apply consequences of an agent's action and create a memory.
-
-        Delegates to the module-level apply_agent_action function, which
-        is shared with the process_agent_turn Celery task.
-        """
-        apply_agent_action(agent, action, tick)
-
-    def _broadcast_tick(self, tick: int, events: list, agents: list, world) -> None:
-        """Send tick update to all connected WebSocket clients.
-
-        Broadcasts events, agent summary, and world state via the
-        Channels layer. Clients subscribed to the simulation group
-        receive real-time updates.
-        """
-        try:
-            from asgiref.sync import async_to_sync
-            from channels.layers import get_channel_layer
-
-            channel_layer = get_channel_layer()
-            if channel_layer is None:
-                return
-
-            agent_count = len(agents)
-            data = {
-                "tick": tick,
-                "events": events,
-                "agents_summary": {
-                    "alive": agent_count,
-                    "avg_mood": round(sum(a.mood for a in agents) / max(agent_count, 1), 2),
-                    "avg_wealth": round(sum(a.wealth for a in agents) / max(agent_count, 1), 2),
-                },
-                "world": {
-                    "stability": round(world.stability_index, 2),
-                },
-            }
-
-            async_to_sync(channel_layer.group_send)(
-                f"simulation_{self.simulation.id}",
-                {"type": "simulation_update", "data": data},
-            )
-        except Exception:
-            # Broadcasting failure should never crash the simulation
-            logger.exception("Failed to broadcast tick %d", tick)
