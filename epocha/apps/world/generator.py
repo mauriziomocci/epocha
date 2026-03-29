@@ -126,13 +126,19 @@ def generate_world_from_prompt(prompt: str, simulation) -> dict:
         )
         agents_created += 1
 
+    # Enrich historical/real agents with biographical research
+    from epocha.apps.agents.enrichment import enrich_simulation_agents
+
+    enrichment_stats = enrich_simulation_agents(simulation)
+
     logger.info(
-        "World generated for simulation %d: %d zones, %d agents",
-        simulation.id, zones_created, agents_created,
+        "World generated for simulation %d: %d zones, %d agents (%d enriched)",
+        simulation.id, zones_created, agents_created, enrichment_stats["enriched"],
     )
 
     return {
         "world_id": world.id,
         "zones": zones_created,
         "agents": agents_created,
+        "enriched": enrichment_stats["enriched"],
     }
