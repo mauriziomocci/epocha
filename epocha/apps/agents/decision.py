@@ -10,6 +10,7 @@ import json
 import logging
 
 from epocha.apps.llm_adapter.client import get_llm_client
+from epocha.common.utils import clean_llm_json
 
 from .memory import get_relevant_memories
 from .models import DecisionLog, Relationship
@@ -109,12 +110,7 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     )
 
     # 4. Parse response (strip markdown fences if present)
-    cleaned = raw_response.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned[cleaned.index("\n") + 1:]
-    if cleaned.endswith("```"):
-        cleaned = cleaned[:-3]
-    cleaned = cleaned.strip()
+    cleaned = clean_llm_json(raw_response)
 
     try:
         action = json.loads(cleaned)

@@ -14,25 +14,11 @@ import logging
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.llm_adapter.client import get_llm_client
+from epocha.common.utils import clean_llm_json
 
 from .models import World, Zone
 
 logger = logging.getLogger(__name__)
-
-def _clean_llm_json(raw: str) -> str:
-    """Strip markdown code fences from LLM output.
-
-    Many models wrap JSON in ```json ... ``` blocks. This extracts the
-    content between the fences, or returns the raw string if no fences found.
-    """
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        # Remove opening fence (```json or ```)
-        first_newline = cleaned.index("\n")
-        cleaned = cleaned[first_newline + 1:]
-    if cleaned.endswith("```"):
-        cleaned = cleaned[:-3]
-    return cleaned.strip()
 
 
 _WORLD_GENERATION_PROMPT = """Based on the user's description, generate a world for a civilization simulation.
@@ -98,7 +84,7 @@ def generate_world_from_prompt(prompt: str, simulation) -> dict:
     )
 
     try:
-        data = json.loads(_clean_llm_json(raw))
+        data = json.loads(clean_llm_json(raw))
     except json.JSONDecodeError:
         logger.error("World generation returned invalid JSON: %s", raw[:200])
         raise ValueError("LLM returned invalid JSON for world generation")
