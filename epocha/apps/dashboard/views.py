@@ -201,53 +201,82 @@ def inject_event_view(request, sim_id):
         caused_by="user_injection",
     )
 
-    # Apply immediate effects to all living agents
+    # Use the LLM to classify the event and determine effects on each agent
+    from epocha.apps.llm_adapter.client import get_llm_client
+
     agents = Agent.objects.filter(simulation=simulation, is_alive=True)
     affected_count = 0
-    description_lower = description.lower()
 
-    for agent in agents:
-        # Check if this agent is referenced in the event (by name or role)
-        # Match any word of the name or role, not the whole string
-        name_words = agent.name.lower().split()
-        role_words = agent.role.lower().split()
-        all_words = [w for w in name_words + role_words if len(w) > 2]  # Skip short words
-        title_and_desc = (title + " " + description).lower()
-        is_targeted = any(word in title_and_desc for word in all_words)
+    # Ask the LLM to classify the event effects once
+    client = get_llm_client()
+    agent_names = ", ".join(f"{a.name} ({a.role})" for a in agents)
 
-        # Determine impact multiplier (targeted agents feel it more)
-        impact = severity if is_targeted else severity * 0.3
+    classification_prompt = (
+        f"Event: {title} — {description}\n"
+        f"Severity: {severity}\n"
+        f"Agents in the simulation: {agent_names}\n\n"
+        f"For each agent, determine the effect of this event. "
+        f"Respond ONLY with a JSON array:\n"
+        f'[{{"name": "AgentName", "targeted": true/false, "dies": true/false, '
+        f'"mood_delta": -1.0 to 1.0, "health_delta": -1.0 to 1.0, '
+        f'"wealth_delta": -500 to 500}}]\n'
+        f"Rules: 'targeted' means the agent is directly involved. "
+        f"'dies' only if the event explicitly kills them. "
+        f"Non-targeted agents may still be affected (witnesses, relatives). /no_think"
+    )
 
-        # Mood impact (negative events reduce mood, positive can increase it)
-        negative_keywords = ("morte", "death", "kill", "uccis", "distrugg", "destroy", "plague",
-                           "famine", "carestia", "guerra", "war", "attack", "attacc", "pain",
-                           "dolor", "ferit", "wound", "perd", "lose", "lost", "ruin")
-        positive_keywords = ("ricch", "rich", "wealth", "gift", "regalo", "vittoria", "victory",
-                           "scopert", "discover", "cur", "heal", "pace", "peace")
+    try:
+        raw = client.complete(
+            prompt=classification_prompt,
+            system_prompt="You classify simulation events into structured effects. Respond ONLY with valid JSON.",
+            temperature=0.1,
+            max_tokens=500,
+            simulation_id=simulation.id,
+        )
 
-        is_negative = any(kw in description_lower for kw in negative_keywords)
-        is_positive = any(kw in description_lower for kw in positive_keywords)
+        # Clean and parse
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned[cleaned.index("\n") + 1:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        effects = json.loads(cleaned.strip())
+    except Exception:
+        # Fallback: apply uniform effects based on severity
+        effects = [{"name": a.name, "targeted": False, "dies": False,
+                    "mood_delta": -severity * 0.3, "health_delta": 0, "wealth_delta": 0}
+                   for a in agents]
 
-        if is_negative:
-            agent.mood = max(0.0, agent.mood - impact * 0.5)
-            if is_targeted:
-                agent.health = max(0.0, agent.health - impact * 0.3)
-        elif is_positive:
-            agent.mood = min(1.0, agent.mood + impact * 0.3)
-            if is_targeted and "ricch" in description_lower or "rich" in description_lower:
-                agent.wealth += impact * 100
+    # Apply effects
+    agent_map = {a.name: a for a in agents}
+    for effect in effects:
+        agent = agent_map.get(effect.get("name"))
+        if not agent:
+            continue
 
-        # Death events
-        death_keywords = ("morte", "death", "kill", "uccis", "muore", "dies", "dead",
-                         "pugnalat", "stab", "assassin")
-        if is_targeted and any(kw in description_lower for kw in death_keywords) and severity >= 0.7:
+        is_targeted = effect.get("targeted", False)
+
+        # Apply mood
+        mood_delta = float(effect.get("mood_delta", 0))
+        agent.mood = max(0.0, min(1.0, agent.mood + mood_delta))
+
+        # Apply health
+        health_delta = float(effect.get("health_delta", 0))
+        agent.health = max(0.0, min(1.0, agent.health + health_delta))
+
+        # Apply wealth
+        wealth_delta = float(effect.get("wealth_delta", 0))
+        agent.wealth += wealth_delta
+
+        # Death
+        if effect.get("dies", False):
             agent.is_alive = False
             agent.health = 0.0
             agent.mood = 0.0
 
         agent.save(update_fields=["mood", "health", "wealth", "is_alive"])
 
-        # Create memory of the event for this agent
+        # Create memory
         if is_targeted:
             memory_content = f"{title}: {description}"
             emotional_weight = min(1.0, severity + 0.2)
