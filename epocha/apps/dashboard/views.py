@@ -268,8 +268,8 @@ def inject_event_view(request, sim_id):
         wealth_delta = float(effect.get("wealth_delta", 0))
         agent.wealth += wealth_delta
 
-        # Death
-        if effect.get("dies", False):
+        # Death: explicit from LLM, or health dropped to zero
+        if effect.get("dies", False) or agent.health <= 0:
             agent.is_alive = False
             agent.health = 0.0
             agent.mood = 0.0
