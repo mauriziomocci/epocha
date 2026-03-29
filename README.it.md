@@ -103,6 +103,13 @@ Un singolo campo di testo. Digita un prompt e ottieni un mondo.
 scarse e tensione religiosa tra un culto solare e un culto lunare."
 
 "Cosa sarebbe successo se l'Impero Romano non fosse caduto nel 476?"
+
+"Europa nel 1945, ma le potenze dell'Asse hanno vinto la guerra. Simula 80 anni
+di questa storia alternativa: politica, economia, movimenti di resistenza,
+evoluzione culturale."
+
+"Una piccola nazione insulare scopre un'enorme fonte di energia. Simula 500 anni:
+chi la controlla, quali guerre provoca, come si trasforma la società."
 ```
 
 Il sistema analizza l'input, costruisce la base di conoscenza, genera il mondo, seleziona i parametri ottimali e avvia la simulazione. Nessuna configurazione necessaria. La modalità Express utilizza lo stesso motore della modalità avanzata -- il sistema prende tutte le decisioni di configurazione al posto tuo.
@@ -149,7 +156,7 @@ Ogni simulazione è riproducibile. Il sistema garantisce riproducibilità statis
 
 ## Casi d'uso
 
-**Scenari storici "e se"** -- Crea un fork della storia in un momento specifico e inietta una variabile diversa. Cosa sarebbe successo se la Biblioteca di Alessandria fosse sopravvissuta? Se la Peste Nera fosse stata due volte più letale? Se l'Impero Romano avesse scoperto la stampa prima del collasso? La simulazione sviluppa le conseguenze nel corso dei secoli con rigore scientifico.
+**Storia alternativa** -- E se le potenze dell'Asse avessero vinto la Seconda Guerra Mondiale? Se la Biblioteca di Alessandria fosse sopravvissuta? Se l'Impero Romano avesse scoperto la stampa prima del collasso? Crea un fork della storia in un momento specifico, cambia una variabile e osserva le conseguenze dispiegarsi nel corso di decenni o secoli. Simula movimenti di resistenza, mutamenti culturali, ristrutturazioni economiche e evoluzioni politiche in mondi che non sono mai esistiti ma che avrebbero potuto.
 
 **Proiezione futura** -- Parti dal 2026 e simula fino al 2126 o al 3026. Il Motore della conoscenza ancora i primi decenni ai dati reali del mondo attuale e alle estrapolazioni delle tendenze, poi segue le conseguenze emergenti ovunque la simulazione conduca. Osserva i futuri plausibili della disruzione dell'AI, della pressione climatica, delle transizioni energetiche e dei cambiamenti demografici attraverso le vite dei singoli agenti.
 
@@ -325,9 +332,32 @@ Epocha utilizza l'SDK OpenAI con un `base_url` configurabile, rendendolo compati
 | OpenAI | *(lasciare vuoto)* | `gpt-4o-mini` | Crediti iniziali |
 | Together AI | `https://api.together.xyz/v1` | Vari | Crediti iniziali |
 | Mistral | `https://api.mistral.ai/v1` | `mistral-small-latest` | No |
-| Locale (Ollama) | `http://localhost:11434/v1` | `qwen2.5:7b` | Illimitato |
+| LM Studio | `http://localhost:1234/v1` | `qwen3-8b`, `gemma3-4b` | Illimitato, completamente offline |
+| Ollama | `http://localhost:11434/v1` | `qwen2.5:7b` | Illimitato |
 
 **Ottieni una chiave API Gemini gratuita:** [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+
+**Esegui modelli in locale con LM Studio (gratuito, offline, senza limiti):**
+
+1. Scarica e installa da [lmstudio.ai](https://lmstudio.ai/)
+2. Apri LM Studio, vai nella scheda **Discover** e cerca `qwen3-8b` (oppure `gemma3-4b` per hardware meno potente)
+3. Clicca **Download** e attendi il completamento del download del modello
+4. Vai nella scheda **Developer** (o **Local Server** nelle versioni precedenti)
+5. Seleziona il modello scaricato dal menu a tendina
+6. Clicca **Start Server** — si avvia su `http://localhost:1234`
+7. Configura `.envs/.local/.django` di Epocha:
+
+```
+EPOCHA_LLM_API_KEY=lm-studio
+EPOCHA_LLM_MODEL=qwen3-8b
+EPOCHA_LLM_BASE_URL=http://localhost:1234/v1
+```
+
+Il server deve essere in esecuzione ogni volta che la simulazione è attiva. LM Studio funziona su macOS (Apple Silicon consigliato), Windows e Linux.
+
+**Hardware minimo per la simulazione con agenti:**
+- Modelli 8B (Qwen3, Llama 3.1): 8 GB di RAM, qualsiasi CPU moderna. GPU consigliata ma non necessaria.
+- Modelli 4B (Gemma3): 4 GB di RAM, funziona sulla maggior parte delle macchine.
 
 ### Stima della capacità con il piano gratuito di Gemini
 

@@ -1,0 +1,56 @@
+{% extends "dashboard/base.html" %}
+{% block title %}My Simulations - Epocha{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold">My Simulations</h1>
+    <a href="{% url 'dashboard:simulation-create' %}" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded font-medium">New Simulation</a>
+</div>
+
+{% if simulations %}
+<div class="grid gap-4">
+    {% for sim in simulations %}
+    <a href="{% url 'dashboard:simulation-detail' sim_id=sim.id %}" class="block bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-indigo-500 transition">
+        <div class="flex justify-between items-start">
+            <div>
+                <h2 class="text-lg font-semibold">{{ sim.name }}</h2>
+                <p class="text-sm text-gray-400 mt-1">{{ sim.description|truncatewords:20 }}</p>
+            </div>
+            <div class="text-right">
+                <span class="inline-block px-2 py-1 text-xs rounded
+                    {% if sim.status == 'running' %}bg-green-900 text-green-300
+                    {% elif sim.status == 'paused' %}bg-yellow-900 text-yellow-300
+                    {% elif sim.status == 'error' %}bg-red-900 text-red-300
+                    {% elif sim.status == 'created' %}bg-blue-900 text-blue-300
+                    {% else %}bg-gray-700 text-gray-300{% endif %}">
+                    {{ sim.get_status_display }}
+                </span>
+                <p class="text-sm text-gray-500 mt-1">Tick {{ sim.current_tick }}</p>
+            </div>
+        </div>
+        <div class="flex justify-between items-center mt-2">
+            <p class="text-xs text-gray-500">Created {{ sim.created_at|timesince }} ago</p>
+            <div class="flex gap-2">
+                {% if sim.status == 'paused' %}
+                <form method="post" action="{% url 'dashboard:simulation-play' sim_id=sim.id %}" onclick="event.stopPropagation();">
+                    {% csrf_token %}
+                    <button class="text-xs bg-green-700 hover:bg-green-600 text-white px-2 py-1 rounded">Resume</button>
+                </form>
+                {% elif sim.status == 'running' %}
+                <form method="post" action="{% url 'dashboard:simulation-pause' sim_id=sim.id %}" onclick="event.stopPropagation();">
+                    {% csrf_token %}
+                    <button class="text-xs bg-yellow-700 hover:bg-yellow-600 text-white px-2 py-1 rounded">Pause</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-16">
+    <p class="text-gray-400 text-lg">No simulations yet.</p>
+    <a href="{% url 'dashboard:simulation-create' %}" class="inline-block mt-4 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded font-medium">Create Your First World</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -14,9 +14,18 @@ class Simulation(models.Model):
         STOPPED = "stopped", "Stopped"
         ERROR = "error", "Error"
 
+    class Visibility(models.TextChoices):
+        PRIVATE = "private", "Private"
+        SHARED = "shared", "Shared"
+        PUBLIC = "public", "Public"
+
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.CREATED)
+    visibility = models.CharField(
+        max_length=10, choices=Visibility.choices, default=Visibility.PRIVATE,
+        help_text="Private: only owner. Shared: owner + collaborators. Public: everyone can view and fork.",
+    )
     seed = models.BigIntegerField(help_text="Seed for reproducibility (non-LLM part)")
     current_tick = models.PositiveIntegerField(default=0)
     speed = models.FloatField(default=1.0, help_text="Simulation speed multiplier")
@@ -24,6 +33,7 @@ class Simulation(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="simulations")
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, help_text="Simulation from which this was forked")
     branch_point = models.PositiveIntegerField(null=True, blank=True, help_text="Divergence tick from parent")
+    report = models.TextField(blank=True, default="", help_text="Auto-generated narrative report")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

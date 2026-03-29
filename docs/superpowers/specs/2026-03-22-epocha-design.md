@@ -24,6 +24,21 @@ L'utente può osservare, analizzare, interagire e influenzare il mondo a diversi
 2. **Emergenza** — Le crisi, le alleanze, i conflitti nascono dal basso, dall'interazione tra agenti e regole di sistema
 3. **Sperimentazione** — L'utente può iniettare eventi, personaggi, modificare regole e osservare le conseguenze
 4. **Analisi** — Dashboard psicostoriografica con trend, pattern, confronto tra scenari su scala generazionale
+5. **Rigore scientifico** — Ogni modello matematico, formula, algoritmo e parametro deve essere fondato su scienza consolidata, documentato con le fonti, e validato contro dati reali
+6. **Qualita del codice** — Codice elegante, scalabile, Pythonico. DRY rigoroso. Best practices Django (documentazione ufficiale + Two Scoops of Django). Ogni componente riutilizzabile dove ha senso
+
+### Principio fondamentale: rigore scientifico
+
+Epocha e un simulatore scientifico, non un gioco. Il rigore scientifico non e un obiettivo aspirazionale ma un requisito non negoziabile che si applica a ogni aspetto del sistema:
+
+- **Modelli matematici**: ogni formula implementata deve citare la fonte (paper, textbook, dataset). Nessun modello viene inventato — si usano modelli pubblicati e validati dalla comunita scientifica.
+- **Parametri e costanti**: ogni valore numerico deve provenire da dati reali. Se il tasso di crescita demografica e 0.02, deve esserci un riferimento che lo giustifica. Nessun "numero magico" senza spiegazione.
+- **Validazione**: ogni modello deve essere testato contro dati storici reali o risultati pubblicati prima di essere integrato. Se il modello SIR produce una curva epidemica, questa deve essere coerente con epidemie documentate.
+- **Teoria dei giochi**: gli equilibri di Nash, i valori di Shapley, e gli altri calcoli game-theoretic devono usare algoritmi corretti, non approssimazioni arbitrarie.
+- **Limiti dichiarati**: quando un modello e semplificato o i dati di calibrazione sono limitati, questo deve essere documentato esplicitamente. La trasparenza sui limiti e parte del rigore.
+- **Semplicita vs correttezza**: un modello semplice con assunzioni corrette e sempre preferibile a un modello complesso con parametri inventati. Se non abbiamo dati, usiamo la versione piu semplice difendibile.
+
+Questo principio si applica a tutti i livelli di rigore configurabili (semplificato, standard, rigoroso): anche al livello semplificato, le regole qualitative devono essere derivate da conoscenza scientifica, non inventate.
 
 ---
 
@@ -232,20 +247,271 @@ L'utente configura il suo client (Claude Code, Cursor, ecc.) puntando all'MCP se
 
 ### 1. Simulation Engine
 
-Il cuore del sistema. Gestisce il ciclo di vita della simulazione.
+Il cuore del sistema. Gestisce il ciclo di vita della simulazione con un'architettura di orchestrazione gerarchica ispirata ai sistemi distribuiti.
+
+**Orchestrazione gerarchica della societa:**
+
+La simulazione non processa gli agenti in modo piatto (tutti uguali, uno per uno). La societa e organizzata gerarchicamente e il tick segue questa struttura:
+
+```
+Orchestratore Globale (control plane)
+    |
+    +-- Civilta / Macro-regioni (politica estera, guerre, trattati)
+    |       |
+    |       +-- Nazioni / Regioni (economia regionale, leggi, tasse)
+    |       |       |
+    |       |       +-- Citta / Comunita (economia locale, ordine pubblico)
+    |       |       |       |
+    |       |       |       +-- Gruppi / Fazioni (obiettivi collettivi, proteste)
+    |       |       |       |       |
+    |       |       |       |       +-- Individui (decisioni personali)
+    |       |       |       |
+    |       |       |       +-- Individui liberi (non affiliati)
+    |       |       |
+    |       |       +-- Altra citta ...
+    |       |
+    |       +-- Altra nazione ...
+    |
+    +-- Altra civilta ... (processata indipendentemente)
+```
+
+Ogni livello e un "nodo" che orchestra quelli sotto di se. Le decisioni cascadano verso il basso e i feedback risalgono verso l'alto.
+
+**Ciclo di processing per tick:**
+
+Il tick non e un singolo passaggio ma un ciclo a tre fasi:
+
+```
+FASE 1 — Top-down (decisioni macro cascadano verso il basso)
+
+    Orchestratore: valuta lo stato globale
+        ↓
+    Civilta: decisioni di politica estera (guerra, embargo, alleanza)
+        ↓
+    Nazioni: reagiscono alle decisioni macro (redistribuzione risorse, mobilitazione)
+        ↓
+    Citta: adattano le politiche locali (tasse, ordine pubblico)
+        ↓
+    Gruppi: reagiscono alle condizioni (proteste, cooperazione, scissione)
+        ↓
+    Individui: decidono in base al contesto (il loro mondo e cambiato dall'alto)
+
+
+FASE 2 — Bottom-up (feedback individuali risalgono)
+
+    Individui: le loro azioni (protesta, lavoro, migrazione) producono effetti
+        ↑
+    Gruppi: aggregano il comportamento dei membri (la protesta ha massa critica?)
+        ↑
+    Citta: il malcontento aggregato impatta la stabilita locale
+        ↑
+    Nazioni: l'instabilita delle citta impatta l'economia e la politica nazionale
+        ↑
+    Civilta: le crisi nazionali cambiano gli equilibri internazionali
+        ↑
+    Orchestratore: aggiorna lo stato globale
+
+
+FASE 3 — Consolidamento
+
+    - Applicare le conseguenze incrociate (la protesta in Citta A
+      ispira una protesta in Citta B)
+    - Aggiornare relazioni
+    - Registrare eventi
+    - Broadcast WebSocket
+    - Avanzare il tick
+```
+
+**Frequenza di processing per livello:**
+
+Non ogni livello processa ad ogni tick. I livelli alti (civilta, nazioni) prendono decisioni meno frequentemente degli individui:
+
+| Livello | Frequenza di processing | Tipo di decisione |
+|---------|------------------------|-------------------|
+| Orchestratore globale | Ogni tick | Valutazione stato, coordinamento |
+| Civilta | Ogni 10-50 tick | Politica estera, guerre, trattati |
+| Nazione | Ogni 5-20 tick | Leggi, tasse, economia nazionale |
+| Citta | Ogni 2-10 tick | Politiche locali, ordine pubblico |
+| Gruppo | Ogni 1-5 tick | Azioni collettive, strategie di gruppo |
+| Individuo | Ogni tick (se risoluzione alta) | Decisioni personali quotidiane |
+
+A risoluzione temporale bassa (anni/decenni), solo i livelli alti processano. A risoluzione alta (ore/giorni), tutti i livelli processano.
+
+**Propagazione degli eventi con ritardo:**
+
+Le decisioni prese ai livelli alti non raggiungono istantaneamente gli individui. L'informazione viaggia attraverso la gerarchia con ritardi e distorsione (collegato all'Information Flow Module):
+
+- Una dichiarazione di guerra della civilta raggiunge le nazioni immediatamente
+- Le nazioni comunicano alle citta in 1-2 tick
+- Le citta informano i cittadini in 1-3 tick
+- La notizia arriva agli individui periferici (campagna, zone isolate) con ulteriore ritardo
+- Ad ogni passaggio l'informazione puo distorcersi (passaparola, propaganda, censura)
+
+Questo significa che un individuo in una zona remota potrebbe scoprire una guerra giorni dopo che e iniziata — realistico.
+
+**Conflitto tra livelli:**
+
+Cosa succede quando un livello inferiore si oppone a quello superiore? Questo e il meccanismo delle ribellioni, degli scismi, delle guerre civili:
+
+- Un individuo rifiuta l'ordine del suo gruppo → possibile espulsione o scissione
+- Un gruppo sfida la citta → protesta, rivolta, repressione
+- Una citta sfida la nazione → secessione, guerra civile
+- Una nazione sfida la civilta → uscita dall'alleanza, guerra
+
+Il conflitto tra livelli e uno dei motori principali della storia. Non e un bug, e una feature.
+
+**Leadership emergente:**
+
+La gerarchia non e statica. I leader emergono dal basso:
+
+- Un individuo con tratti di leadership + carisma + circostanze favorevoli sale nella gerarchia
+- Il sistema traccia individualmente gli agenti che accumulano influenza
+- Quando un gruppo non ha un leader, il sistema valuta chi tra i membri ha le caratteristiche per emergere
+- Un leader puo essere rovesciato se perde legittimita (feedback dal basso)
+
+**Rami indipendenti (parallelismo reale):**
+
+Civilta o regioni che non interagiscono tra loro possono essere processate in parallelo reale:
+
+```
+Tick 42:
+    Civilta A (continente ovest) ──→ [Worker 1] processa indipendentemente
+    Civilta B (continente est)   ──→ [Worker 2] processa indipendentemente
+
+    → Si sincronizzano SOLO se c'e un'interazione (commercio, guerra, contatto)
+```
+
+Questo e un'ottimizzazione naturale: due civilta che non si conoscono non hanno dipendenze di processing.
+
+**Implementazione progressiva:**
+
+| Fase | Orchestrazione | MVP? |
+|------|---------------|------|
+| MVP | Piatto (tutti gli agenti sequenziali) | Si |
+| v0.2 | Fan-out Celery (agenti in parallelo, stesso tick) | No |
+| v0.3 | Gerarchico a 3 livelli (individuo, gruppo, mondo) | No |
+| v0.5 | Gerarchico completo (tutti i livelli) | No |
+| v1.0 | Gerarchico + parallelismo per civilta indipendenti | No |
+
+L'MVP processa tutto in modo piatto per semplicita. L'interfaccia (`process_single_agent(agent_id, tick)`) e gia progettata per essere compatibile con il fan-out e con l'orchestrazione gerarchica futura.
+
+---
 
 **Tempo ibrido controllabile:**
 - Play/Pausa/Velocita variabile
-- Ogni "tick" rappresenta un'unita di tempo simulato (configurabile: ora, giorno, settimana)
 - L'utente puo accelerare, rallentare, mettere in pausa
 - La simulazione puo girare autonomamente anche quando l'utente non la guarda
+
+**Risoluzione temporale adattiva:**
+
+Ogni tick rappresenta un'unita di tempo simulato variabile. La risoluzione si adatta automaticamente a cio che sta succedendo nella simulazione:
+
+| Risoluzione | 1 tick = | Quando si attiva | Cosa processa |
+|------------|---------|-----------------|---------------|
+| Ore | 1 ora simulata | Crisi acute, battaglie, negoziazioni | Ogni agente via LLM, dettaglio massimo |
+| Giorni | 1 giorno simulato | Vita quotidiana, decisioni individuali | Ogni agente via LLM |
+| Settimane | 1 settimana simulata | Dinamiche sociali, commercio | Agenti rilevanti via LLM, altri via regole |
+| Mesi | 1 mese simulato | Economia, politica, stagioni | Modelli matematici + agenti chiave via LLM |
+| Anni | 1 anno simulato | Evoluzione lenta, peacetime | Modelli matematici, solo eventi significativi via LLM |
+| Decenni | 10 anni simulati | Cicli storici, ascesa/declino | Modelli matematici macro, aggregazione gruppi |
+| Secoli | 100 anni simulati | Evoluzione civilizzazionale | Solo modelli macro e milestone tecnologiche |
+
+**Risoluzione adattiva automatica:**
+- Quando "non succede niente di importante" → risoluzione bassa (anni, decenni)
+- Quando il sistema rileva una crisi, un conflitto, un evento significativo → **rallenta automaticamente** e passa a risoluzione alta (giorni, ore)
+- Dopo la crisi → torna a risoluzione bassa
+- L'utente puo anche forzare la risoluzione manualmente
+
+In pratica funziona come un film: le parti tranquille passano velocemente ("10 anni dopo..."), i momenti cruciali si vivono in dettaglio.
+
+**Coerenza scientifica a ogni risoluzione:**
+- A risoluzione bassa (anni/decenni/secoli): il sistema usa i **modelli matematici** per calcolare i trend macro (demografia, economia, tecnologia) senza chiamare l'LLM per ogni agente. Genera solo gli eventi significativi.
+- A risoluzione alta (ore/giorni): ogni agente prende decisioni individuali via LLM con contesto completo.
+- La transizione tra risoluzioni e trasparente: i modelli macro e le decisioni individuali sono coerenti tra loro.
 
 **Tempo massimo e condizioni di arresto:**
 - L'utente puo definire un limite temporale (es. "simula 200 anni e fermati")
 - Condizioni di auto-stop configurabili (es. "fermati quando la civilta collassa", "fermati quando la popolazione scende sotto X")
 
+**Persistenza e shutdown:**
+- Lo stato della simulazione e salvato in PostgreSQL ad ogni tick completato
+- Se il sistema si spegne (computer spento, Docker fermato, crash), la simulazione si ferma al tick corrente senza perdita di dati
+- Al riavvio, l'utente preme "play" e la simulazione riparte esattamente dal tick salvato
+- **Graceful shutdown**: quando Docker riceve il segnale di stop, il tick in corso deve completarsi prima della chiusura per evitare stati inconsistenti
+- Su deployment cloud (server/VPS), la simulazione continua 24/7 indipendentemente dal computer dell'utente
+- Con `restart: unless-stopped` in Docker Compose, il sistema si auto-ripristina dopo crash
+
+| Modalita | Comportamento | Quando usarla |
+|----------|-------------|---------------|
+| Locale (computer utente) | Si ferma quando Docker si ferma, riprende al riavvio | Esperimenti brevi, testing, sviluppo |
+| Cloud (server/VPS) | Continua 24/7, indipendente dal computer | Simulazioni lunghe (secoli), multiplayer |
+
+**Controlli di navigazione temporale:**
+
+La simulazione funziona come un player multimediale per la storia. L'utente ha il pieno controllo del flusso temporale:
+
+| Controllo | Funzione | Comportamento |
+|-----------|---------|---------------|
+| ⏸ Pausa | Ferma la simulazione | Il tempo si congela, l'utente puo esplorare lo stato corrente |
+| ▷ Play | Riprende la simulazione | Avanza tick per tick alla velocita impostata |
+| ▷▷ Fast forward | Avanzamento rapido | Salta i tick non significativi, si ferma automaticamente al prossimo evento importante |
+| ◁ Rewind | Torna indietro di un tick | Ricarica lo stato dal tick precedente (dal DB) |
+| ◁◁ Fast rewind | Torna indietro veloce | Salta al punto saliente precedente (auto-milestone o bookmark) |
+| ▷▷\| Vai alla fine | Salta all'ultimo tick | Utile dopo un rewind per tornare al presente della simulazione |
+| \|◁◁ Vai all'inizio | Torna al tick 0 | Ricarica lo stato iniziale della simulazione |
+| 🔖 Bookmark | Salva il momento corrente | Crea un bookmark con label personalizzata |
+| ↗ Fork da qui | Crea un branch | Fork della simulazione dal tick corrente |
+
+**Rewind e replay:**
+- Il rewind non "cancella" la storia: i tick futuri restano nel DB
+- L'utente puo navigare avanti e indietro nella timeline liberamente
+- Se l'utente fa "play" dopo un rewind, ha due opzioni:
+  - **Riprodurre**: rivisita i tick gia calcolati (replay dal log, nessun costo LLM)
+  - **Forkare e divergere**: crea un branch dal punto corrente e la simulazione riparte con nuove decisioni
+
+**Punti salienti e bookmark:**
+
+Il sistema mantiene due tipi di punti di riferimento sulla timeline:
+
+*Auto-milestone (generati automaticamente):*
+Il sistema rileva e salva automaticamente i momenti significativi:
+- Crisi Seldon rilevate
+- Guerre, rivoluzioni, colpi di stato
+- Scoperte scientifiche e tecnologiche
+- Cambi di governo o sistema politico
+- Crolli o boom economici
+- Nascita o estinzione di gruppi/fazioni rilevanti
+- Primo contatto tra civilta
+- Raggiungimento di soglie sulla scala di Kardashev
+- Qualsiasi evento con severity > soglia configurabile
+
+Ogni auto-milestone include: tick, titolo, descrizione, tipo evento, agenti coinvolti.
+
+*Bookmark utente (creati manualmente):*
+L'utente puo salvare qualsiasi momento con una label personalizzata:
+- "Il fabbro sta per tradire il sindaco"
+- "Situazione pre-rivoluzionaria interessante"
+- "Punto di partenza per esperimento A/B"
+- "Momento di massima stabilita — confronto futuro"
+
+**Snapshot:**
+Ogni punto saliente (auto-milestone o bookmark) include uno **snapshot completo** dello stato della simulazione:
+- Stato di tutti gli agenti (posizione, salute, ricchezza, umore, relazioni)
+- Stato del mondo (economia, risorse, zone)
+- Stato politico e sociale
+- Questo permette di tornare a quel punto e ripartire esattamente da li, o confrontare lo stato in due momenti diversi
+
+**Navigazione visuale:**
+La timeline e visualizzata come una barra con marcatori:
+```
+|----*--------*--*-----*---------*-----|
+tick 0   auto   auto bookmark auto  ultimo tick
+         milestone       utente
+```
+L'utente puo cliccare su qualsiasi marcatore per saltare a quel punto.
+
 **Branching:**
-- Fork di una simulazione da qualsiasi punto nel tempo
+- Fork di una simulazione da qualsiasi punto nel tempo (tick corrente, milestone, o bookmark)
 - Ogni branch e una simulazione indipendente con il proprio stato
 - Confronto parallelo tra branch (gruppo di controllo vs sperimentale)
 - Gestito tramite namespace/prefissi nel DB e in Redis
@@ -254,15 +520,91 @@ Il cuore del sistema. Gestisce il ciclo di vita della simulazione.
 
 Gestisce gli agenti AI — il cuore della simulazione sociale.
 
-**Personalita:**
-Ogni agente ha un profilo che include:
-- Tratti caratteriali (Big Five o modello equivalente): apertura, coscienziosita, estroversione, amabilita, neuroticismo
-- Storia personale: background, esperienze formative, traumi, successi
-- Ambizioni e obiettivi: cosa vuole ottenere nella vita
-- Debolezze e paure: vulnerabilita che influenzano le decisioni
-- Capacita di leadership: naturale, acquisita, assente
-- Attitudine: positivo/negativo, attivo/passivo
-- Valori morali e credenze
+**Profilo completo dell'agente:**
+
+Ogni agente e una persona completa, non una caricatura. Il profilo comprende tutte le dimensioni che definiscono un essere umano reale:
+
+*Identita e anagrafica:*
+- Nome, eta, genere (maschio, femmina, non-binario)
+- Orientamento sessuale (eterosessuale, omosessuale, bisessuale, asessuale)
+- Etnia e aspetto fisico (altezza, corporatura, tratti distintivi)
+- Lingua madre e lingue parlate
+
+*Personalita (Big Five + estensioni):*
+- **Apertura**: curiosita intellettuale, creativita, apertura a nuove esperienze (0.0 → 1.0)
+- **Coscienziosita**: disciplina, organizzazione, affidabilita (0.0 → 1.0)
+- **Estroversione**: socievolezza, energia, assertivita (0.0 → 1.0)
+- **Amabilita**: cooperazione, fiducia, empatia (0.0 → 1.0)
+- **Neuroticismo**: instabilita emotiva, ansia, reattivita (0.0 → 1.0)
+- Carattere: coraggioso/codardo, generoso/avaro, onesto/disonesto, paziente/impulsivo
+- Temperamento: calmo, irascibile, melanconico, sanguigno
+- Senso dell'umorismo: assente, sarcastico, empatico, nero
+
+*Capacita cognitive:*
+- QI / intelligenza generale (basso, medio, alto, geniale)
+- Intelligenza emotiva (capacita di leggere e gestire le emozioni altrui)
+- Creativita (pensiero laterale, innovazione)
+- Astuzia / intelligenza pratica (furbizia, street smart)
+- Capacita di apprendimento (veloce, lenta, specifica per dominio)
+
+*Capacita fisiche:*
+- Forza fisica (debole, media, forte, atletica)
+- Resistenza / stamina
+- Agilita e coordinazione
+- Capacita atletiche specifiche (nuoto, corsa, combattimento, equitazione)
+- Aspettativa di vita base (influenzata da genetica e condizioni)
+
+*Salute e condizioni:*
+- Stato di salute attuale (sano, malato, cronico, disabile)
+- Patologie congenite o acquisite (cecita, sordita, malattie croniche, disturbi mentali)
+- Dipendenze (alcol, sostanze, gioco)
+- Disabilita fisiche (mobilita ridotta, menomazioni)
+- Salute mentale (depressione, ansia, PTSD da eventi traumatici nella simulazione)
+- Fertilita (influenza la demografia)
+
+*Background e storia:*
+- Storia personale: esperienze formative, traumi, successi
+- Classe sociale di origine (influenza opportunita e visione del mondo)
+- Educazione ricevuta (analfabeta, base, avanzata, specialistica)
+- Professione e competenze lavorative
+- Stato economico (povero, medio, ricco, ereditato vs guadagnato)
+
+*Psicologia e motivazioni:*
+- Ambizioni e obiettivi: cosa vuole dalla vita (potere, ricchezza, amore, conoscenza, pace, vendetta)
+- Paure e fobie (morte, solitudine, poverta, fallimento, altezze, buio)
+- Debolezze (vizi, tentazioni, punti ciechi)
+- Valori morali (cosa considera giusto/sbagliato, quanto e disposto a compromettere)
+- Credenze religiose/spirituali (fervente, tiepido, ateo, agnostico, superstizioso)
+- Ideologia politica (conservatore, progressista, radicale, apatico)
+
+*Capacita sociali:*
+- Capacita di leadership (naturale, acquisita, assente)
+- Carisma (quanto influenza gli altri con la presenza)
+- Capacita di persuasione e manipolazione
+- Empatia (alta → si preoccupa degli altri, bassa → egocentrico)
+- Attitudine: ottimista/pessimista, attivo/passivo, proattivo/reattivo
+- Affinita e compatibilita: tratti che attraggono o respingono certi tipi di persone
+
+*Sessuali e relazionali:*
+- Orientamento sessuale (influenza con chi forma relazioni romantiche)
+- Stile di attaccamento (sicuro, ansioso, evitante — influenza la qualita delle relazioni)
+- Desiderio di famiglia (forte, debole, assente)
+- Fedeltà (leale, opportunista, seriale)
+
+**Generazione del profilo:**
+
+Non tutti i tratti vengono specificati esplicitamente per ogni agente. Il sistema funziona a livelli:
+
+| Livello | Cosa si specifica | Quando |
+|---------|------------------|--------|
+| Generazione Express | L'LLM genera un profilo completo coerente da una descrizione breve ("un fabbro ambizioso") | Creazione del mondo |
+| Tratti critici | Big Five, genere, eta, ruolo, background — sempre definiti esplicitamente | Sempre |
+| Tratti secondari | QI, capacita fisiche, patologie — generati con distribuzione realistica | Se non specificati dall'utente |
+| Tratti emergenti | Dipendenze, PTSD, cambiamenti di personalita — emergono dalla simulazione | Durante la simulazione |
+
+I tratti secondari seguono **distribuzioni realistiche**: il QI segue una curva gaussiana (media 100, deviazione standard 15), le patologie hanno prevalenze basate su dati reali, l'orientamento sessuale segue le statistiche demografiche del contesto storico/culturale.
+
+I tratti non sono statici: un evento traumatico puo aumentare il neuroticismo, una posizione di leadership puo aumentare l'assertivita, una dipendenza puo emergere da stress prolungato, la salute mentale puo deteriorarsi.
 
 **Memoria umana realistica:**
 - Ricordi recenti: vividi e dettagliati
@@ -316,11 +658,112 @@ Le regole del mondo in cui vivono gli agenti.
 
 L'utente sceglie il livello di complessita economica prima di avviare la simulazione.
 
-**Politica:**
-- Sistemi di governo (democrazia, autocrazia, anarchia, teocrazia...)
-- Elezioni, colpi di stato, rivoluzioni
-- Leggi che influenzano il comportamento degli agenti
-- Istituzioni (giustizia, istruzione, sanita, esercito)
+**Sistemi politici e di governo:**
+
+Ogni civilta ha un sistema di governo che non e una label statica ma un **meccanismo funzionante** con regole proprie. Il sistema puo cambiare nel tempo (transizioni, rivoluzioni, degenerazione).
+
+*Sistemi di governo simulabili:*
+
+| Sistema | Come funziona nella simulazione | Come mantiene il potere | Come cade |
+|---------|-------------------------------|------------------------|-----------|
+| Democrazia | Elezioni periodiche, gli agenti votano in base a personalita e condizioni. Candidati emergono dai gruppi. Partiti si formano per aggregazione | Legittimita popolare, istituzioni indipendenti, alternanza | Crisi economica → populismo, corruzione → sfiducia, emergenza → poteri speciali che non finiscono |
+| Democrazia illiberale / Democratura | Elezioni formali ma manipolate. Media controllati, opposizione indebolita. L'apparenza democratica maschera il controllo autoritario | Propaganda, controllo dell'informazione, repressione selettiva, clientelismo | Crisi economica che il regime non puo nascondere, leader che perde il controllo della narrazione |
+| Autocrazia / Dittatura | Un agente con tratti autoritari concentra il potere. Decisioni centralizzate, nessun contrappeso | Forza militare, lealta comprata, paura, culto della personalita | Morte del dittatore (crisi di successione), rivolta popolare, colpo di stato interno |
+| Monarchia | Potere ereditario. Il monarca governa, la corte compete per influenza | Legittimita dinastica, tradizione, esercito leale, alleanze matrimoniali | Incompetenza dell'erede, rivolta nobiliare, rivoluzione popolare |
+| Oligarchia | Un gruppo ristretto (ricchi, militari, clan) controlla il potere. Decisioni prese tra pochi | Ricchezza concentrata, controllo delle risorse, rete di favori | Conflitto interno tra oligarchi, rivolta della popolazione esclusa |
+| Teocrazia | Autorita religiosa = autorita politica. Le leggi derivano dalla dottrina | Fede come legittimita, controllo dell'educazione, conformismo sociale | Secolarizzazione, scandali religiosi, generazioni che perdono la fede |
+| Regime totalitario | Controllo totale: politica, economia, cultura, vita privata. Polizia segreta, delazione | Terrore, propaganda pervasiva, eliminazione del dissenso | Morte del leader, stagnazione economica, pressione esterna |
+| Regime terroristico | Governo basato sul terrore sistematico. Esecuzioni pubbliche, persecuzioni di gruppo | Paura paralizzante, eliminazione di chiunque possa organizzare resistenza | Esaurimento (il terrore non e sostenibile a lungo), intervento esterno |
+| Anarchia | Assenza di governo centrale. Autogestione locale, assemblee | Non serve mantenerlo — e l'assenza di struttura | Emerge spontaneamente un leader forte, o un gruppo si impone con la forza |
+| Federazione | Entita autonome unite da un patto. Governo centrale limitato | Beneficio reciproco, difesa comune, commercio | Divergenza di interessi, secessione, centralizzazione eccessiva |
+| Cleptocrazia | Governanti che usano il potere per arricchirsi. Corruzione sistematica | Rete di corruzione che coinvolge tutti i livelli, chi denuncia viene eliminato | Collasso economico, intervento esterno, rivolta quando la popolazione non ha piu nulla da perdere |
+| Giunta militare | Militari al potere dopo un colpo di stato | Forza delle armi, coprifuoco, soppressione liberta | Divisioni interne, pressione internazionale, transizione negoziata |
+
+*Transizioni tra sistemi:*
+
+Le transizioni non sono casuali — seguono pattern storici documentati:
+
+```
+Democrazia → Democratura → Autocrazia
+    (erosione graduale: emergenza, poteri speciali, media controllati, elezioni manipolate)
+
+Autocrazia → Caos → Democrazia o nuova autocrazia
+    (rivolta, vuoto di potere, chi lo riempie per primo vince)
+
+Monarchia → Rivoluzione → Repubblica o Dittatura
+    (dipende da chi guida la rivoluzione e quanto e organizzato)
+
+Anarchia → Autocrazia
+    (il vuoto di potere viene riempito dal piu forte o dal piu organizzato)
+
+Qualsiasi sistema → Regime totalitario
+    (in condizioni di crisi estrema, paura, e un leader carismatico/spietato)
+```
+
+Il sistema monitora gli indicatori che precedono le transizioni (fiducia nelle istituzioni, disuguaglianza, corruzione, coesione militare) e le rende possibili quando le condizioni sono mature.
+
+**Stratificazione sociale e disuguaglianza:**
+
+La societa simulata non e piatta — ha classi, caste, disuguaglianze che emergono e si evolvono:
+
+| Strato | Come emerge | Effetto sulla societa |
+|--------|------------|----------------------|
+| Elite / Ultra-ricchi | Accumulo di ricchezza generazionale, posizioni di potere, monopoli | Influenzano la politica, accesso esclusivo a risorse, possono corrompere istituzioni |
+| Classe agiata | Professionisti, mercanti di successo, proprietari | Stabilita sociale, consumo, aspirazione di mobilita verso l'alto |
+| Classe media | Lavoratori qualificati, artigiani, piccoli commercianti | Spina dorsale dell'economia, piu vulnerabile alle crisi, motore delle rivoluzioni quando si impoverisce |
+| Classe lavoratrice | Lavoratori manuali, operai, contadini dipendenti | Forza lavoro, vulnerabile a sfruttamento, potenziale rivoluzionario |
+| Poveri / Emarginati | Disoccupati, malati, senza risorse | Tensione sociale, criminalita per sopravvivenza, invisibili al potere |
+| Schiavi / Sottomessi | Prigionieri di guerra, debitori, nascita in schiavitu | Lavoro forzato, nessun diritto, fonte di rivolta se le catene si indeboliscono |
+
+*Dinamiche di classe:*
+- La disuguaglianza cresce naturalmente se non controbilanciata (chi ha ricchezza accumula piu ricchezza)
+- Mobilita sociale: un individuo puo salire o scendere in base a talento, fortuna, relazioni, circostanze
+- Quando il Gini coefficient supera una soglia critica, la probabilita di rivolta cresce esponenzialmente
+- Le rivoluzioni spesso partono dalla classe media impoverita, non dai piu poveri (che non hanno le risorse per organizzarsi)
+
+**Criminalita e economia sommersa:**
+
+La criminalita non e un evento casuale — e un fenomeno sociale con cause e struttura:
+
+*Criminalita individuale:*
+- Agenti in poverta estrema con bassa agreeableness hanno probabilita di commettere crimini per sopravvivenza
+- Agenti con alta neuroticism e bassa conscientiousness in ambienti degradati tendono al comportamento antisociale
+- Il furto, la violenza, la truffa sono azioni possibili per qualsiasi agente in condizioni sufficientemente disperate
+
+*Criminalita organizzata:*
+- Emerge dove lo stato e debole e la disuguaglianza e alta
+- Si struttura come un gruppo con gerarchia, leader, territorio, economia parallela
+- Offre "servizi" che lo stato non fornisce: protezione, giustizia informale, credito
+- Corrompe le istituzioni, creando un ciclo vizioso (stato piu debole → crimine piu forte)
+- Mafie, cartelli, bande: gruppi emergenti con obiettivi economici e territoriali
+
+*Terrorismo:*
+- Emerge da ideologie estreme (politiche, religiose, nazionaliste) in condizioni di oppressione o radicalizzazione
+- Piccoli gruppi con alta coesione e obiettivi distruttivi
+- Impatto sproporzionato rispetto alla dimensione del gruppo (pochi individui destabilizzano un'intera societa)
+- Genera reazione dello stato che puo essere proporzionata (intelligence, giustizia) o sproporzionata (repressione di massa, che alimenta altro terrorismo)
+
+*Corruzione:*
+- Presente in qualsiasi sistema ma con intensita diversa
+- Cresce con: burocrazia eccessiva, stipendi pubblici bassi, assenza di controlli, cultura dell'impunita
+- Erode le istituzioni dall'interno — tra le cause principali del collasso delle civilta
+- Puo diventare sistemica: non un'eccezione ma la norma ("se tutti rubano, chi non ruba e lo stupido")
+
+**Istituzioni:**
+
+Le istituzioni non sono astrazioni — sono strutture con persone, risorse, legittimita:
+
+| Istituzione | Funzione | Quando funziona | Quando fallisce |
+|-------------|---------|-----------------|-----------------|
+| Giustizia | Risolvere conflitti, punire crimini | Indipendente, finanziata, rispettata | Corrotta, lenta, politicizzata |
+| Istruzione | Trasmettere conoscenza, formare cittadini | Accessibile, finanziata, libera | Censurata, elitaria, sottofinanziata |
+| Sanita | Curare malati, prevenire epidemie | Universale, competente | Accessibile solo ai ricchi, sottofinanziata |
+| Esercito | Difesa, ordine interno | Leale allo stato, professionale | Politicizzato, usato per repressione, corsa a colpo di stato |
+| Media | Informare, controllare il potere | Liberi, plurali, indipendenti | Controllati dal governo o dai ricchi, propaganda |
+| Religione organizzata | Senso, comunita, etica | Separata dal potere politico | Fusa con il potere, corrotta, fanatica |
+| Burocrazia | Amministrare lo stato | Efficiente, meritocratica | Elefantiaca, corrotta, auto-referenziale |
+
+Ogni istituzione ha un livello di "salute" che influenza il funzionamento della societa. Istituzioni sane stabilizzano, istituzioni malate destabilizzano.
 
 **Geografia (PostGIS + GeoDjango):**
 - Mappa con zone distinte (quartieri, citta, campagna) rappresentate come poligoni PostGIS
@@ -510,7 +953,8 @@ I modelli non sostituiscono gli agenti: li informano. Un agente non "sa" che l'i
 | Epidemie | Modello SIR/SEIR (Susceptible-Infected-Recovered) | Epidemiologia matematica | Diffusione malattie, ondate pandemiche, immunita |
 | Clima | Modelli di feedback climatico semplificati, bilancio radiativo | IPCC, climatologia | Temperature, eventi estremi, impatto su agricoltura |
 | Diffusione innovazione | Curva S di Rogers, modello Bass | Sociologia dell'innovazione | Adozione tecnologie, diffusione idee |
-| Conflitti | Modelli di Lanchester (attrition), teoria dei giochi | Studi strategici | Esiti militari, equilibri di deterrenza |
+| Conflitti | Modelli di Lanchester (attrition) | Studi strategici | Esiti militari, equilibri di deterrenza |
+| Teoria dei giochi | Nash, dilemma del prigioniero iterato, Shapley, aste, voto | Economia comportamentale, scienze politiche | Interazioni strategiche, cooperazione, alleanze, negoziazione |
 | Reti sociali | Granovetter (weak/strong ties), cascate informative, soglie di attivazione | Sociologia delle reti | Formazione gruppi, viralita, mobilitazione |
 | Risorse | Curva di Hubbert (deplezione), carrying capacity, rendimenti decrescenti | Ecologia, geologia | Esaurimento risorse, sostenibilita, carestie |
 | Commercio | Vantaggio comparato (Ricardo), gravita del commercio | Economia internazionale | Flussi commerciali, specializzazione, dipendenze |
@@ -539,6 +983,109 @@ I modelli vengono **calibrati sui dati storici** prima dell'avvio: se la simulaz
 | Rigoroso | Modelli completi con parametri da paper scientifici, validazione incrociata | Esperimenti sociali seri, ricerca |
 
 L'utente sceglie il livello di rigore nelle impostazioni, analogamente al livello di complessita economica.
+
+#### Teoria dei giochi come framework trasversale
+
+La teoria dei giochi non e un dominio specifico (come economia o clima) ma un framework trasversale che attraversa tutte le interazioni strategiche tra agenti. E il ponte matematico tra i modelli macro e le decisioni individuali.
+
+**Principio di integrazione:**
+
+La teoria dei giochi non sostituisce l'LLM nelle decisioni — calcola l'**esito razionale** di un'interazione e lo passa come contesto all'LLM, che poi decide tenendo conto della personalita dell'agente. Un agente razionale seguira l'equilibrio di Nash; un agente impulsivo no. Questo produce comportamenti realistici: a volte le persone fanno la scelta sbagliata, ed e proprio quello che genera storie interessanti.
+
+```
+Interazione strategica rilevata (commercio, conflitto, alleanza, voto)
+    ↓
+Game Theory Engine:
+    1. Classifica il tipo di gioco
+    2. Calcola equilibrio/esito ottimale
+    3. Calcola payoff per ogni strategia possibile
+    ↓
+Contesto arricchito passato all'LLM:
+    "L'equilibrio razionale sarebbe cooperare (payoff: +5 per entrambi).
+     Tradire darebbe +8 a te ma -3 all'altro.
+     Tu sei impulsivo (neuroticism: 0.8) e diffidente (agreeableness: 0.2).
+     L'altro ti ha tradito 2 volte in passato."
+    ↓
+LLM decide in base a personalita + contesto strategico
+```
+
+**Modelli di gioco implementati:**
+
+*Interazioni bilaterali (2 agenti):*
+
+| Tipo di gioco | Quando si attiva | Cosa calcola | Esempio nella simulazione |
+|---------------|-----------------|-------------|--------------------------|
+| Dilemma del prigioniero (singolo) | Due agenti devono scegliere se cooperare o tradire senza comunicare | Equilibrio di Nash: tradire e dominante, ma cooperare e Pareto-ottimale | Due mercanti decidono se rispettare un accordo commerciale |
+| Dilemma del prigioniero iterato | Stessi agenti interagiscono ripetutamente nel tempo | Strategia ottimale cambia: Tit-for-Tat, perdono, reputazione | Vicini di casa, colleghi, partner commerciali abituali |
+| Gioco della fiducia (trust game) | Un agente deve fidarsi di un altro (investimento, prestito, delega) | Quantifica il rischio razionale della fiducia dato lo storico | Un contadino presta sementi a un vicino — le restituira? |
+| Gioco del pollo (chicken) | Due agenti in rotta di collisione, chi cede per primo? | Equilibrio misto: nessuno vuole cedere ma lo scontro e il peggiore esito | Due fazioni rivali che si contendono un territorio |
+| Contrattazione di Nash | Due parti negoziano la divisione di un surplus | Punto di Nash: divisione ottimale dato il potere negoziale di ciascuno | Negoziazione salariale, trattato di pace, accordo commerciale |
+| Gioco dell'ultimatum | Una parte propone, l'altra accetta o rifiuta (niente per entrambi) | Soglia di accettabilita: offerte troppo basse vengono rifiutate per orgoglio | Tributo imposto da un conquistatore — troppo alto e la rivolta e piu conveniente |
+
+*Interazioni collettive (N agenti):*
+
+| Tipo di gioco | Quando si attiva | Cosa calcola | Esempio nella simulazione |
+|---------------|-----------------|-------------|--------------------------|
+| Tragedia dei beni comuni | Risorsa condivisa sfruttata da molti agenti | Tasso di deplezione vs cooperazione; punto di collasso | Pascolo condiviso, pesca, acqua |
+| Problema del bene pubblico (free rider) | Contribuzione volontaria a un bene che beneficia tutti | Chi contribuisce? Chi fa il free rider? Soglia di contribuzione minima | Difesa comune, manutenzione strade, sistema educativo |
+| Giochi di coalizione (Shapley value) | Formazione di alleanze tra gruppi/nazioni | Valore marginale di ogni membro della coalizione; chi e indispensabile? | Alleanza militare: ogni membro quanto contribuisce? Chi esce? |
+| Gioco di coordinamento | Agenti devono accordarsi su una scelta comune senza comunicazione diretta | Equilibri multipli: quale prevale dipende da aspettative e focal points | Adozione di uno standard (moneta, lingua franca, sistema di misura) |
+| Voto strategico (teoria del voto) | Elezioni, referendum, decisioni assembleari | Vincitore di Condorcet, paradosso di Arrow, voto strategico vs sincero | Elezioni: gli agenti votano per chi preferiscono o per il "male minore"? |
+| Asta | Vendita di risorse scarse al miglior offerente | Prezzo di equilibrio, maledizione del vincitore, strategie di offerta | Concessione mineraria, appalto pubblico, vendita di terra |
+| Deterrenza (MAD) | Due potenze con capacita distruttiva reciproca | Equilibrio del terrore: nessuno attacca per primo perche la risposta e catastrofica | Nazioni con armi potenti; civilta avanzate con tecnologie devastanti |
+
+**Integrazione efficiente nel tick:**
+
+La teoria dei giochi non si applica a ogni interazione — sarebbe troppo costoso. Il sistema la attiva **solo quando rileva interazioni strategiche significative**:
+
+```
+Per ogni tick:
+    1. L'economia e il mondo si aggiornano (modelli macro)
+    2. Per ogni agente, il sistema valuta le sue interazioni:
+        a. Interazione di routine (lavoro, riposo) → decisione semplice, NO game theory
+        b. Interazione strategica rilevata:
+           - L'agente e in conflitto con un altro → game theory
+           - L'agente deve negoziare risorse → game theory
+           - C'e una risorsa condivisa contesa → game theory
+           - C'e un'elezione/voto → game theory
+        c. Game Theory Engine calcola l'equilibrio
+        d. L'equilibrio viene passato come contesto all'LLM
+    3. Le decisioni vengono applicate
+```
+
+**Trigger per l'attivazione:**
+- Due agenti con relazione di rivalita nella stessa zona → potenziale dilemma/chicken
+- Risorsa condivisa con piu di 3 agenti che la usano → tragedia dei beni comuni
+- Agente che deve decidere se fidarsi di qualcuno → trust game
+- Negoziazione commerciale tra agenti o gruppi → contrattazione di Nash
+- Elezione o decisione assembleare → voto strategico
+- Alleanza militare in formazione → gioco di coalizione
+
+**Performance:**
+- I calcoli di game theory sono **deterministici e veloci** (millisecondi, non richiedono LLM)
+- Si attivano solo per il ~10% delle interazioni (quelle strategicamente rilevanti)
+- Il costo computazionale e trascurabile rispetto alle chiamate LLM
+- Possono essere pre-calcolati in batch per tutte le interazioni del tick
+
+**Evoluzione delle strategie nel tempo:**
+
+Il sistema traccia le strategie adottate dagli agenti nel tempo:
+- Un agente che coopera sempre viene sfruttato → impara a difendersi (o no, se la sua personalita e troppo amabile)
+- Un agente che tradisce sempre perde alleati → si ritrova isolato
+- Le strategie vincenti si diffondono nella societa (gli agenti osservano e imitano chi ha successo)
+- Emergono norme sociali: "qui si coopera" o "qui ognuno per se" a seconda della storia della comunita
+
+Questo crea **evoluzione culturale delle strategie** — esattamente quello che Axelrod ha dimostrato nei tornei del dilemma del prigioniero iterato (1984). Le societa che sviluppano norme cooperative prosperano; quelle che non lo fanno si frammentano.
+
+**Dilemma del prigioniero iterato — il cuore della cooperazione sociale:**
+
+Il dilemma del prigioniero giocato una volta porta al tradimento razionale. Ma iterato (stessi agenti che si reincontrano), la cooperazione emerge naturalmente perche tradire ha costi futuri. Epocha simula questo con la memoria e le relazioni:
+
+- L'agente A tradisce l'agente B → B lo ricorda → B non coopera piu con A → A perde un alleato
+- La reputazione si diffonde via passaparola (Information Flow) → anche C e D sanno che A e inaffidabile
+- A lungo termine, gli agenti che cooperano costruiscono reti di fiducia piu forti
+
+La strategia Tit-for-Tat (coopera, poi imita l'altro) emerge naturalmente dagli agenti con buona memoria e amabilita media. Gli agenti troppo amabili vengono sfruttati; quelli troppo diffidenti restano isolati. Il punto di equilibrio dipende dalla composizione della societa — e questo e un risultato emergente, non scriptato.
 
 #### Validazione e calibrazione continua
 
@@ -591,6 +1138,40 @@ Gestisce l'interazione tra l'utente e gli agenti.
   - Un leader religioso potrebbe seguire ciecamente
   - Un razionalista potrebbe mettere in dubbio l'esistenza divina
 
+**Adattamento del tempo durante la chat:**
+
+Quando l'utente apre una chat, il tempo della simulazione si adatta automaticamente per evitare che un personaggio invecchi o muoia tra un messaggio e l'altro:
+
+| Modalita | Comportamento del tempo durante la chat |
+|----------|----------------------------------------|
+| Osservatore | La chat avviene "fuori dal tempo". E come un'intervista a un momento congelato. La simulazione puo continuare in background, ma l'agente risponde dallo stato in cui si trovava quando la chat e stata aperta. |
+| Abitante | La simulazione **rallenta automaticamente** a risoluzione ore/giorni. Le parole dell'utente hanno conseguenze e servono tick lenti per simularle. Quando la chat si chiude, il tempo torna alla velocita precedente. |
+| Dio | Come l'abitante: la simulazione rallenta. I comandi divini devono essere processati in tempo "umano". |
+| Seconda Fondazione | La simulazione **si mette in pausa**. Le manipolazioni invisibili sono delicate e richiedono precisione. |
+
+Flusso:
+```
+Simulazione a 10 anni/tick (velocita massima)
+    ↓
+L'utente apre la chat con un agente
+    ↓
+Il sistema automaticamente:
+    1. Completa il tick corrente
+    2. Riduce la risoluzione a giorni/ore
+    3. Rallenta la velocita
+    ↓
+L'utente chatta (tempo "umano")
+    ↓
+L'utente chiude la chat
+    ↓
+Il sistema torna alla risoluzione e velocita precedenti
+```
+
+**Se il personaggio e gia morto:**
+- L'utente puo consultare l'**Enciclopedia Galattica**: "Chi era Marco il fabbro? Cosa ha fatto nella sua vita?"
+- Il sistema suggerisce i **discendenti o successori** con cui chattare
+- L'utente puo fare un **fork** per tornare al periodo in cui il personaggio era vivo e parlare con lui
+
 ### 7. Analytics Module — Dashboard Psicostoriografica
 
 Il layer analitico per osservare i pattern civilizzazionali.
@@ -633,11 +1214,48 @@ Il sistema sceglie automaticamente il modello in base alla complessita della dec
 
 | Livello | % Chiamate | Tipo decisione | Modelli consigliati | Costo indicativo |
 |---------|-----------|----------------|--------------------|--------------------|
-| Livello 1 - Locale | ~90% | Azioni quotidiane, movimenti, reazioni semplici | vLLM/Ollama + Qwen 3.5 7B | $0 (solo hardware) |
+| Livello 1 - Locale | ~88% | Azioni quotidiane, movimenti, reazioni semplici | vLLM/Ollama + Qwen 3.5 7B | $0 (solo hardware) |
 | Livello 2 - API economica | ~8% | Decisioni sociali, commercio, voto | GPT-5 Nano ($0.05/M), Gemini Flash-Lite ($0.10/M), Haiku 4.5 ($1/M) | ~$0.001/richiesta |
 | Livello 3 - API premium | ~2% | Crisi, leadership, discorsi, svolte storiche | Sonnet 4.6 ($3/M), Opus 4.6 ($5/M), GPT-5.4 ($1.25/M) | ~$0.02/richiesta |
+| Livello 4 - Subagent | ~2% | Strategie complesse, Crisi Seldon, leader in momenti critici | Claude Agent SDK, OpenAI Agents SDK | ~$0.10-0.50/decisione |
 
 **Stima costi:** 200 agenti, 20.000 decisioni/giorno → ~$6-18/giorno (vs $200-500 con solo modelli premium).
+
+#### Livello 4: Subagent per decisioni critiche
+
+La maggior parte delle decisioni degli agenti e semplice ("lavoro", "riposo", "commercio") e una singola API call basta. Ma nei momenti critici — una Crisi Seldon, un leader che decide se dichiarare guerra, uno scienziato che fa una scoperta rivoluzionaria — serve un ragionamento multi-step.
+
+In questi casi il sistema promuove la decisione a un **subagent** dotato di tools:
+
+```
+Situazione critica rilevata (alta severity, agente leader, Crisi Seldon)
+    ↓
+Subagent attivato con tools:
+    - query_world_state()      → economia, risorse, stabilita
+    - query_relationships()    → alleati, nemici, forza relativa
+    - query_recent_events()    → cosa e successo di recente
+    - query_knowledge()        → precedenti storici, conseguenze note
+    - evaluate_options()       → pro/contro di ogni possibile azione
+    ↓
+Ragionamento multi-step (5-15 chiamate interne)
+    ↓
+Decisione strategica argomentata
+```
+
+**Quando si attiva il subagent:**
+- Crisi Seldon rilevata dal sistema
+- Agente con ruolo di leader (capo di stato, generale, leader religioso)
+- Decisione con severity > 0.7 (guerra, rivoluzione, scoperta epocale)
+- L'utente sta osservando specificamente quell'agente
+- Il tick e a risoluzione alta (ore/giorni) e il momento e narrativamente importante
+
+**Quando NON si attiva:**
+- Decisioni quotidiane (90% dei casi)
+- Agenti generici senza ruolo di leadership
+- Tick a risoluzione bassa (anni/decenni)
+- Budget in esaurimento
+
+La differenza qualitativa e significativa. Un'API call semplice produce: `{"action": "declare_war", "reason": "they attacked us"}`. Un subagent produce: "Ho valutato la situazione: la nostra economia e forte ma l'esercito e indebolito dalla recente epidemia. Il nemico ha piu soldati ma e diviso internamente. Le mie alleanze con il Nord sono solide. Il popolo chiede vendetta per l'attacco. Dichiaro guerra, ma con una strategia difensiva iniziale per guadagnare tempo mentre l'esercito si riprende."
 
 #### Provider supportati
 
@@ -2675,6 +3293,107 @@ Il branching (fork di simulazioni) e una feature critica. Strategia scelta: **Co
 | embedding | `vector(1536)` | pgvector, per retrieval semantico |
 | resources_json | `jsonb` | Risorse per zona/agente (flessibile) |
 | config_json | `jsonb` | Configurazione simulazione (tutti i parametri) |
+
+---
+
+## LLM Bias Correction
+
+I modelli LLM tendono a produrre comportamenti degli agenti piu polarizzati, piu gregari e piu drammatici di quanto gli esseri umani reali farebbero nella stessa situazione. Senza correzione, le simulazioni esagerano sistematicamente conflitti, estremismo e pensiero di gruppo.
+
+### Meccanismi di correzione
+
+**Parametro di attenuazione (configurabile):**
+- Ogni simulazione ha un parametro `bias_correction` (0.0 = nessuna correzione, 1.0 = massima attenuazione)
+- Il sistema post-processa le decisioni degli agenti attenuando le reazioni estreme:
+  - Se un agente decide un'azione molto aggressiva, il bias correction riduce la probabilita che venga eseguita
+  - Se tutti gli agenti convergono sulla stessa opinione troppo velocemente (comportamento gregario), il sistema introduce dissenso artificiale proporzionale al parametro
+
+**Calibrazione su dati storici:**
+- Il Knowledge Engine confronta i pattern comportamentali della simulazione con quelli storici reali
+- Se la polarizzazione nella simulazione cresce 5x piu velocemente di quanto storicamente documentato, il sistema segnala l'anomalia
+- L'utente puo decidere se accettare il risultato o aumentare la correzione
+
+**Trasparenza:**
+- Ogni correzione applicata viene loggata nel DecisionLog
+- La dashboard mostra un indicatore di "bias level" per la simulazione
+- L'utente puo disattivare completamente la correzione per osservare il comportamento "raw" dell'LLM
+
+---
+
+## Stima pre-simulazione dei costi
+
+Prima di avviare una simulazione, il sistema calcola e mostra una stima dettagliata di costi e tempi.
+
+### Cosa viene stimato
+
+| Metrica | Come si calcola | Esempio |
+|---------|----------------|---------|
+| Costo LLM totale | (agenti x tick stimati x costo medio per decisione) + generazione mondo | "$3.50 per 200 agenti, 100 tick" |
+| Tempo di calcolo | tick stimati x tempo medio per tick (basato su provider e concorrenza) | "~2 ore con Gemini free tier" |
+| Numero di richieste API | agenti x tick + chat stimate + generazione | "2.150 richieste, entro il limite free tier" |
+| Spazio disco | agenti x tick x dimensione media record | "~150 MB di database" |
+
+### Presentazione all'utente
+
+Prima dell'avvio, il sistema mostra:
+```
+Stima simulazione:
+- Agenti: 30
+- Durata simulata: 200 anni (~500 tick a risoluzione adattiva)
+- Costo LLM stimato: $2.80 (Gemini Flash-Lite)
+- Tempo di calcolo: ~1.5 ore
+- Richieste API: ~1.800 (entro limite free tier giornaliero)
+- Spazio disco: ~100 MB
+
+[Avvia] [Modifica parametri]
+```
+
+Se il costo supera il budget impostato dall'utente, il sistema suggerisce come ridurlo (meno agenti, risoluzione piu bassa, modello piu economico).
+
+---
+
+## Report automatico di fine simulazione
+
+Al termine di una simulazione (raggiunto il tempo massimo, condizione di arresto, o pausa manuale), il sistema genera automaticamente un report narrativo strutturato che analizza cosa e successo.
+
+### Contenuto del report
+
+**Sezione 1 — Panoramica:**
+- Periodo simulato (dal tick X al tick Y, corrispondente agli anni A-B)
+- Numero di agenti coinvolti, gruppi formati, eventi significativi
+- Posizione nella scala di Kardashev (se applicabile)
+
+**Sezione 2 — Eventi chiave:**
+- Timeline degli eventi piu significativi (auto-milestone) con descrizione narrativa
+- Crisi Seldon rilevate e come sono state risolte (o non risolte)
+- Scoperte tecnologiche e il loro impatto
+
+**Sezione 3 — Analisi dei pattern:**
+- Cicli storici identificati (ascesa/declino, cicli economici)
+- Correlazioni rilevate ("ogni volta che X e successo, Y e seguito entro Z anni")
+- Confronto con pattern storici reali ("questa dinamica ricorda la caduta dell'Impero Romano per...")
+
+**Sezione 4 — Agenti notevoli:**
+- Gli individui che hanno avuto il maggiore impatto sulla storia
+- Leader, innovatori, rivoluzionari, distruttori emersi dalla simulazione
+- Il loro profilo di personalita e come ha influenzato le loro azioni
+
+**Sezione 5 — Confronto tra branch (se esistono):**
+- Dove e quando i branch hanno diverguto
+- Quali variabili hanno causato le differenze
+- Quale branch ha prodotto l'esito "migliore" (per varie metriche)
+
+**Sezione 6 — Metriche finali:**
+- Stabilita sociale finale, distribuzione ricchezza (Gini), demografia
+- Costo LLM effettivo vs stimato
+- Statistiche di performance (tick/secondo, decisioni/tick)
+
+### Formato e export
+
+Il report e generato dall'LLM in stile narrativo professionale (come una voce dell'Enciclopedia Galattica) e puo essere esportato in:
+- Markdown
+- PDF
+- JSON (dati strutturati per analisi programmatica)
 
 ---
 

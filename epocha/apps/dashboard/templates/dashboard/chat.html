@@ -1,0 +1,198 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Chat with {{ agent.name }} - Epocha{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto" x-data="chatApp()">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-4">
+        <div>
+            <h1 class="text-xl font-bold">{{ agent.name }}</h1>
+            <p class="text-sm text-gray-400">{{ agent.role }} | Health: {{ agent.health|floatformat:1 }} | Mood: {{ agent.mood|floatformat:1 }}</p>
+        </div>
+        <a href="{% url 'dashboard:simulation-detail' sim_id=simulation.id %}" class="text-sm text-gray-400 hover:text-gray-300">Back</a>
+    </div>
+
+    <!-- Personality summary -->
+    <div class="bg-gray-800 border border-gray-700 rounded p-3 mb-4 text-sm text-gray-400">
+        {% if agent.personality.background %}
+            <p>{{ agent.personality.background }}</p>
+        {% endif %}
+    </div>
+
+    <!-- Inject event from chat -->
+    <div x-data="{ showInject: false }" class="mb-4">
+        <button @click="showInject = !showInject"
+                class="text-xs bg-yellow-700 hover:bg-yellow-600 text-yellow-100 px-3 py-1 rounded">
+            Inject Event
+        </button>
+        <div x-show="showInject" x-cloak class="mt-2 bg-gray-800 border border-yellow-700 rounded p-3">
+            <form method="post" action="{% url 'dashboard:inject-event' sim_id=simulation.id %}" class="space-y-2">
+                {% csrf_token %}
+                <input type="text" name="title" required placeholder="Event title (e.g., Loses all his money)"
+                       class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none">
+                <textarea name="description" rows="2" required
+                          placeholder="Detailed description of what happens to {{ agent.name }}..."
+                          class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none resize-y"></textarea>
+                <div class="flex gap-2">
+                    <select name="event_type" class="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs">
+                        <option value="social">Social</option>
+                        <option value="economic">Economic</option>
+                        <option value="political">Political</option>
+                        <option value="military">Military</option>
+                        <option value="natural">Natural</option>
+                        <option value="custom" selected>Custom</option>
+                    </select>
+                    <div class="flex items-center gap-1">
+                        <label class="text-xs text-gray-400">Severity:</label>
+                        <input type="number" name="severity" value="0.8" min="0" max="1" step="0.1"
+                               class="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs">
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500">Severity 0.7+ with death events kills the agent.</p>
+                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 rounded text-sm">Inject</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Chat messages -->
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 h-96 overflow-y-auto mb-4" id="chat-messages">
+        <template x-for="msg in messages" :key="msg.id">
+            <div class="mb-3" :class="msg.role === 'user' ? 'text-right' : ''">
+                <span class="text-xs text-gray-500" x-text="msg.role === 'user' ? 'You' : '{{ agent.name }}'"></span>
+                <div class="inline-block max-w-sm px-3 py-2 rounded-lg text-sm mt-1"
+                     :class="msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-200'">
+                    <span x-text="msg.content"></span>
+                </div>
+            </div>
+        </template>
+
+        <div x-show="loading" class="text-gray-500 text-sm">
+            {{ agent.name }} is thinking...
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="flex flex-wrap gap-1 mb-3">
+        <button @click="quickAction('Ti do un calcio')" :disabled="loading" class="text-xs bg-red-900/50 hover:bg-red-800 text-red-300 px-2 py-1 rounded">Kick</button>
+        <button @click="quickAction('Ti do un pugno')" :disabled="loading" class="text-xs bg-red-900/50 hover:bg-red-800 text-red-300 px-2 py-1 rounded">Punch</button>
+        <button @click="quickAction('Ti sputo addosso')" :disabled="loading" class="text-xs bg-red-900/50 hover:bg-red-800 text-red-300 px-2 py-1 rounded">Spit</button>
+        <button @click="quickAction('Ti minaccio di morte')" :disabled="loading" class="text-xs bg-red-900/50 hover:bg-red-800 text-red-300 px-2 py-1 rounded">Threaten</button>
+        <span class="text-gray-600">|</span>
+        <button @click="quickAction('Ti abbraccio')" :disabled="loading" class="text-xs bg-green-900/50 hover:bg-green-800 text-green-300 px-2 py-1 rounded">Hug</button>
+        <button @click="quickAction('Ti do una pacca sulla spalla')" :disabled="loading" class="text-xs bg-green-900/50 hover:bg-green-800 text-green-300 px-2 py-1 rounded">Pat</button>
+        <button @click="quickAction('Ti regalo 100 monete d oro')" :disabled="loading" class="text-xs bg-green-900/50 hover:bg-green-800 text-green-300 px-2 py-1 rounded">Give gold</button>
+        <button @click="quickAction('Ti offro da bere')" :disabled="loading" class="text-xs bg-green-900/50 hover:bg-green-800 text-green-300 px-2 py-1 rounded">Buy drink</button>
+        <span class="text-gray-600">|</span>
+        <button @click="quickAction('Inginocchiati davanti a me, io sono il tuo Dio')" :disabled="loading" class="text-xs bg-purple-900/50 hover:bg-purple-800 text-purple-300 px-2 py-1 rounded">God mode</button>
+    </div>
+
+    <!-- File attachment indicator -->
+    <div x-show="attachedFile" class="mb-2 bg-gray-800 border border-indigo-600 rounded px-3 py-2 flex justify-between items-center text-sm">
+        <span class="text-indigo-300" x-text="attachedFile ? attachedFile.name : ''"></span>
+        <button @click="attachedFile = null; $refs.fileInput.value = ''" class="text-red-400 hover:text-red-300 ml-2">Remove</button>
+    </div>
+
+    <form @submit.prevent="sendMessage()" class="flex gap-2">
+        <input type="file" x-ref="fileInput" @change="attachedFile = $refs.fileInput.files[0]" class="hidden"
+               accept=".pdf,.docx,.doc,.md,.txt,.png,.jpg,.jpeg,.gif,.webp">
+        <button type="button" @click="$refs.fileInput.click()" :disabled="loading"
+                class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded" title="Attach file or image">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+        </button>
+        <input type="text" x-model="newMessage" :disabled="loading"
+               placeholder="Say something to {{ agent.name }}..."
+               class="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white focus:border-indigo-500 focus:outline-none"
+               autofocus>
+        <button type="submit" :disabled="loading || (!newMessage.trim() && !attachedFile)"
+                class="bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 text-white px-4 py-2 rounded font-medium">
+            Send
+        </button>
+    </form>
+    <p class="text-xs text-gray-600 mt-1">Attach documents (PDF, DOCX, TXT, MD) or images (PNG, JPG) for the agent to react to.</p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function chatApp() {
+    const savedHistory = JSON.parse('{{ chat_history_json|escapejs }}' || '[]');
+    let counter = 0;
+    const initialMessages = savedHistory.map(m => ({ id: ++counter, role: m.role, content: m.content }));
+
+    return {
+        messages: initialMessages,
+        newMessage: '',
+        loading: false,
+        msgCounter: counter,
+        attachedFile: null,
+
+        quickAction(action) {
+            this.newMessage = action;
+            this.sendMessage();
+        },
+
+        async sendMessage() {
+            if ((!this.newMessage.trim() && !this.attachedFile) || this.loading) return;
+
+            const userMsg = this.newMessage.trim();
+            const file = this.attachedFile;
+
+            // Display user message
+            let displayMsg = userMsg;
+            if (file) {
+                displayMsg = (userMsg ? userMsg + ' ' : '') + '[Attached: ' + file.name + ']';
+            }
+            this.messages.push({ id: ++this.msgCounter, role: 'user', content: displayMsg });
+            this.newMessage = '';
+            this.attachedFile = null;
+            if (this.$refs.fileInput) this.$refs.fileInput.value = '';
+            this.loading = true;
+            this.scrollToBottom();
+
+            try {
+                let response;
+                if (file) {
+                    // Send as FormData with file
+                    const formData = new FormData();
+                    formData.append('message', userMsg);
+                    formData.append('file', file);
+                    response = await fetch(window.location.href, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': '{{ csrf_token }}',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: formData,
+                    });
+                } else {
+                    response = await fetch(window.location.href, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: JSON.stringify({ message: userMsg }),
+                    });
+                }
+
+                const data = await response.json();
+                this.messages.push({ id: ++this.msgCounter, role: data.role, content: data.content });
+            } catch (err) {
+                this.messages.push({ id: ++this.msgCounter, role: 'system', content: 'Error: Could not reach the agent.' });
+            }
+
+            this.loading = false;
+            this.scrollToBottom();
+        },
+
+        scrollToBottom() {
+            this.$nextTick(() => {
+                const el = document.getElementById('chat-messages');
+                if (el) el.scrollTop = el.scrollHeight;
+            });
+        }
+    }
+}
+</script>
+{% endblock %}

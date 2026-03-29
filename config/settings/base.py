@@ -13,6 +13,10 @@ LANGUAGE_CODE = "en-us"
 USE_I18N = True
 USE_TZ = True
 
+# STATIC FILES
+STATIC_URL = "/static/"
+STATIC_ROOT = str(ROOT_DIR("staticfiles"))
+
 # DATABASES
 DATABASES = {
     "default": env.db("DATABASE_URL", default="postgres:///epocha"),
@@ -28,6 +32,7 @@ DJANGO_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    "django.contrib.staticfiles",
 ]
 
 THIRD_PARTY_APPS = [
@@ -45,6 +50,7 @@ LOCAL_APPS = [
     "epocha.apps.world",
     "epocha.apps.chat",
     "epocha.apps.llm_adapter",
+    "epocha.apps.dashboard",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -126,8 +132,16 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:3000"])
 
 # EPOCHA SETTINGS
+# Main LLM provider (used for ticks, world generation, reports)
 EPOCHA_DEFAULT_LLM_PROVIDER = env("EPOCHA_LLM_PROVIDER", default="openai")
 EPOCHA_LLM_API_KEY = env("EPOCHA_LLM_API_KEY", default="")
 EPOCHA_LLM_MODEL = env("EPOCHA_LLM_MODEL", default="gpt-4o-mini")
+EPOCHA_LLM_BASE_URL = env("EPOCHA_LLM_BASE_URL", default="")
+
+# Chat LLM provider (used for conversations — can be a smarter model)
+# Falls back to the main provider if not set.
+EPOCHA_CHAT_LLM_API_KEY = env("EPOCHA_CHAT_LLM_API_KEY", default="")
+EPOCHA_CHAT_LLM_MODEL = env("EPOCHA_CHAT_LLM_MODEL", default="")
+EPOCHA_CHAT_LLM_BASE_URL = env("EPOCHA_CHAT_LLM_BASE_URL", default="")
 EPOCHA_MAX_AGENTS_PER_SIMULATION = env.int("EPOCHA_MAX_AGENTS", default=50)
 EPOCHA_DEFAULT_TICK_INTERVAL_SECONDS = env.int("EPOCHA_TICK_INTERVAL", default=5)

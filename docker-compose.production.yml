@@ -69,6 +69,7 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    stop_grace_period: 120s  # Allow current tick to complete before stopping
     deploy:
       resources:
         limits:

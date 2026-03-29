@@ -8,6 +8,8 @@ services:
       - .:/app
     ports:
       - "8000:8000"
+    environment:
+      - RUN_MIGRATIONS=true
     env_file:
       - .envs/.local/.django
       - .envs/.local/.postgres
@@ -40,8 +42,9 @@ services:
       - .envs/.local/.django
       - .envs/.local/.postgres
     depends_on:
-      - db
+      - web
       - redis
+    stop_grace_period: 60s  # Allow current tick to complete before stopping
 
   celery-beat:
     build:
@@ -54,7 +57,7 @@ services:
       - .envs/.local/.django
       - .envs/.local/.postgres
     depends_on:
-      - db
+      - web
       - redis
 
 volumes:

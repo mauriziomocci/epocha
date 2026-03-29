@@ -1,0 +1,185 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Group Chat - {{ simulation.name }} - Epocha{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto" x-data="groupChatApp()">
+    <div class="flex justify-between items-center mb-4">
+        <div>
+            <h1 class="text-xl font-bold">Group Chat</h1>
+            <p class="text-sm text-gray-400">{{ simulation.name }}</p>
+        </div>
+        <a href="{% url 'dashboard:simulation-detail' sim_id=simulation.id %}" class="text-sm text-gray-400 hover:text-gray-300">Back</a>
+    </div>
+
+    <!-- Agent selection -->
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4">
+        <h3 class="text-sm font-semibold mb-2">Select participants:</h3>
+        <div class="flex flex-wrap gap-2">
+            {% for agent in agents %}
+            <label class="flex items-center gap-1 bg-gray-700 rounded px-3 py-1 cursor-pointer hover:bg-gray-600 text-sm"
+                   :class="selectedAgents.includes({{ agent.id }}) ? 'ring-2 ring-indigo-500 bg-gray-600' : ''">
+                <input type="checkbox" :checked="selectedAgents.includes({{ agent.id }})"
+                       @change="toggleAgent({{ agent.id }})" class="hidden">
+                <span>{{ agent.name }}</span>
+                <span class="text-gray-400">({{ agent.role }})</span>
+            </label>
+            {% endfor %}
+        </div>
+        <button @click="selectAll()" class="mt-2 text-xs text-indigo-400 hover:text-indigo-300">Select all</button>
+    </div>
+
+    <!-- Inject event from group chat -->
+    <div x-data="{ showInject: false }" class="mb-4">
+        <button @click="showInject = !showInject"
+                class="text-xs bg-yellow-700 hover:bg-yellow-600 text-yellow-100 px-3 py-1 rounded">
+            Inject Event
+        </button>
+        <div x-show="showInject" x-cloak class="mt-2 bg-gray-800 border border-yellow-700 rounded p-3">
+            <form method="post" action="{% url 'dashboard:inject-event' sim_id=simulation.id %}" class="space-y-2">
+                {% csrf_token %}
+                <input type="text" name="title" required placeholder="Event title (e.g., A storm destroys the harvest)"
+                       class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none">
+                <textarea name="description" rows="2" required
+                          placeholder="What happens in the world that everyone will react to..."
+                          class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none resize-y"></textarea>
+                <div class="grid grid-cols-2 gap-2">
+                    <select name="event_type" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm">
+                        <option value="economic">Economic</option>
+                        <option value="political">Political</option>
+                        <option value="social">Social</option>
+                        <option value="natural">Natural</option>
+                        <option value="custom" selected>Custom</option>
+                    </select>
+                    <input type="number" name="severity" value="0.7" min="0" max="1" step="0.1"
+                           class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm" placeholder="Severity">
+                </div>
+                <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 rounded text-sm">Inject</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Chat messages -->
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 h-96 overflow-y-auto mb-4" id="group-messages">
+        <template x-for="msg in messages" :key="msg.id">
+            <div class="mb-3">
+                <template x-if="msg.role === 'user'">
+                    <div class="text-right">
+                        <span class="text-xs text-gray-500">You</span>
+                        <div class="inline-block max-w-md px-3 py-2 rounded-lg text-sm mt-1 bg-indigo-600 text-white">
+                            <span x-text="msg.content"></span>
+                        </div>
+                    </div>
+                </template>
+                <template x-if="msg.role === 'agent'">
+                    <div>
+                        <span class="text-xs font-semibold" :class="getAgentColor(msg.agent_name)" x-text="msg.agent_name"></span>
+                        <span class="text-xs text-gray-500" x-text="'(' + msg.agent_role + ')'"></span>
+                        <div class="max-w-md px-3 py-2 rounded-lg text-sm mt-1 bg-gray-700 text-gray-200">
+                            <span x-text="msg.content"></span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <div x-show="loading" class="text-gray-500 text-sm">
+            <span x-text="currentResponder"></span> is thinking...
+        </div>
+    </div>
+
+    <!-- Input -->
+    <form @submit.prevent="sendMessage()" class="flex gap-2">
+        <input type="text" x-model="newMessage" :disabled="loading"
+               placeholder="Say something to the group..."
+               class="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white focus:border-indigo-500 focus:outline-none"
+               autofocus>
+        <button type="submit" :disabled="loading || !newMessage.trim() || selectedAgents.length === 0"
+                class="bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 text-white px-4 py-2 rounded font-medium">
+            Send
+        </button>
+    </form>
+    <p class="text-xs text-gray-600 mt-1" x-show="selectedAgents.length === 0">Select at least one participant above.</p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const AGENT_COLORS = ['text-blue-400', 'text-green-400', 'text-yellow-400', 'text-pink-400', 'text-purple-400', 'text-cyan-400', 'text-orange-400', 'text-red-400'];
+const agentColorMap = {};
+
+function groupChatApp() {
+    return {
+        messages: [],
+        newMessage: '',
+        loading: false,
+        currentResponder: '',
+        msgCounter: 0,
+        selectedAgents: [{% for agent in agents %}{{ agent.id }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+        allAgentIds: [{% for agent in agents %}{{ agent.id }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+
+        toggleAgent(id) {
+            const idx = this.selectedAgents.indexOf(id);
+            if (idx >= 0) this.selectedAgents.splice(idx, 1);
+            else this.selectedAgents.push(id);
+        },
+
+        selectAll() {
+            this.selectedAgents = [...this.allAgentIds];
+        },
+
+        getAgentColor(name) {
+            if (!agentColorMap[name]) {
+                agentColorMap[name] = AGENT_COLORS[Object.keys(agentColorMap).length % AGENT_COLORS.length];
+            }
+            return agentColorMap[name];
+        },
+
+        async sendMessage() {
+            if (!this.newMessage.trim() || this.loading || this.selectedAgents.length === 0) return;
+
+            const userMsg = this.newMessage.trim();
+            this.messages.push({ id: ++this.msgCounter, role: 'user', content: userMsg });
+            this.newMessage = '';
+            this.loading = true;
+            this.currentResponder = 'Agents are';
+            this.scrollToBottom();
+
+            try {
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify({ message: userMsg, agent_ids: this.selectedAgents }),
+                });
+
+                const data = await response.json();
+                for (const r of data.responses) {
+                    this.messages.push({
+                        id: ++this.msgCounter,
+                        role: 'agent',
+                        agent_name: r.agent_name,
+                        agent_role: r.agent_role,
+                        content: r.content,
+                    });
+                }
+            } catch (err) {
+                this.messages.push({ id: ++this.msgCounter, role: 'user', content: 'Error: Could not reach the agents.' });
+            }
+
+            this.loading = false;
+            this.scrollToBottom();
+        },
+
+        scrollToBottom() {
+            this.$nextTick(() => {
+                const el = document.getElementById('group-messages');
+                if (el) el.scrollTop = el.scrollHeight;
+            });
+        }
+    }
+}
+</script>
+{% endblock %}

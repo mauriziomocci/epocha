@@ -3,5 +3,7 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-# Start Daphne ASGI server (supports HTTP + WebSocket)
-daphne -b 0.0.0.0 -p 8000 config.asgi:application
+# In development, use Django's runserver which serves static files
+# and supports both HTTP and ASGI (via Daphne as ASGI backend).
+# In production, Nginx serves static files (see start.production.sh).
+python manage.py runserver 0.0.0.0:8000
