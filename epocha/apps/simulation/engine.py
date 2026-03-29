@@ -79,13 +79,7 @@ class SimulationEngine:
             Agent.objects.filter(simulation=self.simulation, is_alive=True)
         )
         tick_events = []
-        for i, agent in enumerate(agents):
-            # Rate limit: delay between LLM calls to stay under API limits
-            # Gemini free tier: 10 req/min → 7s between calls = ~8.5 req/min
-            if i > 0:
-                import time
-                time.sleep(7)
-
+        for agent in agents:
             agent.refresh_from_db()
             try:
                 action = process_agent_decision(agent, world, tick)
