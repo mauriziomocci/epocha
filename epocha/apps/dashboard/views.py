@@ -207,8 +207,13 @@ def inject_event_view(request, sim_id):
     description_lower = description.lower()
 
     for agent in agents:
-        # Check if this agent is specifically named in the event
-        is_targeted = agent.name.lower() in description_lower or agent.role.lower() in description_lower
+        # Check if this agent is referenced in the event (by name or role)
+        # Match any word of the name or role, not the whole string
+        name_words = agent.name.lower().split()
+        role_words = agent.role.lower().split()
+        all_words = [w for w in name_words + role_words if len(w) > 2]  # Skip short words
+        title_and_desc = (title + " " + description).lower()
+        is_targeted = any(word in title_and_desc for word in all_words)
 
         # Determine impact multiplier (targeted agents feel it more)
         impact = severity if is_targeted else severity * 0.3
@@ -335,6 +340,14 @@ def chat_view(request, sim_id, agent_id):
                 file_context = f"\n\n[The visitor shows you a file: {uploaded_file.name}]"
 
         if message.strip() or file_context:
+            # Check if agent is dead
+            agent.refresh_from_db()
+            if not agent.is_alive:
+                return JsonResponse({
+                    "role": "system",
+                    "content": f"{agent.name} is dead and cannot respond. You can view their history in the Galactic Encyclopedia (Report).",
+                })
+
             # Save user message (include file reference if any)
             save_content = message
             if uploaded_file:
