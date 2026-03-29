@@ -81,6 +81,7 @@ TEMPLATES = [
                 "django.template.context_processors.debug",
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
+                "epocha.apps.dashboard.context_processors.llm_quota",
                 "django.contrib.messages.context_processors.messages",
             ],
         },
