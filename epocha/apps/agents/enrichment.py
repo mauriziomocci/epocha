@@ -106,7 +106,7 @@ def classify_historical_agents(agents: list) -> list[str]:
             return [str(n) for n in names]
         return []
 
-    except (json.JSONDecodeError, Exception):
+    except Exception:
         logger.exception("Failed to classify historical agents")
         return []
 
