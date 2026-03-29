@@ -69,6 +69,24 @@ def logout_view(request):
     return redirect("dashboard:login")
 
 
+def _get_language_instruction(request) -> str:
+    """Get the LLM language instruction based on user's session preference."""
+    from .context_processors import LANGUAGES
+
+    lang = request.session.get("epocha_language", "en")
+    return LANGUAGES.get(lang, LANGUAGES["en"])["instruction"]
+
+
+@require_POST
+def set_language_view(request):
+    """Save language preference to session."""
+    language = request.POST.get("language", "en")
+    if language in ("en", "it", "fr", "de", "es"):
+        request.session["epocha_language"] = language
+    referer = request.META.get("HTTP_REFERER", "/")
+    return redirect(referer)
+
+
 # ---------- Simulations ----------
 
 @login_required(login_url="/login/")
@@ -478,7 +496,7 @@ def chat_view(request, sim_id, agent_id):
             system_prompt = (
                 f"You are {agent.name}, a {agent.role}. "
                 f"You are in a face-to-face conversation. Respond in character, briefly (1-2 sentences). "
-                f"IMPORTANT: Always respond in the same language the visitor uses. If they speak Italian, respond in Italian. "
+                f"IMPORTANT: {_get_language_instruction(request)}"
                 f"The visitor can speak to you AND perform physical actions (kick, punch, hug, give gifts, etc). "
                 f"If they perform an action, react physically and emotionally as your character would.\n\n"
                 f"{personality_prompt}"
@@ -573,7 +591,7 @@ def group_chat_view(request, sim_id):
                 f"{personality_prompt}\n\n"
                 f"You are {agent.name}, a {agent.role}. "
                 f"You are in a group conversation. Respond in character, briefly (1-2 sentences). "
-                f"IMPORTANT: Always respond in the same language the visitor uses. "
+                f"IMPORTANT: {_get_language_instruction(request)}"
                 f"React to what others said.{events_text}{memory_text}"
             )
 

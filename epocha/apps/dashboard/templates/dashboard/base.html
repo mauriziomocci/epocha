@@ -17,6 +17,16 @@
                 {% if user.is_authenticated %}
                     <a href="{% url 'dashboard:simulation-create' %}" class="text-sm bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded">New Simulation</a>
                     <a href="{% url 'dashboard:home' %}" class="text-sm text-gray-400 hover:text-gray-300">My Simulations</a>
+                    <form method="post" action="{% url 'dashboard:set-language' %}" class="inline" x-data>
+                        {% csrf_token %}
+                        <select name="language" onchange="this.form.submit()" class="text-xs bg-gray-700 border border-gray-600 rounded px-1 py-1 text-gray-300 cursor-pointer">
+                            <option value="en" {% if current_language == 'en' %}selected{% endif %}>EN</option>
+                            <option value="it" {% if current_language == 'it' %}selected{% endif %}>IT</option>
+                            <option value="fr" {% if current_language == 'fr' %}selected{% endif %}>FR</option>
+                            <option value="de" {% if current_language == 'de' %}selected{% endif %}>DE</option>
+                            <option value="es" {% if current_language == 'es' %}selected{% endif %}>ES</option>
+                        </select>
+                    </form>
                     <span class="text-xs px-2 py-1 rounded {% if llm_remaining > 200 %}bg-gray-700 text-gray-400{% elif llm_remaining > 50 %}bg-yellow-900 text-yellow-300{% else %}bg-red-900 text-red-300{% endif %}" title="{{ llm_today_count }}/{{ llm_daily_limit }} requests used today">{{ llm_remaining }} req left</span>
                     <span class="text-sm text-gray-500">{{ user.email }}</span>
                     <a href="{% url 'dashboard:logout' %}" class="text-sm text-red-400 hover:text-red-300">Logout</a>

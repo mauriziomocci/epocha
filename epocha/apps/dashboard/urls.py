@@ -11,6 +11,9 @@ urlpatterns = [
     path("login/", views.login_view, name="login"),
     path("logout/", views.logout_view, name="logout"),
 
+    # Settings
+    path("set-language/", views.set_language_view, name="set-language"),
+
     # Simulations
     path("", views.simulation_list_view, name="home"),
     path("simulations/create/", views.simulation_create_view, name="simulation-create"),
