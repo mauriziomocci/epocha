@@ -389,8 +389,10 @@ def chat_view(request, sim_id, agent_id):
 
             system_prompt = (
                 f"You are {agent.name}, a {agent.role}. "
-                f"Respond in character, briefly (1-2 sentences). "
-                f"If something happened to you (injury, death, gift), acknowledge it.\n\n"
+                f"You are in a face-to-face conversation. Respond in character, briefly (1-2 sentences). "
+                f"The visitor can speak to you AND perform physical actions (kick, punch, hug, give gifts, etc). "
+                f"If they perform an action, react physically and emotionally as your character would. "
+                f"For example: if kicked, express pain and anger. If hugged, react based on your personality.\n\n"
                 f"{personality_prompt}"
                 f"{memory_text}{chat_history}"
             )
@@ -405,6 +407,10 @@ def chat_view(request, sim_id, agent_id):
                 max_tokens=150,
                 simulation_id=simulation.id,
             )
+
+            # Apply minor state effects from physical actions in chat
+            # This is lightweight — major changes still require Inject Event
+            _apply_chat_mood_effects(agent, message)
 
             # Save agent response
             ChatMessage.objects.create(
@@ -502,3 +508,34 @@ def group_chat_view(request, sim_id):
         "simulation": simulation,
         "agents": all_agents,
     })
+
+
+def _apply_chat_mood_effects(agent, message: str) -> None:
+    """Apply minor mood/health effects from physical actions in chat.
+
+    Only affects mood and minor health. Does NOT kill agents — that
+    requires the Inject Event button with proper severity.
+    This keeps chat interactions feeling responsive without the
+    danger of accidental state changes from normal conversation.
+    """
+    msg = message.lower()
+
+    # Negative physical actions (reduce mood, minor health impact)
+    negative_actions = ("calcio", "kick", "punch", "pugno", "schiaffo", "slap",
+                       "sputo", "spit", "insulto", "insult", "colpis", "hit",
+                       "morso", "bite", "frustat", "whip")
+    # Positive physical actions (increase mood)
+    positive_actions = ("abbraccio", "hug", "carezza", "caress", "bacio", "kiss",
+                       "regalo", "gift", "compliment", "applauso", "applause",
+                       "aiuto", "help")
+
+    is_negative = any(action in msg for action in negative_actions)
+    is_positive = any(action in msg for action in positive_actions)
+
+    if is_negative:
+        agent.mood = max(0.0, agent.mood - 0.1)
+        agent.health = max(0.1, agent.health - 0.05)  # Minor, never kills
+        agent.save(update_fields=["mood", "health"])
+    elif is_positive:
+        agent.mood = min(1.0, agent.mood + 0.1)
+        agent.save(update_fields=["mood"])
