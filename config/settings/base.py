@@ -13,6 +13,10 @@ LANGUAGE_CODE = "en-us"
 USE_I18N = True
 USE_TZ = True
 
+# STATIC FILES
+STATIC_URL = "/static/"
+STATIC_ROOT = str(ROOT_DIR("staticfiles"))
+
 # DATABASES
 DATABASES = {
     "default": env.db("DATABASE_URL", default="postgres:///epocha"),
@@ -28,6 +32,7 @@ DJANGO_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    "django.contrib.staticfiles",
 ]
 
 THIRD_PARTY_APPS = [
