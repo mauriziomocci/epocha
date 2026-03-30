@@ -77,6 +77,36 @@ def _get_language_instruction(request) -> str:
     return LANGUAGES.get(lang, LANGUAGES["en"])["instruction"]
 
 
+def _build_chat_system_prompt(agent, request, personality_prompt, memory_text, chat_history):
+    """Build the system prompt for agent chat conversations.
+
+    Shared between chat_view and chat_send_api to avoid duplication.
+    Instructs the LLM to roleplay as the agent with historically accurate
+    behavior, reacting naturally to the full spectrum of human interaction.
+    """
+    lang_instruction = _get_language_instruction(request)
+
+    return (
+        f"You are {agent.name}, a {agent.role}. "
+        f"You are in a private face-to-face conversation with a visitor.\n"
+        f"IMPORTANT: {lang_instruction}"
+        f"Stay in character at all times. React as this specific person would, "
+        f"given their historical background, personality, social status, and era.\n\n"
+        f"CONVERSATION RULES:\n"
+        f"- Respond in 2-4 sentences. Be vivid and specific, not generic.\n"
+        f"- NEVER describe yourself in third person (no *sits down*, no *raises eyebrow*).\n"
+        f"- Speak directly as the character. Use dialogue, not stage directions.\n"
+        f"- React proportionally: a greeting gets a greeting, violence gets outrage, "
+        f"a joke gets a laugh, a gift gets gratitude or suspicion depending on your personality.\n"
+        f"- If the visitor asks a question, ANSWER it. Do not deflect or redirect.\n"
+        f"- Your reactions should reflect your era, status, and personality -- "
+        f"a Pope speaks differently than a soldier, a duchess differently than a servant.\n"
+        f"- CRITICAL: React ONLY to the visitor's latest message. Do not repeat previous reactions.\n\n"
+        f"{personality_prompt}"
+        f"{memory_text}{chat_history}"
+    )
+
+
 @require_POST
 def set_language_view(request):
     """Save language preference to session."""
@@ -541,23 +571,8 @@ def chat_view(request, sim_id, agent_id):
                         lines.append(f"You said: {text}")
                 chat_history = "\n\nPrevious conversation:\n" + "\n".join(lines)
 
-            system_prompt = (
-                f"You are {agent.name}, a {agent.role}. "
-                f"You are in a face-to-face conversation. Respond in character, 2-4 sentences. "
-                f"IMPORTANT: {_get_language_instruction(request)}"
-                f"React like a REAL HUMAN BEING would. The visitor can say anything or do anything:\n"
-                f"- Physical actions: kick, punch, hug, caress, kiss, stab, shoot, etc.\n"
-                f"- Emotional: insults, compliments, jokes, flirting, threats, declarations of love.\n"
-                f"- Social: gifts, proposals, questions, gossip, lies, confessions.\n"
-                f"React naturally based on what was done: violence causes pain and anger, "
-                f"kindness causes warmth, jokes cause laughter, insults cause offense, "
-                f"flirting causes embarrassment or interest, etc. "
-                f"Match the intensity of your reaction to the action.\n"
-                f"CRITICAL: Focus ONLY on the visitor's LATEST message. "
-                f"Do NOT repeat or reference previous reactions. "
-                f"If the visitor changes topic or tone, adapt immediately.\n\n"
-                f"{personality_prompt}"
-                f"{memory_text}{chat_history}"
+            system_prompt = _build_chat_system_prompt(
+                agent, request, personality_prompt, memory_text, chat_history,
             )
 
             # Events go in the USER prompt where the model pays most attention
@@ -720,23 +735,8 @@ def chat_send_api(request, sim_id, agent_id):
                 lines.append(f"You said: {text}")
         chat_history = "\n\nPrevious conversation:\n" + "\n".join(lines)
 
-    system_prompt = (
-        f"You are {agent.name}, a {agent.role}. "
-        f"You are in a face-to-face conversation. Respond in character, 2-4 sentences. "
-        f"IMPORTANT: {_get_language_instruction(request)}"
-        f"React like a REAL HUMAN BEING would. The visitor can say anything or do anything:\n"
-        f"- Physical actions: kick, punch, hug, caress, kiss, stab, shoot, etc.\n"
-        f"- Emotional: insults, compliments, jokes, flirting, threats, declarations of love.\n"
-        f"- Social: gifts, proposals, questions, gossip, lies, confessions.\n"
-        f"React naturally based on what was done: violence causes pain and anger, "
-        f"kindness causes warmth, jokes cause laughter, insults cause offense, "
-        f"flirting causes embarrassment or interest, etc. "
-        f"Match the intensity of your reaction to the action.\n"
-        f"CRITICAL: Focus ONLY on the visitor's LATEST message. "
-        f"Do NOT repeat or reference previous reactions. "
-        f"If the visitor changes topic or tone, adapt immediately.\n\n"
-        f"{personality_prompt}"
-        f"{memory_text}{chat_history}"
+    system_prompt = _build_chat_system_prompt(
+        agent, request, personality_prompt, memory_text, chat_history,
     )
 
     # Events go in the USER prompt where the model pays most attention

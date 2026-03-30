@@ -5,11 +5,54 @@ Two providers can be configured:
 - Chat provider: for conversations with agents (can be a smarter model)
 
 If the chat provider is not configured, it falls back to the main provider.
+If the chat provider hits rate limits, it falls back to the main provider
+automatically via FallbackProvider.
 """
+import logging
+
 from django.conf import settings
 
 from .providers.base import BaseLLMProvider
 from .providers.openai import OpenAIProvider
+
+logger = logging.getLogger(__name__)
+
+
+class FallbackProvider(BaseLLMProvider):
+    """Wraps a primary and fallback provider.
+
+    Tries the primary provider first. If it raises any exception (typically
+    rate limit errors after all retries are exhausted), falls back to the
+    secondary provider transparently.
+    """
+
+    def __init__(self, primary: BaseLLMProvider, fallback: BaseLLMProvider):
+        self._primary = primary
+        self._fallback = fallback
+
+    def complete(self, prompt, system_prompt="", temperature=0.7, max_tokens=1000, simulation_id=None):
+        try:
+            return self._primary.complete(
+                prompt=prompt, system_prompt=system_prompt,
+                temperature=temperature, max_tokens=max_tokens,
+                simulation_id=simulation_id,
+            )
+        except Exception:
+            logger.warning(
+                "Chat provider %s failed, falling back to %s",
+                self._primary.get_model_name(), self._fallback.get_model_name(),
+            )
+            return self._fallback.complete(
+                prompt=prompt, system_prompt=system_prompt,
+                temperature=temperature, max_tokens=max_tokens,
+                simulation_id=simulation_id,
+            )
+
+    def get_model_name(self):
+        return self._primary.get_model_name()
+
+    def get_cost(self, input_tokens, output_tokens):
+        return self._primary.get_cost(input_tokens, output_tokens)
 
 
 def get_llm_client() -> BaseLLMProvider:
@@ -24,13 +67,16 @@ def get_llm_client() -> BaseLLMProvider:
 def get_chat_llm_client() -> BaseLLMProvider:
     """Factory: returns the chat-specific LLM provider.
 
-    Falls back to the main provider if no chat-specific config is set.
-    Use a smarter model here for better conversation quality.
+    If a chat-specific provider is configured, wraps it in a FallbackProvider
+    that falls back to the main provider on failure (e.g. rate limit).
+    If no chat provider is configured, returns the main provider directly.
     """
     if settings.EPOCHA_CHAT_LLM_API_KEY and settings.EPOCHA_CHAT_LLM_MODEL:
-        return OpenAIProvider(
+        primary = OpenAIProvider(
             api_key=settings.EPOCHA_CHAT_LLM_API_KEY,
             model=settings.EPOCHA_CHAT_LLM_MODEL,
             base_url=settings.EPOCHA_CHAT_LLM_BASE_URL or None,
         )
+        fallback = get_llm_client()
+        return FallbackProvider(primary, fallback)
     return get_llm_client()
