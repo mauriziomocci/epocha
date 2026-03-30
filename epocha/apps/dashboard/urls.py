@@ -23,6 +23,8 @@ urlpatterns = [
     path("simulations/<int:sim_id>/pause/", views.simulation_pause_view, name="simulation-pause"),
     path("simulations/<int:sim_id>/report/", views.simulation_report_view, name="simulation-report"),
     path("simulations/<int:sim_id>/inject/", views.inject_event_view, name="inject-event"),
+    path("simulations/<int:sim_id>/chat/<int:agent_id>/history/", views.chat_history_api, name="chat-history-api"),
+    path("simulations/<int:sim_id>/chat/<int:agent_id>/send/", views.chat_send_api, name="chat-send-api"),
     path("simulations/<int:sim_id>/chat/<int:agent_id>/", views.chat_view, name="chat"),
     path("simulations/<int:sim_id>/group-chat/", views.group_chat_view, name="group-chat"),
 ]

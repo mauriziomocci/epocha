@@ -587,6 +587,166 @@ def chat_view(request, sim_id, agent_id):
 
 
 @login_required(login_url="/login/")
+def chat_history_api(request, sim_id, agent_id):
+    """Return chat history for an agent as JSON.
+
+    Used by the integrated dashboard chat panel to load messages
+    when the user selects an agent, without a full page reload.
+    """
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+    agent = get_object_or_404(Agent, id=agent_id, simulation=simulation)
+
+    from epocha.apps.chat.models import ChatMessage, ChatSession
+
+    session, _ = ChatSession.objects.get_or_create(
+        simulation=simulation, user=request.user, agent=agent,
+    )
+
+    messages = [
+        {
+            "role": m.role,
+            "content": m.content,
+            "time": m.created_at.strftime("%H:%M"),
+        }
+        for m in ChatMessage.objects.filter(session=session).order_by("created_at")
+    ]
+
+    return JsonResponse({"messages": messages})
+
+
+@login_required(login_url="/login/")
+def chat_send_api(request, sim_id, agent_id):
+    """Send a message to an agent and return the response as JSON.
+
+    Used by the integrated dashboard chat panel. Handles the same
+    logic as chat_view POST but as a standalone JSON endpoint.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+    agent = get_object_or_404(Agent, id=agent_id, simulation=simulation)
+
+    from epocha.apps.chat.models import ChatMessage, ChatSession
+
+    session, _ = ChatSession.objects.get_or_create(
+        simulation=simulation, user=request.user, agent=agent,
+    )
+
+    data = json.loads(request.body)
+    message = data.get("message", "")
+
+    if not message.strip():
+        return JsonResponse({"role": "system", "content": "Empty message."})
+
+    # Check if agent is dead
+    agent.refresh_from_db()
+    if not agent.is_alive:
+        return JsonResponse({
+            "role": "system",
+            "content": f"{agent.name} is dead and cannot respond. You can view their history in the Galactic Encyclopedia (Report).",
+        })
+
+    # Save user message
+    ChatMessage.objects.create(
+        session=session, role="user", content=message,
+        tick_at=simulation.current_tick,
+    )
+
+    from epocha.apps.agents.memory import get_relevant_memories
+    from epocha.apps.agents.personality import build_personality_prompt
+    from epocha.apps.llm_adapter.client import get_chat_llm_client
+
+    client = get_chat_llm_client()
+    personality_prompt = build_personality_prompt(agent.personality)
+    memories = get_relevant_memories(agent, current_tick=simulation.current_tick)
+    memory_text = ""
+    if memories:
+        memory_text = "\n\nYour recent memories:\n" + "\n".join(f"- {m.content}" for m in memories[:5])
+
+    # Include the most recent events in user prompt for higher attention
+    recent_events = list(Event.objects.filter(simulation=simulation).order_by("-id")[:3])
+    events_context = ""
+    if recent_events:
+        events_context = (
+            "\n\n[CONTEXT: " + " ".join(
+                f"{e.title} - {e.description}" for e in reversed(recent_events)
+            ) + f" — React to this as {agent.name}.]"
+        )
+
+    # Include recent chat history for continuity.
+    # Agent responses are heavily truncated (50 chars) to prevent
+    # long dramatic responses from dominating context and causing
+    # the model to repeat itself. User messages are kept fuller.
+    _MAX_USER_MSG_LENGTH = 200
+    _MAX_AGENT_MSG_LENGTH = 50
+    recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:6]
+    chat_history = ""
+    if recent_chat.count() > 1:
+        msgs = list(reversed(recent_chat))
+        lines = []
+        for m in msgs[:-1]:
+            if m.role == "user":
+                text = m.content[:_MAX_USER_MSG_LENGTH]
+                if len(m.content) > _MAX_USER_MSG_LENGTH:
+                    text += "..."
+                lines.append(f"Visitor: {text}")
+            else:
+                text = m.content[:_MAX_AGENT_MSG_LENGTH]
+                if len(m.content) > _MAX_AGENT_MSG_LENGTH:
+                    text += "..."
+                lines.append(f"You said: {text}")
+        chat_history = "\n\nPrevious conversation:\n" + "\n".join(lines)
+
+    system_prompt = (
+        f"You are {agent.name}, a {agent.role}. "
+        f"You are in a face-to-face conversation. Respond in character, 2-4 sentences. "
+        f"IMPORTANT: {_get_language_instruction(request)}"
+        f"React like a REAL HUMAN BEING would. The visitor can say anything or do anything:\n"
+        f"- Physical actions: kick, punch, hug, caress, kiss, stab, shoot, etc.\n"
+        f"- Emotional: insults, compliments, jokes, flirting, threats, declarations of love.\n"
+        f"- Social: gifts, proposals, questions, gossip, lies, confessions.\n"
+        f"React naturally based on what was done: violence causes pain and anger, "
+        f"kindness causes warmth, jokes cause laughter, insults cause offense, "
+        f"flirting causes embarrassment or interest, etc. "
+        f"Match the intensity of your reaction to the action.\n"
+        f"CRITICAL: Focus ONLY on the visitor's LATEST message. "
+        f"Do NOT repeat or reference previous reactions. "
+        f"If the visitor changes topic or tone, adapt immediately.\n\n"
+        f"{personality_prompt}"
+        f"{memory_text}{chat_history}"
+    )
+
+    # Events go in the USER prompt where the model pays most attention
+    prompt_with_hint = f"{message}{events_context} /no_think"
+
+    response = client.complete(
+        prompt=prompt_with_hint,
+        system_prompt=system_prompt,
+        temperature=0.8,
+        max_tokens=500,
+        simulation_id=simulation.id,
+    )
+
+    # Apply minor state effects from physical actions in chat
+    _apply_chat_mood_effects(agent, message)
+
+    # Save agent response
+    ChatMessage.objects.create(
+        session=session, role="agent", content=response,
+        tick_at=simulation.current_tick,
+    )
+
+    from django.utils import timezone
+
+    return JsonResponse({
+        "role": "agent",
+        "content": response,
+        "time": timezone.now().strftime("%H:%M"),
+    })
+
+
+@login_required(login_url="/login/")
 def group_chat_view(request, sim_id):
     """Group chat: user talks with multiple agents at once.
 
