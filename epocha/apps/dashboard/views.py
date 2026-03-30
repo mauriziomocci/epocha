@@ -484,14 +484,21 @@ def chat_view(request, sim_id, agent_id):
                     ) + f" — React to this as {agent.name}.]"
                 )
 
-            # Include recent chat history for continuity
-            recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:10]
+            # Include recent chat history for continuity (truncate each message
+            # to avoid long past responses dominating the context)
+            _MAX_HISTORY_MSG_LENGTH = 150
+            recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:6]
             chat_history = ""
             if recent_chat.count() > 1:
                 msgs = list(reversed(recent_chat))
-                chat_history = "\n\nPrevious conversation:\n" + "\n".join(
-                    f"{'Visitor' if m.role == 'user' else agent.name}: {m.content}" for m in msgs[:-1]
-                )
+                lines = []
+                for m in msgs[:-1]:
+                    speaker = "Visitor" if m.role == "user" else agent.name
+                    text = m.content[:_MAX_HISTORY_MSG_LENGTH]
+                    if len(m.content) > _MAX_HISTORY_MSG_LENGTH:
+                        text += "..."
+                    lines.append(f"{speaker}: {text}")
+                chat_history = "\n\nPrevious conversation:\n" + "\n".join(lines)
 
             system_prompt = (
                 f"You are {agent.name}, a {agent.role}. "
