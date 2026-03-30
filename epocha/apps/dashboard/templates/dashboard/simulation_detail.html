@@ -226,8 +226,10 @@
                                                  x-text="selectedAgentName.charAt(0).toUpperCase()"></div>
                                             <div class="max-w-xs px-3 py-2 rounded-lg text-sm bg-gray-700 text-gray-200">
                                                 <span x-text="msg.content"></span>
-                                                <div class="text-right mt-1" x-show="msg.time">
-                                                    <span class="text-[10px] opacity-40" x-text="msg.time"></span>
+                                                <div class="flex justify-between items-center mt-1 gap-2">
+                                                    <span x-show="msg.provider" class="text-[9px] opacity-30"
+                                                          x-text="msg.provider ? msg.provider.model + ' ' + msg.provider.key : ''"></span>
+                                                    <span x-show="msg.time" class="text-[10px] opacity-40" x-text="msg.time"></span>
                                                 </div>
                                             </div>
                                         </div>
@@ -527,7 +529,7 @@ function simulationDashboard() {
                     body: JSON.stringify({ message: msg }),
                 });
                 const data = await r.json();
-                this.chatMessages.push({ id: ++this.chatMsgCounter, role: data.role, content: data.content, time: data.time || timeStr });
+                this.chatMessages.push({ id: ++this.chatMsgCounter, role: data.role, content: data.content, time: data.time || timeStr, provider: data.provider || null });
             } catch (e) {
                 this.chatMessages.push({ id: ++this.chatMsgCounter, role: 'system', content: 'Error: Could not reach the agent.', time: '' });
             }

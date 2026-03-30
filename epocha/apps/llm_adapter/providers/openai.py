@@ -208,3 +208,9 @@ class OpenAIProvider(BaseLLMProvider):
 
     def get_model_name(self) -> str:
         return self.model
+
+    def get_provider_info(self) -> dict:
+        """Return model name and masked API key for UI display."""
+        key = self.api_key
+        masked = f"{key[:6]}...{key[-4:]}" if len(key) > 10 else "***"
+        return {"model": self.model, "key": masked}

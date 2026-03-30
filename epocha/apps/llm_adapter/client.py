@@ -29,30 +29,39 @@ class FallbackProvider(BaseLLMProvider):
     def __init__(self, primary: BaseLLMProvider, fallback: BaseLLMProvider):
         self._primary = primary
         self._fallback = fallback
+        self._last_used = primary
 
     def complete(self, prompt, system_prompt="", temperature=0.7, max_tokens=1000, simulation_id=None):
         try:
-            return self._primary.complete(
+            result = self._primary.complete(
                 prompt=prompt, system_prompt=system_prompt,
                 temperature=temperature, max_tokens=max_tokens,
                 simulation_id=simulation_id,
             )
+            self._last_used = self._primary
+            return result
         except Exception:
             logger.warning(
                 "Chat provider %s failed, falling back to %s",
                 self._primary.get_model_name(), self._fallback.get_model_name(),
             )
-            return self._fallback.complete(
+            result = self._fallback.complete(
                 prompt=prompt, system_prompt=system_prompt,
                 temperature=temperature, max_tokens=max_tokens,
                 simulation_id=simulation_id,
             )
+            self._last_used = self._fallback
+            return result
 
     def get_model_name(self):
-        return self._primary.get_model_name()
+        return self._last_used.get_model_name()
 
     def get_cost(self, input_tokens, output_tokens):
-        return self._primary.get_cost(input_tokens, output_tokens)
+        return self._last_used.get_cost(input_tokens, output_tokens)
+
+    def get_provider_info(self) -> dict:
+        """Return info about which provider actually served the last request."""
+        return self._last_used.get_provider_info()
 
 
 def get_llm_client() -> BaseLLMProvider:

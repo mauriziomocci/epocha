@@ -602,6 +602,7 @@ def chat_view(request, sim_id, agent_id):
                 "role": "agent",
                 "content": response,
                 "time": timezone.now().strftime("%H:%M"),
+                "provider": client.get_provider_info(),
             })
 
         return JsonResponse({"role": "system", "content": "Empty message."})
@@ -765,6 +766,7 @@ def chat_send_api(request, sim_id, agent_id):
         "role": "agent",
         "content": response,
         "time": timezone.now().strftime("%H:%M"),
+        "provider": client.get_provider_info(),
     })
 
 

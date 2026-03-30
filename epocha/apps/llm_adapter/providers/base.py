@@ -30,3 +30,7 @@ class BaseLLMProvider(ABC):
     def get_model_name(self) -> str:
         """Return the name of the model in use."""
         ...
+
+    def get_provider_info(self) -> dict:
+        """Return model name and masked API key for UI display."""
+        return {"model": self.get_model_name(), "key": "***"}
