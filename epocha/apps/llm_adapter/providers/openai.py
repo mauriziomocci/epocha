@@ -3,10 +3,23 @@
 Supports OpenAI, Google Gemini, Groq, OpenRouter, Together AI, Mistral,
 LM Studio, Ollama, and any other provider exposing an OpenAI-compatible
 chat completions endpoint via configurable base_url.
+
+Includes automatic retry with exponential backoff for rate limit errors
+(HTTP 429), which is common with free-tier providers like Groq.
 """
 from __future__ import annotations
 
+import logging
+import time
+
 import openai
+
+logger = logging.getLogger(__name__)
+
+# Retry configuration for rate limit errors (429).
+# Groq free tier: 30 RPM. A 3-retry strategy with 2s base covers most bursts.
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY_SECONDS = 2.0
 
 from .base import BaseLLMProvider
 
@@ -42,6 +55,10 @@ class OpenAIProvider(BaseLLMProvider):
     - "http://localhost:1234/v1": LM Studio
     - "http://localhost:11434/v1": Ollama
     - "https://api.groq.com/openai/v1": Groq
+
+    Supports multiple API keys (comma-separated) for automatic failover.
+    When a rate limit error exhausts retries on the current key, the
+    provider rotates to the next key before raising.
     """
 
     def __init__(
@@ -50,10 +67,28 @@ class OpenAIProvider(BaseLLMProvider):
         model: str = "gpt-4o-mini",
         base_url: str | None = None,
     ):
-        self.api_key = api_key
+        self._api_keys = [k.strip() for k in api_key.split(",") if k.strip()]
+        self._current_key_index = 0
         self.model = model
         self.base_url = base_url
-        self._client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        self._client = openai.OpenAI(api_key=self._api_keys[0], base_url=base_url)
+
+    @property
+    def api_key(self) -> str:
+        """Return the currently active API key."""
+        return self._api_keys[self._current_key_index]
+
+    def _rotate_key(self) -> bool:
+        """Switch to the next API key. Returns True if a new key is available."""
+        if len(self._api_keys) <= 1:
+            return False
+        self._current_key_index = (self._current_key_index + 1) % len(self._api_keys)
+        self._client = openai.OpenAI(
+            api_key=self._api_keys[self._current_key_index],
+            base_url=self.base_url,
+        )
+        logger.info("Rotated to API key %d/%d", self._current_key_index + 1, len(self._api_keys))
+        return True
 
     def complete(
         self,
@@ -64,8 +99,6 @@ class OpenAIProvider(BaseLLMProvider):
         simulation_id: int | None = None,
     ) -> str:
         """Send a chat completion request, log cost, and return response text."""
-        import time
-
         from epocha.apps.llm_adapter.models import LLMRequest
 
         start = time.monotonic()
@@ -111,28 +144,56 @@ class OpenAIProvider(BaseLLMProvider):
         """Call the OpenAI-compatible chat completions endpoint.
 
         Returns a dict with content, input_tokens, and output_tokens.
-        Separated from complete() to allow easy mocking in tests.
+        Retries up to _MAX_RETRIES times on rate limit errors (429) with
+        exponential backoff. Other errors are raised immediately.
         """
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        response = self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        # Try all available API keys, with retries on each
+        keys_tried = 0
+        last_exception = None
 
-        choice = response.choices[0]
-        usage = response.usage
+        while keys_tried < len(self._api_keys):
+            for attempt in range(_MAX_RETRIES + 1):
+                try:
+                    response = self._client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
 
-        return {
-            "content": choice.message.content,
-            "input_tokens": usage.prompt_tokens if usage else 0,
-            "output_tokens": usage.completion_tokens if usage else 0,
-        }
+                    choice = response.choices[0]
+                    usage = response.usage
+
+                    return {
+                        "content": choice.message.content,
+                        "input_tokens": usage.prompt_tokens if usage else 0,
+                        "output_tokens": usage.completion_tokens if usage else 0,
+                    }
+
+                except openai.RateLimitError as exc:
+                    last_exception = exc
+                    if attempt < _MAX_RETRIES:
+                        delay = _RETRY_BASE_DELAY_SECONDS * (2 ** attempt)
+                        logger.warning(
+                            "Rate limited by %s (key %d/%d, attempt %d/%d), retrying in %.1fs",
+                            self.model, self._current_key_index + 1, len(self._api_keys),
+                            attempt + 1, _MAX_RETRIES, delay,
+                        )
+                        time.sleep(delay)
+
+            # All retries exhausted for this key -- try rotating
+            keys_tried += 1
+            if self._rotate_key():
+                logger.warning("All retries exhausted, switching to next API key")
+            else:
+                break
+
+        raise last_exception
 
     def get_cost(self, input_tokens: int, output_tokens: int) -> float:
         """Calculate estimated cost in USD based on token counts.
