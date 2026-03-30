@@ -818,9 +818,13 @@ def group_chat_view(request, sim_id):
             system_prompt = (
                 f"{personality_prompt}\n\n"
                 f"You are {agent.name}, a {agent.role}. "
-                f"You are in a group conversation. Respond in character, briefly (1-2 sentences). "
+                f"You are in a group conversation with a visitor and other characters. "
+                f"Respond in character, 1-3 sentences. "
                 f"IMPORTANT: {_get_language_instruction(request)}"
-                f"React to what others said.{events_text}{memory_text}"
+                f"CRITICAL: Always respond DIRECTLY to the Visitor's message first. "
+                f"The visitor is talking to YOU, not just to the others. "
+                f"You may also briefly react to what other characters said, "
+                f"but your primary response must address the visitor.{events_text}{memory_text}"
             )
 
             try:
