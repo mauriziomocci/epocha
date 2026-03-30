@@ -821,10 +821,10 @@ def group_chat_view(request, sim_id):
                 f"You are in a group conversation with a visitor and other characters. "
                 f"Respond in character, 1-3 sentences. "
                 f"IMPORTANT: {_get_language_instruction(request)}"
-                f"CRITICAL: Always respond DIRECTLY to the Visitor's message first. "
-                f"The visitor is talking to YOU, not just to the others. "
-                f"You may also briefly react to what other characters said, "
-                f"but your primary response must address the visitor.{events_text}{memory_text}"
+                f"The Visitor is the one who controls this conversation. "
+                f"When the Visitor asks a question or makes a request, you MUST respond to them directly. "
+                f"You may also react to what other characters said, and you can talk to them naturally. "
+                f"But the Visitor always has priority -- never ignore what they said.{events_text}{memory_text}"
             )
 
             try:
