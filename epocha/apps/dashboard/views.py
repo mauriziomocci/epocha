@@ -794,7 +794,7 @@ def group_chat_view(request, sim_id):
         from epocha.apps.llm_adapter.client import get_chat_llm_client
 
         client = get_chat_llm_client()
-        agents = Agent.objects.filter(id__in=agent_ids, simulation=simulation, is_alive=True)
+        agents = list(Agent.objects.filter(id__in=agent_ids, simulation=simulation, is_alive=True))
 
         # Gather recent events
         recent_events = Event.objects.filter(
@@ -804,6 +804,25 @@ def group_chat_view(request, sim_id):
         events_text = ""
         if recent_events:
             events_text = "\nRecent events: " + "; ".join(f"{e.title}" for e in recent_events)
+
+        # Detect @mentions -- if the visitor mentions a specific agent by name
+        # (with or without @), only that agent responds directly. Others listen
+        # and may react briefly but know the question was not for them.
+        agent_names = {a.name.lower(): a for a in agents}
+        mentioned_agent = None
+        msg_lower = message.lower()
+        for name, agent_obj in agent_names.items():
+            # Check for @Name or just the name in the message
+            if f"@{name}" in msg_lower or f"@{name.split()[0].lower()}" in msg_lower:
+                mentioned_agent = agent_obj
+                break
+        # Also check first names without @
+        if not mentioned_agent:
+            for name, agent_obj in agent_names.items():
+                first_name = name.split()[0].lower()
+                if first_name in msg_lower and len(first_name) > 3:
+                    mentioned_agent = agent_obj
+                    break
 
         responses = []
         conversation_so_far = f"Visitor: {message}"
@@ -815,16 +834,30 @@ def group_chat_view(request, sim_id):
             if memories:
                 memory_text = "\nYour memories: " + "; ".join(m.content for m in memories[:3])
 
+            is_addressed = (mentioned_agent is None) or (agent.id == mentioned_agent.id)
+
+            if is_addressed:
+                role_instruction = (
+                    f"The Visitor is speaking to you directly. "
+                    f"Respond to their message. You may also react to what other characters said."
+                )
+                max_tokens = 200
+            else:
+                role_instruction = (
+                    f"The Visitor is speaking to {mentioned_agent.name}, not to you. "
+                    f"You are listening. Only respond if you have something relevant to add "
+                    f"(a reaction, a contradiction, a comment). "
+                    f"If you have nothing to add, say nothing -- respond with just: *ascolta in silenzio*"
+                )
+                max_tokens = 80
+
             system_prompt = (
                 f"{personality_prompt}\n\n"
                 f"You are {agent.name}, a {agent.role}. "
                 f"You are in a group conversation with a visitor and other characters. "
-                f"Respond in character, 1-3 sentences. "
+                f"Respond in character. "
                 f"IMPORTANT: {_get_language_instruction(request)}"
-                f"The Visitor is the one who controls this conversation. "
-                f"When the Visitor asks a question or makes a request, you MUST respond to them directly. "
-                f"You may also react to what other characters said, and you can talk to them naturally. "
-                f"But the Visitor always has priority -- never ignore what they said.{events_text}{memory_text}"
+                f"{role_instruction}{events_text}{memory_text}"
             )
 
             try:
@@ -832,7 +865,7 @@ def group_chat_view(request, sim_id):
                     prompt=f"{conversation_so_far} /no_think",
                     system_prompt=system_prompt,
                     temperature=0.8,
-                    max_tokens=100,
+                    max_tokens=max_tokens,
                     simulation_id=simulation.id,
                 )
             except Exception:
