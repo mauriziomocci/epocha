@@ -290,16 +290,26 @@ def inject_event_view(request, sim_id):
 
     classification_prompt = (
         f"Event: {title} — {description}\n"
-        f"Severity: {severity}\n"
         f"Agents in the simulation: {agent_names}\n\n"
-        f"For each agent, determine the effect of this event. "
+        f"Think like a real person. What would ACTUALLY happen to each agent?\n"
         f"Respond ONLY with a JSON array:\n"
         f'[{{"name": "AgentName", "targeted": true/false, "dies": true/false, '
         f'"mood_delta": -1.0 to 1.0, "health_delta": -1.0 to 1.0, '
-        f'"wealth_delta": -500 to 500}}]\n'
-        f"Rules: 'targeted' means the agent is directly involved. "
-        f"'dies' only if the event explicitly kills them. "
-        f"Non-targeted agents may still be affected (witnesses, relatives). /no_think"
+        f'"wealth_delta": -500 to 500}}]\n\n'
+        f"Guidelines for mood_delta:\n"
+        f"- Positive events (kiss, hug, gift, compliment, good news): +0.1 to +0.5\n"
+        f"- Neutral events (greeting, observation): ~0\n"
+        f"- Annoying events (insult, theft): -0.1 to -0.3\n"
+        f"- Terrifying events (attack, death threat, war): -0.5 to -1.0\n\n"
+        f"Guidelines for health_delta:\n"
+        f"- Harmless (kiss, caress, words, gifts): 0\n"
+        f"- Healing (medicine, rest, care): +0.1 to +0.3\n"
+        f"- Minor pain (slap, kick, push): -0.05 to -0.15\n"
+        f"- Serious injury (punch, beating, arrow): -0.15 to -0.4\n"
+        f"- Severe trauma (stabbing, shooting, torture): -0.4 to -0.8\n"
+        f"- Lethal (beheading, bombing, execution): dies=true\n\n"
+        f"'targeted' = directly involved. Non-targeted agents are witnesses (mood only, no health).\n"
+        f"'dies' = explicitly lethal event OR health would realistically drop to zero. /no_think"
     )
 
     try:
@@ -319,9 +329,10 @@ def inject_event_view(request, sim_id):
             cleaned = cleaned[:-3]
         effects = json.loads(cleaned.strip())
     except Exception:
-        # Fallback: apply uniform effects based on severity
+        # Fallback: apply effects proportional to severity
         effects = [{"name": a.name, "targeted": False, "dies": False,
-                    "mood_delta": -severity * 0.3, "health_delta": 0, "wealth_delta": 0}
+                    "mood_delta": -severity * 0.3, "health_delta": -severity * 0.3,
+                    "wealth_delta": 0}
                    for a in agents]
 
     # Apply effects
@@ -484,32 +495,45 @@ def chat_view(request, sim_id, agent_id):
                     ) + f" — React to this as {agent.name}.]"
                 )
 
-            # Include recent chat history for continuity (truncate each message
-            # to avoid long past responses dominating the context)
-            _MAX_HISTORY_MSG_LENGTH = 150
+            # Include recent chat history for continuity.
+            # Agent responses are heavily truncated (50 chars) to prevent
+            # long dramatic responses from dominating context and causing
+            # the model to repeat itself. User messages are kept fuller.
+            _MAX_USER_MSG_LENGTH = 200
+            _MAX_AGENT_MSG_LENGTH = 50
             recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:6]
             chat_history = ""
             if recent_chat.count() > 1:
                 msgs = list(reversed(recent_chat))
                 lines = []
                 for m in msgs[:-1]:
-                    speaker = "Visitor" if m.role == "user" else agent.name
-                    text = m.content[:_MAX_HISTORY_MSG_LENGTH]
-                    if len(m.content) > _MAX_HISTORY_MSG_LENGTH:
-                        text += "..."
-                    lines.append(f"{speaker}: {text}")
+                    if m.role == "user":
+                        text = m.content[:_MAX_USER_MSG_LENGTH]
+                        if len(m.content) > _MAX_USER_MSG_LENGTH:
+                            text += "..."
+                        lines.append(f"Visitor: {text}")
+                    else:
+                        text = m.content[:_MAX_AGENT_MSG_LENGTH]
+                        if len(m.content) > _MAX_AGENT_MSG_LENGTH:
+                            text += "..."
+                        lines.append(f"You said: {text}")
                 chat_history = "\n\nPrevious conversation:\n" + "\n".join(lines)
 
             system_prompt = (
                 f"You are {agent.name}, a {agent.role}. "
                 f"You are in a face-to-face conversation. Respond in character, 2-4 sentences. "
                 f"IMPORTANT: {_get_language_instruction(request)}"
-                f"The visitor can speak to you AND perform physical actions (kick, punch, hug, give gifts, etc). "
-                f"If they perform an action, react physically and emotionally as your character would.\n"
-                f"CRITICAL: Focus your response on the visitor's LATEST message. "
-                f"The conversation history is context, but you must react to what was JUST said or done, "
-                f"not repeat previous reactions. If the visitor changes topic or tone, adapt accordingly. "
-                f"People move on from events -- you can still remember what happened, but respond to the present moment.\n\n"
+                f"React like a REAL HUMAN BEING would. The visitor can say anything or do anything:\n"
+                f"- Physical actions: kick, punch, hug, caress, kiss, stab, shoot, etc.\n"
+                f"- Emotional: insults, compliments, jokes, flirting, threats, declarations of love.\n"
+                f"- Social: gifts, proposals, questions, gossip, lies, confessions.\n"
+                f"React naturally based on what was done: violence causes pain and anger, "
+                f"kindness causes warmth, jokes cause laughter, insults cause offense, "
+                f"flirting causes embarrassment or interest, etc. "
+                f"Match the intensity of your reaction to the action.\n"
+                f"CRITICAL: Focus ONLY on the visitor's LATEST message. "
+                f"Do NOT repeat or reference previous reactions. "
+                f"If the visitor changes topic or tone, adapt immediately.\n\n"
                 f"{personality_prompt}"
                 f"{memory_text}{chat_history}"
             )
@@ -535,16 +559,25 @@ def chat_view(request, sim_id, agent_id):
                 tick_at=simulation.current_tick,
             )
 
-            return JsonResponse({"role": "agent", "content": response})
+            from django.utils import timezone
+
+            return JsonResponse({
+                "role": "agent",
+                "content": response,
+                "time": timezone.now().strftime("%H:%M"),
+            })
 
         return JsonResponse({"role": "system", "content": "Empty message."})
 
-    # Load chat history for initial page render
-    chat_history = list(
-        ChatMessage.objects.filter(session=session)
-        .order_by("created_at")
-        .values("role", "content")
-    )
+    # Load chat history for initial page render (include timestamps)
+    chat_history = [
+        {
+            "role": m.role,
+            "content": m.content,
+            "time": m.created_at.strftime("%H:%M"),
+        }
+        for m in ChatMessage.objects.filter(session=session).order_by("created_at")
+    ]
 
     return render(request, "dashboard/chat.html", {
         "simulation": simulation,
