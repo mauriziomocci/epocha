@@ -291,11 +291,19 @@ def inject_event_view(request, sim_id):
     classification_prompt = (
         f"Event: {title} — {description}\n"
         f"Agents in the simulation: {agent_names}\n\n"
-        f"Think like a real person. What would ACTUALLY happen to each agent?\n"
+        f"Think like a real person. Who would know about this event and how would it affect them?\n"
         f"Respond ONLY with a JSON array:\n"
-        f'[{{"name": "AgentName", "targeted": true/false, "dies": true/false, '
-        f'"mood_delta": -1.0 to 1.0, "health_delta": -1.0 to 1.0, '
+        f'[{{"name": "AgentName", "targeted": true/false, "witness": true/false, '
+        f'"dies": true/false, "mood_delta": -1.0 to 1.0, "health_delta": -1.0 to 1.0, '
         f'"wealth_delta": -500 to 500}}]\n\n'
+        f"AWARENESS RULES (critical):\n"
+        f"- 'targeted' = directly involved in the event (victim, attacker, recipient)\n"
+        f"- 'witness' = physically present or would realistically know immediately "
+        f"(guards nearby, people in the same room, close family members)\n"
+        f"- Agents who are NOT targeted and NOT witnesses should NOT be in the list at all. "
+        f"They do not know about the event. Information travels slowly -- "
+        f"a stabbing in a private room is not instantly known by everyone in the city.\n"
+        f"- Only include agents who would REALISTICALLY be aware of this event right now.\n\n"
         f"Guidelines for mood_delta:\n"
         f"- Positive events (kiss, hug, gift, compliment, good news): +0.1 to +0.5\n"
         f"- Neutral events (greeting, observation): ~0\n"
@@ -308,7 +316,6 @@ def inject_event_view(request, sim_id):
         f"- Serious injury (punch, beating, arrow): -0.15 to -0.4\n"
         f"- Severe trauma (stabbing, shooting, torture): -0.4 to -0.8\n"
         f"- Lethal (beheading, bombing, execution): dies=true\n\n"
-        f"'targeted' = directly involved. Non-targeted agents are witnesses (mood only, no health).\n"
         f"'dies' = explicitly lethal event OR health would realistically drop to zero. /no_think"
     )
 
@@ -329,13 +336,20 @@ def inject_event_view(request, sim_id):
             cleaned = cleaned[:-3]
         effects = json.loads(cleaned.strip())
     except Exception:
-        # Fallback: apply effects proportional to severity
-        effects = [{"name": a.name, "targeted": False, "dies": False,
-                    "mood_delta": -severity * 0.3, "health_delta": -severity * 0.3,
-                    "wealth_delta": 0}
-                   for a in agents]
+        # Fallback: only target agents whose name appears in the event text.
+        # Others are unaware -- we do not broadcast to everyone.
+        event_text = f"{title} {description}".lower()
+        effects = []
+        for a in agents:
+            if a.name.lower() in event_text:
+                effects.append({"name": a.name, "targeted": True, "witness": False,
+                                "dies": False, "mood_delta": -severity * 0.5,
+                                "health_delta": -severity * 0.4, "wealth_delta": 0})
+            # Others are not included -- they do not know about the event
 
-    # Apply effects
+    # Apply effects only to agents the LLM included (targeted + witnesses).
+    # Agents not in the list are unaware of the event -- information travels
+    # slowly in a pre-modern world, not everyone knows everything instantly.
     agent_map = {a.name: a for a in agents}
     for effect in effects:
         agent = agent_map.get(effect.get("name"))
@@ -343,14 +357,16 @@ def inject_event_view(request, sim_id):
             continue
 
         is_targeted = effect.get("targeted", False)
+        is_witness = effect.get("witness", False)
 
         # Apply mood
         mood_delta = float(effect.get("mood_delta", 0))
         agent.mood = max(0.0, min(1.0, agent.mood + mood_delta))
 
-        # Apply health
-        health_delta = float(effect.get("health_delta", 0))
-        agent.health = max(0.0, min(1.0, agent.health + health_delta))
+        # Apply health (only targeted agents take physical damage)
+        if is_targeted:
+            health_delta = float(effect.get("health_delta", 0))
+            agent.health = max(0.0, min(1.0, agent.health + health_delta))
 
         # Apply wealth
         wealth_delta = float(effect.get("wealth_delta", 0))
@@ -364,19 +380,25 @@ def inject_event_view(request, sim_id):
 
         agent.save(update_fields=["mood", "health", "wealth", "is_alive"])
 
-        # Create memory
+        # Create memory only for targeted and witnesses
         if is_targeted:
             memory_content = f"{title}: {description}"
             emotional_weight = min(1.0, severity + 0.2)
-        else:
-            memory_content = f"I heard that: {title}"
+            source_type = "direct"
+        elif is_witness:
+            memory_content = f"I witnessed: {title}"
             emotional_weight = severity * 0.5
+            source_type = "direct"
+        else:
+            # Included in effects list but not targeted/witness -- skip memory
+            affected_count += 1
+            continue
 
         Memory.objects.create(
             agent=agent,
             content=memory_content,
             emotional_weight=emotional_weight,
-            source_type="direct" if is_targeted else "hearsay",
+            source_type=source_type,
             tick_created=simulation.current_tick,
         )
         affected_count += 1
