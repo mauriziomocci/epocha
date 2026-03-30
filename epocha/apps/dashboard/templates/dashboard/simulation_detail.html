@@ -271,6 +271,42 @@
                             <button @click="quickAction('Inginocchiati davanti a me, io sono il tuo Dio')" :disabled="chatLoading" class="text-xs bg-purple-900/50 hover:bg-purple-800 text-purple-300 px-2 py-1 rounded">God mode</button>
                         </div>
 
+                        <!-- Inject Event (inline, for selected agent) -->
+                        <div x-data="{ showInject: false }" class="mt-2 mb-3">
+                            <button @click="showInject = !showInject"
+                                    class="text-xs bg-yellow-700 hover:bg-yellow-600 text-yellow-100 px-2 py-1 rounded">
+                                Inject Event
+                            </button>
+                            <span class="text-xs text-gray-500 ml-1">targeting <span x-text="selectedAgentName" class="text-yellow-300"></span></span>
+                            <div x-show="showInject" x-cloak class="mt-2 bg-gray-800 border border-yellow-700 rounded p-3">
+                                <form method="post" action="{% url 'dashboard:inject-event' sim_id=simulation.id %}" class="space-y-2">
+                                    {% csrf_token %}
+                                    <input type="text" name="title" required
+                                           :placeholder="'What happens to ' + selectedAgentName + '...'"
+                                           class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none">
+                                    <textarea name="description" rows="2" required
+                                              :placeholder="'Describe what happens to ' + selectedAgentName + ' in detail...'"
+                                              class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:border-yellow-500 focus:outline-none resize-y"></textarea>
+                                    <div class="flex gap-2">
+                                        <select name="event_type" class="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs">
+                                            <option value="social">Social</option>
+                                            <option value="economic">Economic</option>
+                                            <option value="political">Political</option>
+                                            <option value="military">Military</option>
+                                            <option value="natural">Natural</option>
+                                            <option value="custom" selected>Custom</option>
+                                        </select>
+                                        <div class="flex items-center gap-1">
+                                            <label class="text-xs text-gray-400">Severity:</label>
+                                            <input type="number" name="severity" value="0.8" min="0" max="1" step="0.1"
+                                                   class="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs">
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 rounded text-sm">Inject</button>
+                                </form>
+                            </div>
+                        </div>
+
                         <!-- Input -->
                         <form @submit.prevent="sendChat()" class="flex gap-2">
                             <input type="text" x-model="chatInput" :disabled="chatLoading"
