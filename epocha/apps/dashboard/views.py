@@ -495,10 +495,14 @@ def chat_view(request, sim_id, agent_id):
 
             system_prompt = (
                 f"You are {agent.name}, a {agent.role}. "
-                f"You are in a face-to-face conversation. Respond in character, briefly (1-2 sentences). "
+                f"You are in a face-to-face conversation. Respond in character, 2-4 sentences. "
                 f"IMPORTANT: {_get_language_instruction(request)}"
                 f"The visitor can speak to you AND perform physical actions (kick, punch, hug, give gifts, etc). "
-                f"If they perform an action, react physically and emotionally as your character would.\n\n"
+                f"If they perform an action, react physically and emotionally as your character would.\n"
+                f"CRITICAL: Focus your response on the visitor's LATEST message. "
+                f"The conversation history is context, but you must react to what was JUST said or done, "
+                f"not repeat previous reactions. If the visitor changes topic or tone, adapt accordingly. "
+                f"People move on from events -- you can still remember what happened, but respond to the present moment.\n\n"
                 f"{personality_prompt}"
                 f"{memory_text}{chat_history}"
             )
@@ -510,7 +514,7 @@ def chat_view(request, sim_id, agent_id):
                 prompt=prompt_with_hint,
                 system_prompt=system_prompt,
                 temperature=0.8,
-                max_tokens=150,
+                max_tokens=500,
                 simulation_id=simulation.id,
             )
 
