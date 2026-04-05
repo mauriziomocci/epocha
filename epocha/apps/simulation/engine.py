@@ -1,4 +1,4 @@
-"""Tick orchestrator: coordinates economy, decisions, information flow, factions, memory, and events.
+"""Tick orchestrator: coordinates economy, decisions, information flow, factions, politics, memory, and events.
 
 Each tick is a discrete time step where:
 1. The economy updates (income, costs, mood effects)
@@ -7,8 +7,9 @@ Each tick is a discrete time step where:
 4. Memories are created from actions
 5. Information propagates through the social network (hearsay, rumors)
 6. Faction dynamics run periodically (cohesion, leadership, formation)
-7. Old memories decay periodically
-8. The tick counter advances
+7. Political cycle runs periodically (institutions, stratification, transitions, elections, coups)
+8. Old memories decay periodically
+9. The tick counter advances
 
 Agent failures are isolated: if one agent's LLM call fails, the tick
 continues for all other agents. This ensures simulation resilience.
@@ -28,6 +29,7 @@ from epocha.apps.agents.information_flow import propagate_information
 from epocha.apps.agents.memory import decay_memories
 from epocha.apps.agents.models import Agent, Memory
 from epocha.apps.world.economy import process_economy_tick
+from epocha.apps.world.government import process_political_cycle
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,9 @@ _ACTION_EMOTIONAL_WEIGHT: dict[str, float] = {
     "avoid": 0.15,
     "form_group": 0.3,
     "join_group": 0.3,
+    "crime": 0.6,
+    "protest": 0.4,
+    "campaign": 0.2,
 }
 _DEFAULT_EMOTIONAL_WEIGHT = 0.1
 
@@ -60,6 +65,9 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
     "trade": 0.01,
     "form_group": 0.04,
     "join_group": 0.03,
+    "crime": -0.03,
+    "protest": -0.02,
+    "campaign": 0.02,
 }
 
 # Memory decay runs every N ticks to reduce DB writes.
@@ -249,14 +257,17 @@ class SimulationEngine:
         # 4. Faction dynamics (every N ticks)
         process_faction_dynamics(self.simulation, tick)
 
-        # 5. Memory decay
+        # 5. Political cycle (every N ticks)
+        process_political_cycle(self.simulation, tick)
+
+        # 6. Memory decay
         run_memory_decay(self.simulation, tick)
 
-        # 6. Advance tick
+        # 7. Advance tick
         self.simulation.current_tick = tick
         self.simulation.save(update_fields=["current_tick", "updated_at"])
 
-        # 7. Broadcast
+        # 8. Broadcast
         broadcast_tick(self.simulation, tick, tick_events)
 
         logger.info("Simulation %d: tick %d complete", self.simulation.id, tick)

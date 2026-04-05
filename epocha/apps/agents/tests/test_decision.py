@@ -171,3 +171,17 @@ class TestProcessAgentDecision:
         prompt = call_args.kwargs.get("prompt", call_args.args[0] if call_args.args else "")
         assert "The Guild" in prompt
         assert "Protect artisans" in prompt
+
+    @patch("epocha.apps.agents.decision.get_llm_client")
+    def test_context_includes_government_info(self, mock_get_client, agent, world, simulation):
+        """If a government exists, the context should include political info."""
+        from epocha.apps.world.models import Government
+        Government.objects.create(simulation=simulation, government_type="democracy", stability=0.6, popular_legitimacy=0.5)
+        mock_client = MagicMock()
+        mock_client.complete.return_value = '{"action": "work", "reason": "busy"}'
+        mock_client.get_model_name.return_value = "gpt-4o-mini"
+        mock_get_client.return_value = mock_client
+        process_agent_decision(agent, world, tick=5)
+        call_args = mock_client.complete.call_args
+        prompt = call_args.kwargs.get("prompt", call_args.args[0] if call_args.args else "")
+        assert "Democracy" in prompt or "democracy" in prompt

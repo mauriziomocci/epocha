@@ -19,6 +19,9 @@ _ACTION_VERBS: dict[str, str] = {
     "pray": "prays",
     "form_group": "forms a group",
     "join_group": "joins a group",
+    "crime": "commits a crime against",
+    "protest": "protests",
+    "campaign": "campaigns for leadership",
 }
 
 

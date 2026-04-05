@@ -24,7 +24,7 @@ memories, relationships, and current situation, decide what to do next.
 
 Respond ONLY with a JSON object:
 {
-    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group",
+    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group|crime|protest|campaign",
     "target": "who or what (optional)",
     "reason": "brief internal thought"
 }
@@ -48,6 +48,7 @@ def _build_context(
     recent_events=None,
     living_agents=None,
     group_context=None,
+    political_context=None,
 ) -> str:
     """Assemble the situational context string sent as the LLM user prompt.
 
@@ -64,6 +65,9 @@ def _build_context(
         group_context: Optional pre-formatted string describing the agent's
             faction (name, objective, leader, members, cohesion). None when
             the agent does not belong to any group.
+        political_context: Optional pre-formatted string describing the current
+            government type, stability, head of state, institutional trust, and
+            corruption level. None when no government exists for the simulation.
     """
     parts = [
         f"You are {agent.name}, a {agent.role}.",
@@ -80,6 +84,10 @@ def _build_context(
     # Group/faction context
     if group_context:
         parts.append(f"\n{group_context}")
+
+    # Political context
+    if political_context:
+        parts.append(f"\n{political_context}")
 
     # Injected events that the agent should react to
     if recent_events:
@@ -161,8 +169,27 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
             f"Group cohesion: {cohesion_word}"
         )
 
+    # Build political context
+    political_context = None
+    try:
+        from epocha.apps.world.models import Government
+        government = Government.objects.get(simulation=agent.simulation)
+        from epocha.apps.world.government_types import GOVERNMENT_TYPES
+        type_label = GOVERNMENT_TYPES.get(government.government_type, {}).get("label", government.government_type)
+        stability_word = "stable" if government.stability > 0.6 else "moderate" if government.stability > 0.3 else "unstable"
+        head_name = government.head_of_state.name if government.head_of_state else "none"
+        political_context = (
+            f"Government: {type_label} ({stability_word})\n"
+            f"Head of state: {head_name}\n"
+            f"Trust: {'high' if government.institutional_trust > 0.6 else 'low' if government.institutional_trust < 0.3 else 'moderate'}. "
+            f"Corruption: {'high' if government.corruption > 0.6 else 'low' if government.corruption < 0.3 else 'moderate'}."
+        )
+    except Exception:
+        pass
+
     context = _build_context(
-        agent, world_state, tick, memories, relationships, recent_events, living_agents, group_context
+        agent, world_state, tick, memories, relationships, recent_events, living_agents, group_context,
+        political_context,
     )
 
     # 2. Build system prompt with personality
