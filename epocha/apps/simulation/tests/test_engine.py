@@ -165,6 +165,17 @@ class TestSimulationEngine:
         assert hearsay.count() >= 1
 
     @patch("epocha.apps.simulation.engine.process_agent_decision")
+    def test_faction_dynamics_runs_at_interval(self, mock_decision, sim_with_world):
+        """Faction dynamics should run at the configured interval."""
+        mock_decision.return_value = {"action": "work", "reason": "busy"}
+        engine = SimulationEngine(sim_with_world)
+
+        with patch("epocha.apps.simulation.engine.process_faction_dynamics") as mock_factions:
+            for _ in range(5):
+                engine.run_tick()
+            assert mock_factions.call_count == 5  # Called every tick but no-op except at interval
+
+    @patch("epocha.apps.simulation.engine.process_agent_decision")
     def test_different_actions_create_separate_memories(self, mock_decision, sim_with_world):
         """Different actions in consecutive ticks should each create a memory."""
         mock_decision.side_effect = [

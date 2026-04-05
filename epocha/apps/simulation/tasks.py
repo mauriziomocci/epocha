@@ -98,6 +98,10 @@ def finalize_tick(agent_results: list, simulation_id: int, tick: int) -> None:
     from epocha.apps.agents.information_flow import propagate_information
     propagate_information(simulation, tick)
 
+    # Faction dynamics (every N ticks)
+    from epocha.apps.agents.factions import process_faction_dynamics
+    process_faction_dynamics(simulation, tick)
+
     # Memory decay (periodic)
     run_memory_decay(simulation, tick)
 

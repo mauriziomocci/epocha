@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 
 from epocha.apps.agents.decision import process_agent_decision
+from epocha.apps.agents.factions import process_faction_dynamics
 from epocha.apps.agents.information_flow import propagate_information
 from epocha.apps.agents.memory import decay_memories
 from epocha.apps.agents.models import Agent, Memory
@@ -244,14 +245,17 @@ class SimulationEngine:
         # 3. Information flow (propagate hearsay and rumors)
         propagate_information(self.simulation, tick)
 
-        # 4. Memory decay
+        # 4. Faction dynamics (every N ticks)
+        process_faction_dynamics(self.simulation, tick)
+
+        # 5. Memory decay
         run_memory_decay(self.simulation, tick)
 
-        # 5. Advance tick
+        # 6. Advance tick
         self.simulation.current_tick = tick
         self.simulation.save(update_fields=["current_tick", "updated_at"])
 
-        # 6. Broadcast
+        # 7. Broadcast
         broadcast_tick(self.simulation, tick, tick_events)
 
         logger.info("Simulation %d: tick %d complete", self.simulation.id, tick)
