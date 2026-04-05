@@ -103,6 +103,12 @@ class Memory(models.Model):
 
     class Meta:
         ordering = ["-emotional_weight", "-tick_created"]
+        indexes = [
+            models.Index(
+                fields=["agent", "is_active", "-tick_created"],
+                name="memory_dedup_idx",
+            ),
+        ]
 
     def __str__(self):
         return f"Memory of {self.agent.name}: {self.content[:50]}..."

@@ -59,6 +59,10 @@ _MEMORY_DECAY_INTERVAL = 10
 
 # Number of recent ticks to check for duplicate memories.
 # If the agent performed the same action within this window, skip memory creation.
+# Value of 3 chosen as pragmatic balance: short enough that intentional repetition
+# (e.g. an agent who argues for 5+ ticks) eventually creates new memories,
+# long enough to suppress the common case of 2-3 tick stutters.
+# No empirical source -- tunable based on observed simulation behavior.
 _MEMORY_DEDUP_TICKS = 3
 
 
@@ -67,6 +71,10 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
 
     Extracted as a standalone function so it can be called from both
     the SimulationEngine and the process_agent_turn Celery task.
+
+    Memory deduplication: if the agent already has an active memory for
+    the same action type within the last _MEMORY_DEDUP_TICKS ticks,
+    skip creation to prevent context saturation from repetitive behavior.
 
     Args:
         agent: The agent performing the action.
