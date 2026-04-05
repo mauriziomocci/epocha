@@ -53,3 +53,77 @@ class EconomicTransaction(models.Model):
 
     class Meta:
         ordering = ["-tick"]
+
+
+class Government(models.Model):
+    """Political system governing the simulation world."""
+
+    simulation = models.OneToOneField(Simulation, on_delete=models.CASCADE, related_name="government")
+    government_type = models.CharField(max_length=30, default="democracy")
+    stability = models.FloatField(default=0.5, help_text="0.0 = collapsing, 1.0 = rock solid")
+    ruling_faction = models.ForeignKey(
+        "agents.Group", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="ruled_governments",
+    )
+    head_of_state = models.ForeignKey(
+        "agents.Agent", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="headed_governments",
+    )
+
+    # Political indicators (0.0-1.0)
+    institutional_trust = models.FloatField(default=0.5)
+    repression_level = models.FloatField(default=0.1)
+    corruption = models.FloatField(default=0.2)
+    popular_legitimacy = models.FloatField(default=0.5)
+    military_loyalty = models.FloatField(default=0.5)
+
+    # Electoral tracking
+    last_election_tick = models.PositiveIntegerField(default=0)
+
+    formed_at_tick = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.government_type} ({self.simulation.name})"
+
+
+class GovernmentHistory(models.Model):
+    """Historical record of government transitions."""
+
+    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="government_history")
+    government_type = models.CharField(max_length=30)
+    head_of_state_name = models.CharField(max_length=255, blank=True)
+    ruling_faction_name = models.CharField(max_length=255, blank=True)
+    from_tick = models.PositiveIntegerField()
+    to_tick = models.PositiveIntegerField(null=True, blank=True)
+    transition_cause = models.CharField(max_length=50)
+
+    class Meta:
+        ordering = ["-from_tick"]
+
+    def __str__(self):
+        return f"{self.government_type} from tick {self.from_tick}"
+
+
+class Institution(models.Model):
+    """Social institution with health that affects government indicators."""
+
+    class InstitutionType(models.TextChoices):
+        JUSTICE = "justice", "Justice"
+        EDUCATION = "education", "Education"
+        HEALTH = "health", "Health"
+        MILITARY = "military", "Military"
+        MEDIA = "media", "Media"
+        RELIGION = "religion", "Religion"
+        BUREAUCRACY = "bureaucracy", "Bureaucracy"
+
+    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="institutions")
+    institution_type = models.CharField(max_length=20, choices=InstitutionType.choices)
+    health = models.FloatField(default=0.5, help_text="0.0 = failed, 1.0 = thriving")
+    independence = models.FloatField(default=0.5, help_text="0.0 = government controlled, 1.0 = fully independent")
+    funding = models.FloatField(default=0.5, help_text="0.0 = defunded, 1.0 = well funded")
+
+    class Meta:
+        unique_together = ["simulation", "institution_type"]
+
+    def __str__(self):
+        return f"{self.institution_type} ({self.simulation.name})"

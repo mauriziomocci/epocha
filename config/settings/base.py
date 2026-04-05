@@ -187,3 +187,17 @@ EPOCHA_FACTION_DISSOLUTION_THRESHOLD = env.float("EPOCHA_FACTION_DISSOLUTION_THR
 
 # Leadership legitimacy threshold below which the leader is replaced.
 EPOCHA_FACTION_LEGITIMACY_THRESHOLD = env.float("EPOCHA_FACTION_LEGITIMACY_THRESHOLD", default=0.3)
+
+# --- Government and Political System ---
+# How often the political cycle runs (every N ticks).
+EPOCHA_GOVERNMENT_CYCLE_INTERVAL = env.int("EPOCHA_GOVERNMENT_CYCLE_INTERVAL", default=10)
+
+# Default ticks between elections (for government types that hold elections).
+EPOCHA_GOVERNMENT_ELECTION_INTERVAL = env.int("EPOCHA_GOVERNMENT_ELECTION_INTERVAL", default=50)
+
+# Gini coefficient threshold above which revolt probability increases.
+# Source: Acemoglu & Robinson (2006), most revolutions occur at Gini 0.6-0.8.
+EPOCHA_GOVERNMENT_GINI_REVOLT_THRESHOLD = env.float("EPOCHA_GOVERNMENT_GINI_REVOLT_THRESHOLD", default=0.6)
+
+# Government stability threshold below which coups become possible.
+EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD = env.float("EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD", default=0.3)
