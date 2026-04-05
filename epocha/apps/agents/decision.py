@@ -33,6 +33,11 @@ Respond ONLY with a JSON object:
 # Fallback action when the LLM response cannot be parsed as JSON.
 _FALLBACK_ACTION = {"action": "rest", "reason": "confused"}
 
+# Maximum number of other living agents listed in the decision context.
+# Keeps prompt length bounded while providing enough social awareness.
+# At 20 agents with ~30 chars each, this adds ~600 chars to the prompt.
+_MAX_CONTEXT_AGENTS = 20
+
 
 def _build_context(
     agent,
@@ -125,7 +130,8 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     living_agents = list(
         Agent.objects.filter(simulation=agent.simulation, is_alive=True)
         .exclude(id=agent.id)
-        .only("name", "role")[:20]
+        .only("name", "role")
+        .order_by("name")[:_MAX_CONTEXT_AGENTS]
     )
     context = _build_context(
         agent, world_state, tick, memories, relationships, recent_events, living_agents
