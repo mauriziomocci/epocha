@@ -30,10 +30,11 @@ class TestFormatDecisionText:
         result = format_decision_text(raw)
         assert result == "explores: curious"
 
-    def test_unknown_action_uses_verb_as_is(self):
-        raw = '{"action": "pray", "reason": "seeking guidance"}'
+    def test_unknown_action_gets_naive_s_suffix(self):
+        """Actions not in _ACTION_VERBS get a fallback verb form with 's' suffix."""
+        raw = '{"action": "dance", "reason": "feeling joyful"}'
         result = format_decision_text(raw)
-        assert result == "prays: seeking guidance"
+        assert result == "dances: feeling joyful"
 
     def test_truncated_input(self):
         """The view truncates output_decision to 100 chars, which can break JSON."""
