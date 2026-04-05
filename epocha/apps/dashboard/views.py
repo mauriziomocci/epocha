@@ -16,6 +16,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from epocha.apps.agents.models import Agent, DecisionLog
+from epocha.apps.dashboard.formatters import format_decision_text
 from epocha.apps.llm_adapter.models import LLMRequest
 from epocha.apps.simulation.models import Event, Simulation
 from epocha.apps.users.models import User
@@ -186,7 +187,7 @@ def simulation_feed_api(request, sim_id):
             for a in agents
         ],
         "decisions": [
-            {"agent": d.agent.name, "tick": d.tick, "decision": d.output_decision[:100]}
+            {"agent": d.agent.name, "tick": d.tick, "decision": format_decision_text(d.output_decision)}
             for d in decisions
         ],
         "events": [
@@ -226,7 +227,7 @@ def simulation_detail_view(request, sim_id):
         for a in agents
     ])
     decisions_json = json.dumps([
-        {"agent": d.agent.name, "tick": d.tick, "decision": d.output_decision[:100]}
+        {"agent": d.agent.name, "tick": d.tick, "decision": format_decision_text(d.output_decision)}
         for d in decisions
     ])
     events_json = json.dumps([
