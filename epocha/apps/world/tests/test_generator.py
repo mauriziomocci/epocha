@@ -8,7 +8,7 @@ from epocha.apps.agents.models import Agent
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.generator import generate_world_from_prompt
-from epocha.apps.world.models import World, Zone
+from epocha.apps.world.models import Government, Institution, World, Zone
 
 MOCK_LLM_RESPONSE = json.dumps({
     "world": {
@@ -133,3 +133,23 @@ class TestGenerateWorldFromPrompt:
         assert isinstance(result["world_id"], int)
         assert "zones" in result
         assert "agents" in result
+
+    @patch("epocha.apps.world.generator.get_llm_client")
+    def test_creates_government_and_institutions(self, mock_get_client, simulation):
+        """World generation must create a default Government and all 7 Institutions."""
+        mock_client = MagicMock()
+        mock_client.complete.return_value = MOCK_LLM_RESPONSE
+        mock_get_client.return_value = mock_client
+
+        generate_world_from_prompt(prompt="A village", simulation=simulation)
+
+        assert Government.objects.filter(simulation=simulation).exists()
+        government = Government.objects.get(simulation=simulation)
+        assert government.government_type == "democracy"
+        assert government.formed_at_tick == 0
+
+        assert Institution.objects.filter(simulation=simulation).count() == 7
+        institution_types = set(
+            Institution.objects.filter(simulation=simulation).values_list("institution_type", flat=True)
+        )
+        assert institution_types == set(Institution.InstitutionType.values)

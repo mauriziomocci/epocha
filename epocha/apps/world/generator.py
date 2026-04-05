@@ -16,7 +16,7 @@ from epocha.apps.agents.models import Agent
 from epocha.apps.llm_adapter.client import get_llm_client
 from epocha.common.utils import clean_llm_json
 
-from .models import World, Zone
+from .models import Government, Institution, World, Zone
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,23 @@ def generate_world_from_prompt(prompt: str, simulation) -> dict:
         stability_index=world_data.get("stability_index", 0.7),
         global_wealth=1000.0,
     )
+
+    # Create Government (default: democracy, neutral indicators)
+    Government.objects.create(
+        simulation=simulation,
+        government_type="democracy",
+        formed_at_tick=0,
+    )
+
+    # Create all 7 Institutions with neutral defaults
+    for inst_type in Institution.InstitutionType.values:
+        Institution.objects.create(
+            simulation=simulation,
+            institution_type=inst_type,
+            health=0.5,
+            independence=0.5,
+            funding=0.5,
+        )
 
     # Create Zones
     zones_created = 0
