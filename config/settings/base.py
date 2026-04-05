@@ -146,3 +146,23 @@ EPOCHA_CHAT_LLM_MODEL = env("EPOCHA_CHAT_LLM_MODEL", default="")
 EPOCHA_CHAT_LLM_BASE_URL = env("EPOCHA_CHAT_LLM_BASE_URL", default="")
 EPOCHA_MAX_AGENTS_PER_SIMULATION = env.int("EPOCHA_MAX_AGENTS", default=50)
 EPOCHA_DEFAULT_TICK_INTERVAL_SECONDS = env.int("EPOCHA_TICK_INTERVAL", default=5)
+
+# --- Information Flow ---
+# Minimum emotional weight for an action to propagate through the social network.
+# Actions below this threshold are considered too mundane for gossip.
+# Source: threshold aligns with _ACTION_EMOTIONAL_WEIGHT in engine.py where
+# socialize=0.2 (excluded) and help=0.3 (included).
+EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD = env.float("EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD", default=0.3)
+
+# Reliability decay factor per hop in the communication chain.
+# Source: Bartlett (1932) serial reproduction experiments show ~30% detail loss per step.
+EPOCHA_INFO_FLOW_RELIABILITY_DECAY = env.float("EPOCHA_INFO_FLOW_RELIABILITY_DECAY", default=0.7)
+
+# Maximum hops before information stops propagating.
+EPOCHA_INFO_FLOW_MAX_HOPS = env.int("EPOCHA_INFO_FLOW_MAX_HOPS", default=3)
+
+# Belief filter acceptance threshold (0.0-1.0).
+EPOCHA_INFO_FLOW_BELIEF_THRESHOLD = env.float("EPOCHA_INFO_FLOW_BELIEF_THRESHOLD", default=0.4)
+
+# Maximum recipients per memory per tick (prevents unbounded fan-out).
+EPOCHA_INFO_FLOW_MAX_RECIPIENTS = env.int("EPOCHA_INFO_FLOW_MAX_RECIPIENTS", default=20)

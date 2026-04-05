@@ -100,6 +100,11 @@ class Memory(models.Model):
     reliability = models.FloatField(default=1.0, help_text="0.0 = unreliable, 1.0 = certain")
     tick_created = models.PositiveIntegerField()
     is_active = models.BooleanField(default=True, help_text="False = faded memory")
+    origin_agent = models.ForeignKey(
+        "Agent", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="originated_memories",
+        help_text="Agent who originally performed the action (for dedup and traceability)",
+    )
 
     class Meta:
         ordering = ["-emotional_weight", "-tick_created"]
@@ -107,6 +112,10 @@ class Memory(models.Model):
             models.Index(
                 fields=["agent", "is_active", "-tick_created"],
                 name="memory_dedup_idx",
+            ),
+            models.Index(
+                fields=["origin_agent", "tick_created", "source_type"],
+                name="memory_propagation_idx",
             ),
         ]
 
