@@ -117,3 +117,33 @@ class TestProcessAgentDecision:
         call_args = mock_client.complete.call_args
         system_prompt = call_args.kwargs.get("system_prompt", "")
         assert "blacksmith" in system_prompt.lower() or "personality" in system_prompt.lower()
+
+    @patch("epocha.apps.agents.decision.get_llm_client")
+    def test_context_includes_living_agents_list(self, mock_get_client, agent, world, simulation):
+        """The LLM prompt must list living agents so the agent only targets real people."""
+        Agent.objects.create(
+            simulation=simulation, name="Elena", role="farmer",
+            personality={"openness": 0.5},
+        )
+        Agent.objects.create(
+            simulation=simulation, name="Ghost", role="priest",
+            personality={"openness": 0.5}, is_alive=False,
+        )
+        mock_client = MagicMock()
+        mock_client.complete.return_value = '{"action": "socialize", "target": "Elena"}'
+        mock_client.get_model_name.return_value = "gpt-4o-mini"
+        mock_get_client.return_value = mock_client
+
+        process_agent_decision(agent, world, tick=1)
+
+        call_args = mock_client.complete.call_args
+        prompt = call_args.kwargs.get("prompt", call_args.args[0] if call_args.args else "")
+        # Living agent Elena must appear in the prompt
+        assert "Elena" in prompt
+        assert "farmer" in prompt
+        # Dead agent Ghost must NOT appear
+        assert "Ghost" not in prompt
+        # The agent itself must NOT appear in its own list
+        assert prompt.count("Marco") == 1  # Only the "You are Marco" line
+        # Must include constraint
+        assert "ONLY" in prompt

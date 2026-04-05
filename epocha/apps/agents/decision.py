@@ -13,7 +13,7 @@ from epocha.apps.llm_adapter.client import get_llm_client
 from epocha.common.utils import clean_llm_json
 
 from .memory import get_relevant_memories
-from .models import DecisionLog, Relationship
+from .models import Agent, DecisionLog, Relationship
 from .personality import build_personality_prompt
 
 logger = logging.getLogger(__name__)
@@ -34,13 +34,39 @@ Respond ONLY with a JSON object:
 _FALLBACK_ACTION = {"action": "rest", "reason": "confused"}
 
 
-def _build_context(agent, world_state, tick: int, memories, relationships, recent_events=None) -> str:
-    """Assemble the situational context string sent as the LLM user prompt."""
+def _build_context(
+    agent,
+    world_state,
+    tick: int,
+    memories,
+    relationships,
+    recent_events=None,
+    living_agents=None,
+) -> str:
+    """Assemble the situational context string sent as the LLM user prompt.
+
+    Args:
+        agent: The agent making the decision.
+        world_state: Current world state object.
+        tick: Current simulation tick.
+        memories: List of relevant Memory objects for this agent.
+        relationships: List of Relationship objects for this agent.
+        recent_events: Optional list of recent Event objects to react to.
+        living_agents: Optional list of other living Agent objects in the
+            simulation. When provided, the prompt explicitly enumerates valid
+            interaction targets to prevent the LLM from hallucinating names.
+    """
     parts = [
         f"You are {agent.name}, a {agent.role}.",
         f"Tick: {tick}. Health: {agent.health:.1f}, wealth: {agent.wealth:.1f}, mood: {agent.mood:.1f}.",
         f"World stability: {world_state.stability_index:.1f}.",
     ]
+
+    if living_agents:
+        parts.append("\nOther people in your world:")
+        for a in living_agents:
+            parts.append(f"- {a.name} ({a.role})")
+        parts.append("You can ONLY interact with people listed above. Do not invent names.")
 
     # Injected events that the agent should react to
     if recent_events:
@@ -95,7 +121,15 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
         Event.objects.filter(simulation=agent.simulation, tick__gte=max(0, tick - 5))
         .order_by("-tick")[:5]
     )
-    context = _build_context(agent, world_state, tick, memories, relationships, recent_events)
+    # Enumerate living agents so the LLM only references real characters
+    living_agents = list(
+        Agent.objects.filter(simulation=agent.simulation, is_alive=True)
+        .exclude(id=agent.id)
+        .only("name", "role")[:20]
+    )
+    context = _build_context(
+        agent, world_state, tick, memories, relationships, recent_events, living_agents
+    )
 
     # 2. Build system prompt with personality
     personality_prompt = build_personality_prompt(agent.personality)
