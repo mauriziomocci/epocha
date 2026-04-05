@@ -86,7 +86,8 @@ class TestFullMVPFlow:
 
         # 5. Verify agents have decision logs and memories
         assert DecisionLog.objects.filter(simulation=sim).count() == 2
-        assert Memory.objects.filter(agent__simulation=sim).count() == 2
+        # Count only decision memories; political cycle may create stratification memories too.
+        assert Memory.objects.filter(agent__simulation=sim, content__startswith="I decided to").count() == 2
 
     @patch("epocha.apps.world.generator.get_llm_client")
     def test_multiple_ticks_produce_history(self, mock_get_client, authenticated_client):
@@ -117,4 +118,5 @@ class TestFullMVPFlow:
         assert DecisionLog.objects.filter(simulation=sim).count() == 6
         # Dedup is active: consecutive identical actions do not create duplicate memories.
         # 3 ticks of "socialize" for each agent produce 1 memory per agent = 2 total.
-        assert Memory.objects.filter(agent__simulation=sim).count() == 2
+        # Count only decision memories; political cycle may create stratification memories too.
+        assert Memory.objects.filter(agent__simulation=sim, content__startswith="I decided to").count() == 2

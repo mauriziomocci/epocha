@@ -176,6 +176,16 @@ class TestSimulationEngine:
             assert mock_factions.call_count == 5  # Called every tick but no-op except at interval
 
     @patch("epocha.apps.simulation.engine.process_agent_decision")
+    def test_political_cycle_runs_at_interval(self, mock_decision, sim_with_world):
+        """Political cycle should be called during ticks."""
+        mock_decision.return_value = {"action": "work", "reason": "busy"}
+        engine = SimulationEngine(sim_with_world)
+        with patch("epocha.apps.simulation.engine.process_political_cycle") as mock_politics:
+            for _ in range(10):
+                engine.run_tick()
+            assert mock_politics.call_count == 10
+
+    @patch("epocha.apps.simulation.engine.process_agent_decision")
     def test_different_actions_create_separate_memories(self, mock_decision, sim_with_world):
         """Different actions in consecutive ticks should each create a memory."""
         mock_decision.side_effect = [
@@ -190,4 +200,6 @@ class TestSimulationEngine:
         engine.run_tick()  # tick 3 - argue again (different from previous tick)
 
         marco = Agent.objects.get(name="Marco")
-        assert Memory.objects.filter(agent=marco).count() == 3
+        # Count only decision memories (prefix "I decided to"); the political cycle may
+        # create stratification memories with a different prefix in the same ticks.
+        assert Memory.objects.filter(agent=marco, content__startswith="I decided to").count() == 3
