@@ -171,6 +171,8 @@ def _select_active_traits(personality: dict[str, float]) -> list[tuple[str, floa
     candidates: list[tuple[float, str, float, bool]] = []
 
     for trait, value in personality.items():
+        if not isinstance(value, (int, float)):
+            continue
         extremity = abs(value - 0.5)
         is_high = value > 0.5
 

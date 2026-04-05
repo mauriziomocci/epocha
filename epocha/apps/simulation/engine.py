@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 
 from epocha.apps.agents.decision import process_agent_decision
+from epocha.apps.agents.information_flow import propagate_information
 from epocha.apps.agents.memory import decay_memories
 from epocha.apps.agents.models import Agent, Memory
 from epocha.apps.world.economy import process_economy_tick
@@ -121,6 +122,7 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
             emotional_weight=emotional_weight,
             source_type="direct",
             tick_created=tick,
+            origin_agent=agent,
         )
 
 
@@ -234,14 +236,17 @@ class SimulationEngine:
             except Exception:
                 logger.exception("Agent %s failed at tick %d", agent.name, tick)
 
-        # 3. Memory decay
+        # 3. Information flow (propagate hearsay and rumors)
+        propagate_information(self.simulation, tick)
+
+        # 4. Memory decay
         run_memory_decay(self.simulation, tick)
 
-        # 4. Advance tick
+        # 5. Advance tick
         self.simulation.current_tick = tick
         self.simulation.save(update_fields=["current_tick", "updated_at"])
 
-        # 5. Broadcast
+        # 6. Broadcast
         broadcast_tick(self.simulation, tick, tick_events)
 
         logger.info("Simulation %d: tick %d complete", self.simulation.id, tick)

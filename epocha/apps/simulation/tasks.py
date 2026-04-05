@@ -94,6 +94,10 @@ def finalize_tick(agent_results: list, simulation_id: int, tick: int) -> None:
         if "event" in result:
             events.append(result["event"])
 
+    # Information flow (propagate hearsay and rumors)
+    from epocha.apps.agents.information_flow import propagate_information
+    propagate_information(simulation, tick)
+
     # Memory decay (periodic)
     run_memory_decay(simulation, tick)
 

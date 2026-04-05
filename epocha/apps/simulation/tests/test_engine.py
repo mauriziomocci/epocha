@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from epocha.apps.agents.models import Agent, Memory
+from epocha.apps.agents.models import Agent, Memory, Relationship
 from epocha.apps.simulation.engine import SimulationEngine
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
@@ -138,6 +138,31 @@ class TestSimulationEngine:
         marco = Agent.objects.get(name="Marco")
         argue_memories = Memory.objects.filter(agent=marco, content__startswith="I decided to argue")
         assert argue_memories.count() == 1
+
+    @patch("epocha.apps.simulation.engine.process_agent_decision")
+    def test_information_flow_runs_after_decisions(self, mock_decision, sim_with_world):
+        """Information flow should propagate after agent decisions."""
+        Agent.objects.create(
+            simulation=sim_with_world, name="Elena", role="farmer",
+            personality={
+                "openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5,
+                "agreeableness": 0.5, "neuroticism": 0.5,
+            },
+        )
+        Relationship.objects.create(
+            agent_from=Agent.objects.get(name="Marco"),
+            agent_to=Agent.objects.get(name="Elena"),
+            relation_type="friendship", strength=0.7, sentiment=0.6, since_tick=0,
+        )
+        mock_decision.return_value = {"action": "argue", "reason": "angry at priest"}
+
+        engine = SimulationEngine(sim_with_world)
+        engine.run_tick()
+
+        # Elena should have received hearsay about Marco's action
+        elena = Agent.objects.get(name="Elena")
+        hearsay = Memory.objects.filter(agent=elena, source_type="hearsay")
+        assert hearsay.count() >= 1
 
     @patch("epocha.apps.simulation.engine.process_agent_decision")
     def test_different_actions_create_separate_memories(self, mock_decision, sim_with_world):
