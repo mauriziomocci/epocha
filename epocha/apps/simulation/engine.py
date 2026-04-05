@@ -1,12 +1,13 @@
-"""Tick orchestrator: coordinates economy, agent decisions, memory, and events.
+"""Tick orchestrator: coordinates economy, agent decisions, information flow, memory, and events.
 
 Each tick is a discrete time step where:
 1. The economy updates (income, costs, mood effects)
 2. Each living agent makes a decision via LLM
 3. Decision consequences are applied (mood, health adjustments)
 4. Memories are created from actions
-5. Old memories decay periodically
-6. The tick counter advances
+5. Information propagates through the social network (hearsay, rumors)
+6. Old memories decay periodically
+7. The tick counter advances
 
 Agent failures are isolated: if one agent's LLM call fails, the tick
 continues for all other agents. This ensures simulation resilience.
