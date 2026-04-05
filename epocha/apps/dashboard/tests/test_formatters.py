@@ -1,6 +1,4 @@
 """Tests for dashboard decision formatting."""
-import pytest
-
 from epocha.apps.dashboard.formatters import format_decision_text
 
 
