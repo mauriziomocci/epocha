@@ -41,6 +41,8 @@ _ACTION_EMOTIONAL_WEIGHT: dict[str, float] = {
     "work": 0.1,
     "rest": 0.05,
     "avoid": 0.15,
+    "form_group": 0.3,
+    "join_group": 0.3,
 }
 _DEFAULT_EMOTIONAL_WEIGHT = 0.1
 
@@ -54,6 +56,8 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
     "avoid": -0.02,
     "explore": 0.02,
     "trade": 0.01,
+    "form_group": 0.04,
+    "join_group": 0.03,
 }
 
 # Memory decay runs every N ticks to reduce DB writes.

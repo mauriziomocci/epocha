@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from epocha.apps.agents.decision import process_agent_decision
-from epocha.apps.agents.models import Agent, DecisionLog, Memory
+from epocha.apps.agents.models import Agent, DecisionLog, Group, Memory
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import World
@@ -147,3 +147,27 @@ class TestProcessAgentDecision:
         assert prompt.count("Marco") == 1  # Only the "You are Marco" line
         # Must include constraint
         assert "ONLY" in prompt
+
+    @patch("epocha.apps.agents.decision.get_llm_client")
+    def test_context_includes_group_info(self, mock_get_client, agent, world, simulation):
+        """If the agent belongs to a group, the context should include group details."""
+        group = Group.objects.create(
+            simulation=simulation, name="The Guild", objective="Protect artisans",
+            cohesion=0.7, formed_at_tick=1,
+        )
+        agent.group = group
+        agent.save(update_fields=["group"])
+        group.leader = agent
+        group.save(update_fields=["leader"])
+
+        mock_client = MagicMock()
+        mock_client.complete.return_value = '{"action": "work", "reason": "busy"}'
+        mock_client.get_model_name.return_value = "gpt-4o-mini"
+        mock_get_client.return_value = mock_client
+
+        process_agent_decision(agent, world, tick=5)
+
+        call_args = mock_client.complete.call_args
+        prompt = call_args.kwargs.get("prompt", call_args.args[0] if call_args.args else "")
+        assert "The Guild" in prompt
+        assert "Protect artisans" in prompt

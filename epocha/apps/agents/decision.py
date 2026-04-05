@@ -13,7 +13,7 @@ from epocha.apps.llm_adapter.client import get_llm_client
 from epocha.common.utils import clean_llm_json
 
 from .memory import get_relevant_memories
-from .models import Agent, DecisionLog, Relationship
+from .models import Agent, DecisionLog, Group, Relationship
 from .personality import build_personality_prompt
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ memories, relationships, and current situation, decide what to do next.
 
 Respond ONLY with a JSON object:
 {
-    "action": "work|rest|socialize|explore|trade|argue|help|avoid",
+    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group",
     "target": "who or what (optional)",
     "reason": "brief internal thought"
 }
@@ -47,6 +47,7 @@ def _build_context(
     relationships,
     recent_events=None,
     living_agents=None,
+    group_context=None,
 ) -> str:
     """Assemble the situational context string sent as the LLM user prompt.
 
@@ -60,6 +61,9 @@ def _build_context(
         living_agents: Optional list of other living Agent objects in the
             simulation. When provided, the prompt explicitly enumerates valid
             interaction targets to prevent the LLM from hallucinating names.
+        group_context: Optional pre-formatted string describing the agent's
+            faction (name, objective, leader, members, cohesion). None when
+            the agent does not belong to any group.
     """
     parts = [
         f"You are {agent.name}, a {agent.role}.",
@@ -72,6 +76,10 @@ def _build_context(
         for a in living_agents:
             parts.append(f"- {a.name} ({a.role})")
         parts.append("You can ONLY interact with people listed above. Do not invent names.")
+
+    # Group/faction context
+    if group_context:
+        parts.append(f"\n{group_context}")
 
     # Injected events that the agent should react to
     if recent_events:
@@ -133,8 +141,28 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
         .only("name", "role")
         .order_by("name")[:_MAX_CONTEXT_AGENTS]
     )
+
+    # Build group context for the agent
+    group_context = None
+    if agent.group_id:
+        group = agent.group
+        members = list(
+            Agent.objects.filter(group=group, is_alive=True)
+            .exclude(id=agent.id)
+            .only("name", "role")[:10]
+        )
+        member_list = ", ".join(f"{m.name} ({m.role})" for m in members)
+        leader_name = group.leader.name if group.leader else "no leader"
+        cohesion_word = "strong" if group.cohesion > 0.6 else "moderate" if group.cohesion > 0.3 else "fragile"
+        group_context = (
+            f"Your faction: {group.name} (objective: {group.objective})\n"
+            f"Leader: {leader_name}\n"
+            f"Members: {member_list}\n"
+            f"Group cohesion: {cohesion_word}"
+        )
+
     context = _build_context(
-        agent, world_state, tick, memories, relationships, recent_events, living_agents
+        agent, world_state, tick, memories, relationships, recent_events, living_agents, group_context
     )
 
     # 2. Build system prompt with personality

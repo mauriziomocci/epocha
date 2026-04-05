@@ -17,6 +17,8 @@ _ACTION_VERBS: dict[str, str] = {
     "avoid": "avoids",
     "betray": "betrays",
     "pray": "prays",
+    "form_group": "forms a group",
+    "join_group": "joins a group",
 }
 
 
