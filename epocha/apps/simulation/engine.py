@@ -57,6 +57,10 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
 # Memory decay runs every N ticks to reduce DB writes.
 _MEMORY_DECAY_INTERVAL = 10
 
+# Number of recent ticks to check for duplicate memories.
+# If the agent performed the same action within this window, skip memory creation.
+_MEMORY_DEDUP_TICKS = 3
+
 
 def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
     """Apply consequences of an agent's action and create a memory.
@@ -82,18 +86,34 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
 
     agent.save(update_fields=["mood", "health"])
 
-    # Create memory of the action
-    emotional_weight = _ACTION_EMOTIONAL_WEIGHT.get(
-        action_type, _DEFAULT_EMOTIONAL_WEIGHT
+    # Create memory of the action (skip if a duplicate of the same action type
+    # was the most recent memory created within the dedup window).
+    # Using the last-created memory avoids suppressing the same action after
+    # a different action has interrupted the streak.
+    dedup_prefix = f"I decided to {action_type}."
+    last_memory = (
+        Memory.objects.filter(
+            agent=agent,
+            is_active=True,
+            tick_created__gte=max(0, tick - _MEMORY_DEDUP_TICKS),
+        )
+        .order_by("-tick_created", "-id")
+        .first()
     )
-    reason = action.get("reason", "")
-    Memory.objects.create(
-        agent=agent,
-        content=f"I decided to {action_type}. {reason}".strip(),
-        emotional_weight=emotional_weight,
-        source_type="direct",
-        tick_created=tick,
-    )
+    recent_duplicate = last_memory is not None and last_memory.content.startswith(dedup_prefix)
+
+    if not recent_duplicate:
+        emotional_weight = _ACTION_EMOTIONAL_WEIGHT.get(
+            action_type, _DEFAULT_EMOTIONAL_WEIGHT
+        )
+        reason = action.get("reason", "")
+        Memory.objects.create(
+            agent=agent,
+            content=f"I decided to {action_type}. {reason}".strip(),
+            emotional_weight=emotional_weight,
+            source_type="direct",
+            tick_created=tick,
+        )
 
 
 def run_economy(simulation) -> None:

@@ -115,5 +115,6 @@ class TestFullMVPFlow:
         assert sim.current_tick == 3
         # 2 agents * 3 ticks = 6 decision logs
         assert DecisionLog.objects.filter(simulation=sim).count() == 6
-        # 2 agents * 3 ticks = 6 memories
-        assert Memory.objects.filter(agent__simulation=sim).count() == 6
+        # Dedup is active: consecutive identical actions do not create duplicate memories.
+        # 3 ticks of "socialize" for each agent produce 1 memory per agent = 2 total.
+        assert Memory.objects.filter(agent__simulation=sim).count() == 2

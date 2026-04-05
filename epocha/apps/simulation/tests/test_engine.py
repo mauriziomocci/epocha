@@ -124,3 +124,34 @@ class TestSimulationEngine:
 
         sim_with_world.refresh_from_db()
         assert sim_with_world.current_tick == 3
+
+    @patch("epocha.apps.simulation.engine.process_agent_decision")
+    def test_no_duplicate_memories_for_same_action(self, mock_decision, sim_with_world):
+        """Repeating the same action in consecutive ticks should not create duplicate memories."""
+        mock_decision.return_value = {"action": "argue", "reason": "angry at priest"}
+
+        engine = SimulationEngine(sim_with_world)
+        engine.run_tick()  # tick 1 - creates memory
+        engine.run_tick()  # tick 2 - same action, should skip memory
+        engine.run_tick()  # tick 3 - same action, should skip memory
+
+        marco = Agent.objects.get(name="Marco")
+        argue_memories = Memory.objects.filter(agent=marco, content__startswith="I decided to argue")
+        assert argue_memories.count() == 1
+
+    @patch("epocha.apps.simulation.engine.process_agent_decision")
+    def test_different_actions_create_separate_memories(self, mock_decision, sim_with_world):
+        """Different actions in consecutive ticks should each create a memory."""
+        mock_decision.side_effect = [
+            {"action": "argue", "reason": "angry"},
+            {"action": "rest", "reason": "tired"},
+            {"action": "argue", "reason": "still angry"},
+        ]
+
+        engine = SimulationEngine(sim_with_world)
+        engine.run_tick()  # tick 1 - argue
+        engine.run_tick()  # tick 2 - rest (different action)
+        engine.run_tick()  # tick 3 - argue again (different from previous tick)
+
+        marco = Agent.objects.get(name="Marco")
+        assert Memory.objects.filter(agent=marco).count() == 3
