@@ -166,3 +166,24 @@ EPOCHA_INFO_FLOW_BELIEF_THRESHOLD = env.float("EPOCHA_INFO_FLOW_BELIEF_THRESHOLD
 
 # Maximum recipients per memory per tick (prevents unbounded fan-out).
 EPOCHA_INFO_FLOW_MAX_RECIPIENTS = env.int("EPOCHA_INFO_FLOW_MAX_RECIPIENTS", default=20)
+
+# --- Faction Dynamics ---
+# How often faction dynamics run (every N ticks).
+EPOCHA_FACTION_DYNAMICS_INTERVAL = env.int("EPOCHA_FACTION_DYNAMICS_INTERVAL", default=5)
+
+# Minimum pairwise affinity for agents to be considered a potential faction cluster.
+# Source: calibrated so that agents sharing social class + positive relationship
+# (circumstance_score ~0.5, relationship_score ~0.5) cross the threshold.
+EPOCHA_FACTION_AFFINITY_THRESHOLD = env.float("EPOCHA_FACTION_AFFINITY_THRESHOLD", default=0.5)
+
+# Minimum members required to form a faction.
+EPOCHA_FACTION_MIN_MEMBERS = env.int("EPOCHA_FACTION_MIN_MEMBERS", default=3)
+
+# Maximum members in a newly formed faction (prevents oversized initial groups).
+EPOCHA_FACTION_MAX_INITIAL_MEMBERS = env.int("EPOCHA_FACTION_MAX_INITIAL_MEMBERS", default=8)
+
+# Cohesion threshold below which a group dissolves.
+EPOCHA_FACTION_DISSOLUTION_THRESHOLD = env.float("EPOCHA_FACTION_DISSOLUTION_THRESHOLD", default=0.2)
+
+# Leadership legitimacy threshold below which the leader is replaced.
+EPOCHA_FACTION_LEGITIMACY_THRESHOLD = env.float("EPOCHA_FACTION_LEGITIMACY_THRESHOLD", default=0.3)

@@ -79,6 +79,7 @@ class Group(models.Model):
     cohesion = models.FloatField(default=0.5, help_text="0.0 = fragmented, 1.0 = monolithic")
     leader = models.ForeignKey(Agent, null=True, blank=True, on_delete=models.SET_NULL, related_name="led_groups")
     parent_group = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="subgroups")
+    formed_at_tick = models.PositiveIntegerField(default=0, help_text="Tick when the group was formed")
 
     def __str__(self):
         return self.name
