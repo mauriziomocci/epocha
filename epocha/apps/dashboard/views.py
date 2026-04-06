@@ -17,13 +17,13 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from epocha.apps.agents.models import Agent, DecisionLog, Memory, Relationship
+from epocha.apps.agents.models import Agent, DecisionLog, Group, Memory, Relationship
 from epocha.apps.dashboard.formatters import format_decision_text
 from epocha.apps.llm_adapter.models import LLMRequest
-from epocha.apps.simulation.models import Event, Simulation
+from epocha.apps.simulation.models import Event, Simulation, SimulationSnapshot
 from epocha.apps.users.models import User
 from epocha.apps.world.government_types import GOVERNMENT_TYPES
-from epocha.apps.world.models import Government, World
+from epocha.apps.world.models import Government, GovernmentHistory, World
 
 
 # ---------- Auth ----------
@@ -1109,4 +1109,119 @@ def graph_agent_detail_view(request, sim_id, agent_id):
         "is_alive": agent.is_alive,
         "relationships": relationships,
         "recent_memories": merged_memories,
+    })
+
+
+# ---------- Analytics ----------
+
+@login_required(login_url="/login/")
+def analytics_view(request, sim_id):
+    """Render the analytics dashboard page."""
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+    return render(request, "dashboard/simulation_analytics.html", {"simulation": simulation})
+
+
+@login_required(login_url="/login/")
+def analytics_data_view(request, sim_id):
+    """Return analytics time-series data for the simulation charts.
+
+    Aggregates four data sources into a single JSON payload consumed by the
+    analytics page Alpine.js component:
+
+    - snapshots: per-tick KPI records from SimulationSnapshot
+    - crises: [EPOCHAL CRISIS] events with parsed label and severity
+    - transitions: government type changes from GovernmentHistory, each record
+      annotated with from_type derived from the chronologically preceding entry
+    - factions: active Group records (cohesion > 0) with member count and color
+
+    All queries use select_related or values() to avoid N+1 access patterns.
+    """
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+
+    # Snapshots: full KPI time series ordered by tick
+    snapshots = list(
+        SimulationSnapshot.objects.filter(simulation=simulation)
+        .order_by("tick")
+        .values(
+            "tick",
+            "gini_coefficient",
+            "government_stability",
+            "avg_mood",
+            "avg_wealth",
+            "population_alive",
+            "population_dead",
+            "faction_count",
+            "government_type",
+            "institutional_trust",
+            "repression_level",
+            "corruption",
+            "popular_legitimacy",
+            "military_loyalty",
+            "class_elite_pct",
+            "class_wealthy_pct",
+            "class_middle_pct",
+            "class_working_pct",
+            "class_poor_pct",
+        )
+    )
+
+    # Crises: events whose title starts with the [EPOCHAL CRISIS] prefix.
+    # The label is the portion of the title after the prefix and trailing space.
+    crisis_prefix = "[EPOCHAL CRISIS] "
+    crisis_events = Event.objects.filter(
+        simulation=simulation,
+        title__startswith=crisis_prefix,
+    ).order_by("tick").values("tick", "title", "description", "severity")
+
+    crises = [
+        {
+            "tick": e["tick"],
+            "label": e["title"][len(crisis_prefix):],
+            "description": e["description"],
+            "severity": round(e["severity"], 2),
+        }
+        for e in crisis_events
+    ]
+
+    # Transitions: government history ordered chronologically (ascending from_tick).
+    # Each record is annotated with from_type: the government type of the previous
+    # record, or "initial" for the first entry.
+    history_qs = list(
+        GovernmentHistory.objects.filter(simulation=simulation)
+        .order_by("from_tick")
+        .values("government_type", "from_tick", "to_tick", "transition_cause")
+    )
+
+    transitions = []
+    for i, record in enumerate(history_qs):
+        from_type = history_qs[i - 1]["government_type"] if i > 0 else "initial"
+        transitions.append({
+            "tick": record["from_tick"],
+            "from_type": from_type,
+            "to_type": record["government_type"],
+            "cause": record["transition_cause"],
+        })
+
+    # Factions: active groups (cohesion > 0) with member count and display color
+    from django.db.models import Count
+
+    factions = [
+        {
+            "name": g["name"],
+            "cohesion": round(g["cohesion"], 2),
+            "member_count": g["member_count"],
+            "color": _faction_color(g["name"]),
+        }
+        for g in (
+            Group.objects.filter(simulation=simulation, cohesion__gt=0)
+            .annotate(member_count=Count("members"))
+            .values("name", "cohesion", "member_count")
+        )
+    ]
+
+    return JsonResponse({
+        "snapshots": snapshots,
+        "crises": crises,
+        "transitions": transitions,
+        "factions": factions,
     })

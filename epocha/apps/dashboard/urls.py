@@ -28,6 +28,10 @@ urlpatterns = [
     path("simulations/<int:sim_id>/chat/<int:agent_id>/", views.chat_view, name="chat"),
     path("simulations/<int:sim_id>/group-chat/", views.group_chat_view, name="group-chat"),
 
+    # Analytics
+    path("simulations/<int:sim_id>/analytics/", views.analytics_view, name="analytics"),
+    path("simulations/<int:sim_id>/analytics/data/", views.analytics_data_view, name="analytics-data"),
+
     # Social graph
     path("simulations/<int:sim_id>/graph/", views.graph_view, name="graph"),
     path("simulations/<int:sim_id>/graph/data/", views.graph_data_view, name="graph-data"),
