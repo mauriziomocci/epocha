@@ -35,6 +35,7 @@
                 <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-medium">{{ ui.pause }}</button>
             </form>
             <a href="{% url 'dashboard:simulation-report' sim_id=simulation.id %}" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded font-medium">{{ ui.report }}</a>
+            <a href="{% url 'dashboard:graph' sim_id=simulation.id %}" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded font-medium">Relationships</a>
         </div>
     </div>
 
