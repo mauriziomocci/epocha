@@ -16,13 +16,13 @@ Change `postgres:16-alpine` to `postgis/postgis:16-3.4-alpine` in both `docker-c
 
 ### Django Dockerfile
 
-Add system dependencies for GeoDjango. In `compose/django/Dockerfile`, add to the system package installation:
+Add system dependencies for GeoDjango. The Dockerfile uses `python:3.12-slim` (Debian-based), so the packages are:
 
 ```
-gdal-dev geos-dev proj-dev
+gdal-bin libgdal-dev libgeos-dev libproj-dev
 ```
 
-These provide the GDAL, GEOS, and PROJ libraries that GeoDjango requires for spatial operations.
+These provide the GDAL, GEOS, and PROJ libraries that GeoDjango requires for spatial operations. On Alpine-based images the names would be different (`gdal-dev geos-dev proj-dev`).
 
 ## Django Settings
 
