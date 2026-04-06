@@ -70,3 +70,50 @@ class Event(models.Model):
 
     def __str__(self):
         return f"[Tick {self.tick}] {self.title}"
+
+
+class SimulationSnapshot(models.Model):
+    """Per-tick snapshot of simulation KPIs for analytics charts.
+
+    Captured once per tick by capture_snapshot() in snapshot.py. The record
+    is the authoritative time-series source for the analytics dashboard: all
+    chart data is read from this table rather than aggregated on the fly.
+    """
+
+    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="snapshots")
+    tick = models.PositiveIntegerField()
+
+    # Population
+    population_alive = models.PositiveIntegerField(default=0)
+    population_dead = models.PositiveIntegerField(default=0)
+
+    # Economy
+    avg_wealth = models.FloatField(default=0.0)
+    gini_coefficient = models.FloatField(default=0.0)
+
+    # Social
+    avg_mood = models.FloatField(default=0.0)
+    faction_count = models.PositiveIntegerField(default=0)
+
+    # Political (mapped from Government: Government.stability -> government_stability)
+    government_type = models.CharField(max_length=30, blank=True)
+    government_stability = models.FloatField(default=0.0)
+    institutional_trust = models.FloatField(default=0.0)
+    repression_level = models.FloatField(default=0.0)
+    corruption = models.FloatField(default=0.0)
+    popular_legitimacy = models.FloatField(default=0.0)
+    military_loyalty = models.FloatField(default=0.0)
+
+    # Class distribution (percentages, 0.0-1.0)
+    class_elite_pct = models.FloatField(default=0.0)
+    class_wealthy_pct = models.FloatField(default=0.0)
+    class_middle_pct = models.FloatField(default=0.0)
+    class_working_pct = models.FloatField(default=0.0)
+    class_poor_pct = models.FloatField(default=0.0)
+
+    class Meta:
+        unique_together = ["simulation", "tick"]
+        ordering = ["tick"]
+
+    def __str__(self):
+        return f"Snapshot {self.simulation.name} @ tick {self.tick}"
