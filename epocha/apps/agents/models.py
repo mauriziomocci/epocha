@@ -163,3 +163,30 @@ class DecisionLog(models.Model):
 
     class Meta:
         ordering = ["tick"]
+
+
+class ReputationScore(models.Model):
+    """Per-agent perception of another agent's trustworthiness.
+
+    Implements the Castelfranchi-Conte-Paolucci (1998) distinction between
+    image (direct experience) and reputation (social evaluation via gossip).
+
+    Source: Castelfranchi, C., Conte, R. & Paolucci, M. (1998). "Normative
+    reputation and the costs of compliance." Journal of Artificial Societies
+    and Social Simulation, vol. 1, no. 3.
+    """
+
+    holder = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="reputation_assessments")
+    target = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="reputation_scores")
+    image = models.FloatField(default=0.0, help_text="-1.0 = terrible, 0.0 = neutral, 1.0 = excellent (direct experience)")
+    reputation = models.FloatField(default=0.0, help_text="-1.0 = terrible, 0.0 = neutral, 1.0 = excellent (social evaluation)")
+    last_updated_tick = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ["holder", "target"]
+        indexes = [
+            models.Index(fields=["holder", "target"], name="reputation_lookup_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.holder.name}'s view of {self.target.name}: img={self.image:.2f} rep={self.reputation:.2f}"
