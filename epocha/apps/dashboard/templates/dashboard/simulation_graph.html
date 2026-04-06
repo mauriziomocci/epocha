@@ -3,8 +3,77 @@
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/dist/graphology-layout-forceatlas2.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+<script>
+// Simple force-directed layout (replaces graphology-layout-forceatlas2 which has no UMD build).
+// Implements a basic spring-electrical model: connected nodes attract, all nodes repel.
+// Sufficient for 10-50 nodes. Runs synchronously for a fixed number of iterations.
+function simpleForceLayout(graph, iterations) {
+    const nodes = graph.nodes();
+    const n = nodes.length;
+    if (n === 0) return;
+
+    // Initialize random positions if not set
+    nodes.forEach(node => {
+        const attrs = graph.getNodeAttributes(node);
+        if (!attrs.x || !attrs.y) {
+            graph.setNodeAttribute(node, "x", Math.random() * 100);
+            graph.setNodeAttribute(node, "y", Math.random() * 100);
+        }
+    });
+
+    const repulsion = 500;
+    const attraction = 0.01;
+    const damping = 0.9;
+    const velocities = {};
+    nodes.forEach(node => { velocities[node] = { vx: 0, vy: 0 }; });
+
+    for (let iter = 0; iter < iterations; iter++) {
+        // Repulsion between all pairs
+        for (let i = 0; i < n; i++) {
+            for (let j = i + 1; j < n; j++) {
+                const a = graph.getNodeAttributes(nodes[i]);
+                const b = graph.getNodeAttributes(nodes[j]);
+                let dx = a.x - b.x;
+                let dy = a.y - b.y;
+                let dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+                let force = repulsion / (dist * dist);
+                let fx = (dx / dist) * force;
+                let fy = (dy / dist) * force;
+                velocities[nodes[i]].vx += fx;
+                velocities[nodes[i]].vy += fy;
+                velocities[nodes[j]].vx -= fx;
+                velocities[nodes[j]].vy -= fy;
+            }
+        }
+
+        // Attraction along edges
+        graph.forEachEdge((edge, attrs, source, target) => {
+            const a = graph.getNodeAttributes(source);
+            const b = graph.getNodeAttributes(target);
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+            let force = dist * attraction;
+            let fx = (dx / dist) * force;
+            let fy = (dy / dist) * force;
+            velocities[source].vx += fx;
+            velocities[source].vy += fy;
+            velocities[target].vx -= fx;
+            velocities[target].vy -= fy;
+        });
+
+        // Apply velocities with damping
+        nodes.forEach(node => {
+            const v = velocities[node];
+            v.vx *= damping;
+            v.vy *= damping;
+            graph.setNodeAttribute(node, "x", graph.getNodeAttribute(node, "x") + v.vx);
+            graph.setNodeAttribute(node, "y", graph.getNodeAttribute(node, "y") + v.vy);
+        });
+    }
+}
+</script>
 {% endblock %}
 
 {% block content %}
@@ -337,12 +406,8 @@ function graphPage() {
                 });
             });
 
-            // Run ForceAtlas2 layout to spread nodes.
-            // Parameters: gravity reduces clustering pull; scalingRatio spreads nodes apart.
-            graphologyLayoutForceAtlas2.assign(graph, {
-                iterations: 100,
-                settings: { gravity: 1, scalingRatio: 10 },
-            });
+            // Run force-directed layout to spread nodes.
+            simpleForceLayout(graph, 100);
 
             const container = document.getElementById("graph-container");
             if (!container) {
