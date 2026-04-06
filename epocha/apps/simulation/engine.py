@@ -29,6 +29,7 @@ from epocha.apps.agents.factions import process_faction_dynamics
 from epocha.apps.agents.information_flow import propagate_information
 from epocha.apps.agents.memory import decay_memories
 from epocha.apps.agents.models import Agent, Memory
+from epocha.apps.agents.relationships import evolve_relationships, update_relationship_from_interaction
 from epocha.apps.simulation.snapshot import capture_and_detect
 from epocha.apps.world.economy import process_economy_tick
 from epocha.apps.world.government import process_political_cycle
@@ -111,6 +112,17 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
         agent.health = min(1.0, agent.health + 0.02)
 
     agent.save(update_fields=["mood", "health"])
+
+    # Update relationship if the action targets another agent
+    target_name = action.get("target", "")
+    if target_name and action_type not in ("rest", "work", "explore"):
+        target_agent = (
+            Agent.objects.filter(simulation=agent.simulation, is_alive=True, name__icontains=target_name)
+            .exclude(id=agent.id)
+            .first()
+        )
+        if target_agent:
+            update_relationship_from_interaction(agent, target_agent, action_type, tick)
 
     # Create memory of the action (skip if a duplicate of the same action type
     # was the most recent memory created within the dedup window).
@@ -262,17 +274,20 @@ class SimulationEngine:
         # 5. Political cycle (every N ticks)
         process_political_cycle(self.simulation, tick)
 
-        # 6. Memory decay
+        # 6. Relationship decay
+        evolve_relationships(self.simulation, tick)
+
+        # 7. Memory decay
         run_memory_decay(self.simulation, tick)
 
-        # 7. Capture snapshot + detect crises
+        # 8. Capture snapshot + detect crises
         capture_and_detect(self.simulation, tick)
 
-        # 8. Advance tick
+        # 9. Advance tick
         self.simulation.current_tick = tick
         self.simulation.save(update_fields=["current_tick", "updated_at"])
 
-        # 9. Broadcast
+        # 10. Broadcast
         broadcast_tick(self.simulation, tick, tick_events)
 
         logger.info("Simulation %d: tick %d complete", self.simulation.id, tick)
