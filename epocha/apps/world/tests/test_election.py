@@ -1,7 +1,7 @@
 """Tests for the deterministic election system."""
 import pytest
 
-from epocha.apps.agents.models import Agent, Group, Memory, Relationship
+from epocha.apps.agents.models import Agent, Group, Memory, Relationship, ReputationScore
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.election import compute_vote_score, run_election
@@ -58,19 +58,29 @@ class TestComputeVoteScore:
         score_b = compute_vote_score(voter, leader_b, tick=50)
         assert score_a > score_b
 
-    def test_positive_memory_boosts_score(self, simulation, world, factions_and_agents):
+    def test_positive_reputation_boosts_score(self, simulation, world, factions_and_agents):
+        """Positive combined reputation score increases the vote score for a candidate."""
         _, _, leader_a, _, voter = factions_and_agents
         score_before = compute_vote_score(voter, leader_a, tick=50)
-        Memory.objects.create(agent=voter, content="Anna helped the poor and reformed the tax system.",
-                              emotional_weight=0.5, source_type="hearsay", tick_created=45)
+        # Create a positive ReputationScore from voter toward leader_a
+        ReputationScore.objects.create(
+            holder=voter, target=leader_a,
+            image=0.8, reputation=0.7,
+            last_updated_tick=45,
+        )
         score_after = compute_vote_score(voter, leader_a, tick=50)
         assert score_after > score_before
 
-    def test_negative_memory_reduces_score(self, simulation, world, factions_and_agents):
+    def test_negative_reputation_reduces_score(self, simulation, world, factions_and_agents):
+        """Negative combined reputation score decreases the vote score for a candidate."""
         _, _, leader_a, _, voter = factions_and_agents
         score_before = compute_vote_score(voter, leader_a, tick=50)
-        Memory.objects.create(agent=voter, content="Anna betrayed the people and stole from the treasury.",
-                              emotional_weight=0.7, source_type="rumor", tick_created=45)
+        # Create a negative ReputationScore from voter toward leader_a
+        ReputationScore.objects.create(
+            holder=voter, target=leader_a,
+            image=-0.8, reputation=-0.7,
+            last_updated_tick=45,
+        )
         score_after = compute_vote_score(voter, leader_a, tick=50)
         assert score_after < score_before
 

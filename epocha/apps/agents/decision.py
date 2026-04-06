@@ -49,6 +49,7 @@ def _build_context(
     living_agents=None,
     group_context=None,
     political_context=None,
+    reputation_context=None,
 ) -> str:
     """Assemble the situational context string sent as the LLM user prompt.
 
@@ -68,6 +69,9 @@ def _build_context(
         political_context: Optional pre-formatted string describing the current
             government type, stability, head of state, institutional trust, and
             corruption level. None when no government exists for the simulation.
+        reputation_context: Optional pre-formatted string summarising how the
+            agent perceives the standing of notable peers (respected or mistrusted).
+            None when no reputation data is available.
     """
     parts = [
         f"You are {agent.name}, a {agent.role}.",
@@ -88,6 +92,10 @@ def _build_context(
     # Political context
     if political_context:
         parts.append(f"\n{political_context}")
+
+    # Reputation context
+    if reputation_context:
+        parts.append(f"\n{reputation_context}")
 
     # Injected events that the agent should react to
     if recent_events:
@@ -187,9 +195,28 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     except Exception:
         pass
 
+    # Build reputation context
+    reputation_context = None
+    try:
+        from epocha.apps.agents.models import ReputationScore
+        notable = ReputationScore.objects.filter(holder=agent).select_related("target").exclude(target=agent)
+        rep_lines = []
+        for rep in notable:
+            combined = rep.image * 0.6 + rep.reputation * 0.4
+            if combined > 0.3:
+                word = "highly respected" if combined > 0.5 else "respected"
+                rep_lines.append(f"- {rep.target.name}: {word}")
+            elif combined < -0.3:
+                word = "despised" if combined < -0.5 else "mistrusted"
+                rep_lines.append(f"- {rep.target.name}: {word}")
+        if rep_lines:
+            reputation_context = "Reputation in your community:\n" + "\n".join(rep_lines)
+    except Exception:
+        pass
+
     context = _build_context(
         agent, world_state, tick, memories, relationships, recent_events, living_agents, group_context,
-        political_context,
+        political_context, reputation_context,
     )
 
     # 2. Build system prompt with personality

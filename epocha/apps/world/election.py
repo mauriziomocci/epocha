@@ -18,9 +18,10 @@ Agents vote based on five weighted factors that model real-world electoral behav
    Reference: Lewis-Beck & Stegmaier (2000) "Economic Determinants of Electoral
    Outcomes." Annual Review of Political Science, 3, 183-219.
 
-4. Memory influence (25%): voters are affected by information they have received
-   about the candidate. Positive memories boost, negative memories suppress votes.
-   This makes propaganda and hearsay politically consequential.
+4. Reputation influence (25%): voters are affected by the direct experiences (image)
+   and socially-transmitted opinions (reputation) they hold about the candidate.
+   The combined score integrates first-hand observation with hearsay, making both
+   propaganda and genuine track record politically consequential.
    Reference: Lodge, Steenbergen & Brau (1995) "The Responsive Voter: Campaign
    Information and the Dynamics of Candidate Evaluation." APSR, 89(2), 309-326.
 
@@ -82,7 +83,9 @@ def compute_vote_score(voter: Agent, candidate: Agent, tick: int) -> float:
         between voter and candidate, in either direction.
       - personality_alignment (15%): Big Five similarity between voter and candidate.
       - economic_satisfaction (20%): composite of voter mood and relative wealth.
-      - memory_influence (25%): net effect of voter's memories mentioning the candidate.
+      - reputation_factor (25%): combined image+reputation score the voter holds for the
+        candidate, normalised from [-1, 1] to [0, 1]. Replaces the legacy keyword-based
+        memory influence scan, which lacked causal grounding.
       - charisma_effect (15%): candidate's raw charisma attribute.
 
     Args:
@@ -97,14 +100,16 @@ def compute_vote_score(voter: Agent, candidate: Agent, tick: int) -> float:
     relationship_sentiment = _relationship_sentiment_score(voter, candidate)
     personality_alignment = _personality_similarity(voter.personality, candidate.personality)
     economic_satisfaction = (voter.mood + min(voter.wealth / _WEALTH_SATURATION, 1.0)) / 2.0
-    memory_influence = _memory_influence_score(voter, candidate)
+    from epocha.apps.agents.reputation import get_combined_score
+    reputation_raw = get_combined_score(voter, candidate)
+    reputation_factor = (reputation_raw + 1.0) / 2.0  # Normalize from [-1, 1] to [0, 1]
     charisma_effect = candidate.charisma
 
     score = (
         _W_RELATIONSHIP * relationship_sentiment
         + _W_PERSONALITY * personality_alignment
         + _W_ECONOMIC * economic_satisfaction
-        + _W_MEMORY * memory_influence
+        + _W_MEMORY * reputation_factor
         + _W_CHARISMA * charisma_effect
     )
     return max(0.0, min(1.0, score))

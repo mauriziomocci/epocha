@@ -966,6 +966,17 @@ def graph_data_view(request, sim_id):
         government_stability = government.stability
 
     # Nodes: all agents in the simulation
+    from django.db.models import Avg
+    from epocha.apps.agents.models import ReputationScore
+
+    # Precompute average reputation for all agents (one query instead of N)
+    avg_reps = dict(
+        ReputationScore.objects.filter(target__simulation=simulation)
+        .values("target_id")
+        .annotate(avg_rep=Avg("reputation"))
+        .values_list("target_id", "avg_rep")
+    )
+
     agents = Agent.objects.filter(simulation=simulation).select_related("group")
     nodes = []
     for agent in agents:
@@ -985,6 +996,7 @@ def graph_data_view(request, sim_id):
             "mood": agent.mood,
             "social_class": agent.social_class,
             "is_alive": agent.is_alive,
+            "avg_reputation": round(avg_reps.get(agent.id, 0.0), 2),
         })
 
     # Edges: all relationships within this simulation
