@@ -186,6 +186,16 @@ class TestSimulationEngine:
             assert mock_politics.call_count == 10
 
     @patch("epocha.apps.simulation.engine.process_agent_decision")
+    def test_snapshot_captured_every_tick(self, mock_decision, sim_with_world):
+        """A SimulationSnapshot should be created for each tick."""
+        from epocha.apps.simulation.models import SimulationSnapshot
+        mock_decision.return_value = {"action": "work", "reason": "busy"}
+        engine = SimulationEngine(sim_with_world)
+        engine.run_tick()
+        engine.run_tick()
+        assert SimulationSnapshot.objects.filter(simulation=sim_with_world).count() == 2
+
+    @patch("epocha.apps.simulation.engine.process_agent_decision")
     def test_different_actions_create_separate_memories(self, mock_decision, sim_with_world):
         """Different actions in consecutive ticks should each create a memory."""
         mock_decision.side_effect = [

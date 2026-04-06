@@ -1,4 +1,4 @@
-"""Tick orchestrator: coordinates economy, decisions, information flow, factions, politics, memory, and events.
+"""Tick orchestrator: coordinates economy, decisions, information, factions, politics, analytics, and events.
 
 Each tick is a discrete time step where:
 1. The economy updates (income, costs, mood effects)
@@ -7,9 +7,10 @@ Each tick is a discrete time step where:
 4. Memories are created from actions
 5. Information propagates through the social network (hearsay, rumors)
 6. Faction dynamics run periodically (cohesion, leadership, formation)
-7. Political cycle runs periodically (institutions, stratification, transitions, elections, coups)
+7. Political cycle runs periodically (institutions, stratification, transitions, elections)
 8. Old memories decay periodically
-9. The tick counter advances
+9. Snapshot captured and Epochal Crises detected
+10. The tick counter advances
 
 Agent failures are isolated: if one agent's LLM call fails, the tick
 continues for all other agents. This ensures simulation resilience.
@@ -28,6 +29,7 @@ from epocha.apps.agents.factions import process_faction_dynamics
 from epocha.apps.agents.information_flow import propagate_information
 from epocha.apps.agents.memory import decay_memories
 from epocha.apps.agents.models import Agent, Memory
+from epocha.apps.simulation.snapshot import capture_and_detect
 from epocha.apps.world.economy import process_economy_tick
 from epocha.apps.world.government import process_political_cycle
 
@@ -263,11 +265,14 @@ class SimulationEngine:
         # 6. Memory decay
         run_memory_decay(self.simulation, tick)
 
-        # 7. Advance tick
+        # 7. Capture snapshot + detect crises
+        capture_and_detect(self.simulation, tick)
+
+        # 8. Advance tick
         self.simulation.current_tick = tick
         self.simulation.save(update_fields=["current_tick", "updated_at"])
 
-        # 8. Broadcast
+        # 9. Broadcast
         broadcast_tick(self.simulation, tick, tick_events)
 
         logger.info("Simulation %d: tick %d complete", self.simulation.id, tick)

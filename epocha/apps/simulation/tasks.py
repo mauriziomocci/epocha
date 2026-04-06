@@ -109,6 +109,10 @@ def finalize_tick(agent_results: list, simulation_id: int, tick: int) -> None:
     # Memory decay (periodic)
     run_memory_decay(simulation, tick)
 
+    # Capture snapshot + detect crises
+    from epocha.apps.simulation.snapshot import capture_and_detect
+    capture_and_detect(simulation, tick)
+
     # Advance tick counter
     simulation.current_tick = tick
     simulation.save(update_fields=["current_tick", "updated_at"])

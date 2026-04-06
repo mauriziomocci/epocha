@@ -36,6 +36,7 @@
             </form>
             <a href="{% url 'dashboard:simulation-report' sim_id=simulation.id %}" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded font-medium">{{ ui.report }}</a>
             <a href="{% url 'dashboard:graph' sim_id=simulation.id %}" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded font-medium">Relationships</a>
+            <a href="{% url 'dashboard:analytics' sim_id=simulation.id %}" class="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded font-medium">Analytics</a>
         </div>
     </div>
 
