@@ -36,6 +36,39 @@ Risorse organizzate per area tematica, utili per chiunque voglia contribuire al 
 
 ---
 
+## Simulazione sociale e modelli ad agenti
+
+| Titolo | Autore | Lingua | Note |
+|--------|--------|--------|------|
+| Simulazione sociale: tecniche, esempi e riflessioni | Mario Paolucci (ISTC/CNR) | IT | [Slide](https://www.cs.unibo.it/~paolucci/files/lezioSimulazioneSiena.pdf). Panoramica su simulazione sociale ad agenti, reputazione normativa, gossip come meccanismo sociale. Direttamente rilevante per information flow e belief filter di Epocha |
+| Normative reputation and the costs of compliance | Castelfranchi, Conte & Paolucci (1998) | EN | Journal of Artificial Societies and Social Simulation, vol. 1 no. 3. Modello di reputazione normativa: come la reputazione influenza il costo della conformita' alle norme. Fondamento scientifico per il sistema di reputazione emergente di Epocha |
+| What is the use of Gossip? A sensitivity analysis of the spreading of respectful reputation | Paolucci, Marsero & Conte (2000) | EN | In Tools and Techniques for Social Science Simulation, Physica, Heidelberg, 302-314. Analisi della propagazione del gossip nella rete sociale e il suo effetto sulla reputazione. Fonte per il distortion engine e l'information flow |
+| The Psychology of Rumor | Allport & Postman (1947) | EN | Henry Holt and Company. Identificazione dei tre processi di trasmissione seriale: leveling (perdita di dettagli), sharpening (enfasi selettiva), assimilation (distorsione verso le aspettative). Fondamento del distortion engine di Epocha |
+| Remembering: A Study in Experimental and Social Psychology | Bartlett (1932) | EN | Cambridge University Press. Esperimenti di riproduzione seriale che dimostrano la perdita del ~30% dei dettagli ad ogni passaggio nella catena di comunicazione. Fonte per il fattore di decay 0.7 nell'information flow |
+| The Strength of Weak Ties | Granovetter (1973) | EN | American Journal of Sociology, 78(6), 1360-1380. I legami deboli sono piu' efficaci dei legami forti per la diffusione delle informazioni nella rete sociale. Rilevante per il modello di propagazione dell'information flow |
+| An Integrative Model of Organizational Trust | Mayer, Davis & Schoorman (1995) | EN | Academy of Management Review, 20(3), 709-734. Modello di fiducia interpersonale: competenza, benevolenza e integrita' come fattori. Fondamento del belief filter di Epocha |
+| Agreeableness: Dimension of Personality or Social Desirability Artifact? | Graziano & Tobin (2002) | EN | Journal of Personality, 70(5), 695-728. L'influenza dell'agreeableness sulla credulita' e la tendenza ad accettare informazioni. Fonte per il peso della personalita' nel belief filter |
+
+### Economia e disuguaglianza
+
+| Titolo | Autore | Lingua | Note |
+|--------|--------|--------|------|
+| Income Distribution, Political Instability, and Investment | Alesina & Perotti (1996) | EN | European Economic Review, 40(6), 1203-1228. Correlazione tra disuguaglianza (Gini), instabilita' politica e investimenti. Fonte per le soglie delle Epochal Crisis |
+| Economic Origins of Dictatorship and Democracy | Acemoglu & Robinson (2006) | EN | Cambridge University Press. Modello di transizioni tra democrazia e dittatura basato su disuguaglianza e minaccia di rivoluzione. Fondamento per il sistema di transizioni di governo di Epocha |
+| Why Nations Fail | Acemoglu & Robinson (2012) | EN | Crown Publishers. Istituzioni inclusive vs estrattive come determinanti del successo delle nazioni. Fondamento per il sistema di salute istituzionale |
+| Corruption and Government | Rose-Ackerman & Palifka (2016) | EN | Cambridge University Press. Cause e conseguenze della corruzione sistemica. Fonte per le soglie di corruzione nelle Epochal Crisis |
+| The Logic of Collective Action | Olson (1965) | EN | Harvard University Press. Perche' i gruppi si formano e come i beni pubblici vengono forniti. Fondamento per il sistema di formazione delle fazioni |
+
+### Scienza politica e stabilita'
+
+| Titolo | Autore | Lingua | Note |
+|--------|--------|--------|------|
+| Global Instances of Coups from 1950 to 2010 | Powell & Thyne (2011) | EN | Journal of Peace Research, 48(2), 249-259. Dataset e analisi dei colpi di stato nel mondo. Fonte per le condizioni di coup nel governo engine |
+| Personality in Adulthood: A Five-Factor Theory Perspective | McCrae & Costa (2003) | EN | Guilford Press. Il modello Big Five della personalita'. La distanza euclidea sui Big Five e' la metrica standard per la similarita' di personalita'. Fondamento del sistema di personalita' degli agenti e del calcolo di affinita' |
+| Coevolution of Neocortical Size, Group Size and Language in Humans | Dunbar (1993) | EN | Behavioral and Brain Sciences, 16(4), 681-735. Il numero di Dunbar e la struttura a livelli dei gruppi sociali. Fonte per il size penalty nella coesione delle fazioni |
+
+---
+
 ## Database e modellazione dati
 
 | Titolo | Autore | Lingua | Note |
