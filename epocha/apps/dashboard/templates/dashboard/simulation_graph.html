@@ -1,0 +1,418 @@
+{% extends "dashboard/base.html" %}
+{% block title %}{{ simulation.name }} - Relationships - Epocha{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/dist/graphology-layout-forceatlas2.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div x-data="graphPage()" x-init="init()" class="relative">
+
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-4">
+        <div class="flex items-center gap-3">
+            <a href="{% url 'dashboard:simulation-detail' sim_id=simulation.id %}"
+               class="text-gray-400 hover:text-gray-200 text-sm flex items-center gap-1">
+                &larr; {{ simulation.name }}
+            </a>
+            <span class="text-gray-600">/</span>
+            <h1 class="text-lg font-semibold">Relationships</h1>
+        </div>
+        <button @click="refreshData()"
+                class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-medium">
+            Refresh
+        </button>
+    </div>
+
+    <!-- Filter toolbar (desktop only) -->
+    <div class="hidden md:flex flex-wrap gap-2 mb-4 items-center">
+        <span class="text-xs text-gray-500 mr-1">Relationships:</span>
+        <template x-for="(color, type) in edgeTypes" :key="type">
+            <button
+                @click="toggleFilter(type)"
+                :style="activeFilters[type] ? `border-color: ${color}; background: ${color}22;` : 'border-color: #4b5563; background: transparent;'"
+                class="px-3 py-1 rounded-full border text-xs font-medium transition-all"
+                :class="activeFilters[type] ? 'text-white' : 'text-gray-500'"
+                x-text="type">
+            </button>
+        </template>
+        <span class="ml-4 text-xs text-gray-500">Agents:</span>
+        <button
+            @click="showDead = !showDead; renderGraph()"
+            :class="showDead ? 'border-gray-400 bg-gray-700 text-white' : 'border-gray-600 text-gray-500'"
+            class="px-3 py-1 rounded-full border text-xs font-medium transition-all">
+            Show dead
+        </button>
+    </div>
+
+    <!-- Mobile fallback -->
+    <div class="md:hidden flex items-center justify-center h-48 bg-gray-800 rounded-lg border border-gray-700 text-gray-400 text-sm text-center px-6">
+        Open on desktop to explore the relationship graph.
+    </div>
+
+    <!-- Graph container (desktop only) -->
+    <div class="hidden md:block relative">
+        <!-- Government badge -->
+        <div x-show="graphData && graphData.government && graphData.government.label"
+             class="absolute top-3 left-3 z-10 bg-gray-900/90 border border-gray-700 rounded px-3 py-2 text-xs">
+            <div class="text-gray-400 uppercase tracking-wide text-[10px] mb-1">Government</div>
+            <div class="font-semibold" x-text="graphData && graphData.government ? graphData.government.label : ''"></div>
+            <div class="mt-1 flex items-center gap-2">
+                <div class="text-gray-400 text-[10px]">Stability</div>
+                <div class="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden w-16">
+                    <div class="h-full bg-emerald-500 rounded-full"
+                         :style="graphData && graphData.government ? `width: ${graphData.government.stability}%` : 'width: 0%'">
+                    </div>
+                </div>
+                <span class="text-[10px]" x-text="graphData && graphData.government ? graphData.government.stability + '%' : ''"></span>
+            </div>
+        </div>
+
+        <!-- Loading overlay -->
+        <div x-show="loading"
+             class="absolute inset-0 z-20 flex items-center justify-center bg-gray-950/80 rounded-lg">
+            <div class="text-gray-400 text-sm">Loading graph...</div>
+        </div>
+
+        <!-- Graph canvas -->
+        <div id="graph-container"
+             class="w-full rounded-lg border border-gray-700 bg-gray-950"
+             style="height: calc(100vh - 140px);">
+        </div>
+
+        <!-- Legend -->
+        <div class="absolute bottom-3 left-3 z-10 bg-gray-900/90 border border-gray-700 rounded px-3 py-2 text-xs space-y-1">
+            <div class="text-gray-400 uppercase tracking-wide text-[10px] mb-2">Legend</div>
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 rounded-full border-2 border-yellow-400 bg-transparent"></div>
+                <span class="text-gray-300">Head of state</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-2.5 h-2.5 rounded-full border-2 border-white bg-transparent"></div>
+                <span class="text-gray-300">Faction leader</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-gray-500"></div>
+                <span class="text-gray-300">Agent (color = faction)</span>
+            </div>
+            <div class="mt-1 border-t border-gray-700 pt-1 space-y-1">
+                <template x-for="(color, type) in edgeTypes" :key="type">
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-0.5" :style="`background: ${color}`"></div>
+                        <span class="text-gray-300 capitalize" x-text="type"></span>
+                    </div>
+                </template>
+                <div class="flex items-center gap-2">
+                    <div class="w-4 h-0.5 bg-yellow-400" style="border-top: 1px dashed #eab308; background: transparent;"></div>
+                    <span class="text-gray-300">Power flow</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent detail panel -->
+        <div x-show="selectedAgent"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 translate-x-4"
+             x-transition:enter-end="opacity-100 translate-x-0"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100 translate-x-0"
+             x-transition:leave-end="opacity-0 translate-x-4"
+             class="absolute top-0 right-0 z-10 w-80 h-full overflow-y-auto bg-gray-800 border-l border-gray-700 rounded-r-lg p-4 space-y-4">
+
+            <!-- Close -->
+            <div class="flex justify-between items-start">
+                <h2 class="font-semibold text-lg" x-text="selectedAgent ? selectedAgent.name : ''"></h2>
+                <button @click="selectedAgent = null" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+
+            <!-- Role + faction -->
+            <div class="space-y-1 text-sm">
+                <div class="text-gray-400" x-text="selectedAgent ? selectedAgent.role : ''"></div>
+                <div class="text-indigo-400 font-medium"
+                     x-text="selectedAgent && selectedAgent.faction ? selectedAgent.faction : 'No faction'"></div>
+                <div class="text-gray-400 text-xs capitalize"
+                     x-text="selectedAgent ? selectedAgent.social_class : ''"></div>
+            </div>
+
+            <!-- Health bar -->
+            <div x-show="selectedAgent && selectedAgent.health !== undefined">
+                <div class="flex justify-between text-xs text-gray-400 mb-1">
+                    <span>Health</span>
+                    <span x-text="selectedAgent ? selectedAgent.health + '%' : ''"></span>
+                </div>
+                <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full bg-green-500 rounded-full transition-all"
+                         :style="selectedAgent ? `width: ${selectedAgent.health}%` : 'width: 0%'"></div>
+                </div>
+            </div>
+
+            <!-- Mood bar -->
+            <div x-show="selectedAgent && selectedAgent.mood !== undefined">
+                <div class="flex justify-between text-xs text-gray-400 mb-1">
+                    <span>Mood</span>
+                    <span x-text="selectedAgent ? selectedAgent.mood + '%' : ''"></span>
+                </div>
+                <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full bg-yellow-400 rounded-full transition-all"
+                         :style="selectedAgent ? `width: ${selectedAgent.mood}%` : 'width: 0%'"></div>
+                </div>
+            </div>
+
+            <!-- Wealth -->
+            <div x-show="selectedAgent && selectedAgent.wealth !== undefined" class="text-sm">
+                <span class="text-gray-400">Wealth:</span>
+                <span class="ml-1 font-medium" x-text="selectedAgent ? selectedAgent.wealth : ''"></span>
+            </div>
+
+            <!-- Relationships -->
+            <div x-show="selectedAgent && selectedAgent.relationships && selectedAgent.relationships.length > 0">
+                <div class="text-xs uppercase tracking-wide text-gray-500 mb-2">Relationships</div>
+                <div class="space-y-1">
+                    <template x-for="rel in (selectedAgent ? selectedAgent.relationships : [])" :key="rel.target_name">
+                        <div class="flex justify-between items-center text-xs bg-gray-700/50 rounded px-2 py-1.5">
+                            <div>
+                                <span class="font-medium" x-text="rel.target_name"></span>
+                                <span class="ml-1 text-gray-400 capitalize" x-text="rel.relationship_type"></span>
+                            </div>
+                            <span :class="rel.sentiment >= 0 ? 'text-green-400' : 'text-red-400'"
+                                  x-text="(rel.sentiment >= 0 ? '+' : '') + rel.sentiment.toFixed(2)"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Recent memories -->
+            <div x-show="selectedAgent && selectedAgent.recent_memories && selectedAgent.recent_memories.length > 0">
+                <div class="text-xs uppercase tracking-wide text-gray-500 mb-2">Recent Memories</div>
+                <div class="space-y-2">
+                    <template x-for="mem in (selectedAgent ? selectedAgent.recent_memories : [])" :key="mem.id">
+                        <div class="bg-gray-900/60 rounded p-2 text-xs">
+                            <div class="flex justify-between text-gray-500 mb-1">
+                                <span class="capitalize" x-text="mem.source_type"></span>
+                                <span x-text="'tick ' + mem.tick_created"></span>
+                            </div>
+                            <div class="text-gray-300 leading-relaxed" x-text="mem.content"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<script>
+function graphPage() {
+    return {
+        graphData: null,
+        selectedAgent: null,
+        loading: false,
+        showDead: false,
+        renderer: null,
+        hoveredNode: null,
+        edgeTypes: {
+            friendship: "#22c55e",
+            rivalry: "#ef4444",
+            family: "#3b82f6",
+            romantic: "#ec4899",
+            professional: "#a855f7",
+            distrust: "#f97316",
+        },
+        activeFilters: {
+            friendship: true,
+            rivalry: true,
+            family: true,
+            romantic: true,
+            professional: true,
+            distrust: true,
+        },
+
+        init() {
+            this.loadGraph();
+        },
+
+        async loadGraph() {
+            this.loading = true;
+            try {
+                const response = await fetch("{% url 'dashboard:graph-data' sim_id=simulation.id %}");
+                if (!response.ok) {
+                    throw new Error("Failed to fetch graph data: " + response.status);
+                }
+                this.graphData = await response.json();
+                this.$nextTick(() => this.renderGraph());
+            } catch (err) {
+                console.error("loadGraph error:", err);
+                this.loading = false;
+            }
+        },
+
+        renderGraph() {
+            // Kill existing renderer to free canvas resources before re-creating.
+            if (this.renderer) {
+                this.renderer.kill();
+                this.renderer = null;
+            }
+
+            if (!this.graphData) {
+                this.loading = false;
+                return;
+            }
+
+            const data = this.graphData;
+
+            // Build graphology graph.
+            const graph = new graphology.Graph({ multi: false, type: "undirected" });
+
+            // Add nodes.
+            (data.nodes || []).forEach(node => {
+                if (!this.showDead && !node.is_alive) return;
+
+                // Assign random initial positions; ForceAtlas2 will rearrange them.
+                const x = Math.random() * 200 - 100;
+                const y = Math.random() * 200 - 100;
+
+                // Node size scales with charisma (0..1), base 8px, max 24px.
+                const size = 8 + (node.charisma || 0) * 16;
+
+                graph.addNode(String(node.id), {
+                    label: node.label,
+                    x,
+                    y,
+                    size,
+                    color: node.faction_color || "#505050",
+                    originalColor: node.faction_color || "#505050",
+                    // Store metadata for detail panel.
+                    role: node.role,
+                    faction: node.faction,
+                    social_class: node.social_class,
+                    mood: node.mood,
+                    is_alive: node.is_alive,
+                    is_head_of_state: node.is_head_of_state,
+                    is_leader: node.is_leader,
+                });
+            });
+
+            // Add relationship edges.
+            (data.edges || []).forEach(edge => {
+                const src = String(edge.source);
+                const tgt = String(edge.target);
+
+                // Skip if either endpoint was not added (e.g. dead agent filtered out).
+                if (!graph.hasNode(src) || !graph.hasNode(tgt)) return;
+                if (graph.hasEdge(src, tgt)) return;
+
+                // Respect active filter for this relationship type.
+                if (!this.activeFilters[edge.type]) return;
+
+                const color = this.edgeTypes[edge.type] || "#888888";
+                const strength = edge.strength || 0;
+                const sentiment = edge.sentiment || 0;
+
+                graph.addEdge(src, tgt, {
+                    color,
+                    originalColor: color,
+                    size: 1 + strength * 4,
+                    // Alpha is embedded in rgba for Sigma v2.
+                    opacity: 0.2 + Math.abs(sentiment) * 0.8,
+                    edgeType: edge.type,
+                });
+            });
+
+            // Add power flow edges (chain of command).
+            (data.power_flow || []).forEach(pf => {
+                const src = String(pf.source);
+                const tgt = String(pf.target);
+                if (!graph.hasNode(src) || !graph.hasNode(tgt)) return;
+                if (graph.hasEdge(src, tgt)) return;
+
+                graph.addEdge(src, tgt, {
+                    color: "#eab308",
+                    originalColor: "#eab308",
+                    size: 1,
+                    opacity: 0.3,
+                    edgeType: "power_flow",
+                });
+            });
+
+            // Run ForceAtlas2 layout to spread nodes.
+            // Parameters: gravity reduces clustering pull; scalingRatio spreads nodes apart.
+            graphologyLayoutForceAtlas2.assign(graph, {
+                iterations: 100,
+                settings: { gravity: 1, scalingRatio: 10 },
+            });
+
+            const container = document.getElementById("graph-container");
+            if (!container) {
+                this.loading = false;
+                return;
+            }
+
+            // Create Sigma renderer with reducers for hover dimming.
+            this.renderer = new Sigma(graph, container, {
+                renderEdgeLabels: false,
+                defaultEdgeType: "line",
+                nodeReducer: (node, data) => {
+                    const res = { ...data };
+                    if (this.hoveredNode && node !== this.hoveredNode && !graph.neighbors(this.hoveredNode).includes(node)) {
+                        res.color = "#333333";
+                        res.label = "";
+                    }
+                    return res;
+                },
+                edgeReducer: (edge, data) => {
+                    const res = { ...data };
+                    if (this.hoveredNode) {
+                        const [src, tgt] = graph.extremities(edge);
+                        if (src !== this.hoveredNode && tgt !== this.hoveredNode) {
+                            res.color = "#222222";
+                            res.hidden = true;
+                        }
+                    }
+                    return res;
+                },
+            });
+
+            // Hover interactions: highlight the hovered node and its direct neighbours.
+            this.renderer.on("enterNode", ({ node }) => {
+                this.hoveredNode = node;
+                this.renderer.refresh();
+            });
+
+            this.renderer.on("leaveNode", () => {
+                this.hoveredNode = null;
+                this.renderer.refresh();
+            });
+
+            // Click: fetch agent detail and populate the side panel.
+            const self = this;
+            this.renderer.on("clickNode", async ({ node }) => {
+                try {
+                    const resp = await fetch(
+                        `/simulations/{{ simulation.id }}/graph/agent/${node}/`
+                    );
+                    if (!resp.ok) return;
+                    self.selectedAgent = await resp.json();
+                } catch (err) {
+                    console.error("Agent detail fetch error:", err);
+                }
+            });
+
+            this.loading = false;
+        },
+
+        toggleFilter(type) {
+            this.activeFilters[type] = !this.activeFilters[type];
+            this.renderGraph();
+        },
+
+        async refreshData() {
+            this.selectedAgent = null;
+            await this.loadGraph();
+        },
+    };
+}
+</script>
+{% endblock %}

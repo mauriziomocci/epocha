@@ -933,6 +933,13 @@ def _faction_color(name: str) -> str:
 
 
 @login_required(login_url="/login/")
+def graph_view(request, sim_id):
+    """Render the social relationship graph page."""
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+    return render(request, "dashboard/simulation_graph.html", {"simulation": simulation})
+
+
+@login_required(login_url="/login/")
 def graph_data_view(request, sim_id):
     """Return graph node/edge data for Sigma.js.
 
