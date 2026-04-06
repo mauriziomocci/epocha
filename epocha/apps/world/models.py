@@ -1,4 +1,5 @@
 """World models — map, economy, resources."""
+from django.contrib.gis.db import models as gis_models
 from django.db import models
 
 from epocha.apps.simulation.models import Simulation
@@ -30,10 +31,14 @@ class Zone(models.Model):
     world = models.ForeignKey(World, on_delete=models.CASCADE, related_name="zones")
     name = models.CharField(max_length=255)
     zone_type = models.CharField(max_length=20, choices=ZoneType.choices)
-    position_x = models.FloatField(default=0.0)
-    position_y = models.FloatField(default=0.0)
-    width = models.FloatField(default=100.0)
-    height = models.FloatField(default=100.0)
+    boundary = gis_models.PolygonField(
+        null=True, blank=True, srid=4326,
+        help_text="Geographic boundary of the zone (WGS84)",
+    )
+    center = gis_models.PointField(
+        null=True, blank=True, srid=4326,
+        help_text="Center point for quick distance calculations",
+    )
     resources = models.JSONField(default=dict, help_text="Resources available in the zone")
     population_capacity = models.PositiveIntegerField(default=100)
 
