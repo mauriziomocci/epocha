@@ -123,6 +123,8 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
         )
         if target_agent:
             update_relationship_from_interaction(agent, target_agent, action_type, tick)
+            from epocha.apps.agents.reputation import update_image
+            update_image(holder=agent, target=target_agent, action_type=action_type, tick=tick)
 
     # Create memory of the action (skip if a duplicate of the same action type
     # was the most recent memory created within the dedup window).
