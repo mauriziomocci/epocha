@@ -1,9 +1,10 @@
 """Belief filter -- decides whether an agent accepts incoming information.
 
-Models the cognitive evaluation of information credibility based on three
+Models the cognitive evaluation of information credibility based on four
 factors: the inherent reliability of the information, the trust in the
-transmitter (derived from relationship), and the receiver's personality
-disposition toward believing new information.
+transmitter (derived from relationship), the receiver's personality
+disposition toward believing new information, and the transmitter's
+reputation as perceived by the wider social network.
 
 Scientific basis:
 - Interpersonal trust model: Mayer, Davis & Schoorman (1995). "An Integrative
@@ -11,6 +12,9 @@ Scientific basis:
 - Agreeableness and credulity: Graziano & Tobin (2002). "Agreeableness:
   Dimension of Personality or Social Desirability Artifact?" Journal of
   Personality, 70(5), 695-728.
+- Reputation and trust propagation: Castelfranchi, C., Falcone, R., &
+  Tan, Y. H. (1998). "The Role of Trust and Deception in Virtual Societies."
+  Proceedings of the 31st Hawaii International Conference on System Sciences.
 """
 from __future__ import annotations
 
@@ -22,19 +26,28 @@ def should_believe(
     receiver_personality: dict,
     relationship_strength: float,
     relationship_sentiment: float,
+    transmitter_reputation: float = 0.0,
 ) -> bool:
     """Determine whether an agent accepts a piece of incoming information.
 
-    The acceptance score is a weighted sum of three factors:
-    - Information reliability (40%): inherent quality of the information
-    - Relationship trust (30%): how much the receiver trusts the transmitter
-    - Personality factor (30%): receiver's disposition toward credulity
+    The acceptance score is a weighted sum of four factors:
+    - Information reliability (30%): inherent quality of the information
+    - Relationship trust (20%): how much the receiver trusts the transmitter
+    - Personality factor (20%): receiver's disposition toward credulity
+    - Transmitter reputation (30%): the transmitter's standing in the social network
+
+    The default transmitter_reputation of 0.0 maps to a neutral reputation
+    factor of 0.5, preserving backward compatibility for callers that do not
+    yet supply this argument.
 
     Args:
         reliability: Information reliability (0.0-1.0), degrades per hop.
         receiver_personality: Big Five personality dict of the receiving agent.
         relationship_strength: Strength of the relationship (0.0-1.0).
         relationship_sentiment: Sentiment toward the transmitter (-1.0 to 1.0).
+        transmitter_reputation: Reputation of the transmitter (-1.0 to 1.0).
+            Negative values reduce credibility; positive values increase it.
+            Defaults to 0.0 (neutral).
 
     Returns:
         True if the agent accepts the information, False if they discard it.
@@ -48,10 +61,15 @@ def should_believe(
     openness = receiver_personality.get("openness", 0.5)
     personality_factor = agreeableness * 0.6 + openness * 0.4
 
+    # Normalize reputation from [-1, 1] to [0, 1].
+    # 0.0 (neutral) maps to 0.5, -1.0 (worst) to 0.0, +1.0 (best) to 1.0.
+    reputation_factor = (transmitter_reputation + 1.0) / 2.0
+
     acceptance_score = (
-        reliability * 0.4
-        + relationship_trust * 0.3
-        + personality_factor * 0.3
+        reliability * 0.3
+        + relationship_trust * 0.2
+        + personality_factor * 0.2
+        + reputation_factor * 0.3
     )
 
     threshold = getattr(settings, "EPOCHA_INFO_FLOW_BELIEF_THRESHOLD", 0.4)

@@ -198,9 +198,9 @@ class TestPropagateInformation:
             assert "plague" in mem.content.lower()
 
     def test_belief_filter_rejects_unreliable_info(self, simulation, world, marco, elena):
-        """A skeptical agent rejects low-reliability information."""
+        """A highly skeptical agent rejects information from a distrusted source."""
         elena.personality = {
-            "openness": 0.1, "agreeableness": 0.1,
+            "openness": 0.0, "agreeableness": 0.0,
             "conscientiousness": 0.5, "extraversion": 0.5, "neuroticism": 0.5,
         }
         elena.save(update_fields=["personality"])
