@@ -48,13 +48,38 @@ A new Django view serving a template with Sigma.js (CDN). A JSON data endpoint p
       "sentiment": 0.5
     }
   ],
+  "power_flow": [
+    {"source": 3, "target": 1, "type": "power_flow"}
+  ],
   "government": {
     "type": "Democracy",
     "head_of_state_id": 3,
+    "ruling_faction": "The Guild",
     "stability": 0.6
   }
 }
 ```
+
+**Agent detail endpoint (lazy load on click):** `/dashboard/simulation/<id>/graph/agent/<agent_id>/`
+
+Returns agent details + recent memories for the detail panel:
+
+```json
+{
+  "id": 1, "name": "Marco", "role": "blacksmith",
+  "faction": "The Guild", "social_class": "middle",
+  "health": 0.8, "mood": 0.6, "wealth": 55.0,
+  "relationships": [
+    {"agent": "Elena", "type": "rivalry", "strength": 0.7, "sentiment": -0.5}
+  ],
+  "recent_memories": [
+    {"content": "I argued with Elena because she betrayed the guild.", "tick": 42, "source_type": "direct"},
+    {"content": "The Guild has been formed by Marco, Elena, Carlo.", "tick": 5, "source_type": "public"}
+  ]
+}
+```
+
+The memories are fetched on click (not in the initial graph payload) to keep the main data lightweight. The endpoint returns the last 5 active memories that mention any agent this agent has relationships with, plus the agent's own recent direct memories. This makes the panel a narrative gateway -- the user understands *why* relationships exist, not just *that* they exist.
 
 **Data sources:**
 - Nodes: `Agent.objects.filter(simulation=sim).select_related("group")` + `Government.objects.get(simulation=sim)` for head_of_state identification
@@ -88,12 +113,21 @@ A new Django view serving a template with Sigma.js (CDN). A JSON data endpoint p
 | Strength | Edge thickness (min 1px, max 5px, linear on strength 0-1) |
 | Sentiment | Edge opacity (0.2 for neutral sentiment near 0, 1.0 for extreme sentiment near +/-1) |
 
+### Tension Indicator
+
+Edges where `sentiment < -0.5` AND `strength > 0.5` are considered "high tension" -- strong relationships with deep hostility. These edges get a pulsing CSS animation (opacity oscillation between 0.6 and 1.0, 2-second cycle). The visual effect makes dangerous fault lines immediately visible without the user needing to inspect individual edges.
+
+### Power Flow Lines
+
+Dashed lines (not relationship edges) connect the head of state to the ruling faction's leader, and from the ruling faction's leader to each faction member. These lines are drawn in gold (#eab308) with opacity 0.3, visible enough to trace the chain of command but not competing with relationship edges. They are rendered as a separate edge type in the graph data with `"type": "power_flow"` and filtered independently.
+
 ## Interactivity
 
 **Click node:** Opens a detail panel (Alpine.js overlay, right side, 320px wide) showing:
 - Agent name, role, faction, social class
 - Health, mood, wealth (with visual bars like the agent list)
 - List of relationships with sentiment indicators
+- **Recent relevant memories**: the last 5 memories that mention this agent or agents they have relationships with. This turns the graph from a static snapshot into a gateway to the narrative -- the user sees not just that Marco and Elena are rivals, but *why* ("Marco betrayed Elena during the trade dispute").
 - "Chat with agent" link (navigates to main dashboard with chat open)
 
 **Hover node:** Sigma.js "reducers" dim all nodes/edges except the hovered node and its direct connections. Provides immediate focus on one agent's network.
