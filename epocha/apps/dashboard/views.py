@@ -5,22 +5,25 @@ via CDN for styling. No build step required.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 
 from django.contrib import messages as django_messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from epocha.apps.agents.models import Agent, DecisionLog
+from epocha.apps.agents.models import Agent, DecisionLog, Memory, Relationship
 from epocha.apps.dashboard.formatters import format_decision_text
 from epocha.apps.llm_adapter.models import LLMRequest
 from epocha.apps.simulation.models import Event, Simulation
 from epocha.apps.users.models import User
-from epocha.apps.world.models import World
+from epocha.apps.world.government_types import GOVERNMENT_TYPES
+from epocha.apps.world.models import Government, World
 
 
 # ---------- Auth ----------
@@ -912,3 +915,191 @@ def _apply_chat_mood_effects(agent, message: str) -> None:
     elif is_positive:
         agent.mood = min(1.0, agent.mood + 0.1)
         agent.save(update_fields=["mood"])
+
+
+# ---------- Social Graph ----------
+
+def _faction_color(name: str) -> str:
+    """Return a deterministic hex color for a faction name.
+
+    Uses MD5 of the name for stability across requests, then boosts each
+    RGB channel to a minimum of 80 so colors remain visible on a dark background.
+    """
+    digest = hashlib.md5(name.encode()).hexdigest()
+    r = max(80, int(digest[0:2], 16))
+    g = max(80, int(digest[2:4], 16))
+    b = max(80, int(digest[4:6], 16))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+@login_required(login_url="/login/")
+def graph_data_view(request, sim_id):
+    """Return graph node/edge data for Sigma.js.
+
+    Nodes are agents with faction, political role, and personality attributes.
+    Edges are relationships. Power flow lines represent the chain of command
+    from head of state down through faction leaders to members.
+    Government metadata is included for the legend.
+    """
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+
+    # Government metadata (optional: simulation may not have a government yet)
+    government = Government.objects.filter(simulation=simulation).select_related(
+        "head_of_state", "ruling_faction", "ruling_faction__leader"
+    ).first()
+
+    head_of_state_id = None
+    ruling_faction_id = None
+    government_label = None
+    government_stability = None
+    if government:
+        head_of_state_id = government.head_of_state_id
+        ruling_faction_id = government.ruling_faction_id
+        government_label = GOVERNMENT_TYPES.get(government.government_type, {}).get("label", government.government_type)
+        government_stability = government.stability
+
+    # Nodes: all agents in the simulation
+    agents = Agent.objects.filter(simulation=simulation).select_related("group")
+    nodes = []
+    for agent in agents:
+        faction_name = agent.group.name if agent.group else None
+        faction_color = _faction_color(faction_name) if faction_name else "#505050"
+        is_leader = bool(agent.group and agent.group.leader_id == agent.id)
+        nodes.append({
+            "id": agent.id,
+            "label": agent.name,
+            "role": agent.role,
+            "faction": faction_name,
+            "faction_color": faction_color,
+            "is_leader": is_leader,
+            "is_head_of_state": agent.id == head_of_state_id,
+            "charisma": agent.charisma,
+            "mood": agent.mood,
+            "social_class": agent.social_class,
+            "is_alive": agent.is_alive,
+        })
+
+    # Edges: all relationships within this simulation
+    relationships = Relationship.objects.filter(
+        agent_from__simulation=simulation
+    ).select_related("agent_from", "agent_to")
+    edges = [
+        {
+            "source": rel.agent_from_id,
+            "target": rel.agent_to_id,
+            "type": rel.relation_type,
+            "strength": rel.strength,
+            "sentiment": rel.sentiment,
+        }
+        for rel in relationships
+    ]
+
+    # Power flow: chain of command from head of state -> faction leader -> members
+    power_flow = []
+    if government and head_of_state_id and government.ruling_faction:
+        faction = government.ruling_faction
+        faction_leader_id = faction.leader_id
+
+        # Head of state -> faction leader (if they differ)
+        if faction_leader_id and faction_leader_id != head_of_state_id:
+            power_flow.append({"from": head_of_state_id, "to": faction_leader_id})
+
+        # Faction leader -> each member (excluding the leader themselves)
+        if faction_leader_id:
+            member_ids = (
+                Agent.objects.filter(group=faction, is_alive=True)
+                .exclude(id=faction_leader_id)
+                .values_list("id", flat=True)
+            )
+            for member_id in member_ids:
+                power_flow.append({"from": faction_leader_id, "to": member_id})
+
+    return JsonResponse({
+        "nodes": nodes,
+        "edges": edges,
+        "power_flow": power_flow,
+        "government": {
+            "type": government.government_type if government else None,
+            "label": government_label,
+            "stability": government_stability,
+            "head_of_state_id": head_of_state_id,
+            "ruling_faction_id": ruling_faction_id,
+        },
+    })
+
+
+@login_required(login_url="/login/")
+def graph_agent_detail_view(request, sim_id, agent_id):
+    """Return full detail for a single agent, for the graph side panel.
+
+    Includes bidirectional relationships and recent memories that mention
+    agents the subject interacts with, surfacing narrative context from
+    the simulation's memory layer.
+    """
+    simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
+    agent = get_object_or_404(Agent, id=agent_id, simulation=simulation)
+
+    # Bidirectional relationships (agent appears as source or target)
+    relationships_qs = Relationship.objects.filter(
+        Q(agent_from=agent) | Q(agent_to=agent)
+    ).select_related("agent_from", "agent_to")
+
+    relationships = []
+    related_agent_names = []
+    for rel in relationships_qs:
+        other = rel.agent_to if rel.agent_from_id == agent.id else rel.agent_from
+        related_agent_names.append(other.name)
+        relationships.append({
+            "agent": other.name,
+            "agent_id": other.id,
+            "type": rel.relation_type,
+            "strength": rel.strength,
+            "sentiment": rel.sentiment,
+        })
+
+    # Recent memories: last 5 active memories that mention related agents,
+    # plus the agent's own direct memories. Merged, deduped by ID, capped at 5.
+    name_filters = Q()
+    for name in related_agent_names:
+        name_filters |= Q(content__icontains=name)
+
+    contextual_memories = (
+        Memory.objects.filter(agent=agent, is_active=True)
+        .filter(name_filters)
+        .order_by("-tick_created")[:5]
+        if related_agent_names
+        else Memory.objects.none()
+    )
+    own_memories = (
+        Memory.objects.filter(agent=agent, is_active=True)
+        .order_by("-emotional_weight", "-tick_created")[:5]
+    )
+
+    seen_ids: set[int] = set()
+    merged_memories = []
+    for mem in list(contextual_memories) + list(own_memories):
+        if mem.id not in seen_ids:
+            seen_ids.add(mem.id)
+            merged_memories.append({
+                "content": mem.content,
+                "emotional_weight": mem.emotional_weight,
+                "tick_created": mem.tick_created,
+                "source_type": mem.source_type,
+            })
+        if len(merged_memories) >= 5:
+            break
+
+    return JsonResponse({
+        "id": agent.id,
+        "name": agent.name,
+        "role": agent.role,
+        "faction": agent.group.name if agent.group else None,
+        "social_class": agent.social_class,
+        "health": agent.health,
+        "mood": agent.mood,
+        "wealth": agent.wealth,
+        "charisma": agent.charisma,
+        "is_alive": agent.is_alive,
+        "relationships": relationships,
+        "recent_memories": merged_memories,
+    })
