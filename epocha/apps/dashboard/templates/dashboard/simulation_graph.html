@@ -132,10 +132,10 @@ function simpleForceLayout(graph, iterations) {
                 <div class="text-gray-400 text-[10px]">Stability</div>
                 <div class="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden w-16">
                     <div class="h-full bg-emerald-500 rounded-full"
-                         :style="graphData && graphData.government ? `width: ${graphData.government.stability}%` : 'width: 0%'">
+                         :style="graphData && graphData.government ? `width: ${Math.round(graphData.government.stability * 100)}%` : 'width: 0%'">
                     </div>
                 </div>
-                <span class="text-[10px]" x-text="graphData && graphData.government ? graphData.government.stability + '%' : ''"></span>
+                <span class="text-[10px]" x-text="graphData && graphData.government ? Math.round(graphData.government.stability * 100) + '%' : ''"></span>
             </div>
         </div>
 
@@ -343,8 +343,8 @@ function graphPage() {
                 const x = Math.random() * 200 - 100;
                 const y = Math.random() * 200 - 100;
 
-                // Node size scales with charisma (0..1), base 8px, max 24px.
-                const size = 8 + (node.charisma || 0) * 16;
+                // Node size scales with charisma (0..1), base 12px, max 30px.
+                const size = 12 + (node.charisma || 0) * 18;
 
                 graph.addNode(String(node.id), {
                     label: node.label,
@@ -419,6 +419,9 @@ function graphPage() {
             this.renderer = new Sigma(graph, container, {
                 renderEdgeLabels: false,
                 defaultEdgeType: "line",
+                labelRenderedSizeThreshold: 0,
+                labelSize: 14,
+                labelColor: { color: "#e5e7eb" },
                 nodeReducer: (node, data) => {
                     const res = { ...data };
                     if (this.hoveredNode && node !== this.hoveredNode && !graph.neighbors(this.hoveredNode).includes(node)) {

@@ -970,7 +970,8 @@ def graph_data_view(request, sim_id):
     nodes = []
     for agent in agents:
         faction_name = agent.group.name if agent.group else None
-        faction_color = _faction_color(faction_name) if faction_name else "#505050"
+        # Color by faction if in a group, otherwise by role for visual variety
+        faction_color = _faction_color(faction_name) if faction_name else _faction_color(agent.role or "unknown")
         is_leader = bool(agent.group and agent.group.leader_id == agent.id)
         nodes.append({
             "id": agent.id,
