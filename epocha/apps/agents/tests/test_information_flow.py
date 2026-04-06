@@ -198,7 +198,11 @@ class TestPropagateInformation:
             assert "plague" in mem.content.lower()
 
     def test_belief_filter_rejects_unreliable_info(self, simulation, world, marco, elena):
-        """A highly skeptical agent rejects information from a distrusted source."""
+        """A highly skeptical agent rejects information from a distrusted source.
+
+        The belief filter will reject the hearsay (source_type="hearsay" count stays 0)
+        but a weak rumor (source_type="rumor") is still created for further propagation.
+        """
         elena.personality = {
             "openness": 0.0, "agreeableness": 0.0,
             "conscientiousness": 0.5, "extraversion": 0.5, "neuroticism": 0.5,
@@ -217,3 +221,58 @@ class TestPropagateInformation:
         propagate_information(simulation, tick=5)
 
         assert Memory.objects.filter(agent=elena, source_type="hearsay").count() == 0
+
+    def test_reputation_updated_on_hearsay(self, simulation, world, marco, elena):
+        """Receiving hearsay about an agent should update the recipient's reputation score."""
+        from epocha.apps.agents.models import ReputationScore
+
+        Relationship.objects.create(
+            agent_from=marco, agent_to=elena,
+            relation_type="friendship", strength=0.7, sentiment=0.6, since_tick=0,
+        )
+        Memory.objects.create(
+            agent=marco, content="I decided to betray. power grab",
+            emotional_weight=0.8, source_type="direct", tick_created=5,
+            origin_agent=marco,
+        )
+
+        propagate_information(simulation, tick=5)
+
+        scores = ReputationScore.objects.filter(holder=elena, target=marco)
+        assert scores.exists()
+        assert scores.first().reputation < 0
+
+    def test_gossip_propagates_without_belief(self, simulation, world, marco, elena, carlo):
+        """Even when the belief filter rejects, a weak rumor is created for further propagation."""
+        from epocha.apps.agents.models import ReputationScore
+
+        elena.personality = {"openness": 0.0, "agreeableness": 0.0,
+                             "conscientiousness": 0.5, "extraversion": 0.5, "neuroticism": 0.5}
+        elena.save(update_fields=["personality"])
+        Relationship.objects.create(
+            agent_from=marco, agent_to=elena,
+            relation_type="distrust", strength=0.2, sentiment=-0.5, since_tick=0,
+        )
+        Relationship.objects.create(
+            agent_from=elena, agent_to=carlo,
+            relation_type="friendship", strength=0.7, sentiment=0.5, since_tick=0,
+        )
+        Memory.objects.create(
+            agent=marco, content="I decided to betray. power grab",
+            emotional_weight=0.8, source_type="direct", tick_created=5,
+            origin_agent=marco,
+        )
+
+        propagate_information(simulation, tick=5)
+
+        # Elena should have a weak rumor (not a full hearsay)
+        elena_memories = Memory.objects.filter(agent=elena, source_type__in=["hearsay", "rumor"])
+        assert elena_memories.exists()
+        rumor = elena_memories.filter(source_type="rumor").first()
+        assert rumor is not None
+        assert rumor.emotional_weight == 0.1
+
+        # Reputation must be updated even though Elena did not believe the information
+        rep = ReputationScore.objects.filter(holder=elena, target=marco)
+        assert rep.exists()
+        assert rep.first().reputation < 0

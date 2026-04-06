@@ -24,6 +24,7 @@ from epocha.apps.simulation.models import Event, Simulation
 from .belief import should_believe
 from .distortion import distort_information
 from .models import Agent, Memory, Relationship
+from .reputation import extract_action_sentiment, get_combined_score, update_reputation
 
 logger = logging.getLogger(__name__)
 
@@ -166,9 +167,14 @@ def _propagate_memory(
     - Skips the origin agent (no echo back to source).
     - Skips agents that already received information from the same origin this tick.
     - Applies distortion using the transmitter's personality.
-    - Applies the belief filter using the recipient's personality and the
-      relationship between recipient and transmitter.
-    - Creates the Memory record if accepted.
+    - Always updates the recipient's reputation score for the origin agent,
+      regardless of whether the belief filter accepts or rejects the information.
+    - Applies the belief filter using the recipient's personality, the
+      relationship between recipient and transmitter, and the transmitter's
+      reputation as perceived by the recipient.
+    - If accepted, creates a full Memory record with the original emotional_weight.
+    - If rejected, creates a weak rumor (emotional_weight=0.1, reduced reliability)
+      so that information can still propagate further without influencing decisions.
 
     The new reliability is decayed by the configured decay factor.
 
@@ -206,6 +212,10 @@ def _propagate_memory(
     new_reliability = memory.reliability * decay
     distorted_content = distort_information(memory.content, transmitter.personality)
 
+    # Compute action sentiment once from the (possibly distorted) content.
+    # Placed before the loop because distorted_content is fixed for all recipients.
+    action_sentiment = extract_action_sentiment(distorted_content)
+
     recipients_created = 0
 
     for rel in relationships:
@@ -232,24 +242,59 @@ def _propagate_memory(
         rel_strength = rel.strength
         rel_sentiment = rel.sentiment
 
-        # Belief filter
-        if not should_believe(
+        # Always update reputation (even if the belief filter later rejects).
+        # Hearing about someone affects your social evaluation of them regardless
+        # of whether you believe the specific report.
+        # Ref: Castelfranchi, Conte & Paolucci (1998), "Normative reputation and
+        # the costs of compliance." JASSS, 1(3).
+        if origin and action_sentiment != 0.0:
+            update_reputation(
+                holder=recipient,
+                target=origin,
+                action_sentiment=action_sentiment,
+                reliability=new_reliability,
+                tick=tick,
+            )
+
+        # Get transmitter reputation for the belief filter.
+        transmitter_rep = get_combined_score(recipient, transmitter)
+
+        # Belief filter: now includes transmitter reputation as a factor.
+        believed = should_believe(
             reliability=new_reliability,
             receiver_personality=recipient.personality,
             relationship_strength=rel_strength,
             relationship_sentiment=rel_sentiment,
-        ):
-            continue
-
-        Memory.objects.create(
-            agent=recipient,
-            content=distorted_content,
-            emotional_weight=memory.emotional_weight,
-            source_type=target_source_type,
-            reliability=new_reliability,
-            tick_created=tick,
-            origin_agent=origin,
+            transmitter_reputation=transmitter_rep,
         )
+
+        if believed:
+            # Full memory: agent believes and will act on this information.
+            Memory.objects.create(
+                agent=recipient,
+                content=distorted_content,
+                emotional_weight=memory.emotional_weight,
+                source_type=target_source_type,
+                reliability=new_reliability,
+                tick_created=tick,
+                origin_agent=origin,
+            )
+        else:
+            # Weak rumor: agent does not personally believe this but may still
+            # pass it on through the social network.  Low emotional_weight (0.1)
+            # ensures the rumor does not influence decision-making; low
+            # reliability (original * 0.3) limits further downstream impact.
+            # Ref: Castelfranchi-Conte-Paolucci insight that agents transmit
+            # gossip they do not personally believe.
+            Memory.objects.create(
+                agent=recipient,
+                content=distorted_content,
+                emotional_weight=0.1,
+                source_type=Memory.SourceType.RUMOR,
+                reliability=new_reliability * 0.3,
+                tick_created=tick,
+                origin_agent=origin,
+            )
 
         already_informed.add(recipient.pk)
         recipients_created += 1
