@@ -1,4 +1,5 @@
 """Agent models — personality, memory, decisions."""
+from django.contrib.gis.db import models as gis_models
 from django.db import models
 
 from epocha.apps.simulation.models import Simulation
@@ -58,8 +59,15 @@ class Agent(models.Model):
     social_class = models.CharField(max_length=30, default="working", help_text="elite, wealthy, middle, working, poor, enslaved")
 
     # Position and status
-    position_x = models.FloatField(default=0.0)
-    position_y = models.FloatField(default=0.0)
+    location = gis_models.PointField(
+        null=True, blank=True, srid=4326,
+        help_text="Current geographic position (WGS84)",
+    )
+    zone = models.ForeignKey(
+        "world.Zone", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="agents_in_zone",
+        help_text="Current zone (denormalized for performance)",
+    )
     is_alive = models.BooleanField(default=True)
     group = models.ForeignKey("Group", null=True, blank=True, on_delete=models.SET_NULL, related_name="members")
     parent_agent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children", help_text="Biological parent (for lineage tracking)")

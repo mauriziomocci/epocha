@@ -11,7 +11,6 @@ calibrated with social psychology research (e.g., Baumeister & Leary,
 from __future__ import annotations
 
 import logging
-import math
 
 from .models import Agent, Relationship
 
@@ -48,28 +47,25 @@ FLIP_THRESHOLD = 0.0
 
 
 def find_potential_relationships(agent: Agent, proximity_threshold: float = 20) -> list[Agent]:
-    """Find nearby agents who do not yet have a relationship with this agent.
+    """Find nearby agents who could form relationships.
 
-    Uses Euclidean distance on position_x/y. In post-MVP, this should
-    use PostGIS spatial queries for efficiency.
+    Uses PostGIS spatial distance for agents with locations, falls back
+    to returning all simulation agents if no location is set.
     """
-    existing_ids = set(
-        Relationship.objects.filter(agent_from=agent)
-        .values_list("agent_to_id", flat=True)
-    )
-
-    candidates = []
-    for other in Agent.objects.filter(
-        simulation=agent.simulation, is_alive=True,
-    ).exclude(id=agent.id).exclude(id__in=existing_ids):
-        distance = math.sqrt(
-            (agent.position_x - other.position_x) ** 2
-            + (agent.position_y - other.position_y) ** 2
+    if agent.location is None:
+        return list(
+            Agent.objects.filter(simulation=agent.simulation, is_alive=True)
+            .exclude(id=agent.id)
         )
-        if distance <= proximity_threshold:
-            candidates.append(other)
 
-    return candidates
+    from django.contrib.gis.measure import D
+    return list(
+        Agent.objects.filter(
+            simulation=agent.simulation,
+            is_alive=True,
+            location__distance_lte=(agent.location, D(m=proximity_threshold)),
+        ).exclude(id=agent.id)
+    )
 
 
 def update_relationship_from_interaction(
