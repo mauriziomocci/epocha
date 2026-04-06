@@ -4,9 +4,12 @@ set -o pipefail
 set -o nounset
 
 # Wait for PostgreSQL
+# Replace postgis:// scheme with postgresql:// for psycopg connection check
+# (django-environ handles postgis:// for Django, but psycopg only understands postgresql://)
+PG_URL=$(echo "${DATABASE_URL}" | sed 's|^postgis://|postgresql://|')
 until python -c "
 import psycopg
-conn = psycopg.connect('${DATABASE_URL}')
+conn = psycopg.connect('${PG_URL}')
 conn.close()
 " 2>/dev/null; do
   echo "Waiting for PostgreSQL..."
@@ -25,7 +28,7 @@ else
   echo "Waiting for migrations to complete..."
   until python -c "
 import psycopg
-conn = psycopg.connect('${DATABASE_URL}')
+conn = psycopg.connect('${PG_URL}')
 cur = conn.cursor()
 cur.execute(\"SELECT 1 FROM django_celery_beat_crontabschedule LIMIT 1\")
 conn.close()
