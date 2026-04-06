@@ -1,0 +1,444 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Analytics — {{ simulation.name }}{% endblock %}
+
+{% block extra_head %}
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div
+    class="max-w-7xl mx-auto px-4 py-6"
+    x-data="analyticsPage()"
+    x-init="loadData()"
+>
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-white">{{ simulation.name }}</h1>
+            <p class="text-sm text-gray-400 mt-1">Analytics Dashboard</p>
+        </div>
+        <div class="flex gap-3">
+            <a href="{% url 'dashboard:simulation-detail' sim_id=simulation.id %}"
+               class="px-3 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded">
+                Back to Simulation
+            </a>
+            <button
+                @click="loadData()"
+                class="px-3 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded">
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Loading indicator -->
+    <div x-show="loading" class="text-center py-12 text-gray-400">
+        <p>Loading analytics data...</p>
+    </div>
+
+    <!-- No data state -->
+    <div x-show="!loading && snapshots.length === 0" class="text-center py-12 text-gray-500">
+        <p>No snapshot data yet. Run the simulation to generate analytics.</p>
+    </div>
+
+    <!-- Main content (visible once data is loaded) -->
+    <div x-show="!loading && snapshots.length > 0">
+
+        <!-- Epochal Crisis Banner -->
+        <div x-show="activeCrises.length > 0" class="bg-gradient-to-r from-red-900 to-amber-900 border border-red-700 rounded-lg p-4 mb-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-red-300 mb-2">Active Crises</p>
+            <template x-for="crisis in activeCrises" :key="crisis.tick">
+                <div class="flex items-center gap-3 mb-1">
+                    <span class="bg-red-600 text-white text-xs px-2 py-1 rounded font-bold" x-text="'Severity ' + crisis.severity"></span>
+                    <span class="font-bold text-red-200" x-text="crisis.label"></span>
+                </div>
+            </template>
+        </div>
+
+        <!-- Row 1: Stability + Gini -->
+        <div class="grid grid-cols-12 gap-4 mb-4">
+            <div class="col-span-7 bg-gray-800 rounded-lg p-4">
+                <h3 class="text-sm font-semibold text-gray-300 mb-2">Government Stability</h3>
+                <div id="chart-stability" style="height:250px;"></div>
+            </div>
+            <div class="col-span-5 bg-gray-800 rounded-lg p-4">
+                <h3 class="text-sm font-semibold text-gray-300 mb-2">Gini Coefficient</h3>
+                <div id="chart-gini" style="height:250px;"></div>
+            </div>
+        </div>
+
+        <!-- Row 2: Political indicators + Social classes -->
+        <div class="grid grid-cols-12 gap-4 mb-4">
+            <div class="col-span-7 bg-gray-800 rounded-lg p-4">
+                <h3 class="text-sm font-semibold text-gray-300 mb-2">Political Indicators</h3>
+                <div id="chart-political" style="height:250px;"></div>
+            </div>
+            <div class="col-span-5 bg-gray-800 rounded-lg p-4">
+                <h3 class="text-sm font-semibold text-gray-300 mb-2">Social Classes (latest tick)</h3>
+                <div style="height:250px; display:flex; align-items:center; justify-content:center;">
+                    <canvas id="chart-classes-doughnut"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 3: Mood + Population -->
+        <div class="grid grid-cols-12 gap-4 mb-4">
+            <div class="col-span-7 bg-gray-800 rounded-lg p-4">
+                <h3 class="text-sm font-semibold text-gray-300 mb-2">Collective Mood</h3>
+                <div id="chart-mood" style="height:250px;"></div>
+            </div>
+            <div class="col-span-5 bg-gray-800 rounded-lg p-4">
+                <h3 class="text-sm font-semibold text-gray-300 mb-2">Population</h3>
+                <div id="chart-population" style="height:250px;"></div>
+            </div>
+        </div>
+
+        <!-- Row 4: Class evolution (full width) -->
+        <div class="bg-gray-800 rounded-lg p-4 mb-4">
+            <h3 class="text-sm font-semibold text-gray-300 mb-2">Class Evolution</h3>
+            <canvas id="chart-class-evolution" style="height:220px;"></canvas>
+        </div>
+
+        <!-- Row 5: Faction strengths (full width, shown only when factions exist) -->
+        <div x-show="factions.length > 0" class="bg-gray-800 rounded-lg p-4 mb-4">
+            <h3 class="text-sm font-semibold text-gray-300 mb-2">Faction Strengths</h3>
+            <canvas id="chart-factions" style="max-height:200px;"></canvas>
+        </div>
+
+        <!-- Event Timeline -->
+        <div class="bg-gray-800 rounded-lg p-4 max-h-60 overflow-y-auto">
+            <h3 class="text-sm font-semibold mb-2 text-gray-300">Event Timeline</h3>
+            <template x-for="event in timeline" :key="event.tick + '-' + event.type + '-' + event.label">
+                <div class="flex items-center gap-2 py-1 border-b border-gray-700 text-xs">
+                    <span class="text-gray-500 w-12" x-text="'#' + event.tick"></span>
+                    <span :class="event.type === 'crisis' ? 'text-red-400' : 'text-blue-400'" x-text="event.label"></span>
+                </div>
+            </template>
+            <p x-show="timeline.length === 0" class="text-xs text-gray-600">No crises or government transitions recorded.</p>
+        </div>
+
+    </div><!-- end main content -->
+</div>
+
+<script>
+function analyticsPage() {
+    return {
+        loading: true,
+        snapshots: [],
+        crises: [],
+        transitions: [],
+        factions: [],
+        activeCrises: [],
+        timeline: [],
+
+        // Lightweight-charts chart instances (kept for potential future updates)
+        _lwCharts: {},
+        // Chart.js instances
+        _cjsCharts: {},
+
+        loadData() {
+            this.loading = true;
+            const url = "{% url 'dashboard:analytics-data' sim_id=simulation.id %}";
+            fetch(url)
+                .then(r => r.json())
+                .then(data => {
+                    this.snapshots = data.snapshots || [];
+                    this.crises = data.crises || [];
+                    this.transitions = data.transitions || [];
+                    this.factions = data.factions || [];
+                    this.loading = false;
+                    this._computeDerived();
+                    this.$nextTick(() => this.renderCharts());
+                })
+                .catch(() => { this.loading = false; });
+        },
+
+        _computeDerived() {
+            // Active crises: last crisis event (the most recent one by tick)
+            const lastTick = this.snapshots.length > 0
+                ? this.snapshots[this.snapshots.length - 1].tick
+                : 0;
+            // Show crises from the last 10 ticks as "active"
+            this.activeCrises = this.crises.filter(c => c.tick >= lastTick - 10);
+
+            // Timeline: merge crises + transitions, sort by tick descending
+            const crisisEntries = this.crises.map(c => ({
+                tick: c.tick, type: "crisis", label: c.label,
+            }));
+            const transitionEntries = this.transitions.map(t => ({
+                tick: t.tick,
+                type: "transition",
+                label: t.from_type + " → " + t.to_type,
+            }));
+            this.timeline = [...crisisEntries, ...transitionEntries]
+                .sort((a, b) => b.tick - a.tick);
+        },
+
+        renderCharts() {
+            if (this.snapshots.length === 0) return;
+            this._destroyExistingCharts();
+            this._renderLwCharts();
+            this._renderChartJs();
+        },
+
+        _destroyExistingCharts() {
+            // Destroy existing Lightweight-charts instances
+            Object.values(this._lwCharts).forEach(c => {
+                try { c.remove(); } catch (_) {}
+            });
+            this._lwCharts = {};
+
+            // Destroy existing Chart.js instances
+            Object.values(this._cjsCharts).forEach(c => {
+                try { c.destroy(); } catch (_) {}
+            });
+            this._cjsCharts = {};
+        },
+
+        _lwOptions() {
+            // Shared Lightweight-charts creation options for dark theme
+            return {
+                layout: {
+                    background: { type: "solid", color: "#1f2937" },
+                    textColor: "#9ca3af",
+                },
+                grid: {
+                    vertLines: { color: "#374151" },
+                    horzLines: { color: "#374151" },
+                },
+                timeScale: {
+                    timeVisible: false,
+                    tickMarkFormatter: (time) => "T" + time,
+                },
+                rightPriceScale: { borderColor: "#374151" },
+                crosshair: { mode: 1 },
+            };
+        },
+
+        _toSeries(field) {
+            // Map snapshot array to Lightweight-charts {time, value} pairs
+            return this.snapshots.map(s => ({ time: s.tick, value: s[field] }));
+        },
+
+        _crisisMarkers(series) {
+            // Return setMarkers-compatible array for crisis events on a series
+            return this.crises.map(c => ({
+                time: c.tick,
+                position: "aboveBar",
+                color: "#ef4444",
+                shape: "arrowDown",
+                text: c.label,
+            })).filter(m => {
+                // Only add marker if tick exists in series data
+                const ticks = new Set(series.map(s => s.time));
+                return ticks.has(m.time);
+            });
+        },
+
+        _transitionMarkers(series) {
+            const ticks = new Set(series.map(s => s.time));
+            return this.transitions.map(t => ({
+                time: t.tick,
+                position: "belowBar",
+                color: "#6366f1",
+                shape: "arrowUp",
+                text: t.to_type,
+            })).filter(m => ticks.has(m.time));
+        },
+
+        _renderLwCharts() {
+            const opts = this._lwOptions();
+
+            // Stability chart with government transition markers
+            const stabilityEl = document.getElementById("chart-stability");
+            if (stabilityEl) {
+                const chart = LightweightCharts.createChart(stabilityEl, { ...opts, width: stabilityEl.clientWidth, height: 250 });
+                const series = chart.addLineSeries({ color: "#6366f1", lineWidth: 2 });
+                const data = this._toSeries("government_stability");
+                series.setData(data);
+                const markers = [
+                    ...this._transitionMarkers(data),
+                    ...this._crisisMarkers(data),
+                ].sort((a, b) => a.time - b.time);
+                if (markers.length > 0) series.setMarkers(markers);
+                chart.timeScale().fitContent();
+                this._lwCharts["stability"] = chart;
+            }
+
+            // Gini chart with threshold price line and crisis markers
+            const giniEl = document.getElementById("chart-gini");
+            if (giniEl) {
+                const chart = LightweightCharts.createChart(giniEl, { ...opts, width: giniEl.clientWidth, height: 250 });
+                const series = chart.addLineSeries({ color: "#f59e0b", lineWidth: 2 });
+                const data = this._toSeries("gini_coefficient");
+                series.setData(data);
+                series.createPriceLine({ price: 0.6, color: "#ef4444", lineWidth: 1, lineStyle: 2, title: "Danger threshold" });
+                const markers = this._crisisMarkers(data);
+                if (markers.length > 0) series.setMarkers(markers);
+                chart.timeScale().fitContent();
+                this._lwCharts["gini"] = chart;
+            }
+
+            // Mood chart
+            const moodEl = document.getElementById("chart-mood");
+            if (moodEl) {
+                const chart = LightweightCharts.createChart(moodEl, { ...opts, width: moodEl.clientWidth, height: 250 });
+                const series = chart.addLineSeries({ color: "#34d399", lineWidth: 2 });
+                series.setData(this._toSeries("avg_mood"));
+                chart.timeScale().fitContent();
+                this._lwCharts["mood"] = chart;
+            }
+
+            // Political indicators chart: 5 line series
+            const politicalEl = document.getElementById("chart-political");
+            if (politicalEl) {
+                const chart = LightweightCharts.createChart(politicalEl, { ...opts, width: politicalEl.clientWidth, height: 250 });
+                const politicalSeries = [
+                    { field: "institutional_trust",   color: "#3b82f6", label: "Trust" },
+                    { field: "corruption",            color: "#ef4444", label: "Corruption" },
+                    { field: "popular_legitimacy",    color: "#22c55e", label: "Legitimacy" },
+                    { field: "repression_level",      color: "#f97316", label: "Repression" },
+                    { field: "military_loyalty",      color: "#a855f7", label: "Military" },
+                ];
+                politicalSeries.forEach(({ field, color }) => {
+                    const s = chart.addLineSeries({ color, lineWidth: 1 });
+                    s.setData(this._toSeries(field));
+                });
+                chart.timeScale().fitContent();
+                this._lwCharts["political"] = chart;
+            }
+
+            // Population chart: two area series (alive and dead)
+            const populationEl = document.getElementById("chart-population");
+            if (populationEl) {
+                const chart = LightweightCharts.createChart(populationEl, { ...opts, width: populationEl.clientWidth, height: 250 });
+                const aliveS = chart.addAreaSeries({
+                    lineColor: "#22c55e",
+                    topColor: "rgba(34,197,94,0.3)",
+                    bottomColor: "rgba(34,197,94,0.0)",
+                    lineWidth: 2,
+                });
+                aliveS.setData(this._toSeries("population_alive"));
+
+                const deadS = chart.addAreaSeries({
+                    lineColor: "#ef4444",
+                    topColor: "rgba(239,68,68,0.3)",
+                    bottomColor: "rgba(239,68,68,0.0)",
+                    lineWidth: 2,
+                });
+                deadS.setData(this._toSeries("population_dead"));
+                chart.timeScale().fitContent();
+                this._lwCharts["population"] = chart;
+            }
+        },
+
+        _renderChartJs() {
+            const ticks = this.snapshots.map(s => "T" + s.tick);
+            const latest = this.snapshots.length > 0 ? this.snapshots[this.snapshots.length - 1] : null;
+
+            // Social classes doughnut (latest snapshot)
+            const doughnutEl = document.getElementById("chart-classes-doughnut");
+            if (doughnutEl && latest) {
+                this._cjsCharts["doughnut"] = new Chart(doughnutEl, {
+                    type: "doughnut",
+                    data: {
+                        labels: ["Elite", "Wealthy", "Middle", "Working", "Poor"],
+                        datasets: [{
+                            data: [
+                                latest.class_elite_pct,
+                                latest.class_wealthy_pct,
+                                latest.class_middle_pct,
+                                latest.class_working_pct,
+                                latest.class_poor_pct,
+                            ],
+                            backgroundColor: ["#fbbf24", "#818cf8", "#60a5fa", "#9ca3af", "#f87171"],
+                            borderColor: "#1f2937",
+                            borderWidth: 2,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                position: "right",
+                                labels: { color: "#9ca3af", font: { size: 11 } },
+                            },
+                        },
+                    },
+                });
+            }
+
+            // Class evolution stacked area chart
+            const evolutionEl = document.getElementById("chart-class-evolution");
+            if (evolutionEl) {
+                const classDefs = [
+                    { field: "class_elite_pct",   label: "Elite",   color: "rgba(251,191,36,0.7)" },
+                    { field: "class_wealthy_pct",  label: "Wealthy", color: "rgba(129,140,248,0.7)" },
+                    { field: "class_middle_pct",   label: "Middle",  color: "rgba(96,165,250,0.7)" },
+                    { field: "class_working_pct",  label: "Working", color: "rgba(156,163,175,0.7)" },
+                    { field: "class_poor_pct",     label: "Poor",    color: "rgba(248,113,113,0.7)" },
+                ];
+                this._cjsCharts["evolution"] = new Chart(evolutionEl, {
+                    type: "line",
+                    data: {
+                        labels: ticks,
+                        datasets: classDefs.map(d => ({
+                            label: d.label,
+                            data: this.snapshots.map(s => s[d.field]),
+                            backgroundColor: d.color,
+                            borderColor: d.color.replace("0.7", "1"),
+                            borderWidth: 1,
+                            fill: true,
+                            tension: 0.3,
+                        })),
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { labels: { color: "#9ca3af", font: { size: 11 } } },
+                        },
+                        scales: {
+                            x: { ticks: { color: "#6b7280", maxTicksLimit: 12 }, grid: { color: "#374151" } },
+                            y: { ticks: { color: "#6b7280" }, grid: { color: "#374151" } },
+                        },
+                    },
+                });
+            }
+
+            // Faction bar chart (horizontal)
+            const factionEl = document.getElementById("chart-factions");
+            if (factionEl && this.factions.length > 0) {
+                this._cjsCharts["factions"] = new Chart(factionEl, {
+                    type: "bar",
+                    data: {
+                        labels: this.factions.map(f => f.name),
+                        datasets: [{
+                            label: "Members",
+                            data: this.factions.map(f => f.member_count),
+                            backgroundColor: this.factions.map(f => f.color + "cc"),
+                            borderColor: this.factions.map(f => f.color),
+                            borderWidth: 1,
+                        }],
+                    },
+                    options: {
+                        indexAxis: "y",
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                        },
+                        scales: {
+                            x: { ticks: { color: "#6b7280" }, grid: { color: "#374151" } },
+                            y: { ticks: { color: "#9ca3af" }, grid: { color: "#374151" } },
+                        },
+                    },
+                });
+            }
+        },
+    };
+}
+</script>
+{% endblock %}
