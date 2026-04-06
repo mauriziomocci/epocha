@@ -1,5 +1,6 @@
 """Tests for the living relationships system."""
 import pytest
+from django.contrib.gis.geos import Point
 
 from epocha.apps.agents.models import Agent, Relationship
 from epocha.apps.agents.relationships import (
@@ -24,9 +25,21 @@ def simulation(user):
 @pytest.mark.django_db
 class TestFindPotentialRelationships:
     def test_nearby_agents_are_candidates(self, simulation):
-        a1 = Agent.objects.create(simulation=simulation, name="Marco", position_x=10, position_y=10, personality={})
-        a2 = Agent.objects.create(simulation=simulation, name="Elena", position_x=12, position_y=10, personality={})
-        Agent.objects.create(simulation=simulation, name="Luca", position_x=90, position_y=90, personality={})
+        # Use SRID 4326 (lat/lon). Points ~10m apart are "near"; points far away are excluded.
+        # At the equator, 0.0001 degrees longitude ≈ 11m, so threshold=20 meters should include
+        # a point 0.0001 deg away but exclude one 10 degrees away.
+        a1 = Agent.objects.create(
+            simulation=simulation, name="Marco",
+            location=Point(0.0, 0.0, srid=4326), personality={},
+        )
+        Agent.objects.create(
+            simulation=simulation, name="Elena",
+            location=Point(0.0001, 0.0, srid=4326), personality={},
+        )
+        Agent.objects.create(
+            simulation=simulation, name="Luca",
+            location=Point(10.0, 10.0, srid=4326), personality={},
+        )
 
         candidates = find_potential_relationships(a1, proximity_threshold=20)
         names = [a.name for a in candidates]
@@ -34,8 +47,14 @@ class TestFindPotentialRelationships:
         assert "Luca" not in names
 
     def test_existing_relationships_excluded(self, simulation):
-        a1 = Agent.objects.create(simulation=simulation, name="Marco", position_x=10, position_y=10, personality={})
-        a2 = Agent.objects.create(simulation=simulation, name="Elena", position_x=12, position_y=10, personality={})
+        a1 = Agent.objects.create(
+            simulation=simulation, name="Marco",
+            location=Point(0.0, 0.0, srid=4326), personality={},
+        )
+        a2 = Agent.objects.create(
+            simulation=simulation, name="Elena",
+            location=Point(0.0001, 0.0, srid=4326), personality={},
+        )
         Relationship.objects.create(agent_from=a1, agent_to=a2, relation_type="friendship", strength=0.5, sentiment=0.5, since_tick=1)
 
         candidates = find_potential_relationships(a1, proximity_threshold=20)

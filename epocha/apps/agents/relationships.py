@@ -47,15 +47,23 @@ FLIP_THRESHOLD = 0.0
 
 
 def find_potential_relationships(agent: Agent, proximity_threshold: float = 20) -> list[Agent]:
-    """Find nearby agents who could form relationships.
+    """Find nearby agents who could form new relationships.
 
-    Uses PostGIS spatial distance for agents with locations, falls back
-    to returning all simulation agents if no location is set.
+    Returns agents in proximity that do not already have a relationship with
+    the given agent. Uses PostGIS spatial distance for agents with locations;
+    falls back to all alive simulation agents if no location is set.
+
+    Args:
+        agent: The agent looking for potential relationships.
+        proximity_threshold: Maximum distance in meters for spatially-located agents.
     """
+    existing_targets = Relationship.objects.filter(agent_from=agent).values_list("agent_to_id", flat=True)
+
     if agent.location is None:
         return list(
             Agent.objects.filter(simulation=agent.simulation, is_alive=True)
             .exclude(id=agent.id)
+            .exclude(id__in=existing_targets)
         )
 
     from django.contrib.gis.measure import D
@@ -64,7 +72,9 @@ def find_potential_relationships(agent: Agent, proximity_threshold: float = 20) 
             simulation=agent.simulation,
             is_alive=True,
             location__distance_lte=(agent.location, D(m=proximity_threshold)),
-        ).exclude(id=agent.id)
+        )
+        .exclude(id=agent.id)
+        .exclude(id__in=existing_targets)
     )
 
 

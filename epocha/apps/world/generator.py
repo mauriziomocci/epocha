@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import json
 import logging
+import random
+
+from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.llm_adapter.client import get_llm_client
@@ -117,20 +120,37 @@ def generate_world_from_prompt(prompt: str, simulation) -> dict:
 
     # Create Zones
     zones_created = 0
-    for zone_data in data.get("zones", []):
+    for idx, zone_data in enumerate(data.get("zones", [])):
+        # Generate zone geometry: rectangular boundary on an abstract grid
+        col = idx % 3
+        row = idx // 3
+        x_offset = col * 120
+        y_offset = row * 120
+        boundary = Polygon.from_bbox((x_offset, y_offset, x_offset + 100, y_offset + 100))
+        center = Point(x_offset + 50, y_offset + 50)
+
         Zone.objects.create(
             world=world,
             name=zone_data["name"],
-            zone_type=zone_data.get("type", "rural"),
-            position_x=zone_data.get("x", 0),
-            position_y=zone_data.get("y", 0),
+            zone_type=zone_data.get("type", "urban"),
+            boundary=boundary,
+            center=center,
             resources=zone_data.get("resources", {}),
         )
         zones_created += 1
 
     # Create Agents
     agents_created = 0
-    for agent_data in data.get("agents", []):
+    zones = list(Zone.objects.filter(world=world))
+    for idx, agent_data in enumerate(data.get("agents", [])):
+        # Place agent in a random position within a zone
+        agent_zone = zones[idx % len(zones)] if zones else None
+        if agent_zone and agent_zone.center:
+            cx, cy = agent_zone.center.x, agent_zone.center.y
+            loc = Point(cx + random.uniform(-40, 40), cy + random.uniform(-40, 40))
+        else:
+            loc = None
+
         Agent.objects.create(
             simulation=simulation,
             name=agent_data["name"],
@@ -138,8 +158,8 @@ def generate_world_from_prompt(prompt: str, simulation) -> dict:
             role=agent_data.get("role", "villager"),
             gender=agent_data.get("gender", "male"),
             personality=agent_data.get("personality", {}),
-            position_x=agent_data.get("x", 50),
-            position_y=agent_data.get("y", 50),
+            location=loc,
+            zone=agent_zone,
         )
         agents_created += 1
 
