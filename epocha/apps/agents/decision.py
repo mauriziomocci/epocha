@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 
 from epocha.apps.llm_adapter.client import get_llm_client
 from epocha.common.utils import clean_llm_json
@@ -24,7 +25,7 @@ memories, relationships, and current situation, decide what to do next.
 
 Respond ONLY with a JSON object:
 {
-    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group|crime|protest|campaign",
+    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group|crime|protest|campaign|move_to",
     "target": "who or what (optional)",
     "reason": "brief internal thought"
 }
@@ -50,6 +51,7 @@ def _build_context(
     group_context=None,
     political_context=None,
     reputation_context=None,
+    zone_context=None,
 ) -> str:
     """Assemble the situational context string sent as the LLM user prompt.
 
@@ -72,6 +74,9 @@ def _build_context(
         reputation_context: Optional pre-formatted string summarising how the
             agent perceives the standing of notable peers (respected or mistrusted).
             None when no reputation data is available.
+        zone_context: Optional pre-formatted string listing available zones with
+            distances and reachability for the current tick. None when zone data
+            is unavailable.
     """
     parts = [
         f"You are {agent.name}, a {agent.role}.",
@@ -96,6 +101,10 @@ def _build_context(
     # Reputation context
     if reputation_context:
         parts.append(f"\n{reputation_context}")
+
+    # Zone context (available destinations)
+    if zone_context:
+        parts.append(f"\n{zone_context}")
 
     # Injected events that the agent should react to
     if recent_events:
@@ -214,9 +223,42 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     except Exception:
         pass
 
+    # Build zone context
+    zone_context = None
+    try:
+        from epocha.apps.world.models import Zone, World
+        from epocha.apps.agents.movement import calculate_max_distance, get_transport_type
+
+        world = World.objects.get(simulation=agent.simulation)
+        zones = Zone.objects.filter(world=world)
+        try:
+            from epocha.apps.world.models import Government
+            gov = Government.objects.get(simulation=agent.simulation)
+        except Exception:
+            gov = None
+        transport = get_transport_type(agent)
+        max_dist = calculate_max_distance(transport, agent.health, world, gov)
+        zone_lines = []
+        for z in zones:
+            if agent.zone and z.id == agent.zone_id:
+                zone_lines.append(f"- {z.name} ({z.zone_type}, your current zone)")
+            elif z.center and agent.location:
+                dx = z.center.x - agent.location.x
+                dy = z.center.y - agent.location.y
+                dist_grid = math.sqrt(dx * dx + dy * dy)
+                dist_km = dist_grid * world.distance_scale / 1000.0
+                reachable = "reachable" if dist_grid <= max_dist else "too far this tick"
+                zone_lines.append(f"- {z.name} ({z.zone_type}, ~{dist_km:.0f} km, {reachable})")
+            else:
+                zone_lines.append(f"- {z.name} ({z.zone_type})")
+        if zone_lines:
+            zone_context = "Available zones:\n" + "\n".join(zone_lines)
+    except Exception:
+        pass
+
     context = _build_context(
         agent, world_state, tick, memories, relationships, recent_events, living_agents, group_context,
-        political_context, reputation_context,
+        political_context, reputation_context, zone_context,
     )
 
     # 2. Build system prompt with personality

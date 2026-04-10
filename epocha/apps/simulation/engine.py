@@ -53,6 +53,7 @@ _ACTION_EMOTIONAL_WEIGHT: dict[str, float] = {
     "crime": 0.6,
     "protest": 0.4,
     "campaign": 0.2,
+    "move_to": 0.2,
 }
 _DEFAULT_EMOTIONAL_WEIGHT = 0.1
 
@@ -71,6 +72,7 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
     "crime": -0.03,
     "protest": -0.02,
     "campaign": 0.02,
+    "move_to": -0.02,
 }
 
 # Memory decay runs every N ticks to reduce DB writes.
@@ -125,6 +127,24 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
             update_relationship_from_interaction(agent, target_agent, action_type, tick)
             from epocha.apps.agents.reputation import update_image
             update_image(holder=agent, target=target_agent, action_type=action_type, tick=tick)
+
+    # Handle move_to action
+    if action_type == "move_to" and target_name:
+        from epocha.apps.world.models import Zone, World, Government
+        try:
+            world = World.objects.get(simulation=agent.simulation)
+            target_zone = Zone.objects.filter(
+                world=world, name__icontains=target_name,
+            ).first()
+            if target_zone:
+                try:
+                    gov = Government.objects.get(simulation=agent.simulation)
+                except Government.DoesNotExist:
+                    gov = None
+                from epocha.apps.agents.movement import execute_movement
+                execute_movement(agent, target_zone, world, gov)
+        except Exception:
+            logger.exception("Movement failed for %s", agent.name)
 
     # Create memory of the action (skip if a duplicate of the same action type
     # was the most recent memory created within the dedup window).
