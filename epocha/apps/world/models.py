@@ -13,6 +13,14 @@ class World(models.Model):
     global_wealth = models.FloatField(default=1000.0)
     stability_index = models.FloatField(default=0.7, help_text="0.0 = chaos, 1.0 = total peace")
     config = models.JSONField(default=dict)
+    distance_scale = models.FloatField(
+        default=133.0,
+        help_text="Meters per grid unit. Converts abstract coordinates to real-world distances.",
+    )
+    tick_duration_hours = models.FloatField(
+        default=24.0,
+        help_text="Hours per simulation tick. Used to compute travel distances.",
+    )
 
     def __str__(self):
         return f"World for {self.simulation.name}"

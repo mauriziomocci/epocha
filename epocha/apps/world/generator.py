@@ -99,6 +99,8 @@ def generate_world_from_prompt(prompt: str, simulation) -> dict:
         economy_level=world_data.get("economy_level", "base"),
         stability_index=world_data.get("stability_index", 0.7),
         global_wealth=1000.0,
+        distance_scale=133.0,
+        tick_duration_hours=24.0,
     )
 
     # Create Government (default: democracy, neutral indicators)
