@@ -10,6 +10,11 @@ Sources:
 - Braudel, F. (1979). "Civilization and Capitalism, 15th-18th Century."
   Vol. 1: The Structures of Everyday Life. Harper & Row.
   River/canal boat speeds averaged 50 km/day in pre-industrial Europe.
+
+Note: Zone/Agent coordinates use abstract grid units despite the PostGIS
+fields declaring srid=4326. The distance_scale field on World converts
+grid units to real-world meters. This is a known simplification for the
+MVP; future versions may use real geographic coordinates.
 """
 from __future__ import annotations
 
@@ -18,6 +23,8 @@ import math
 import random
 
 from django.contrib.gis.geos import Point
+
+from epocha.apps.world.models import Zone
 
 from .models import Agent
 
@@ -34,6 +41,8 @@ TRAVEL_SPEEDS: dict[str, float] = {
 
 # Default transport mode by agent role.
 # Aristocracy and wealthy roles use carriages or horses; commoners walk.
+# Role names are in the language of the simulation scenario (e.g. Italian
+# for the French Revolution scenario). Unknown roles default to foot.
 ROLE_TRANSPORT: dict[str, str] = {
     "re": "carriage", "regina": "carriage",
     "nobile": "horse", "nobildonna": "carriage",
@@ -56,17 +65,24 @@ _DEFAULT_TRANSPORT = "foot"
 
 # Mood cost per movement (small fatigue penalty).
 # A full day of travel causes minor mood decrease.
+# Tunable parameter -- no empirical source; set to match the magnitude of
+# other action mood deltas in engine.py (e.g. protest = -0.02).
 _MOOD_COST_PER_MOVEMENT = 0.02
 
 # Health cost for long-distance or partial movement (exhaustion).
+# Tunable parameter -- no empirical source; kept small (1%) so a single
+# journey does not cripple an agent but repeated travel accumulates.
 _HEALTH_COST_EXHAUSTING_TRAVEL = 0.01
 
 # Threshold ratio: if actual distance exceeds this fraction of max distance,
 # the journey is considered exhausting and incurs a health penalty.
+# Tunable parameter -- 50% threshold means short trips are free of health cost.
 _EXHAUSTION_THRESHOLD = 0.5
 
 # Random offset range (grid units) for final position within a zone.
 # Prevents all agents arriving at the exact center point.
+# Set to 40 to cover ~80% of a standard 100-unit zone boundary, distributing
+# agents naturally across the zone area.
 _ARRIVAL_SCATTER_RANGE = 40.0
 
 
@@ -174,7 +190,7 @@ def execute_movement(agent: Agent, target_zone, world, government) -> dict:
     # Euclidean distance to target zone center (grid units).
     dx = target_zone.center.x - agent.location.x
     dy = target_zone.center.y - agent.location.y
-    distance = math.sqrt(dx * dx + dy * dy)
+    distance = math.hypot(dx, dy)
 
     if distance <= max_dist:
         # Full movement: agent arrives at destination.
@@ -208,7 +224,6 @@ def execute_movement(agent: Agent, target_zone, world, government) -> dict:
         agent.health = max(0.0, agent.health - _HEALTH_COST_EXHAUSTING_TRAVEL)
 
         # Update zone if the new location falls inside a different zone boundary.
-        from epocha.apps.world.models import Zone
         new_zone = Zone.objects.filter(
             world=world, boundary__contains=new_loc,
         ).first()

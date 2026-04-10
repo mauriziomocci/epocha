@@ -49,7 +49,9 @@ def format_decision_text(raw_decision: str) -> str:
 
     parts = [verb]
     if target:
-        parts.append(f"with {target}")
+        # "move_to" already has "to" in the verb; other actions use "with"
+        preposition = "" if action == "move_to" else "with "
+        parts.append(f"{preposition}{target}")
     result = " ".join(parts)
     if reason:
         result = f"{result}: {reason}"

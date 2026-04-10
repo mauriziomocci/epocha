@@ -92,15 +92,16 @@ class TestExecuteMovement:
         assert result["completed"] is True
 
     def test_movement_to_far_zone_is_partial(self, agent_at_versailles, campagna, world, government):
-        # Make the agent a foot soldier with low health for this test
+        # Foot travel with low health: effective speed ~ 6 km/day = ~44 grid units,
+        # but distance to Campagna center is ~212 grid units. Must be partial.
         agent_at_versailles.role = "contadino"
         agent_at_versailles.save(update_fields=["role"])
         agent_at_versailles.health = 0.3
         agent_at_versailles.save(update_fields=["health"])
         result = execute_movement(agent_at_versailles, campagna, world, government)
         agent_at_versailles.refresh_from_db()
-        # With low health, might not reach -- check partial or full
-        assert result["completed"] is True or result["completed"] is False
+        assert result["completed"] is False
+        assert result["distance_traveled"] < 100  # Much less than 212 grid units needed
 
     def test_movement_reduces_mood(self, agent_at_versailles, paris, world, government):
         initial_mood = agent_at_versailles.mood

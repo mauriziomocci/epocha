@@ -72,7 +72,7 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
     "crime": -0.03,
     "protest": -0.02,
     "campaign": 0.02,
-    "move_to": -0.02,
+    "move_to": 0.0,  # Movement module handles its own mood cost
 }
 
 # Memory decay runs every N ticks to reduce DB writes.

@@ -186,8 +186,9 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
             f"Group cohesion: {cohesion_word}"
         )
 
-    # Build political context
+    # Build political context (government is reused by zone context below)
     political_context = None
+    government = None
     try:
         from epocha.apps.world.models import Government
         government = Government.objects.get(simulation=agent.simulation)
@@ -223,30 +224,23 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     except Exception:
         pass
 
-    # Build zone context
+    # Build zone context (reuses world_state from caller and government from political context)
     zone_context = None
     try:
-        from epocha.apps.world.models import Zone, World
+        from epocha.apps.world.models import Zone
         from epocha.apps.agents.movement import calculate_max_distance, get_transport_type
 
-        world = World.objects.get(simulation=agent.simulation)
-        zones = Zone.objects.filter(world=world)
-        try:
-            from epocha.apps.world.models import Government
-            gov = Government.objects.get(simulation=agent.simulation)
-        except Exception:
-            gov = None
+        zones = Zone.objects.filter(world=world_state)
+        gov = government
         transport = get_transport_type(agent)
-        max_dist = calculate_max_distance(transport, agent.health, world, gov)
+        max_dist = calculate_max_distance(transport, agent.health, world_state, gov)
         zone_lines = []
         for z in zones:
             if agent.zone and z.id == agent.zone_id:
                 zone_lines.append(f"- {z.name} ({z.zone_type}, your current zone)")
             elif z.center and agent.location:
-                dx = z.center.x - agent.location.x
-                dy = z.center.y - agent.location.y
-                dist_grid = math.sqrt(dx * dx + dy * dy)
-                dist_km = dist_grid * world.distance_scale / 1000.0
+                dist_grid = math.hypot(z.center.x - agent.location.x, z.center.y - agent.location.y)
+                dist_km = dist_grid * world_state.distance_scale / 1000.0
                 reachable = "reachable" if dist_grid <= max_dist else "too far this tick"
                 zone_lines.append(f"- {z.name} ({z.zone_type}, ~{dist_km:.0f} km, {reachable})")
             else:
@@ -254,7 +248,7 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
         if zone_lines:
             zone_context = "Available zones:\n" + "\n".join(zone_lines)
     except Exception:
-        pass
+        logger.debug("Failed to build zone context for %s", agent.name, exc_info=True)
 
     context = _build_context(
         agent, world_state, tick, memories, relationships, recent_events, living_agents, group_context,
