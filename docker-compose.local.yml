@@ -18,7 +18,9 @@ services:
       - redis
 
   db:
-    image: postgis/postgis:16-3.4-alpine
+    build:
+      context: .
+      dockerfile: compose/postgres/Dockerfile
     volumes:
       - epocha_postgres_data:/var/lib/postgresql/data
     env_file:

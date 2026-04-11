@@ -157,10 +157,10 @@ EPOCHA_KG_EMBEDDING_BATCH_SIZE = env.int("EPOCHA_KG_EMBEDDING_BATCH_SIZE", defau
 Run:
 
 ```bash
-docker compose -f docker-compose.local.yml build postgres
-docker compose -f docker-compose.local.yml up -d postgres
-docker compose -f docker-compose.local.yml exec -T postgres psql -U epocha -d epocha -c "CREATE EXTENSION IF NOT EXISTS vector;"
-docker compose -f docker-compose.local.yml exec -T postgres psql -U epocha -d epocha -c "SELECT extname FROM pg_extension;"
+docker compose -f docker-compose.local.yml build db
+docker compose -f docker-compose.local.yml up -d db
+docker compose -f docker-compose.local.yml exec -T db psql -U epocha -d epocha -c "CREATE EXTENSION IF NOT EXISTS vector;"
+docker compose -f docker-compose.local.yml exec -T db psql -U epocha -d epocha -c "SELECT extname FROM pg_extension;"
 ```
 
 Expected output: the extensions list includes `postgis` and `vector`.

@@ -52,6 +52,7 @@ LOCAL_APPS = [
     "epocha.apps.chat",
     "epocha.apps.llm_adapter",
     "epocha.apps.dashboard",
+    "epocha.apps.knowledge",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -202,3 +203,16 @@ EPOCHA_GOVERNMENT_GINI_REVOLT_THRESHOLD = env.float("EPOCHA_GOVERNMENT_GINI_REVO
 
 # Government stability threshold below which coups become possible.
 EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD = env.float("EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD", default=0.3)
+
+# --- Knowledge Graph ---
+# Master switch for the Knowledge Graph feature.
+EPOCHA_KG_ENABLED = env.bool("EPOCHA_KG_ENABLED", default=True)
+
+# Maximum number of text chunks produced per uploaded document.
+EPOCHA_KG_MAX_CHUNKS_PER_DOC = env.int("EPOCHA_KG_MAX_CHUNKS_PER_DOC", default=50)
+
+# Maximum number of characters accepted from a single uploaded document.
+EPOCHA_KG_MAX_DOCUMENT_CHARS = env.int("EPOCHA_KG_MAX_DOCUMENT_CHARS", default=500000)
+
+# Batch size used when computing embeddings for chunks.
+EPOCHA_KG_EMBEDDING_BATCH_SIZE = env.int("EPOCHA_KG_EMBEDDING_BATCH_SIZE", default=10)
