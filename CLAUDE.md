@@ -1,0 +1,350 @@
+# CLAUDE.md
+
+Guide for Claude Code — Epocha: AI-powered civilization simulator.
+
+## Project
+
+- **Repository**: https://github.com/mauriziomocci/epocha
+- **License**: Apache 2.0
+- **Owner**: Maurizio Mocci (@mauriziomocci)
+- **Status**: MVP in development (pre-release)
+
+## Quick Reference
+
+```bash
+# Health check
+docker compose -f docker-compose.local.yml ps
+
+# Development
+docker compose -f docker-compose.local.yml up --build
+
+# Testing
+pytest --cov=epocha -v               # Full suite
+pytest epocha/apps/simulation/ -v     # Single app
+pytest -k "test_specific" -v          # Single test
+
+# Quality
+ruff check .
+ruff format --check .
+```
+
+## Architecture
+
+**Stack**: Django 5.x + DRF | PostgreSQL (future: + PostGIS + pgvector) | Celery + Redis | Django Channels | OpenAI-compatible LLM API
+
+**Apps**: `epocha.apps.users` (auth), `simulation` (tick engine, events), `agents` (personality, memory, decisions), `world` (map, economy, zones), `chat` (WebSocket conversations), `llm_adapter` (provider abstraction)
+
+**API** (`/api/v1/`): `users/`, `simulations/`, `agents/`, `worlds/`, `chat/`
+
+**WebSocket**: `ws/simulation/<id>/` (real-time state), `ws/chat/<agent_id>/` (agent conversations)
+
+**Celery**: `run_simulation_loop` (self-enqueuing tick loop), `process_agent_turn` (single agent decision), `generate_agent_response` (chat response)
+
+**Config**: `config/settings/` — `base.py` (shared), `local.py` (dev), `production.py` (prod), `test.py` (pytest)
+
+**Files**:
+- `config/` — Django settings, ASGI, Celery, URL routing
+- `epocha/apps/` — All Django apps (domain logic)
+- `epocha/common/` — Shared utilities (pagination, permissions, exceptions)
+- `compose/` — Dockerfiles and entrypoints
+- `requirements/` — Dependency files (base, local, production)
+- `docs/` — Design specs and implementation plans
+
+## Agent Rules
+
+### CRITICAL: Scientific Rigor
+
+**CRITICAL RULE**: Epocha is a scientific simulation, not a toy. Every model, algorithm, formula, and behavioral rule implemented in the codebase must be grounded in established science.
+
+**Requirements:**
+1. **Every mathematical model must cite its source** — whether it is a textbook formula, a peer-reviewed paper, or an established algorithm. The source must be documented in the code (docstring or comment with reference).
+2. **Parameters must have realistic values** — not arbitrary numbers. If a parameter represents a real-world quantity (population growth rate, inflation coefficient, disease transmission rate), its default value must come from real data. Document where the value comes from.
+3. **Models must be validated** — before merging any scientific model, verify it produces outputs consistent with known historical data or published results. Include validation tests that compare model output against reference data.
+4. **No "magic numbers"** — every constant in a formula must be named, documented, and justified. `DECAY_RATE = 0.002` is not acceptable without a comment explaining why 0.002 and where it comes from.
+5. **Game theory equilibria must be computed correctly** — Nash equilibria, Shapley values, and other game-theoretic computations must use established algorithms, not approximations, unless the approximation is documented and justified.
+6. **When in doubt, simplify rather than guess** — a simple model with correct assumptions is better than a complex model with made-up parameters. If we do not have data to calibrate a model, use the simplest defensible version and document the limitation.
+
+### CRITICAL: Code Quality Standards
+
+**CRITICAL RULE**: All code in Epocha must be elegant, scalable, Pythonic, and follow Django best practices. This is not aspirational — it is a mandatory standard for every line of code.
+
+**Principles:**
+
+1. **DRY (Don't Repeat Yourself)** — No duplicated logic anywhere. If code appears twice, extract it. No exceptions. This applies to: models, views, serializers, tasks, tests, templates, configurations.
+
+2. **Pythonic code** — Follow PEP 20 (The Zen of Python by Tim Peters):
+   - Beautiful is better than ugly
+   - Explicit is better than implicit
+   - Simple is better than complex
+   - Flat is better than nested
+   - Readability counts
+   - There should be one — and preferably only one — obvious way to do it
+
+3. **Django best practices** — Follow the official Django documentation and Two Scoops of Django (Feldroy) conventions:
+   - Fat models, thin views — business logic belongs in models and service modules, not in views
+   - Use Django's built-in tools before reaching for third-party packages
+   - Keep apps small and focused (single responsibility)
+   - Use `select_related()` and `prefetch_related()` proactively, not as afterthought
+   - Use class-based views when they simplify, function-based when they clarify
+   - Settings split by environment (base/local/production/test)
+   - Use `django-environ` for configuration
+   - Use `reverse()` for URL references, never hardcode paths
+
+4. **Reusable by design** — Every component should be written with reuse in mind where it makes sense:
+   - Extract common patterns into mixins, base classes, or utility functions in `epocha/common/`
+   - Serializer mixins for shared field sets
+   - Model mixins for shared behaviors (TimestampMixin, etc.)
+   - Service layer functions that can be called from views, tasks, and management commands
+   - But: do not over-abstract. Three similar lines are better than a premature abstraction
+
+5. **Scalable architecture** — Code must work at small scale (MVP, 20 agents) and be ready for large scale (hundreds of agents, multiple simulations) without rewriting:
+   - Database queries must be efficient at any scale (N+1 forbidden)
+   - Celery tasks must be idempotent and safe for concurrent execution
+   - State management through database, not in-memory globals
+   - Horizontal scaling must be possible without code changes
+
+6. **Reference standards:**
+   - [Django Official Documentation](https://docs.djangoproject.com/)
+   - [Two Scoops of Django](https://github.com/feldroy/two-scoops-of-django-3.x)
+   - [PEP 8](https://peps.python.org/pep-0008/) — Style Guide
+   - [PEP 20](https://peps.python.org/pep-0020/) — The Zen of Python
+   - [DRF Best Practices](https://www.django-rest-framework.org/)
+
+### CRITICAL: Three-Step Design Process
+
+**CRITICAL RULE**: before producing any design document (spec, architecture proposal, data model, API contract), follow a mandatory three-step iterative process. Skipping steps is forbidden. This applies to every design task, regardless of perceived simplicity.
+
+**Step 1 — Initial proposal**: after gathering requirements through brainstorming, present a first complete design. It must be detailed enough to be evaluated on its merits (models, interfaces, data flow, trade-offs, dependencies). Do not write the spec file yet.
+
+**Step 2 — First critical self-review**: immediately after presenting the initial proposal, perform a deep critical review of your own work. Look for: anti-patterns, missing edge cases, decisions hidden behind "for simplicity", architectural smells (mutually-exclusive FKs, generic foreign keys, JSON blobs where relational would serve, free-text fields where controlled vocabularies should exist), scalability issues, missing dependencies, unclear versioning, race conditions, security gaps. Be as critical as an adversarial reviewer. Write the findings as a categorized list (critical / important / minor / what works). Propose fixes for each finding.
+
+**Step 3 — Second critical self-review and consolidation**: review the fixes from step 2 with fresh eyes. Look for fixes that introduced new problems, fixes that are still too shallow, gaps not addressed in the first review. Then produce the final consolidated design that integrates all valid fixes from both reviews. Only after this step write the spec document.
+
+**Why**: a single-pass design hides unexamined assumptions. The first review catches obvious smells; the second catches problems introduced or missed by the fixes. Two rounds of critical self-review are the minimum to produce a design worth implementing. This process was formalized on 2026-04-11 after it produced a materially better Knowledge Graph design than a single-pass attempt would have.
+
+**How to apply**:
+- After brainstorming, present the design in sections (step 1)
+- Immediately launch the self-review without waiting for the user to ask (step 2)
+- Before writing the spec, run a second review explicitly on the fixes (step 3)
+- Only after step 3 write the spec file and proceed to the planning phase
+
+### CRITICAL: Understand Before Implementing
+
+**CRITICAL RULE**: before writing any code — whether fixing a bug, building a new feature, or designing an architecture — invest time in understanding the full context: how the existing system works, why it works that way, and what already exists. Solving a symptom without understanding the root cause leads to layered workarounds instead of clean solutions.
+
+### CRITICAL: Verify Before Asserting
+
+**CRITICAL RULE**: never present assumptions, hypotheses, or inferences as verified facts. Before stating how something works — in code, documentation, or communication — verify it directly in the source code or data. If something has not been verified, say so explicitly.
+
+### CRITICAL: Exhaustive Bug Analysis
+
+**CRITICAL RULE**: when a bug or inconsistency is found, **never stop at the first problem**. Follow a structured 4-phase process:
+
+**Phase 1 — Define scope**: explicitly declare the analysis boundaries (method, class, module, flow) before starting.
+
+**Phase 2 — Systematic comparison**: if a working "twin" method exists, perform a **complete line-by-line comparison**. Do not stop at the first divergence. Every differing line is a potential independent bug.
+
+**Phase 3 — Symptom-cause map**: build an explicit table for every reported symptom:
+
+| Symptom | Identified cause | Required fix | Covered by this fix? |
+|---------|-----------------|--------------|---------------------|
+
+If a symptom has no identified cause, the analysis is incomplete.
+
+**Phase 4 — Explicit declaration**: conclusions must always follow the format: **"this fix resolves X. It does NOT resolve Y, which requires a separate fix on Z."** Never implicit conclusions, never present a partial fix as a complete solution.
+
+### CRITICAL: Evidence-Based Verification
+
+**CRITICAL RULE**: never claim that a fix, feature, or change "works" or is "confirmed" without concrete evidence from the actual running environment. Follow this protocol:
+
+1. **Unit tests are necessary but not sufficient**: a passing test proves the logic is correct in isolation. It does NOT prove the fix works in production.
+
+2. **After deploying a fix**: verify in the real environment. Check logs, reproduce the original scenario, or observe the expected behavior change. If verification is not possible immediately, explicitly state: **"deployed but not yet verified — requires [specific verification steps]"**.
+
+3. **Never extrapolate success**: if a test passes or a deploy succeeds, report exactly that — not that "the problem is resolved".
+
+4. **Explicit confidence level**: when reporting fix status, always use one of:
+   - **"Verified in production/stage"**: the fix was observed working in the real environment
+   - **"Tests passing, deployed, real environment verification pending"**: logic is correct, deployed, but not yet confirmed
+   - **"Unit tests only"**: logic tested in isolation only
+
+### Core Behavior
+
+- **Read CLAUDE.md first**: before starting any task, re-read the Agent Rules in this file
+- **Read and understand existing files** before modifying code
+- Avoid over-engineering: only implement what is requested
+- Prefer editing existing files over creating new ones
+- Do NOT create documentation files unless explicitly requested
+- All code, documentation, comments, docstrings, logs: **English only**, NO emoji/emoticon
+- Commit messages: **English** (Conventional Commits), PEP 8 with 120 char line limit, double quotes
+- Tests: **ZERO failing tests**. Use `pytest.mark.skip(reason="TODO: ...")` when necessary
+
+### Execution Discipline
+
+1. **Plan before acting**: read directives, understand the codebase context, then call tools, subagents, and MCP agents in the correct logical order. Do not guess or skip steps.
+2. **Understand before implementing**: never start coding before understanding the full context and root cause.
+3. **Verify before asserting**: never state something as fact without verifying it in the source code or data first.
+4. **Handle errors, do not ignore them**: read the full error message and stack trace carefully. Diagnose the root cause, fix the code, and re-test until it passes.
+5. **Evidence before assertions**: never claim something works without evidence from the real environment.
+6. **Ask for clarification when needed**: if requirements are ambiguous or a decision has multiple valid approaches, ask the user before proceeding.
+7. **Learn and update directives**: if you discover a new pattern or recurring pitfall, **propose** the update to CLAUDE.md to the user. Do not modify directives autonomously.
+
+### Code Comments and Docstrings
+
+- **Language**: English, professional and precise tone
+- **NO emoji/emoticon** in any context
+- **Docstring content**: explain the "why" beyond the "what". Document non-obvious technical decisions explicitly
+- **Queryset and dependencies**: if a component requires specific `select_related`/`prefetch_related`, document the requirements in the class docstring
+
+### Documentation Sync
+
+After any code change, update all affected documentation **in the same commit**:
+
+- **Docstrings**: update if method signature, behavior, or return value changed
+- **README files**: update if the change affects architecture, workflows, configuration, or operational procedures
+
+Do NOT leave documentation updates for a separate commit.
+
+### Mandatory Code Review
+
+**CRITICAL RULE**: after writing any code, **BEFORE proposing a commit** you must ALWAYS perform a thorough code review. No exceptions.
+
+The code review must verify:
+
+1. **Pythonic style and DRF best practices**
+2. **DRY violations**: duplicated logic that can be extracted
+3. **Exception handling**: specific exceptions (never bare `except Exception` if expected type is known)
+4. **Codebase consistency**: field types, naming, architectural patterns
+5. **Scalability**: no N+1 queries or uncontrolled recursive serialization
+6. **Security**: no unexpected side-effects, no sensitive data exposure
+7. **Documentation**: docstrings in English, clear and complete
+8. **Documentation sync**: docstrings and README files are updated if the change affects them
+
+Fix issues BEFORE proposing the commit. Report what was found and corrected.
+
+## Mandatory Rules
+
+### Query Performance (N+1 FORBIDDEN)
+```python
+# WRONG - for user in users: Activity.objects.filter(user=user).count()
+# CORRECT - users.annotate(activity_count=Count('activity'))
+```
+- `select_related()` for FK/OneToOne, `prefetch_related()` for M2M/reverse FK
+- `aggregate()`/`annotate()` instead of Python loops
+- `[:limit]` or `.only()` on large queries
+- Redis cache for aggregations (TTL: 5-15min)
+
+### Security (OWASP Top 10)
+```python
+# WRONG - Model.objects.raw(f"SELECT * WHERE id = {user_input}")
+# CORRECT - Model.objects.filter(id=user_input)
+```
+- NEVER SQL queries with string concatenation, NEVER log passwords/tokens
+- Validate ALL inputs, verify permissions before every operation
+
+### Test Quality
+- **NO xfail** — Use `pytest.mark.skip(reason="TODO: ...")` instead
+- **PostgreSQL** for all tests (not SQLite)
+- Run full test suite before every commit
+
+### Git Commits
+
+**ALWAYS use** `git-commit-assistant` agent. **NEVER auto-push**.
+
+```
+type(scope): brief description
+
+CHANGE: Technical explanation.
+```
+
+Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `style`
+Scope: Django app name (e.g. `simulation`, `agents`, `world`, `chat`, `llm-adapter`, `config`)
+
+**FORBIDDEN**: References to Claude/AI, emoji/emoticon, Co-Authored-By, attribution lines. Commits must appear as entirely written by the human developer.
+
+### Git Workflow
+
+**Branch naming**: `feature/<short-description>`, `fix/<short-description>`, `refactor/<short-description>`
+
+**Branch strategy**:
+
+| Work item type | Base branch | PR target |
+|----------------|-------------|-----------|
+| Feature / Fix | `develop` | `develop` |
+| Large feature with subtasks | feature branch from `develop` | feature branch → `develop` |
+| Release | `develop` | `main` |
+
+**Pull Request rules**:
+- Title and description in English, complete and detailed
+- Create as Draft until ready for review
+- Code review must pass before merging
+- Never force-push to shared branches
+
+### Work Item Lifecycle
+
+#### Phase 1 — Understand and design
+
+1. **Analyze and plan** — Explore the codebase, understand the existing system, identify affected components. Produce a plan with architecture, trade-offs, and task list.
+2. **Get user approval** — Wait for explicit approval before proceeding.
+
+#### Phase 2 — Set up branch and PR
+
+3. **Create the branch** — Branch name in English (e.g. `feature/agent-decision-pipeline`).
+4. **Create Draft PR** — Title and description in English, complete and detailed.
+
+#### Phase 3 — Implement
+
+5. **Write code** — Follow all Agent Rules and Mandatory Rules.
+6. **Code review (iterative)** — Before every commit, perform code review. All 8 review points must pass.
+7. **Run tests locally** — `pytest --cov=epocha -v`. All must pass.
+8. **Commit** — Use `git-commit-assistant` agent. NEVER auto-push.
+9. **Push** — Push and verify CI pipeline passes.
+
+Repeat steps 5-9 as needed.
+
+#### Phase 4 — Complete the PR
+
+10. **Final code review** — On full PR diff (all commits, not just last).
+11. **Remove Draft status** — Mark PR as ready for review.
+12. **Merge** — After approval.
+
+### Writing Style (PRs, plans, documentation)
+
+Text must read as if written by an experienced developer, not generated by AI:
+
+- **Narrative, not mechanical**: write in a conversational form. Avoid endless bullet lists, repetitive structures, or telegraphic sentences.
+- **Avoid AI-recognizable patterns**: never start every point with the same grammatical structure. Vary the form.
+- **Direct and concrete tone**: like a colleague explaining to another colleague. No excessive formalism, no safety disclaimers, no obvious repetitions.
+- **Proportion**: sections should have weight proportional to complexity. A trivial fix gets one line. A complex architecture gets a paragraph.
+- **Context before detail**: briefly explain the why before listing the what.
+
+## Conventions
+
+### Settings
+```python
+from django.conf import settings
+value = settings.EPOCHA_DEFAULT_LLM_PROVIDER
+```
+
+### LLM Calls
+```python
+from epocha.apps.llm_adapter.client import get_llm_client
+client = get_llm_client()
+response = client.complete(prompt="...", system_prompt="...")
+```
+
+### Django Signals
+- Location: `{app}/signals.py` (NEVER in models.py)
+- Registration via `AppConfig.ready()`
+
+## Key Documents
+
+| Document | When to consult |
+|----------|-----------------|
+| `docs/superpowers/specs/2026-03-22-epocha-design.md` | Full project design and vision |
+| `docs/superpowers/plans/2026-03-23-mvp-implementation.md` | MVP implementation plan with tasks |
+| `docs/letture-consigliate.md` | Recommended reading for contributors |
+
+## Known Limitations
+
+**AI Attribution**: FORBIDDEN any reference to Claude/AI in commits, comments, docstrings, docs, logs. No emoji/emoticon anywhere.

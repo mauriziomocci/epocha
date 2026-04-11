@@ -24,9 +24,6 @@ mediafiles/
 .envs/.production/
 .env
 
-# Claude Code config (personal, not shared)
-CLAUDE.md
-
 # IDE
 .idea/
 .vscode/
