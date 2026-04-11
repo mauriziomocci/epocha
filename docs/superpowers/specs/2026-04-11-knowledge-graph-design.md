@@ -1342,3 +1342,324 @@ Not in this iteration, deferred to follow-up features:
   mid-simulation
 - Full-text search inside documents and chunks (only vector similarity
   is supported in this iteration)
+
+## FAQ
+
+This section answers the questions a reviewer or implementer is most
+likely to ask about the design rationale. Each answer cites the
+relevant section of the spec or the scientific reference behind the
+decision.
+
+### Ontology and vocabulary
+
+**Q: Why exactly 10 entity types? Why not more, why not fewer?**
+A: Ten is the minimum set that covers the conceptual distinctions
+needed by a political-historical simulator without being theoretically
+unjustifiable. The types map to established categories in Searle
+(1995) for social reality, CIDOC-CRM for historical events and places,
+and Freeden (1996) for the concept/ideology/value/norm distinction.
+Adding more types (e.g. "period", "era", "movement") would reintroduce
+ambiguity without operational benefit; removing any would collapse a
+distinction that carries real weight in political analysis (e.g.
+merging `concept` and `ideology` would erase Freeden's central thesis).
+
+**Q: Why 20 relation types and not a free-form relation vocabulary?**
+A: A free-form vocabulary produced by an LLM generates dozens of
+synonyms for the same concept ("allies_with", "is allied with", "has
+alliance with", "ally", "alliance"). The graph would look rich but be
+semantically broken: no query like "who are Robespierre's allies?"
+would work consistently. The 20-relation controlled vocabulary
+guarantees queryable uniformity at the cost of minor expressiveness.
+Relations outside the vocabulary are dropped and logged to
+`unrecognized_relations` for future review; if a dropped type proves
+frequent we add it in v2.
+
+**Q: Why did we drop `llm_knowledge` as a source type?**
+A: During the second critical review we discovered the spec declared
+the source type but no pipeline stage actually produced it. The only
+reference was a note about a "research-agent enrichment step" that
+did not exist in the pipeline and would require significant new work
+to integrate with the existing `agents.research` module. Rather than
+ship a dead field, we removed it from the MVP and explicitly deferred
+the enrichment integration to a follow-up feature.
+
+**Q: Why assign `source_type` mechanically instead of asking the LLM?**
+A: LLMs are notoriously bad at introspecting whether a fact came from
+the input passage or their pre-training knowledge. They confidently
+mark as "literal" things they inferred, and vice versa. The
+mechanical rule — substring check of the entity name inside
+`passage_excerpt` — is deterministic, verifiable, and cheap. It may
+occasionally misclassify entities whose canonical name differs from
+how they appear in the passage (e.g. "Louis Capet" in the passage vs
+"Louis XVI" as name), but such cases are rare and the fallback to
+`document_inferred` is semantically honest: we inferred the identity.
+
+**Q: Why is "Jacobin Club" classified as `institution` and not `group`?**
+A: The disambiguation rule in the ontology prioritizes more specific
+formalization levels: `institution` > `group` > `concept`/`ideology`.
+The Jacobin Club had formalized membership, procedures, a charter,
+leadership roles. Those are the hallmarks of an institution per
+Searle. The informal social movement of "Jacobins" as a broader
+cultural phenomenon would be classified as `group`, but specific
+organizations with procedures are institutions.
+
+### Embedding and similarity
+
+**Q: Why BAAI/bge-m3 and not OpenAI text-embedding-3-small?**
+A: Three reasons, in order: reproducibility, cost, language coverage.
+Reproducibility — bge-m3 runs locally with pinned ONNX weights, so
+same text + same version always produces the same vector. OpenAI API
+embeddings can change without notice as the provider updates models
+server-side. Cost — one-time model download vs per-call API charges.
+Language coverage — bge-m3 supports 100+ languages out of the box,
+which matters because historical documents in Epocha are often in
+French, Italian, German, Latin, not just English. OpenAI's models
+are trained predominantly on English.
+
+**Q: Why fastembed and not sentence-transformers / torch?**
+A: The sentence-transformers library depends on torch, which adds
+approximately 2 GB to the Docker image. fastembed runs the same
+model families via ONNX Runtime with roughly 100 MB of overhead. For
+a project that ships via Docker Compose and runs on modest hardware,
+a 20x reduction in image size is worth the slight configuration
+complexity of fastembed. Both libraries produce identical outputs for
+the same model weights.
+
+**Q: Why 0.85 as the deduplication similarity threshold?**
+A: It's an initial heuristic, not an empirically-derived optimum.
+The spec is honest about this in the Known Limitations section.
+0.85 is the value most commonly used in the semantic dedup literature
+for cosine similarity on modern 1024-dim embeddings of short texts.
+Too low (< 0.8) merges distinct entities; too high (> 0.92) leaves
+duplicates. Once the pipeline is running on representative historical
+documents, the threshold will be recalibrated based on false-positive
+and false-negative counts.
+
+**Q: Why do we re-embed merged nodes instead of averaging input vectors?**
+A: Averaging produces a vector that is not in the embedding manifold
+of any specific text — it drifts toward a "centroid" that no real
+sentence would embed to. Re-embedding the merged canonical name +
+description produces a vector that correctly represents the merged
+entity's identity and is interchangeable with fresh embeddings at
+query time.
+
+### Caching
+
+**Q: Why cache the LLM extraction output instead of the materialized graph?**
+A: The expensive operation is the LLM extraction (seconds per chunk,
+minutes per document). The materialization is cheap (milliseconds to
+INSERT rows). Caching only the expensive part while rematerializing
+per simulation gives us: optimization where it matters, isolation
+where it matters, no relational-to-JSON-to-relational round-trip loss
+of queryability, and simpler code. Earlier iterations of the design
+considered sharing materialized graphs via a template/overlay
+pattern; that introduced JOIN overhead on every read query, which
+outweighed the storage savings.
+
+**Q: Why does the cache key include the LLM model name?**
+A: Different LLMs produce different extraction outputs from the same
+prompt. Switching from llama-3.3-70b to gpt-4o would silently
+contaminate cached results with output from the old model. Including
+the model name in the cache key forces re-extraction on model
+changes, preserving reproducibility.
+
+**Q: Why does the cache key include the prompt version but not the**
+**ontology version separately?**
+A: It actually includes both. The cache key is composed of four
+fields: documents_hash, ontology_version, extraction_prompt_version,
+llm_model. Any change to any of these invalidates the cache. The
+separation between ontology and prompt version is intentional: we
+might want to update the examples in the prompt without touching the
+ontology itself, and vice versa. Tracking them separately gives us
+finer-grained cache invalidation.
+
+### Pipeline and integration
+
+**Q: Why extract entities per-chunk instead of from the full document?**
+A: Three reasons. First, LLM context quality degrades on very long
+inputs — models extract better entities from focused passages than
+from whole documents. Second, per-chunk extraction provides natural
+traceability: each extracted item can cite the specific chunk it
+came from, satisfying the scientific rigor requirement that every
+claim has a source reference. Third, it enables parallel processing
+in the future: chunks can be extracted concurrently if we hit
+throughput limits with a single worker.
+
+**Q: What happens to relations that span two different chunks?**
+A: They are not extracted. If "Robespierre" appears in chunk 5 and
+"Declaration of the Rights of Man" in chunk 20 without the
+`authored` relation explicitly stated in either chunk, we miss that
+relation. This is an acknowledged limitation of per-chunk extraction.
+Future work can add a cross-chunk relation extraction pass using the
+full extracted entity set as a reference, or leverage the deferred
+`llm_knowledge` source type to add known cross-references from the
+model's training data.
+
+**Q: How does the graph integrate with existing world generation?**
+A: `generate_world_from_prompt` gains an optional `knowledge_graph`
+parameter. When provided, the agent generation prompt is built from
+the structured graph data (list of Person entities with their
+ideologies, group memberships, and relations) instead of from raw
+text. This produces agents that are coherent with the historical
+context because the LLM starts from a structured understanding of
+who exists, what they believe, and how they relate. When no
+documents are uploaded, the existing prompt-only flow remains
+available unchanged.
+
+**Q: How do graph nodes get linked back to simulation entities**
+**(Agent, Zone, etc.)?**
+A: During world generation, when the generator creates an Agent from
+a Person node, it sets `person_node.linked_agent = agent` and saves.
+Same pattern for Zone, Group, Institution, Event. These FK fields are
+nullable because (a) most nodes in the graph never become simulation
+entities (they are context: events in the past, ideologies, places
+outside the simulation scope) and (b) the linking happens post-hoc,
+after the graph is materialized and the world is generated.
+
+**Q: Can agents access the knowledge graph during simulation ticks?**
+A: Not in this iteration. Agents make decisions via the existing
+decision pipeline which uses their personal memories and
+relationships, not the global knowledge graph. Extending agents with
+graph-aware retrieval (e.g. "Robespierre recalls that Danton was a
+founding member of the Cordeliers Club") is a legitimate follow-up
+feature but out of scope for the MVP. The graph is consumed only at
+world generation time and at visualization time.
+
+### Performance and limits
+
+**Q: How long does extraction take for a typical document?**
+A: Rough estimate: 50 chunks at ~1 second per LLM call with Groq
+llama-3.3-70b = ~1 minute, plus ~10 seconds for embedding all
+chunks, plus ~5 seconds for merge and materialization. Total ~1-2
+minutes for a medium document. First run on a new document set is
+slower than subsequent runs because of cache warmup; re-runs with
+cache hit are near-instant.
+
+**Q: What's the maximum document size we can process?**
+A: Two caps: 500000 characters per document (rejected at upload with
+a clear error) and 50 chunks per document (excess chunks are
+truncated with a warning). Both are configurable via settings. The
+500000 cap corresponds to roughly 100-125k tokens — enough for most
+historical chapters and articles, but smaller than a full monograph.
+Supporting book-length documents requires either streaming extraction
+or splitting across multiple KnowledgeDocument rows, both of which
+are follow-up work.
+
+**Q: Is the O(N²) deduplication a scalability problem?**
+A: For realistic document sizes (hundreds of entities per type after
+extraction), N² similarity comparison runs in sub-second time. For
+pathological cases with thousands of entities per type, it can take
+tens of seconds. Future optimization: approximate clustering via
+pgvector cosine similarity search on the chunk embeddings index,
+reducing dedup to O(N log N). Not implemented in the MVP because the
+constant factors matter less than the simplicity of the O(N²)
+all-pairs approach.
+
+### Reproducibility and determinism
+
+**Q: How reproducible are the extraction results?**
+A: Mostly reproducible, with one caveat. Deterministic factors:
+document hashing, chunking (same text always produces same chunks),
+embedding (bge-m3 with pinned weights), cache lookup. Non-deterministic
+factor: the LLM extraction itself. Even with `temperature=0.1`, LLMs
+are not perfectly deterministic on the same input. To mitigate, the
+extraction prompt is strict about JSON schema and the validators drop
+outputs that do not conform, which enforces structural consistency
+even if content varies slightly. A stronger determinism guarantee
+would require cached LLM responses (essentially what the extraction
+cache already does on the second run).
+
+**Q: What if the bge-m3 model changes upstream?**
+A: We pin the model version via fastembed's model cache. If we
+explicitly upgrade the model (e.g. to bge-m3.1), we bump
+`EMBEDDING_MODEL` in versions.py, which invalidates all existing
+extraction cache entries. Users would need to re-run extraction
+against the new model; existing simulations would continue to
+operate on their materialized graphs unaffected (embeddings are
+stored per-chunk, not re-computed on read).
+
+### Comparison with alternatives
+
+**Q: How does this compare to MiroFish or GraphRAG?**
+A: MiroFish (which inspired parts of this design) uses Zep Cloud for
+graph storage and OASIS for multi-agent orchestration. We use
+pgvector directly on the existing Postgres and integrate with the
+existing Celery + Django stack — no new service dependencies. GraphRAG
+by Microsoft Research is more sophisticated (community detection,
+hierarchical summarization) but requires significantly more LLM
+calls and complex graph traversal. Our approach is a simpler middle
+ground: structured extraction per chunk, merged across chunks,
+materialized per simulation. We can adopt GraphRAG techniques later
+if extraction quality proves insufficient.
+
+**Q: Why not use neo4j or another dedicated graph database?**
+A: Adding a new service to the stack increases operational complexity
+without clear benefit at this scale. Our graphs are small (hundreds
+of nodes, thousands of edges per simulation) and most queries are
+simple filters and JOINs. Postgres with pgvector handles this
+comfortably and benefits from transactional consistency with the
+rest of the simulation data. If graph-specific queries become a
+bottleneck in the future (e.g. deep path traversal, cycle detection),
+neo4j remains an option.
+
+**Q: Why not use LlamaIndex or LangChain's knowledge graph tooling?**
+A: Both libraries offer off-the-shelf knowledge graph extraction, but
+they hide the extraction logic behind multiple abstraction layers
+and make it hard to enforce our specific ontology, vocabulary, and
+scientific rigor requirements. We use langchain-text-splitters for
+the one piece that genuinely benefits from a library (recursive
+text splitting with sentence awareness) and write the rest ourselves.
+This keeps the code auditable and the design decisions explicit.
+
+### Privacy and security
+
+**Q: How is privacy handled with document uploads?**
+A: Documents are deduplicated across users via content_hash. This
+means two users uploading the same public document share one row.
+Private documents are shielded by the KnowledgeDocumentAccess M2M
+table: access is per-user, not per-document. If User A uploads a
+private note and User B (without access) happens to upload the same
+content, they end up sharing the row via the hash match, and both
+have access entries. This is a theoretical concern for truly
+confidential content. The mitigation for the MVP is documentation:
+users should be warned that uploaded documents are not cryptographically
+isolated, and truly sensitive content should not be uploaded. A
+future iteration can add per-user encryption or segmented storage.
+
+**Q: What happens if the LLM produces malicious output (e.g. prompt**
+**injection via the document content)?**
+A: The extraction pipeline validates every LLM output against the
+controlled vocabulary and schema. Entities with unknown types are
+dropped. Relations with unknown types are dropped. Items without a
+`passage_excerpt` are dropped. Items where the passage_excerpt is not
+actually present in the chunk text can be detected post-hoc and
+demoted. Prompt injection attempting to add fake entities cannot
+escape the structured validation. The worst a malicious document can
+do is add plausibly-named but fake entities to the graph, which
+would show up in the visualization but would be traceable to the
+originating chunk via the citation system.
+
+### Operational
+
+**Q: What if extraction fails mid-way?**
+A: The Celery task retries up to 3 times per chunk on LLM errors.
+Final failures leave the chunk with no extracted content but do not
+fail the whole extraction. The resulting graph is partial but
+queryable. `KnowledgeGraph.status` is set to "failed" with the error
+message in `error_message` only if the overall pipeline cannot
+complete (e.g. database transaction failure). Users see the status
+via the extraction-status API and can retry by re-submitting the
+same documents; the cache will skip chunks that already succeeded.
+
+**Q: How do we cleanup old cache entries?**
+A: A Django management command `cleanup_extraction_cache` purges
+entries older than a configurable age with hit_count below a
+threshold. It's intended for manual or scheduled use, not automatic.
+This prevents unbounded cache growth after version bumps that
+invalidate many entries.
+
+---
+
+If you have questions not covered here, either the spec needs a new
+entry (open a PR to add it) or the answer is in the main body of the
+spec and this FAQ should point to it.

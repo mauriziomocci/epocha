@@ -128,6 +128,31 @@ ruff format --check .
 - Before writing the spec, run a second review explicitly on the fixes (step 3)
 - Only after step 3 write the spec file and proceed to the planning phase
 
+### CRITICAL: Every Spec Includes a FAQ Section
+
+**CRITICAL RULE**: every design specification document must include a FAQ section at the end that answers the questions a reviewer or implementer is most likely to ask. The FAQ is not optional filler; it is the place where design rationale is explicitly surfaced so future readers do not need to re-derive it from context.
+
+**Why**: a spec describes *what* is being built. Without an explicit FAQ, the *why* lives only in the chat transcripts and tribal knowledge of whoever wrote it. Six months later, when someone reviews the code and asks "why did we pick X instead of Y?", the answer is either lost or requires archaeological work to reconstruct. A FAQ locks the reasoning into the versioned spec where it cannot be lost.
+
+**What the FAQ must cover**:
+- **Design decisions**: for every non-obvious choice (ontology size, data types, algorithms, thresholds), answer "why this and not the alternative?"
+- **Scientific rigor**: how the cited references map to implementation details
+- **Integration**: how the new feature interacts with existing systems
+- **Performance and limits**: expected latency, throughput, cost, hard caps
+- **Reproducibility**: what is deterministic, what is not, and why
+- **Comparison with alternatives**: how the choice compares to off-the-shelf libraries, other databases, competing approaches
+- **Operational concerns**: privacy, failure modes, recovery procedures
+- **Security**: attack surface and mitigations
+
+**How to apply**:
+- Write the FAQ as the last section of the spec, after the Known Limitations and Out of Scope sections
+- Phrase questions in the voice of someone reviewing the spec critically, not in marketing voice
+- Each answer should be 2-5 sentences; longer answers belong in the main body of the spec, with a pointer from the FAQ
+- Include questions the reviewer actually asked during brainstorming — those are the most valuable because they document real ambiguities that existed
+- When in doubt, add the FAQ entry: a spec with too many FAQ entries is a minor inconvenience, a spec with missing FAQ entries leaves the reader guessing
+
+**When to update the FAQ**: any time the spec is revised based on review feedback, add a FAQ entry capturing the decision that was clarified. The FAQ grows with the spec.
+
 ### CRITICAL: Understand Before Implementing
 
 **CRITICAL RULE**: before writing any code — whether fixing a bug, building a new feature, or designing an architecture — invest time in understanding the full context: how the existing system works, why it works that way, and what already exists. Solving a symptom without understanding the root cause leads to layered workarounds instead of clean solutions.
