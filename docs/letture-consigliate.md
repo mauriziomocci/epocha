@@ -58,6 +58,21 @@ Risorse organizzate per area tematica, utili per chiunque voglia contribuire al 
 | Why Nations Fail | Acemoglu & Robinson (2012) | EN | Crown Publishers. Istituzioni inclusive vs estrattive come determinanti del successo delle nazioni. Fondamento per il sistema di salute istituzionale |
 | Corruption and Government | Rose-Ackerman & Palifka (2016) | EN | Cambridge University Press. Cause e conseguenze della corruzione sistemica. Fonte per le soglie di corruzione nelle Epochal Crisis |
 | The Logic of Collective Action | Olson (1965) | EN | Harvard University Press. Perche' i gruppi si formano e come i beni pubblici vengono forniti. Fondamento per il sistema di formazione delle fazioni |
+| High income improves evaluation of life but not emotional well-being | Kahneman & Deaton (2010) | EN | PNAS, 107(38), 16489-16493. Il benessere emotivo raggiunge un plateau sopra una soglia di reddito. Implementato nel sistema economico con curva di saturazione esponenziale |
+| Capital-labor substitution and economic efficiency | Arrow, Chenery, Minhas & Solow (1961) | EN | Review of Economics and Statistics, 43(3), 225-250. Funzione di produzione CES con elasticita' di sostituzione. Fondamento del motore di produzione dell'economia base |
+| Elements of Pure Economics | Walras (1874) | FR/EN | Tatonnement: aggiustamento iterativo dei prezzi verso l'equilibrio di mercato. Meccanismo di clearing nel modulo economico |
+| The Purchasing Power of Money | Fisher (1911) | EN | Macmillan. Equazione dello scambio MV=PQ. La velocita' della moneta come variabile emergente nel modulo monetario |
+| On the Principles of Political Economy and Taxation | Ricardo (1817) | EN | John Murray. Teoria della rendita fondiaria differenziale. Fondamento per la rendita emergente nel sistema di proprieta' |
+| This Time Is Different: Eight Centuries of Financial Folly | Reinhart & Rogoff (2009) | EN | Princeton University Press. Crisi finanziarie, debito sovrano, bancarotta dei governi. Riferimento per la spec 2 (credito/debito) e il trigger di crisi politica da bancarotta |
+| Applying General Equilibrium | Shoven & Whalley (1992) | EN | Cambridge University Press. Riferimento per l'implementazione computazionale dei modelli CGE, estensioni CES multi-fattore, algoritmi di tatonnement |
+| Consumer Demand in the United States | Houthakker & Taylor (1970) | EN | Harvard University Press. Stime empiriche di elasticita' della domanda al prezzo per categorie di beni. Fonte per i valori di elasticita' nei template economici |
+| Prospect Theory: An Analysis of Decision under Risk | Kahneman & Tversky (1979) | EN | Econometrica, 47(2), 263-291. Avversione alla perdita, distorsione delle decisioni sotto rischio. Fondamento per la spec 2 (distorsione economica Big Five) e per il rapporto asimmetrico nelle mobilita' di classe |
+| Stabilizing an Unstable Economy | Minsky (1986) | EN | Yale University Press. Ipotesi di instabilita' finanziaria: cicli di debito che generano fragilita' sistemica. Fondamento per la spec 2 (credito/debito) e la spec 3 (crisi finanziarie) |
+| Irrational Exuberance | Shiller (2000) | EN | Princeton University Press. Bolle speculative, euforia irrazionale dei mercati. Riferimento per la spec 3 (mercati finanziari) |
+| Agent-based Computational Finance | LeBaron (2006) | EN | In Handbook of Computational Economics, Vol. 2. Modelli agent-based per i mercati finanziari. Riferimento per la spec 3 |
+| Geography and Trade | Krugman (1991) | EN | MIT Press. Modelli gravitazionali del commercio, effetti della distanza. Riferimento per la spec 2 (commercio multi-zona con friction) |
+| The Oxford History of the French Revolution | Doyle (1989) | EN | Oxford University Press. La crisi fiscale dell'Ancien Regime come trigger della Rivoluzione. Fonte per il meccanismo bancarotta-governo → crisi politica |
+| Growing Artificial Societies: Social Science from the Bottom Up | Epstein & Axtell (1996) | EN | MIT Press. Fondamento per l'approccio agent-based alla simulazione economica, inclusa la distribuzione iniziale di ricchezza |
 
 ### Scienza politica e stabilita'
 

@@ -163,6 +163,16 @@ The scientific method must be prioritary over everything and perfectly executed 
 - The audit produces a structured report with categories: INCORRECT (wrong formula, wrong citation, wrong parameter), UNJUSTIFIED (parameter without source, simplification without documentation), INCONSISTENT (contradictions between modules), MISSING (undocumented assumptions, missing edge cases), VERIFIED (items checked and confirmed correct).
 - Every INCORRECT and UNJUSTIFIED finding must be resolved before the code is committed. INCONSISTENT and MISSING findings should be resolved or explicitly documented as known limitations.
 
+**Mandatory convergence loop (re-audit protocol):**
+The audit is not a one-shot activity. It follows a mandatory convergence loop:
+1. **Audit**: dispatch `critical-analyzer` with adversarial mandate. Produces INCORRECT/UNJUSTIFIED/INCONSISTENT/MISSING/VERIFIED report.
+2. **Fix**: resolve all INCORRECT and UNJUSTIFIED findings. Document or resolve INCONSISTENT and MISSING.
+3. **Re-audit**: dispatch `critical-analyzer` again with explicit mandate to verify that each original finding is resolved, and to check for new issues introduced by the fixes.
+4. **Convergence check**: if all original findings are RESOLVED and no new INCORRECT or UNJUSTIFIED issues are found, the loop CONVERGES. If any finding remains open or new issues appear, return to step 2.
+5. **Verdict**: the re-audit must explicitly state one of: CONVERGED (acceptable optimum reached) or NOT CONVERGED (another cycle needed). There is no "close enough" — the loop runs until CONVERGED.
+
+This protocol is integrated into every scientific audit, not run as a separate process. When dispatching the `critical-analyzer`, always include both the initial audit scope AND the re-verification mandate in the same workflow.
+
 **What the auditor checks:**
 - Every mathematical formula: is it correctly transcribed from the cited source? Are variable names consistent? Are units consistent?
 - Every constant: does the cited source actually contain this value? Is the context of the citation correct (not cherry-picked or misapplied)?
