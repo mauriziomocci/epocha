@@ -110,6 +110,52 @@ ruff format --check .
    - [PEP 20](https://peps.python.org/pep-0020/) — The Zen of Python
    - [DRF Best Practices](https://www.django-rest-framework.org/)
 
+### ABSOLUTE PRIORITY: Verify Every Assertion
+
+**ABSOLUTE PRIORITY RULE**: this rule takes precedence over all other rules. Every scientific, technical, and architectural assertion must be verified against its source before being presented as fact. Never assume an assertion is correct just because it sounds plausible.
+
+**What to verify:**
+1. **Scientific citations**: when citing a paper or model, verify that the author, year, title, and the specific claim attributed to the source are correct. Do not invent citations or misattribute claims.
+2. **Model parameters**: when proposing a parameter "derived from the literature" (a threshold, a rate, an exponent, a range), verify that the parameter actually works that way in the referenced model. A velocity that should be emergent must not be stored as a constant. A rent that should derive from production must not be a magic percentage.
+3. **Parameter ranges**: when stating that a parameter ranges from X to Y, verify that this is the standard range in the discipline. Do not invent ranges.
+4. **Architectural claims**: when stating that a pattern "follows best practice" or "is standard in Django", verify it against the actual documentation or established convention.
+5. **Consistency with prior decisions**: when building on earlier design sections, verify that the new section does not contradict what was already approved.
+6. **User assertions**: the user's statements and requests must ALSO be verified. The user can make mistakes, state incorrect facts, or propose approaches that conflict with established science. When a user assertion appears questionable, incorrect, or potentially inconsistent with the scientific foundations of the project, emit a **WARNING** block and ask for explicit confirmation before proceeding. Format: `**WARNING**: [explanation of the concern]. Do you confirm or should we reconsider?`. Never silently accept a user assertion that contradicts verified science.
+
+**How to apply:**
+- During brainstorming: after proposing a design section, immediately re-read it looking for unverified assertions. Flag them and fix them before the user approves.
+- During the three-step design process: step 2 and step 3 must specifically hunt for unverified assertions as a dedicated check, not just architectural smells.
+- During implementation: when writing code that implements a scientific formula, verify the formula against the cited source before committing.
+- When in doubt: say "I am not certain about X, it needs verification" rather than presenting X as fact.
+- When the user says something that seems incorrect or inconsistent: do NOT silently comply. Emit a WARNING, explain the concern with evidence, and ask for confirmation. The user expects to be challenged when wrong — blind compliance is a disservice.
+
+**Why**: Epocha is a scientific simulation. Every unverified assertion that makes it into the codebase degrades the scientific credibility of the entire project. A single magic number without justification, a single misattributed citation, a single parameter stored as constant when it should be emergent — each of these is a crack in the foundation. This applies equally to assertions from the AI assistant AND from the user: science does not care who made the mistake. This rule was formalized on 2026-04-12 after discovering six unverified assertions in a single data model proposal during the economic model brainstorming, and strengthened the same day when the user explicitly requested to be warned about their own potential errors.
+
+### ABSOLUTE PRIORITY: Adversarial Scientific Audit
+
+**ABSOLUTE PRIORITY RULE**: every scientific model, formula, algorithm, constant, and assumption in Epocha must undergo adversarial scientific review. This is not optional, not deferrable, not skippable for "simple" changes.
+
+**When to audit:**
+1. **Before committing any spec**: after the three-step design process completes, dispatch an adversarial review subagent that examines the spec as a hostile scientific reviewer would. The reviewer looks for: incorrect citations, misapplied formulas, unjustified parameters, undocumented simplifications, internal contradictions, missing edge cases, and claims presented as facts without evidence.
+2. **Before committing scientific code**: after implementation, dispatch a review subagent that reads the actual code and verifies every formula, constant, and algorithm against the cited sources. Code comments claiming "Source: X (1961)" must be checked against what X (1961) actually says.
+3. **Periodically on existing code**: when starting work on a feature that touches scientific modules, audit the existing code in those modules first. Do not build on unverified foundations.
+4. **On user request**: the user can request a full audit of any module at any time.
+
+**How the audit works:**
+- Dispatch a `critical-analyzer` subagent (or equivalent) with the specific mandate of being adversarial: its job is to find flaws, not to confirm that things are correct.
+- The audit produces a structured report with categories: INCORRECT (wrong formula, wrong citation, wrong parameter), UNJUSTIFIED (parameter without source, simplification without documentation), INCONSISTENT (contradictions between modules), MISSING (undocumented assumptions, missing edge cases), VERIFIED (items checked and confirmed correct).
+- Every INCORRECT and UNJUSTIFIED finding must be resolved before the code is committed. INCONSISTENT and MISSING findings should be resolved or explicitly documented as known limitations.
+
+**What the auditor checks:**
+- Every mathematical formula: is it correctly transcribed from the cited source? Are variable names consistent? Are units consistent?
+- Every constant: does the cited source actually contain this value? Is the context of the citation correct (not cherry-picked or misapplied)?
+- Every algorithm: does it implement what it claims to implement? Are the convergence properties correctly stated? Are the complexity claims correct?
+- Every simplification: is it documented? Is the full model stated alongside the simplification? Is the loss from simplifying acknowledged?
+- Every assumption: is it stated explicitly in the code/docstring? Is it consistent with assumptions in other modules?
+- Cross-module consistency: do modules that interact (economy + government, information flow + reputation, etc.) use compatible definitions and units?
+
+**Why**: Epocha's value proposition is scientific rigor. An unaudited scientific model is an unverified claim. The adversarial posture is essential because confirmation bias makes self-review insufficient: the person who wrote the formula naturally believes it is correct. An independent reviewer with the explicit mandate to find errors catches what self-review misses. This rule was formalized on 2026-04-12 at the user's explicit request, extending the verification paradigm from individual assertions to systematic institutional review.
+
 ### CRITICAL: Three-Step Design Process
 
 **CRITICAL RULE**: before producing any design document (spec, architecture proposal, data model, API contract), follow a mandatory three-step iterative process. Skipping steps is forbidden. This applies to every design task, regardless of perceived simplicity.
@@ -218,7 +264,15 @@ If a symptom has no identified cause, the analysis is incomplete.
 
 - **Language**: English, professional and precise tone
 - **NO emoji/emoticon** in any context
-- **Docstring content**: explain the "why" beyond the "what". Document non-obvious technical decisions explicitly
+- **Write thorough comments**: Epocha is a scientific simulation, not a CRUD app. Code must be well-commented so that a researcher, contributor, or future AI session can understand the scientific basis of every non-trivial piece of logic without reading external papers.
+- **What to comment**:
+  - Every mathematical formula: state the formula name, cite the source (author, year), and document what each variable represents. Example: `# CES production function (Arrow et al. 1961). Q = A * [sum(alpha_i * X_i^rho)]^(1/rho), where rho = (sigma-1)/sigma`
+  - Every constant or parameter: document its value, source, and why that value was chosen. Example: `# Price elasticity of subsistence goods: 0.3 (Houthakker & Taylor 1970, updated by Andreyeva et al. 2010)`
+  - Every algorithm: state what it does, its computational complexity, known limitations, and cite the source. Example: `# Walrasian tatonnement (Walras 1874). Warning: may not converge with 3+ goods (Scarf 1960). Max iterations as safety net.`
+  - Every simplification or approximation: document what the full model would be, why we simplified, and what we lose. Example: `# Simplified Ricardian rent: proportional to zone production bonus. Full model would compute differential surplus vs marginal land.`
+  - Every assumption: state it explicitly. Example: `# Assumption: agents have perfect information about local prices (relaxed in spec 2 via belief system friction)`
+- **What NOT to comment**: obvious code (`i += 1`), Python idioms, Django boilerplate, variable assignments whose purpose is clear from the name
+- **Docstrings**: every module, class, and public function gets a docstring. Module docstrings cite the primary scientific sources. Class docstrings explain the model the class implements. Function docstrings explain inputs, outputs, and any non-obvious behavior.
 - **Queryset and dependencies**: if a component requires specific `select_related`/`prefetch_related`, document the requirements in the class docstring
 
 ### Documentation Sync
