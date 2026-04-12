@@ -52,9 +52,26 @@ ruff format --check .
 
 ## Agent Rules
 
-### CRITICAL: Scientific Rigor
+### GOLDEN RULE: Scientific Method Above All
 
-**CRITICAL RULE**: Epocha is a scientific simulation, not a toy. Every model, algorithm, formula, and behavioral rule implemented in the codebase must be grounded in established science.
+**THIS IS THE SUPREME RULE OF THE ENTIRE PROJECT. It takes precedence over every other rule, guideline, or convention in this document. When any other rule conflicts with this one, this one wins.**
+
+The scientific method must be prioritary over everything and perfectly executed following established best practices. Epocha is a scientific simulation. Every model, algorithm, formula, parameter, and behavioral rule must be grounded in established science, verified against sources, and subjected to adversarial review.
+
+**The iterative quality loop**: all scientific issues identified at any level (code, design, specification, or runtime behavior) must be resolved, and a new review must be conducted after each resolution. This cycle repeats until the result reaches an acceptable optimum — defined as: all INCORRECT findings resolved, all UNJUSTIFIED parameters either cited or explicitly documented as tunable heuristics, all INCONSISTENT findings reconciled, and all MISSING assumptions documented. There is no shortcut: partial resolution is not acceptable; the review loop must converge.
+
+**This means:**
+1. No formula without a cited source
+2. No parameter without a justified value
+3. No simplification without documented trade-offs
+4. No assumption without explicit statement
+5. No scientific code without adversarial review
+6. No issue left unresolved — fix, re-review, repeat until clean
+7. When the science says one thing and convenience says another, the science wins
+
+### CRITICAL: Scientific Rigor (detailed requirements)
+
+**CRITICAL RULE**: the Golden Rule above establishes the principle; this section specifies the operational requirements.
 
 **Requirements:**
 1. **Every mathematical model must cite its source** — whether it is a textbook formula, a peer-reviewed paper, or an established algorithm. The source must be documented in the code (docstring or comment with reference).
