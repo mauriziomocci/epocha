@@ -5,11 +5,13 @@ repression, world stability, and destination terrain.
 
 Sources:
 - Chandler, D. (1966). "The Campaigns of Napoleon." Weidenfeld & Nicolson.
-  Chapter on logistics: sustained march rates of 35 km/day for infantry,
-  60 km/day for cavalry, 80 km/day for horse-drawn carriages on good roads.
+  Chapter on logistics: sustained march rates of 20-35 km/day for infantry
+  (military campaigns), 60 km/day for cavalry, 60-80 km/day for horse-drawn
+  carriages on good roads with relay stations. Civilian speeds are lower.
 - Braudel, F. (1979). "Civilization and Capitalism, 15th-18th Century."
   Vol. 1: The Structures of Everyday Life. Harper & Row.
   River/canal boat speeds averaged 50 km/day in pre-industrial Europe.
+  Medieval merchants on foot traveled approximately 25 km/day.
 
 Note: Zone/Agent coordinates use abstract grid units despite the PostGIS
 fields declaring srid=4326. The distance_scale field on World converts
@@ -33,9 +35,15 @@ logger = logging.getLogger(__name__)
 # Historical travel speeds in km/day (sustained, including rest stops).
 # Source: Chandler (1966), Braudel (1979). See module docstring.
 TRAVEL_SPEEDS: dict[str, float] = {
-    "foot": 35.0,       # Infantry sustained march rate (Chandler, 1966)
+    "foot": 25.0,       # Civilian sustained travel rate on foot. Chandler (1966) reports
+                        # Napoleonic infantry at 20-35 km/day for military campaigns;
+                        # 25 km/day is a reasonable estimate for non-military civilian travel
+                        # including rest stops. Braudel (1979) gives similar figures for
+                        # medieval merchants.
     "horse": 60.0,      # Cavalry sustained rate (Chandler, 1966)
-    "carriage": 80.0,   # Horse-drawn carriage on good roads (Chandler, 1966)
+    "carriage": 60.0,   # Horse-drawn carriage on good roads. Chandler (1966) reports
+                        # 60-80 km/day with relay stations for military/royal use;
+                        # 60 km/day is used as a general estimate without assuming relay stations.
     "boat": 50.0,       # River/canal boat, pre-industrial Europe (Braudel, 1979)
 }
 
@@ -51,8 +59,10 @@ ROLE_TRANSPORT: dict[str, str] = {
 }
 
 # Terrain traversal factor by zone type.
-# Urban and commercial zones have roads (factor 1.0); rural terrain is slower
-# due to unpaved paths; wilderness is significantly harder to cross.
+# Terrain traversal factors are tunable design parameters without empirical source.
+# The relative ordering (urban > rural > wilderness) reflects the qualitative effect
+# of road quality on travel speed documented by Braudel (1979), but the specific
+# multiplier values are not derived from any study.
 _TERRAIN_FACTORS: dict[str, float] = {
     "urban": 1.0,
     "commercial": 1.0,
@@ -81,8 +91,9 @@ _EXHAUSTION_THRESHOLD = 0.5
 
 # Random offset range (grid units) for final position within a zone.
 # Prevents all agents arriving at the exact center point.
-# Set to 40 to cover ~80% of a standard 100-unit zone boundary, distributing
-# agents naturally across the zone area.
+# Set to 40 grid units assuming standard zone boundaries of ~100 units (as produced
+# by the world generator). This is a hardcoded assumption; if zone sizes vary
+# significantly, this should be made relative to zone boundary dimensions.
 _ARRIVAL_SCATTER_RANGE = 40.0
 
 

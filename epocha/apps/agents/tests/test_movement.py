@@ -79,8 +79,9 @@ class TestCalculateMaxDistance:
 
     def test_returns_distance_in_grid_units(self, world, government):
         dist = calculate_max_distance("foot", health=1.0, world=world, government=government)
-        # foot = 35 km/day, distance_scale=133m/unit -> ~263 grid units max
-        assert 200 < dist < 350
+        # foot = 25 km/day, distance_scale=133m/unit, stability=0.5, repression=0.1
+        # effective_speed ~ 25 * 0.75 * 0.95 = ~17.8 km/day -> ~134 grid units
+        assert 100 < dist < 200
 
 
 @pytest.mark.django_db

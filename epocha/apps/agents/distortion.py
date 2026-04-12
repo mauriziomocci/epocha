@@ -1,17 +1,18 @@
 """
 Rule-based distortion engine for information propagation.
 
-Models how agents unconsciously reshape information when retelling it,
-following Allport & Postman (1947) "The Psychology of Rumor" which
-identified three key mechanisms:
-  - Leveling: detail is lost, content simplifies over retellings
-  - Sharpening: selective emphasis on certain details
-  - Assimilation: content is altered to fit the transmitter's attitudes and expectations
+Implements assimilation (personality-driven content reshaping) from
+Allport & Postman (1947) "The Psychology of Rumor". Substitution rules are
+derived from the Big Five (OCEAN) model: each trait with an extreme value
+(above _HIGH_THRESHOLD or below _LOW_THRESHOLD) applies a set of regex
+substitutions whose strength scales with the degree of extremity.
 
-This module implements Assimilation as personality-driven substitution rules derived
-from the Big Five (OCEAN) model. Each trait with an extreme value (above _HIGH_THRESHOLD
-or below _LOW_THRESHOLD) applies a set of regex substitutions whose strength scales
-with the degree of extremity.
+Leveling (progressive detail loss over retellings) and sharpening (selective
+emphasis of salient details) are not implemented in this version.
+
+Known limitation: future work could model leveling as progressive sentence
+truncation across propagation hops, and sharpening as keyword
+emphasis or repetition for contextually salient terms.
 
 References:
   - Allport, G. W., & Postman, L. (1947). The Psychology of Rumor. Henry Holt and Co.
@@ -21,15 +22,17 @@ References:
 import re
 from typing import Optional
 
-# Big Five thresholds defining when a trait is "extreme enough" to produce distortion.
-# Allport & Postman (1947) found that assimilation effects are non-linear: they
-# emerge only when the reteller's attitude is sufficiently strong.
+# Thresholds for extreme trait detection. Set at 0.7 (high) and 0.3 (low) on the
+# [0,1] Big Five scale. These are tunable design parameters. Allport & Postman (1947)
+# describe assimilation as emerging when the reteller has strong pre-existing attitudes,
+# but they do not provide specific numeric cutoffs.
 _HIGH_THRESHOLD: float = 0.7
 _LOW_THRESHOLD: float = 0.3
 
-# Maximum number of traits that actively distort a single message. Cognitive load
-# research (Miller, 1956) suggests that simultaneous application of many biases
-# would produce unrealistic distortion; cap at 2 dominant traits per transmission.
+# Capped at 2 active personality traits per distortion pass to prevent unrealistic
+# compound distortion. Design constraint without empirical source; higher values
+# produce text that diverges too rapidly from the original across multiple
+# propagation hops.
 _MAX_ACTIVE_TRAITS: int = 2
 
 # Each entry in a pattern list is (compiled_regex, [low_replacement, mid_replacement, high_replacement]).
@@ -74,7 +77,11 @@ _LOW_AGREEABLENESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
 
 _HIGH_OPENNESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
     # High openness: reteller adds speculation and interpretive context
-    # Applied as a sentence-level suffix after a period-space boundary
+    # Applied as a sentence-level suffix after a period-space boundary.
+    # Known limitation: the speculative clause insertion matches every sentence boundary.
+    # After multiple propagation hops through high-openness transmitters, messages
+    # accumulate multiple insertions. Consider limiting to first or last sentence
+    # boundary in future versions.
     (re.compile(r"\.\s"), [" -- possibly for a reason. ", " -- perhaps because of something deeper. ", " -- perhaps for a reason. "]),
 ]
 
@@ -107,8 +114,12 @@ _HIGH_CONSCIENTIOUSNESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
 ]
 
 _LOW_CONSCIENTIOUSNESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
-    # Low conscientiousness: reteller vague-ifies specific names (Allport & Postman: leveling of detail).
-    # The lookbehind (?<= ) ensures only mid-sentence capitalized words are matched, not sentence starters.
+    # Low conscientiousness: reteller vague-ifies specific names (assimilation: detail loss for
+    # low-precision retellers). The lookbehind (?<= ) ensures only mid-sentence capitalized
+    # words are matched, not sentence starters.
+    # Known limitation: the capitalized-word replacement pattern matches all mid-sentence
+    # capitalized words, including place names, titles, and other non-person proper nouns.
+    # A more sophisticated NER-based approach would be needed to target only person names.
     (re.compile(r"(?<= )\b[A-Z][a-z]+\b"), ["somebody", "someone", "this person"]),
 ]
 

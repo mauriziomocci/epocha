@@ -12,11 +12,16 @@ This module implements the image/reputation distinction introduced in:
     weighted by the reliability of the information source.
 
 The negativity-bias asymmetry in the delta magnitudes (e.g. betray >> help)
-is grounded in:
+is inspired by:
 
   Baumeister, R.F., Bratslavsky, E., Finkenauer, C. & Vohs, K.D. (2001).
   "Bad is stronger than good." Review of General Psychology, 5(4), 323-370.
   doi:10.1037/1089-2680.5.4.323
+
+Known limitation: no temporal decay of image or reputation values.
+Observations from early ticks carry the same weight as recent ones. Future
+versions should implement recency weighting (Castelfranchi et al. 1998
+discuss reputation maintenance through ongoing social communication).
 """
 
 from __future__ import annotations
@@ -26,9 +31,12 @@ from epocha.apps.agents.models import Agent, ReputationScore
 # ---------------------------------------------------------------------------
 # Image delta table
 # ---------------------------------------------------------------------------
-# Magnitudes reflect real social-psychology findings on the asymmetric impact
-# of harmful vs. helpful acts (Baumeister et al., 2001).  The unit represents
-# a single observation increment on the [-1, 1] image scale.
+# Tunable parameters inspired by the negativity-bias principle (Baumeister
+# et al. 2001). The asymmetry between negative and positive deltas reflects
+# the empirical finding that "bad is stronger than good", but the specific
+# magnitudes are design choices, not derived from empirical data. The typical
+# negativity ratio in the literature is 2:1 to 3:1.
+# The unit represents a single observation increment on the [-1, 1] image scale.
 #
 # Positive deltas — prosocial actions
 # Negative deltas — antisocial actions (magnitudes deliberately larger)
@@ -125,10 +133,9 @@ def update_reputation(
 
     delta = action_sentiment * reliability * 0.5
 
-    The 0.5 dampening factor ensures that a single hearsay event of maximum
-    sentiment (±1.0) from a perfectly reliable source (1.0) cannot move the
-    reputation more than 0.5 — preserving the primacy of direct experience
-    (image) while still allowing social information to accumulate over time.
+    Dampening factor 0.5 prevents a single hearsay event of maximum sentiment
+    (±1.0) from a perfectly reliable source (1.0) from moving reputation more
+    than 0.5. Tunable parameter, no empirical source.
 
     This function never modifies image; image is updated exclusively by
     direct observation via update_image.
@@ -158,9 +165,11 @@ def get_combined_score(holder: Agent, target: Agent) -> float:
       - image (direct experience): 0.6
       - reputation (social evaluation): 0.4
 
-    The heavier weight on image reflects the empirical finding that first-hand
-    experience is generally more reliable and resistant to manipulation than
-    socially propagated information (Castelfranchi et al., 1998).
+    Design choice: image weighted 60% over reputation 40%. The primacy of
+    direct experience over hearsay is a well-established principle in social
+    psychology (Castelfranchi et al. 1998 for the conceptual distinction), but
+    the specific 60/40 ratio is a tunable parameter without empirical
+    derivation.
 
     Returns 0.0 (neutral) if no ReputationScore record exists for this pair.
 
