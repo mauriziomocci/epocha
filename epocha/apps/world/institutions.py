@@ -16,18 +16,18 @@ Each tick, institution health evolves according to three additive forces:
    Above the 0.5 neutral funding level, institutions recover; below it, they decline.
    Calibrated so a fully defunded institution (funding=0) loses ~1% health per tick.
 
-3. Entropy -- a small universal decay representing the bureaucratic and physical
+3. Entropy -- a small universal linear decay representing the bureaucratic and physical
    degradation all institutions face without active maintenance. Set at 0.5% per tick,
-   consistent with the half-life decay observed in state capacity indices over
-   20-year periods of neglect (Besley & Persson, 2011, ch. 2).
+   producing 50% decay from maximum over 100 ticks of zero investment. Besley & Persson
+   (2011, ch. 2) discuss state capacity decay; the specific rate is a design parameter.
 
 Scientific grounding:
 - Acemoglu & Robinson (2012). "Why Nations Fail." Crown Publishers.
   Inclusive vs extractive institutions as the core driver of national development.
 - Besley, T. & Persson, T. (2011). "Pillars of Prosperity." Princeton University Press.
   State capacity decay and institutional investment models.
-- The institution_effects values in GOVERNMENT_TYPES are drawn from the Polity IV
-  dataset and Freedom House indices (see government_types.py for full citations).
+- The institution_effects values in GOVERNMENT_TYPES are design parameters inspired by
+  qualitative patterns in the literature (see government_types.py for full citations).
 """
 from __future__ import annotations
 
@@ -38,27 +38,24 @@ from .models import Government, Institution
 
 logger = logging.getLogger(__name__)
 
-# Scale factor applied to raw institution_effects config values to convert them
-# into per-tick health deltas. Raw values are in the (-1.0, 1.0) range and represent
-# a regime's *tendency*, not a tick-level rate. Dividing by 20 yields deltas that
-# produce meaningful change over ~10-50 tick political cycles without instant convergence.
-# Example: democracy's justice effect of 0.30 becomes +0.015/tick, reaching near-peak
-# health in ~33 ticks -- plausible for multi-decade institutional development.
+# Scale divisor for institutional health effects. At 20.0, a democracy's justice effect
+# of 0.30 produces +0.015/tick, reaching near-peak health in ~33 ticks. The timescale
+# is a design parameter; it maps to approximately 2-3 years if one tick represents one
+# month.
 INSTITUTION_EFFECT_SCALE = 20.0
 
-# Per-unit funding effect per tick. A funding level of 0.0 produces -0.02/tick;
-# 1.0 produces +0.02/tick; 0.5 (neutral) produces 0.0.
-# A severely underfunded institution (funding=0.1) in a supportive regime still
-# degrades, because the funding penalty (-0.016/tick) exceeds the regime boost
-# (+0.015/tick) plus entropy (-0.005/tick). This reflects the empirical finding that
-# fiscal starvation overrides political intent in institution building.
-# Source: calibrated to match World Bank public expenditure elasticity estimates
-# (Gupta et al., 2002, "Is spending on education and health pro-poor?", IMF WP/02/03).
+# Funding effect rate. Design parameter controlling how quickly funding levels affect
+# institutional health. A funding level of 0.0 produces -0.02/tick; 1.0 produces
+# +0.02/tick; 0.5 (neutral) produces 0.0. A severely underfunded institution
+# (funding=0.1) in a supportive regime still degrades, because the funding penalty
+# (-0.016/tick) exceeds the regime boost (+0.015/tick) plus entropy (-0.005/tick).
+# The value 0.04/tick is a simulation design choice without direct empirical derivation.
 FUNDING_EFFECT_RATE = 0.04
 
-# Natural entropy per tick: all institutions decay without active maintenance.
-# 0.005/tick implies ~50% decay from maximum over 100 ticks of zero investment.
-# Source: Besley & Persson (2011) state capacity half-life estimates.
+# Linear entropy: institutions lose 0.005 health per tick without investment. This
+# produces 50% decay from maximum after 100 ticks of zero investment. Note: this is
+# linear decay, not exponential half-life. Besley & Persson (2011) discuss state
+# capacity decay in more general terms; the specific rate is a design parameter.
 ENTROPY_PER_TICK = -0.005
 
 

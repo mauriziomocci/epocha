@@ -15,12 +15,13 @@ Scientific grounding:
   Annual Review of Political Science, 2, 115-144. Regime survival and transition.
 - Polity IV Project (Marshall & Gurr, 2020): regime type classification and
   transition scoring. https://www.systemicpeace.org/polityproject.html
-- Powell, J.M. & Thyne, C.L. (2011). "Coups d'etat and Democracy."
-  Journal of Peace Research, 48(4), 437-448. Coup success probability factors.
+- Powell, J.M. & Thyne, C.L. (2011). "Global instances of coups from 1950 to 2010:
+  A new dataset." Journal of Peace Research, 48(2), 249-259. Coup frequency data.
 """
 from __future__ import annotations
 
 import logging
+import random
 
 from django.conf import settings
 
@@ -44,7 +45,10 @@ _TRUST_SCALE: float = 0.1
 
 # Base decay applied to institutional_trust each political cycle.
 # Represents the natural erosion of trust without active reinforcement.
-# Calibrated against Freedom House annual decline data (5 pp average in declining democracies).
+# Trust decay rate 0.05 per political cycle. Qualitatively consistent with gradual
+# institutional erosion observed in declining democracies (Freedom House annual reports
+# document such patterns). The specific rate is a tunable parameter; the tick-to-year
+# mapping depends on simulation configuration.
 _TRUST_DECAY: float = 0.05
 
 # Rate at which repression_level drifts toward the government type's repression_tendency.
@@ -53,6 +57,9 @@ _TRUST_DECAY: float = 0.05
 _REPRESSION_DRIFT_RATE: float = 0.10
 
 # Contribution weights for popular_legitimacy calculation.
+# Component weights for legitimacy computation are design parameters reflecting the
+# assumed relative importance of institutional domains. No empirical source for the
+# specific values.
 _LEGITIMACY_W_HEALTH: float = 0.20
 _LEGITIMACY_W_EDUCATION: float = 0.15
 _LEGITIMACY_W_ECONOMY: float = 0.35
@@ -70,9 +77,11 @@ _LOYALTY_W_HEALTH: float = 0.40
 _LOYALTY_W_FUNDING: float = 0.30
 _LOYALTY_W_CHARISMA: float = 0.30
 
-# Coup success probability threshold.
-# Below this, the coup attempt fails.
-# Source: Powell & Thyne (2011) median probability for successful coups.
+# Coup success probability is evaluated stochastically: the computed score is used as
+# a probability in a random draw, not as a deterministic threshold. This reflects the
+# inherent uncertainty of coup outcomes (Powell & Thyne 2011 report ~50% success rate
+# across all attempts 1950-2010).
+# _COUP_SUCCESS_THRESHOLD is no longer used; retained as a reference calibration point.
 _COUP_SUCCESS_THRESHOLD: float = 0.50
 
 # ---------------------------------------------------------------------------
@@ -82,9 +91,10 @@ _COUP_SUCCESS_THRESHOLD: float = 0.50
 # Named thresholds used by _evaluate_trigger to map trigger strings to
 # indicator comparisons. Each entry is (field, operator, threshold).
 #
-# These values are calibrated to the Polity IV transition probability data:
-# regime changes occur when multiple indicators simultaneously cross critical values.
-# Reference: Marshall & Gurr (2020), Table 3: regime transition conditions.
+# Threshold values are simulation design parameters. Regime transition logic is
+# inspired by the institutional dynamics described in Acemoglu & Robinson (2006)
+# and Geddes (1999), but the specific numeric thresholds are not derived from any
+# empirical dataset.
 _TRIGGER_CONDITIONS: dict[str, list[tuple[str, str, float]]] = {
     # democracy -> illiberal_democracy
     "low_trust_high_repression": [
@@ -283,6 +293,10 @@ def update_government_indicators(simulation) -> None:
 
     try:
         world = World.objects.get(simulation=simulation)
+        # Note: World.stability_index is currently computed as average agent mood in
+        # the economy module. It serves as a proxy for economic conditions but does
+        # not measure economic performance directly. The new economy app (in
+        # development) will provide proper economic indicators.
         economy = world.stability_index
     except World.DoesNotExist:
         economy = 0.5
@@ -489,12 +503,19 @@ def check_coups(simulation, tick: int) -> dict | None:
     Coup eligibility: the faction must not be the current ruling faction,
     its cohesion must exceed 0.6, and its leader's charisma must exceed 0.5.
 
-    Success probability formula (Powell & Thyne, 2011):
+    Success probability formula inspired by the coup literature:
         P(success) = cohesion * 0.4 + leader_charisma * 0.3 + (1 - military_loyalty) * 0.3
 
-    The 0.4 / 0.3 / 0.3 weights reflect the empirical importance of faction
-    solidarity, leader quality, and military defection in historical coups.
-    Reference: Powell, J.M. & Thyne, C.L. (2011), ibid., Table 2.
+    The components (faction cohesion, leader charisma, military disloyalty) are
+    commonly discussed factors in the coup literature (Powell & Thyne 2011 for
+    frequency data, Geddes 1999 for regime vulnerability). The specific weights
+    (0.4/0.3/0.3) are tunable design parameters, not derived from any empirical
+    model.
+
+    Stochastic evaluation: the computed score is used as a probability in a random
+    draw, not as a deterministic threshold. This reflects the inherent uncertainty
+    of coup outcomes (Powell & Thyne 2011 report ~50% success rate across all
+    attempts 1950-2010).
 
     When a coup succeeds:
     - ``government.head_of_state`` is set to the faction leader.
@@ -547,7 +568,11 @@ def check_coups(simulation, tick: int) -> dict | None:
             + (1.0 - government.military_loyalty) * 0.3
         )
 
-        if success_probability > _COUP_SUCCESS_THRESHOLD:
+        # Stochastic evaluation: the computed score is used as a probability,
+        # not a threshold. This reflects the inherent uncertainty of coup
+        # outcomes (Powell & Thyne 2011 report ~50% success rate across all
+        # attempts).
+        if random.random() < success_probability:
             if best_candidate is None or success_probability > best_candidate[0]:
                 best_candidate = (success_probability, faction, leader)
 
@@ -628,6 +653,9 @@ def _update_stability(simulation) -> None:
 
     try:
         world = World.objects.get(simulation=simulation)
+        # Note: World.stability_index is currently computed as average agent mood in
+        # the economy module. It serves as a proxy for economic conditions but does
+        # not measure economic performance directly. See update_government_indicators.
         economy = world.stability_index
     except World.DoesNotExist:
         economy = 0.5

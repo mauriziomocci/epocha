@@ -105,6 +105,8 @@ class TestTransitions:
         assert GovernmentHistory.objects.filter(simulation=simulation).count() >= 1
 
     def test_coup_succeeds_when_conditions_met(self, simulation, world, government, all_institutions, faction_with_leader):
+        """Coup evaluation is stochastic. We seed the RNG so the test is deterministic."""
+        import random
         government.military_loyalty = 0.2
         government.stability = 0.2
         government.save(update_fields=["military_loyalty", "stability"])
@@ -115,7 +117,10 @@ class TestTransitions:
                 personality={"openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5, "agreeableness": 0.5, "neuroticism": 0.5},
             )
         from epocha.apps.world.government import check_coups
+        # Seed produces a low first random.random() value, ensuring the coup
+        # succeeds given the high success_probability (~0.80).
+        random.seed(42)
         result = check_coups(simulation, tick=20)
-        if result:
-            government.refresh_from_db()
-            assert government.head_of_state == leader
+        assert result is not None, "Coup should succeed with seeded RNG (seed=42, P~0.80)"
+        government.refresh_from_db()
+        assert government.head_of_state == leader

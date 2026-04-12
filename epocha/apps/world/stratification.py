@@ -9,22 +9,26 @@ Reference: Gini, C. (1912). "Variabilita e mutabilita." Reprinted in Pizetti & S
 
 Corruption mechanics are grounded in the predatory state literature:
 Reference: Acemoglu, D., & Robinson, J. A. (2006). "Economic Origins of Dictatorship and Democracy."
-Cambridge University Press. Chapter 2: agents controlling political institutions extract rents.
+Cambridge University Press. Chapter 2: agents controlling political institutions extract rents from
+the public pool rather than creating new wealth.
 """
 from __future__ import annotations
 
 import logging
 
 from epocha.apps.agents.models import Agent, Memory
-from epocha.apps.world.models import Government
+from epocha.apps.world.models import Government, World
 
 logger = logging.getLogger(__name__)
 
 # Social class strata defined as (label, lower_percentile_inclusive, upper_percentile_exclusive).
 # The top 5% of agents by wealth are elite, the next 10% are wealthy, etc.
-# Percentile thresholds are consistent with standard sociological five-class models:
+# Simplified 5-class model inspired by Gilbert (2011) but with adjusted thresholds for simulation
+# dynamics. Gilbert's original model uses 6 classes with different boundaries (capitalist 1%,
+# upper-middle 14%, middle 30%, working 30%, working-poor 13%, underclass 12%). The 5/15/50/80
+# split here is a design simplification that collapses adjacent classes for tractability.
 # Reference: Gilbert, D. (2011). "The American Class Structure in an Age of Growing Inequality."
-# SAGE Publications. Chapter 1: 5/15/50/80 split maps to upper / upper-middle / middle / working / poor.
+# SAGE Publications. Chapter 1.
 _CLASS_THRESHOLDS: list[tuple[str, float, float]] = [
     ("elite",   0.00, 0.05),   # top 5%
     ("wealthy", 0.05, 0.15),   # next 10%
@@ -51,8 +55,11 @@ _CORRUPTION_SKIM_RATE = 0.02
 
 # Emotional weight assigned to class-change memories.
 # Upward mobility is mildly positive; downward mobility is more emotionally salient.
-# Reference: loss aversion literature — Kahneman, D., & Tversky, A. (1979).
-# "Prospect Theory: An Analysis of Decision under Risk." Econometrica, 47(2), 263-292.
+# The ratio 0.7 / 0.4 = 1.75:1 (downward vs upward) is approximately consistent with the
+# loss aversion coefficient of ~2:1 from Prospect Theory. The specific magnitudes (0.4 upward,
+# 0.7 downward) are tunable design parameters, not empirically derived values.
+# Reference: Kahneman, D., & Tversky, A. (1979). "Prospect Theory: An Analysis of Decision
+# under Risk." Econometrica, 47(2), 263-292.
 _UPWARD_MOBILITY_WEIGHT = 0.4
 _DOWNWARD_MOBILITY_WEIGHT = 0.7
 
@@ -188,19 +195,34 @@ def process_corruption(simulation, tick: int) -> None:
     - Head of state (Government.head_of_state)
     - Leaders of groups (Group.leader)
 
-    Corruption mechanic: an eligible agent skims a fraction of their own wealth
-    proportional to (1 - conscientiousness). This represents diversion of resources
-    from public goods to personal enrichment. When the head of state is the corrupt
-    agent, the Government.corruption indicator also rises.
+    Corruption mechanic: an eligible agent skims a fraction of the global wealth pool
+    proportional to (1 - conscientiousness). This represents diversion of public resources
+    to personal enrichment — a transfer, not a creation. Each agent's skim is capped at
+    1% of global_wealth per tick to prevent a single actor from draining the economy
+    in a single tick. This is a simplified model; a more realistic version would skim from
+    tax revenue or public services budgets.
+    Reference: Acemoglu, D., & Robinson, J. A. (2006). "Economic Origins of Dictatorship
+    and Democracy." Cambridge University Press. Chapter 2.
 
-    Threshold: conscientiousness < 0.4 triggers corruption. Above that threshold the
-    agent is considered to have enough civic virtue to resist the temptation.
-    Reference: Acemoglu & Robinson (2006), ibid.
+    Conscientiousness threshold for corruption susceptibility: agents with conscientiousness
+    below 0.4 are considered susceptible. Low conscientiousness as a correlate of
+    rule-breaking behavior is supported by personality-deviance research (e.g., Miller, J. D.,
+    & Lynam, D. R. (2001). "Structural models of personality and their relation to antisocial
+    behavior." Criminology, 39(4), 765-798), but the specific 0.4 cutoff is a tunable
+    simulation parameter, not empirically derived.
+
+    When the head of state is the corrupt agent, the Government.corruption indicator rises.
 
     Args:
         simulation: Simulation instance.
         tick: Current simulation tick (used for Memory records).
     """
+    # Fetch the world to track global_wealth transfers.
+    try:
+        world = World.objects.get(simulation=simulation)
+    except World.DoesNotExist:
+        world = None
+
     # Collect all agents in power.
     agents_in_power: list[Agent] = []
 
@@ -247,7 +269,14 @@ def process_corruption(simulation, tick: int) -> None:
         # agent at threshold (c=0.4) skims nothing.
         skim_fraction = _CORRUPTION_SKIM_RATE * (1.0 - conscientiousness / CONSCIENTIOUSNESS_THRESHOLD)
         skim_amount = agent.wealth * skim_fraction
-        agent.wealth += skim_amount  # Agent keeps skimmed wealth
+        # Corruption transfers wealth from the global pool to the corrupt agent.
+        # The 1% cap prevents a single agent from draining the economy in one tick.
+        # This is a simplified model; a more realistic version would skim from tax
+        # revenue or public services.
+        if world is not None:
+            skim_amount = min(skim_amount, world.global_wealth * 0.01)
+            world.global_wealth -= skim_amount
+        agent.wealth += skim_amount
         agents_to_update.append(agent)
 
         memories_to_create.append(Memory(
@@ -271,6 +300,10 @@ def process_corruption(simulation, tick: int) -> None:
 
     if memories_to_create:
         Memory.objects.bulk_create(memories_to_create)
+
+    # Persist the updated global_wealth after all agents have been processed.
+    if world is not None and agents_to_update:
+        world.save(update_fields=["global_wealth"])
 
     # Raise government corruption index when the head of state personally extracts rent.
     # Corruption decays slowly when the head of state is clean.

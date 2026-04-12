@@ -20,6 +20,12 @@ institution_effects: multipliers in (-1.0, 1.0) applied each tick to institution
     output. 0.0 = neutral, positive = boost, negative = suppression.
 repression_tendency: 0.0 = no repression, 1.0 = maximum repression.
 corruption_resistance: 0.0 = fully corrupt, 1.0 = fully resistant.
+
+IMPORTANT: The numeric values in this module are simulation design parameters inspired
+by qualitative patterns described in the cited literature (Polity IV, Freedom House,
+Acemoglu & Robinson 2006, Bueno de Mesquita et al. 2003). They are NOT directly
+derived from empirical data. Treat all numeric values as tunable starting points that
+should be recalibrated based on simulation behavior and historical validation.
 """
 
 GOVERNMENT_TYPES: dict[str, dict] = {

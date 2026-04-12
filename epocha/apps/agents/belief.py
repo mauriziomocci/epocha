@@ -6,15 +6,19 @@ transmitter (derived from relationship), the receiver's personality
 disposition toward believing new information, and the transmitter's
 reputation as perceived by the wider social network.
 
-Scientific basis:
-- Interpersonal trust model: Mayer, Davis & Schoorman (1995). "An Integrative
-  Model of Organizational Trust." Academy of Management Review, 20(3), 709-734.
-- Agreeableness and credulity: Graziano & Tobin (2002). "Agreeableness:
-  Dimension of Personality or Social Desirability Artifact?" Journal of
-  Personality, 70(5), 695-728.
-- Reputation and trust propagation: Castelfranchi, C., Falcone, R., &
-  Tan, Y. H. (1998). "The Role of Trust and Deception in Virtual Societies."
-  Proceedings of the 31st Hawaii International Conference on System Sciences.
+Scientific references:
+- Mayer, Davis & Schoorman (1995). "An Integrative Model of Organizational
+  Trust." Academy of Management Review, 20(3), 709-734. Used as a conceptual
+  framework for thinking about trust components; the acceptance score computed
+  here is loosely inspired by that work but does NOT implement Mayer's
+  constructs (ability, benevolence, integrity) or their measurement methods.
+- Graziano & Tobin (2002). "Agreeableness: Dimension of Personality or Social
+  Desirability Artifact?" Journal of Personality, 70(5), 695-728. Supports the
+  role of agreeableness in cooperative information processing.
+- Castelfranchi, C., Falcone, R., & Tan, Y. H. (1998). "The Role of Trust and
+  Deception in Virtual Societies." Proceedings of the 31st Hawaii International
+  Conference on System Sciences. Supports using network-level reputation as a
+  credibility signal.
 """
 from __future__ import annotations
 
@@ -30,11 +34,19 @@ def should_believe(
 ) -> bool:
     """Determine whether an agent accepts a piece of incoming information.
 
-    The acceptance score is a weighted sum of four factors:
+    The acceptance score is a weighted sum of four components. While inspired
+    by trust models in the literature (Mayer et al. 1995 for the conceptual
+    framework), it does not implement any specific trust model's constructs.
+    The weights are tunable design parameters:
+
     - Information reliability (30%): inherent quality of the information
     - Relationship trust (20%): how much the receiver trusts the transmitter
     - Personality factor (20%): receiver's disposition toward credulity
     - Transmitter reputation (30%): the transmitter's standing in the social network
+
+    Weight distribution (reliability 0.3, relationship 0.2, personality 0.2,
+    reputation 0.3) is a design choice balancing information quality with
+    social factors. No empirical derivation.
 
     The default transmitter_reputation of 0.0 maps to a neutral reputation
     factor of 0.5, preserving backward compatibility for callers that do not
@@ -57,6 +69,11 @@ def should_believe(
     relationship_trust = (relationship_strength + max(0.0, relationship_sentiment)) / 2.0
 
     # Personality factor: agreeableness (credulity) and openness (receptivity).
+    # Agreeableness contribution (weight 0.6) is supported by Graziano & Tobin
+    # (2002), who link agreeableness to cooperative information processing.
+    # Openness contribution (weight 0.4) is a design choice -- open individuals
+    # may be more receptive to novel information -- without specific empirical
+    # support from that paper.
     agreeableness = receiver_personality.get("agreeableness", 0.5)
     openness = receiver_personality.get("openness", 0.5)
     personality_factor = agreeableness * 0.6 + openness * 0.4
@@ -72,5 +89,9 @@ def should_believe(
         + reputation_factor * 0.3
     )
 
+    # Threshold 0.4 is a design parameter. With all neutral inputs (0.5), the
+    # acceptance score is 0.5, which exceeds 0.4 -- meaning neutral agents
+    # accept information by default. This is an intentional design choice
+    # favoring information propagation over skepticism.
     threshold = getattr(settings, "EPOCHA_INFO_FLOW_BELIEF_THRESHOLD", 0.4)
     return acceptance_score >= threshold
