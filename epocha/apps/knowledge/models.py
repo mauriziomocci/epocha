@@ -168,6 +168,11 @@ class KnowledgeGraph(models.Model):
     error_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    materialized_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when materialization completed successfully",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -227,7 +232,7 @@ class KnowledgeNode(models.Model):
         blank=True,
         help_text="Alternative names encountered in source documents",
     )
-    properties = models.JSONField(
+    attributes = models.JSONField(
         default=dict,
         blank=True,
         help_text="Structured attributes extracted from text (dates, roles, etc.)",
