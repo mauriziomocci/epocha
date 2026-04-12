@@ -15,4 +15,5 @@
 - [Economic model](project_economic_model.md) -- Economia reale + mercati finanziari, ASAP dopo Knowledge Graph
 - [Web scraping](project_web_scraping.md) -- Scraping automatico per contesto storico e dati economici reali
 - [Geopolitical crisis usecase](project_usecase_geopolitical_crisis.md) -- Caso d'uso: crisi Iran-Israele-Libano 2026 come benchmark
+- [Multi-level agents](project_multilevel_agents.md) -- Agenti multi-livello: individui, organizzazioni, stati, coalizioni
 - [MiroFish comparison](reference_mirofish_comparison.md) -- Gap analysis vs MiroFish: knowledge graph, report agent, grafo
