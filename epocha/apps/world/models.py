@@ -93,6 +93,12 @@ class Government(models.Model):
     # Electoral tracking
     last_election_tick = models.PositiveIntegerField(default=0)
 
+    # Treasury: tax revenue collected by the government
+    government_treasury = models.JSONField(
+        default=dict,
+        help_text="{currency_code: amount} -- tax revenue collected",
+    )
+
     formed_at_tick = models.PositiveIntegerField(default=0)
 
     def __str__(self):
