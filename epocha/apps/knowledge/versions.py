@@ -10,7 +10,7 @@ from __future__ import annotations
 ONTOLOGY_VERSION = "v1"
 EXTRACTION_PROMPT_VERSION = "v1"
 
-EMBEDDING_MODEL = "BAAI/bge-m3"
+EMBEDDING_MODEL = "intfloat/multilingual-e5-large"
 EMBEDDING_DIM = 1024
 
 CHUNK_SIZE_TOKENS = 800

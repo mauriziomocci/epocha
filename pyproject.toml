@@ -10,6 +10,9 @@ known_first_party = ["epocha", "config"]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py"]
 addopts = "-v --tb=short --strict-markers"
+markers = [
+    "slow: marks tests as slow (downloads bge-m3 model; skip with -m 'not slow')",
+]
 
 [tool.ruff]
 line-length = 88

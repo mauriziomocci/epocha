@@ -42,9 +42,12 @@ The design rests on established literature:
 - **Chunking strategy**: Lewis, P. et al. (2020). *Retrieval-Augmented
   Generation for Knowledge-Intensive NLP Tasks*. NeurIPS. (Foundation for
   chunk-based extraction; parameters adapted to 2024 standards.)
-- **Multilingual embeddings**: Chen, J. et al. (2024). *BGE M3-Embedding:
-  Multi-Lingual, Multi-Functionality, Multi-Granularity Text Embeddings*.
-  arXiv:2402.03216. (Source for choice of BAAI/bge-m3 as embedding model.)
+- **Multilingual embeddings**: Wang, L. et al. (2024). *Multilingual E5
+  Text Embeddings: A Technical Report*. arXiv:2402.05672. (Source for
+  choice of intfloat/multilingual-e5-large as embedding model. Originally
+  intfloat/multilingual-e5-large was planned but fastembed 0.8.0 does not include it;
+  multilingual-e5-large is the closest available alternative with
+  identical characteristics: 1024 dimensions, 100+ languages, ONNX-based.)
 - **Entity deduplication**: standard practice in information extraction;
   the embedding similarity threshold of 0.85 is an initial heuristic
   without a specific empirical derivation, to be recalibrated after
@@ -81,7 +84,7 @@ runtime by Django.
    parameters: 800 tokens per chunk, 150 overlap
    │
    ▼
-4. knowledge: embed each chunk via fastembed (BAAI/bge-m3, 1024 dim)
+4. knowledge: embed each chunk via fastembed (intfloat/multilingual-e5-large, 1024 dim)
    │
    ▼
 5. knowledge: compute composite cache key and check ExtractionCache
@@ -596,7 +599,7 @@ must always converge to the correct state.
 
 For each chunk that was just created in Stage 2:
 
-1. Load the `BAAI/bge-m3` model once per task via `fastembed` (the model
+1. Load the `intfloat/multilingual-e5-large` model once per task via `fastembed` (the model
    is cached globally by fastembed after the first load, ~5 seconds cold
    start, then near-zero for subsequent calls within the same process)
 2. Batch embed chunks in groups of `EPOCHA_KG_EMBEDDING_BATCH_SIZE`
@@ -679,7 +682,7 @@ chunk id for citation.
 2. Group entities by `entity_type` (never merge across types, even if
    names are similar)
 3. Within each type group, compute pairwise similarity and merge:
-   - Embed `f"{name} {description}"` via bge-m3 for each candidate
+   - Embed `f"{name} {description}"` via multilingual-e5-large for each candidate
    - Build an N×N cosine similarity matrix
    - Perform single-linkage clustering with threshold
      `DEDUP_SIMILARITY_THRESHOLD = 0.85` (pairs above threshold become
@@ -697,7 +700,7 @@ chunk id for citation.
    - `attributes` = dict-merge across members; on key collision, keep the
      value from the highest-confidence member
    - `embedding` = re-computed on the final merged `f"{name} {description}"`
-     via bge-m3 (not the average of input vectors)
+     via multilingual-e5-large (not the average of input vectors)
    - `citations` = union of all citations from all cluster members
 5. Deduplicate relations by the tuple
    `(source_canonical_name, source_entity_type, target_canonical_name,
@@ -1005,7 +1008,7 @@ A new module `epocha/apps/knowledge/versions.py`:
 ```python
 ONTOLOGY_VERSION = "v1"              # 10 entity types + 20 relations
 EXTRACTION_PROMPT_VERSION = "v1"     # increments on prompt changes
-EMBEDDING_MODEL = "BAAI/bge-m3"
+EMBEDDING_MODEL = "intfloat/multilingual-e5-large"
 EMBEDDING_DIM = 1024
 CHUNK_SIZE_TOKENS = 800
 CHUNK_OVERLAP_TOKENS = 150
@@ -1187,7 +1190,7 @@ to actual migration names when the migration is generated via
 
 - `test_pipeline_full.py`: end-to-end with the small fixture and a
   **mocked LLM** returning a fixed deterministic output. Uses real
-  `fastembed` with the actual bge-m3 model. The model is downloaded
+  `fastembed` with the actual multilingual-e5-large model. The model is downloaded
   once and cached in a pytest fixture shared across tests. Marked as
   `slow` so fast test runs can skip via `-m "not slow"`.
 - `test_cache_hit.py`: run extraction twice on the same documents,
@@ -1204,7 +1207,7 @@ to actual migration names when the migration is generated via
   expected structure with `select_related` verification (zero extra
   queries beyond the expected minimum)
 
-All tests use PostgreSQL with pgvector. No SQLite. The bge-m3 model
+All tests use PostgreSQL with pgvector. No SQLite. The multilingual-e5-large model
 download in CI is cached via a persistent volume or artifact store to
 avoid repeated downloads.
 
@@ -1405,13 +1408,13 @@ organizations with procedures are institutions.
 
 ### Embedding and similarity
 
-**Q: Why BAAI/bge-m3 and not OpenAI text-embedding-3-small?**
+**Q: Why intfloat/multilingual-e5-large and not OpenAI text-embedding-3-small?**
 A: Three reasons, in order: reproducibility, cost, language coverage.
-Reproducibility — bge-m3 runs locally with pinned ONNX weights, so
+Reproducibility — multilingual-e5-large runs locally with pinned ONNX weights, so
 same text + same version always produces the same vector. OpenAI API
 embeddings can change without notice as the provider updates models
 server-side. Cost — one-time model download vs per-call API charges.
-Language coverage — bge-m3 supports 100+ languages out of the box,
+Language coverage — multilingual-e5-large supports 100+ languages out of the box,
 which matters because historical documents in Epocha are often in
 French, Italian, German, Latin, not just English. OpenAI's models
 are trained predominantly on English.
@@ -1560,7 +1563,7 @@ all-pairs approach.
 **Q: How reproducible are the extraction results?**
 A: Mostly reproducible, with one caveat. Deterministic factors:
 document hashing, chunking (same text always produces same chunks),
-embedding (bge-m3 with pinned weights), cache lookup. Non-deterministic
+embedding (multilingual-e5-large with pinned weights), cache lookup. Non-deterministic
 factor: the LLM extraction itself. Even with `temperature=0.1`, LLMs
 are not perfectly deterministic on the same input. To mitigate, the
 extraction prompt is strict about JSON schema and the validators drop
@@ -1569,9 +1572,9 @@ even if content varies slightly. A stronger determinism guarantee
 would require cached LLM responses (essentially what the extraction
 cache already does on the second run).
 
-**Q: What if the bge-m3 model changes upstream?**
+**Q: What if the multilingual-e5-large model changes upstream?**
 A: We pin the model version via fastembed's model cache. If we
-explicitly upgrade the model (e.g. to bge-m3.1), we bump
+explicitly upgrade the model (e.g. to multilingual-e5-large.1), we bump
 `EMBEDDING_MODEL` in versions.py, which invalidates all existing
 extraction cache entries. Users would need to re-run extraction
 against the new model; existing simulations would continue to

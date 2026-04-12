@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.db import models
+from pgvector.django import HnswIndex, VectorField
+
+from epocha.apps.knowledge.versions import EMBEDDING_DIM
 
 
 class KnowledgeDocument(models.Model):
@@ -57,3 +60,35 @@ class KnowledgeDocumentAccess(models.Model):
     class Meta:
         unique_together = ("user", "document")
         indexes = [models.Index(fields=["user", "document"])]
+
+
+class KnowledgeChunk(models.Model):
+    """A text chunk of a document with its embedding, reused across graphs.
+
+    Chunks are created once per document and persisted with their
+    embedding. Re-running the pipeline on the same document is a no-op
+    because chunks already exist (idempotent chunking).
+    """
+
+    document = models.ForeignKey(
+        KnowledgeDocument, on_delete=models.CASCADE, related_name="chunks",
+    )
+    chunk_index = models.PositiveIntegerField()
+    text = models.TextField()
+    start_char = models.PositiveIntegerField()
+    end_char = models.PositiveIntegerField()
+    embedding = VectorField(dimensions=EMBEDDING_DIM)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("document", "chunk_index")
+        ordering = ["document", "chunk_index"]
+        indexes = [
+            HnswIndex(
+                name="chunk_embedding_hnsw",
+                fields=["embedding"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_cosine_ops"],
+            ),
+        ]
