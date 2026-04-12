@@ -113,15 +113,113 @@ Fonti: Ostrom (2009) gestione dei commons, modelli SES (social-ecological
 systems), North (1990) "Institutions, Institutional Change and Economic
 Performance" per il sistema legale.
 
-## Fase 8 -- Piattaforma e infrastruttura
+## Fase 8 -- Epidemiologia e salute pubblica
 
-**8a. Web scraping** -- acquisizione automatica dati per scenari reali.
-**8b. Branching/what-if** -- checkpoint + fork della simulazione.
-**8c. Report Agent** -- agente con toolset per report stile enciclopedia.
-**8d. Interview mode** -- interviste post-simulazione agli agenti.
-**8e. Mappa 2D** -- Pixi.js per zone e posizioni agenti.
-**8f. Miglioramento grafo** -- multi-tipo, tab, sfondo chiaro, densita'.
-**8g. Analytics avanzati** -- confronto branch, pattern detection, export.
+**8a. Modello SIR/SEIR** -- propagazione di malattie via rete sociale e
+spaziale (PostGIS). Suscettibili -> Esposti -> Infetti -> Recuperati/Morti.
+Parametri dipendenti da: densita' di popolazione (zona), sanita'
+(istituzione health), tecnologia medica (albero tech), nutrizione
+(economia: accesso a beni di sussistenza).
+**8b. Pandemie** -- epidemie che attraversano zone e civilta'. Impatto
+demografico (mortalita'), economico (forza lavoro ridotta, commercio
+interrotto), politico (crisi di legittimita' se il governo non risponde),
+sociale (capri espiatori, superstizione vs scienza).
+**8c. Salute pubblica** -- sanita' come istituzione attiva (gia' esiste
+come tipo istituzionale), ospedali, quarantene, vaccinazioni (legate a
+tecnologia).
+STATO: da fare dopo Fase 7.
+Fonti: Kermack & McKendrick (1927) modello SIR, Anderson & May (1991)
+"Infectious Diseases of Humans", modelli ABM epidemiologici (Eubank et al.
+2004). Per l'impatto storico: McNeill (1976) "Plagues and Peoples".
+
+## Fase 9 -- Energia e infrastruttura fisica
+
+**9a. Risorse energetiche** -- la transizione energetica come driver
+fondamentale del progresso. Muscolo umano/animale -> legna -> carbone ->
+petrolio -> gas -> nucleare -> rinnovabili. La fonte energetica disponibile
+determina la scala della produzione, la capacita' militare, la velocita'
+dei trasporti, e la struttura sociale.
+**9b. Infrastruttura fisica** -- strade, ponti, acquedotti, porti, ferrovie,
+aeroporti, reti di comunicazione. Costruite con risorse economiche e
+lavoro, degradano senza manutenzione (entropia), determinano l'efficienza
+del commercio e del movimento (gia' modellati via PostGIS).
+**9c. Urbanizzazione** -- crescita delle citta' come fenomeno emergente
+dalla concentrazione di commercio, infrastruttura e opportunita'. Le
+zone urbane crescono, si espandono, attraggono migranti (collegato a
+demografia), producono problemi (sovraffollamento, criminalita',
+epidemie in spazi densi).
+STATO: da fare dopo Fase 8.
+Fonti: Smil (2017) "Energy and Civilization: A History", Braudel (1979)
+per infrastruttura pre-industriale, Bettencourt et al. (2007) per le
+scaling laws delle citta'.
+
+## Fase 10 -- Psicologia collettiva e identita'
+
+**10a. Psicologia delle folle** -- comportamenti di massa che emergono
+quando gli agenti sono in gruppo: panico, euforia collettiva, linciaggi,
+rivoluzioni spontanee. Non modellabile come somma di decisioni individuali
+-- richiede un meccanismo di "contagio emotivo" separato dal decision
+engine individuale.
+**10b. Identita' sociale** -- gli agenti si identificano con gruppi
+(nazione, religione, classe, etnia, professione) e questa identita'
+influenza le decisioni, la coesione, il conflitto. L'appartenenza a
+gruppi sovrapposti crea tensioni (un mercante ebreo nella Spagna
+medievale: identita' religiosa vs identita' professionale vs identita'
+nazionale).
+**10c. Media e propaganda** -- chi controlla l'informazione controlla la
+societa'. Giornali, radio, TV, social media come mezzi di persuasione
+di massa. Il governo puo' usare i media per propaganda (collegato a
+repression_level e institutional health di media). L'information flow
+gia' modellato diventa il substrato; i media ne amplificano portata e
+distorsione.
+STATO: da fare dopo Fase 9.
+Fonti: Le Bon (1895) "The Crowd", Moscovici (1981) "The Age of the
+Crowd", Tajfel (1979) social identity theory, Tajfel & Turner (1986)
+intergroup conflict, Herman & Chomsky (1988) "Manufacturing Consent".
+
+## Fase 11 -- Commercio a lunga distanza e rotte
+
+**11. Rotte commerciali** -- la Via della Seta, le rotte atlantiche, le
+rotte interstellari. Il commercio a lunga distanza trasforma civilta':
+porta ricchezza, idee, malattie, conflitti. Le rotte sono entita'
+spaziali (PostGIS) con costi di trasporto, rischi (pirateria, guerre),
+e capacita' che dipendono dalla tecnologia (vela -> vapore -> container
+-> iperspazio).
+STATO: da fare dopo Fase 5 (diplomazia) + Fase 9 (infrastruttura).
+Fonti: Braudel (1979) "The Mediterranean", Abu-Lughod (1989) "Before
+European Hegemony", Findlay & O'Rourke (2007) "Power and Plenty:
+Trade, War, and the World Economy in the Second Millennium".
+
+## Fase 12 -- Eredita', lignaggio e memoria storica
+
+**12a. Eredita'** -- trasmissione intergenerazionale di ricchezza,
+proprieta', status sociale, conoscenze. Meccanismo primario di
+stratificazione persistente (Piketty 2013: r > g). I figli ereditano
+dai genitori, con regole che dipendono dal sistema legale e culturale
+(primogenitura, divisione egualitaria, dote).
+**12b. Lignaggio e famiglie** -- albero genealogico degli agenti (il campo
+parent_agent esiste gia' nel modello Agent). Le famiglie come unita'
+sociale con reputazione collettiva (i Borgia, i Medici). Il lignaggio
+influenza la legittimita' politica (diritto divino, aristocrazia).
+**12c. Memoria storica collettiva** -- la civilta' "ricorda" i suoi
+eventi fondativi (la presa della Bastiglia, la fondazione di Roma).
+Questi eventi influenzano l'identita' collettiva e le decisioni
+future. Collegato al Knowledge Graph: gli eventi storici diventano
+parte della memoria culturale, non solo dei singoli agenti.
+STATO: da fare dopo Fase 2 (demografia) + Fase 6 (cultura).
+Fonti: Piketty (2013) "Le Capital au XXIe siecle", Halbwachs (1950)
+"La Memoire Collective", Assmann (2011) "Cultural Memory".
+
+## Fase 13 -- Piattaforma e tooling
+
+**13a. Web scraping** -- acquisizione automatica dati per scenari reali.
+**13b. Branching/what-if** -- checkpoint + fork della simulazione.
+**13c. Report Agent** -- agente con toolset per report stile enciclopedia.
+**13d. Interview mode** -- interviste post-simulazione agli agenti.
+**13e. Mappa 2D** -- Pixi.js per zone e posizioni agenti.
+**13f. Miglioramento grafo** -- multi-tipo, tab, sfondo chiaro, densita'.
+**13g. Analytics avanzati** -- confronto branch, pattern detection, export.
+**13h. Documentazione scientifica pubblica** -- il "paper" di Epocha.
 
 ## Principi trasversali
 
@@ -148,17 +246,36 @@ Economia comportamentale (1b) ← 1a
     ↓
 Economia finanziaria (1c) ← 1b
     ↓
-Demografia (2) ← 1a (per eredita' e pressione economica)
+Demografia (2) ← 1a
     ↓
-Tecnologia (3) ← 1a + 2 (modifica produzione + generazioni)
+Tecnologia (3) ← 1a + 2
     ↓
-Militare (4) ← 1a + 2 + 3 (risorse + soldati + armi)
+Militare (4) ← 1a + 2 + 3
     ↓
-Diplomazia (5) ← 4 (equilibrio di forze)
+Diplomazia (5) ← 4
     ↓
-Cultura/Religione/Educazione (6) ← 2 + 3 (trasmissione intergenerazionale)
+Cultura/Religione/Educazione (6) ← 2 + 3
     ↓
-Ambiente/Legale/Comunicazione (7) ← tutti i precedenti
+Ambiente/Legale/Comunicazione (7) ← 1a + 2 + 3
+    ↓
+Epidemiologia (8) ← 2 + 7 (demografia + ambiente)
+    ↓
+Energia/Infrastruttura/Urbanizzazione (9) ← 1a + 2 + 3
+    ↓
+Psicologia collettiva/Identita'/Media (10) ← 6 + information_flow esistente
+    ↓
+Rotte commerciali (11) ← 5 + 9 (diplomazia + infrastruttura)
+    ↓
+Eredita'/Lignaggio/Memoria storica (12) ← 2 + 6 (demografia + cultura)
 ```
 
-Fase 8 (piattaforma) puo' procedere in parallelo a qualsiasi fase.
+Fase 13 (piattaforma/tooling) procede in parallelo a qualsiasi fase.
+
+Note sulle dipendenze:
+- Le fasi 8-12 hanno dipendenze parziali, non totali: possono
+  iniziare non appena le loro dipendenze dirette sono complete,
+  senza aspettare che TUTTE le fasi precedenti siano finite.
+- Energia (9) puo' procedere in parallelo a Epidemiologia (8).
+- Psicologia collettiva (10) puo' procedere in parallelo a Rotte (11).
+- Eredita' (12) richiede demografia (2) e cultura (6) ma non
+  necessariamente militare (4) o diplomazia (5).
