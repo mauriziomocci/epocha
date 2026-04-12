@@ -215,7 +215,14 @@ Fonti: Piketty (2013) "Le Capital au XXIe siecle", Halbwachs (1950)
 **13a. Web scraping** -- acquisizione automatica dati per scenari reali.
 **13b. Branching/what-if** -- checkpoint + fork della simulazione.
 **13c. Report Agent** -- agente con toolset per report stile enciclopedia.
-**13d. Interview mode** -- interviste post-simulazione agli agenti.
+**13d. Narrative Generator** -- genera un romanzo storico/geopolitico dalla
+simulazione. Prosa letteraria rigorosa (ogni evento verificato contro i
+dati della simulazione), multilingue, con struttura narrativa in tre atti
+(Aristotele), voci distinte per personaggio (Big Five), prospettive
+multiple (romanzo corale), stile configurabile (cronaca, romanzo,
+reportage, diario, epistolare). Fonti: Riedl & Young (2010), Gervas
+(2009), McKee (1997).
+**13e. Interview mode** -- interviste post-simulazione agli agenti.
 **13e. Mappa 2D** -- Pixi.js per zone e posizioni agenti.
 **13f. Miglioramento grafo** -- multi-tipo, tab, sfondo chiaro, densita'.
 **13g. Analytics avanzati** -- confronto branch, pattern detection, export.
