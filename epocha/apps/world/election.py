@@ -26,9 +26,10 @@ Agents vote based on five weighted factors that model real-world electoral behav
    Information and the Dynamics of Candidate Evaluation." APSR, 89(2), 309-326.
 
 5. Candidate charisma (15%): a baseline personal appeal factor independent of
-   voter-specific considerations.
-   Reference: Zonis & Joseph (1994) "Conspiracy Thinking in the Middle East."
-   Political Psychology, 15(3), 443-459.
+   voter-specific considerations. Charisma's influence on electoral behavior is
+   well-documented in political science (Weber 1922 for charismatic authority;
+   Bass 1985 for transformational leadership). The specific weight in the vote
+   score is a design parameter.
 
 Manipulated elections add a +0.3 bonus to the ruling faction's candidate, modelling
 the well-documented incumbency advantage under competitive authoritarianism.
@@ -48,6 +49,10 @@ from epocha.apps.world.government_types import GOVERNMENT_TYPES
 from epocha.apps.world.models import Government
 
 # Vote score component weights — must sum to 1.0.
+# These are design parameters. The cited papers discuss the existence of each
+# factor but do not provide relative weights. Lewis-Beck & Stegmaier (2000)
+# suggest economic conditions are often the dominant predictor, potentially
+# warranting higher economic weight in future empirical calibration.
 _W_RELATIONSHIP: float = 0.25
 _W_PERSONALITY: float = 0.15
 _W_ECONOMIC: float = 0.20
@@ -55,7 +60,8 @@ _W_MEMORY: float = 0.25
 _W_CHARISMA: float = 0.15
 
 # Wealth normalisation ceiling: a voter with wealth >= 100 is fully satisfied.
-# Based on median household wealth in pre-industrial simulations being ~100 units.
+# This maps to the simulation's internal wealth scale where Agent.wealth
+# defaults to 50.0. Design parameter, not empirically derived.
 _WEALTH_SATURATION: float = 100.0
 
 # Score bonus applied to the ruling faction's candidate in a manipulated election.
@@ -102,6 +108,8 @@ def compute_vote_score(voter: Agent, candidate: Agent, tick: int) -> float:
     economic_satisfaction = (voter.mood + min(voter.wealth / _WEALTH_SATURATION, 1.0)) / 2.0
     from epocha.apps.agents.reputation import get_combined_score
     reputation_raw = get_combined_score(voter, candidate)
+    # Note: reputation normalization is also available via ReputationScore.get_combined_score_normalized().
+    # This inline normalization is kept for backward compatibility but should migrate to the centralized method.
     reputation_factor = (reputation_raw + 1.0) / 2.0  # Normalize from [-1, 1] to [0, 1]
     charisma_effect = candidate.charisma
 
@@ -157,11 +165,15 @@ def run_election(simulation: Simulation, tick: int) -> dict:
         return {"winner": None, "faction": None, "tallies": {}}
 
     # Gather voters: all living agents in the simulation.
-    voters = Agent.objects.filter(simulation=simulation, is_alive=True).select_related("group")
+    # Evaluate to a list once so the queryset is not re-executed on len() below.
+    voter_list = list(
+        Agent.objects.filter(simulation=simulation, is_alive=True).select_related("group")
+    )
+    voter_count = len(voter_list)
 
     # Compute aggregate scores for each candidate.
     tallies: dict[int, float] = {candidate.pk: 0.0 for candidate in candidates}
-    for voter in voters:
+    for voter in voter_list:
         for candidate in candidates:
             tallies[candidate.pk] += compute_vote_score(voter, candidate, tick)
 
@@ -169,7 +181,7 @@ def run_election(simulation: Simulation, tick: int) -> dict:
     if is_manipulated and government.ruling_faction_id is not None:
         for candidate in candidates:
             if candidate.group_id == government.ruling_faction_id:
-                tallies[candidate.pk] += _MANIPULATION_BONUS * len(list(voters))
+                tallies[candidate.pk] += _MANIPULATION_BONUS * voter_count
 
     # Determine the winner.
     winner = max(candidates, key=lambda c: tallies[c.pk])
@@ -244,8 +256,18 @@ def _relationship_sentiment_score(voter: Agent, candidate: Agent) -> float:
     return (rel.sentiment + 1.0) / 2.0
 
 
+# DEPRECATED: this function is not called. Vote scoring uses reputation.get_combined_score
+# instead. Kept for reference; should be removed in a future cleanup.
 def _memory_influence_score(voter: Agent, candidate: Agent) -> float:
     """Return a [0.0, 1.0] score from the voter's active memories about the candidate.
+
+    DEPRECATED: this function is no longer called by compute_vote_score, which now uses
+    the reputation-based score from get_combined_score instead. The function is retained
+    for reference only and should be removed in a future cleanup pass.
+
+    NOTE: the keyword set here (_POSITIVE_KEYWORDS, _NEGATIVE_KEYWORDS) differs from the
+    keyword set in reputation.py:extract_action_sentiment. This function is deprecated and
+    should be removed.
 
     Scans the voter's active memories for mentions of the candidate's name.
     For each matching memory:

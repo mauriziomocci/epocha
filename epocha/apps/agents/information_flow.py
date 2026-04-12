@@ -10,6 +10,13 @@ Scientific basis for the propagation model:
   Cambridge University Press.
 - Social network information diffusion: Granovetter (1973). "The Strength
   of Weak Ties." American Journal of Sociology, 78(6), 1360-1380.
+  Granovetter argues that weak ties are particularly important for bridging
+  information across clusters; this version does not implement differential
+  propagation by tie strength (all relationships transmit equally). The belief
+  filter (belief.py) does consider relationship strength for acceptance, but
+  not for propagation probability. Implementing Granovetter's model (higher
+  propagation probability for weak ties as bridges) is deferred to a future
+  version.
 """
 from __future__ import annotations
 
@@ -48,7 +55,14 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
         simulation: The Simulation instance whose agents are ticking.
         tick:       The current tick number.
     """
+    # Minimum emotional weight for a memory to propagate. Tunable design
+    # parameter without empirical source. Prevents trivial observations from
+    # flooding the network.
     threshold = getattr(settings, "EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD", 0.3)
+    # Reliability decay factor per propagation hop. Tunable design parameter.
+    # Bartlett (1932) documented information degradation through serial
+    # reproduction but did not quantify it as a specific geometric decay rate.
+    # The value 0.7 produces 34% reliability after 3 hops and 17% after 5 hops.
     decay = getattr(settings, "EPOCHA_INFO_FLOW_RELIABILITY_DECAY", 0.7)
     max_hops = getattr(settings, "EPOCHA_INFO_FLOW_MAX_HOPS", 3)
     max_recipients = getattr(settings, "EPOCHA_INFO_FLOW_MAX_RECIPIENTS", 20)
@@ -127,6 +141,11 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
     for event in public_events:
         content = f"{event.title}: {event.description}"
         for agent in living_agents:
+            # Known limitation: deduplication does not include content field.
+            # If multiple public events occur in the same tick, only the first
+            # is created per agent. Adding content to the lookup would fix this
+            # but risks creating duplicate memories for the same event with
+            # slightly different wording.
             Memory.objects.get_or_create(
                 agent=agent,
                 source_type=Memory.SourceType.PUBLIC,
@@ -305,6 +324,11 @@ def _estimate_hop(reliability: float, decay: float) -> int:
 
     Derived by inverting the compounding formula reliability = decay^hop:
         hop = log(reliability) / log(decay)
+
+    Known limitation: this estimation assumes the original memory had reliability
+    1.0. If the source memory had lower reliability, the hop count is
+    overestimated, causing premature propagation termination. A more robust
+    approach would track hop_count explicitly on the Memory model.
 
     Args:
         reliability: Current reliability value of the memory (0.0 to 1.0).

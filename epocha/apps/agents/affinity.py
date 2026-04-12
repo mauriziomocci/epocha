@@ -3,7 +3,7 @@
 Affinity measures how likely two agents are to form a coalition or join the
 same faction. It is a weighted composite of three orthogonal dimensions:
 
-1. Personality similarity (Big Five cosine-inspired distance)
+1. Personality similarity (Big Five Euclidean distance)
    Based on: McCrae & Costa (2003) "Personality in Adulthood", 2nd ed.,
    Guilford Press. The five-factor model is the standard framework for
    measuring personality similarity between individuals.
@@ -219,6 +219,8 @@ def _circumstance_score(agent_a: Agent, agent_b: Agent, tick: int) -> float:
         score += 0.20
 
     # Same wealth quartile: economic proximity fosters solidarity.
+    # Wealth similarity threshold (25% relative difference). Tunable design
+    # parameter without empirical source.
     # Guard against division by zero when both agents have zero wealth.
     max_wealth = max(agent_a.wealth, agent_b.wealth)
     if max_wealth > 0.0:

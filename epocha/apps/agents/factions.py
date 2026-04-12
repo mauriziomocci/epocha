@@ -9,9 +9,11 @@ Faction dynamics operate on a slower timescale than individual decisions because
 political change emerges from accumulated interactions, not single events.
 
 Scientific basis:
-  - Leadership emergence: Stogdill (1948), "Personal factors associated with
-    leadership", Journal of Psychology. Charisma, intelligence, and seniority
-    are primary predictors of emergent leadership.
+  - Leadership emergence: The trait-based approach is broadly consistent with
+    leadership research (Stogdill 1948 identified intelligence, dependability,
+    social participation as correlates; Judge et al. 2002 provide meta-analytic
+    effect sizes for Big Five traits). The specific formula and weights used here
+    are design parameters, not derived from any specific empirical model.
   - Group cohesion: Festinger et al. (1950), "Social Pressures in Informal
     Groups." Cohesion is maintained through cooperative interaction and
     undermined by internal conflict.
@@ -41,6 +43,10 @@ _COOPERATIVE_ACTIONS: frozenset[str] = frozenset({"help", "socialize"})
 # Conflict has a stronger negative effect than cooperation has a positive
 # one (asymmetry of -0.15 vs +0.10), consistent with Baumeister et al.
 # (2001) "Bad is stronger than good", Review of General Psychology.
+# Cohesion change coefficients are tunable design parameters. The asymmetry
+# between conflict (0.15) and cooperation (0.10) reflects the negativity
+# bias principle (Baumeister et al. 2001: negative events have stronger
+# impact), but the specific values are not empirically derived.
 _CONFLICT_ACTIONS: frozenset[str] = frozenset({"argue", "betray"})
 
 # Threshold below which the average sentiment toward non-allies triggers schism.
@@ -102,9 +108,12 @@ def compute_leadership_score(agent: Agent, group: Group, tick: int) -> float:
         other members, where [-1, 1] is mapped to [0, 1]
       - seniority: (tick - join_tick) / group_age, capped at 1.0
 
-    Source: Stogdill (1948), "Personal factors associated with leadership",
-    Journal of Psychology, 25, 35-71. Charisma, intelligence, and seniority
-    are primary predictors of emergent informal leadership.
+    Leadership emergence score. The trait-based approach is broadly consistent
+    with leadership research (Stogdill 1948 identified intelligence, dependability,
+    social participation as correlates; Judge et al. 2002 provide meta-analytic
+    effect sizes for Big Five traits). However, the specific formula and weights
+    (0.30/0.20/0.15/0.20/0.15) are design parameters, not derived from any
+    specific empirical model.
 
     Args:
         agent: The agent to score.
@@ -235,8 +244,11 @@ def update_group_cohesion(group: Group, simulation, tick: int) -> None:
 
     where:
       - size_penalty = max(0, member_count - 5): coordination cost above 5 members.
-        Source: Dunbar (1992), "Neocortex size as a constraint on group size",
-        Journal of Human Evolution. Five is well within cognitive bandwidth.
+        Coordination cost threshold. Groups larger than 5 members incur
+        increasing coordination penalties. The threshold is a design parameter;
+        while Dunbar (1992) identifies a hierarchy of group sizes (5, 15, 50,
+        150), the use of 5 here as a coordination cost boundary is a simulation
+        design choice, not a direct application of Dunbar's model.
       - leader_effectiveness = legitimacy - 0.5: positive if leader is well-liked.
 
     The asymmetry (conflict has 1.5x the effect of cooperation) reflects
@@ -450,6 +462,10 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
     def _get_sentiment(a_id: int, b_id: int) -> float:
         return sentiment_map.get((a_id, b_id), sentiment_map.get((b_id, a_id), 0.0))
 
+    # Known limitation: schism detection seeds from the first agent in the
+    # queryset, making the result order-dependent. Overlapping potential
+    # schisms may exist; which one is detected depends on iteration order.
+    # A more robust approach would use clustering algorithms.
     for seed in members:
         allies = [seed]
         for other in members:

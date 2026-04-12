@@ -196,5 +196,33 @@ class ReputationScore(models.Model):
             models.Index(fields=["holder", "target"], name="reputation_lookup_idx"),
         ]
 
+    def get_combined_score(self) -> float:
+        """Return a single trustworthiness score combining image and reputation.
+
+        Weights: image (direct experience) 0.6, reputation (social evaluation) 0.4.
+
+        The primacy of direct experience over hearsay is a well-established principle
+        in social psychology (Castelfranchi et al. 1998 for the conceptual distinction),
+        but the specific 60/40 ratio is a tunable parameter without empirical derivation.
+
+        Returns:
+            Combined score in [-1.0, 1.0].
+        """
+        return self.image * 0.6 + self.reputation * 0.4
+
+    def get_combined_score_normalized(self) -> float:
+        """Return the combined reputation score normalized to [0, 1].
+
+        Convenience method that normalizes the [-1, 1] combined score to
+        [0, 1] for use by modules that need a non-negative scale (belief
+        filter, elections). Centralizes the normalization that was
+        previously scattered across consuming modules.
+
+        Returns:
+            Combined score in [0.0, 1.0]. Neutral (0.0) maps to 0.5.
+        """
+        raw = self.image * 0.6 + self.reputation * 0.4
+        return (raw + 1.0) / 2.0
+
     def __str__(self):
         return f"{self.holder.name}'s view of {self.target.name}: img={self.image:.2f} rep={self.reputation:.2f}"

@@ -80,6 +80,8 @@ def should_believe(
 
     # Normalize reputation from [-1, 1] to [0, 1].
     # 0.0 (neutral) maps to 0.5, -1.0 (worst) to 0.0, +1.0 (best) to 1.0.
+    # Note: reputation normalization is also available via ReputationScore.get_combined_score_normalized().
+    # This inline normalization is kept for backward compatibility but should migrate to the centralized method.
     reputation_factor = (transmitter_reputation + 1.0) / 2.0
 
     acceptance_score = (

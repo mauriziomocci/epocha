@@ -336,6 +336,10 @@ def update_government_indicators(simulation) -> None:
     # Corruption rises when oversight institutions are weak. The government type's
     # corruption_resistance sets a structural ceiling on how fast corruption spreads.
     # Source: Rose-Ackerman & Palifka (2016): oversight gap = 1 - avg(justice, media, bureaucracy).
+    # Note: corruption was already adjusted by stratification.py:process_corruption earlier in this
+    # political cycle (based on head-of-state personality). This step adds the institutional oversight
+    # effect. The stacking is intentional: personality of the head of state AND institutional health
+    # both independently influence the corruption index within the same cycle.
     oversight = (justice.health + media.health * media.independence + bureaucracy.health) / 3.0
     corruption_pressure = (1.0 - oversight) * (1.0 - corruption_resistance) * 0.05
     # Slow decay when oversight is strong.

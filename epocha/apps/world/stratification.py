@@ -307,6 +307,10 @@ def process_corruption(simulation, tick: int) -> None:
 
     # Raise government corruption index when the head of state personally extracts rent.
     # Corruption decays slowly when the head of state is clean.
+    # Note: this corruption adjustment stacks with the institutional oversight adjustment in
+    # government.py:update_government_indicators (which runs later in the same political cycle).
+    # The combined effect is intentional: personality of the head of state AND institutional
+    # health both influence corruption.
     if government:
         if is_head_of_state_corrupt:
             # Each corrupt tick nudges the index upward by 0.02 (capped at 1.0).
