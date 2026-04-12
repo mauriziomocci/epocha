@@ -199,14 +199,14 @@ class KnowledgeNode(models.Model):
     ENTITY_TYPE_CHOICES = [
         ("person", "Person"),
         ("group", "Group"),
+        ("place", "Geographic Place"),
         ("institution", "Institution"),
-        ("place", "Place"),
-        ("event", "Event"),
-        ("concept", "Concept"),
-        ("resource", "Resource"),
-        ("technology", "Technology"),
-        ("law", "Law"),
-        ("artifact", "Artifact"),
+        ("event", "Historical Event"),
+        ("concept", "Abstract Concept"),
+        ("ideology", "Ideology"),
+        ("object", "Material Object"),
+        ("norm", "Norm or Law"),
+        ("value", "Cultural Value"),
     ]
 
     SOURCE_TYPE_CHOICES = [
