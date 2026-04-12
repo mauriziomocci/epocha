@@ -92,3 +92,31 @@ class KnowledgeChunk(models.Model):
                 opclasses=["vector_cosine_ops"],
             ),
         ]
+
+
+class ExtractionCache(models.Model):
+    """Cache of the expensive LLM extraction step.
+
+    Keyed by the composite of documents hash, ontology version, extraction
+    prompt version, and LLM model. Any change to these invalidates the
+    cache automatically, preventing stale results from contaminating new
+    simulations.
+    """
+
+    cache_key = models.CharField(max_length=64, primary_key=True)
+    documents_hash = models.CharField(max_length=64, db_index=True)
+    ontology_version = models.CharField(max_length=20)
+    extraction_prompt_version = models.CharField(max_length=20)
+    llm_model = models.CharField(max_length=100)
+    extracted_data = models.JSONField(
+        help_text="Raw extraction output: {nodes, relations, unrecognized_relations, ...}",
+    )
+    stats = models.JSONField(
+        help_text="chunks_processed, llm_calls, elapsed_seconds, token counts",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    hit_count = models.PositiveIntegerField(default=0)
+    last_hit_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"ExtractionCache[{self.cache_key[:12]}...] hits={self.hit_count}"
