@@ -1,6 +1,8 @@
 """Dashboard URL configuration."""
 from django.urls import path
 
+from epocha.apps.knowledge import views as knowledge_views
+
 from . import views
 
 app_name = "dashboard"
@@ -31,6 +33,9 @@ urlpatterns = [
     # Analytics
     path("simulations/<int:sim_id>/analytics/", views.analytics_view, name="analytics"),
     path("simulations/<int:sim_id>/analytics/data/", views.analytics_data_view, name="analytics-data"),
+
+    # Knowledge graph
+    path("simulations/<int:sim_id>/knowledge-graph/", knowledge_views.knowledge_graph_view, name="knowledge-graph"),
 
     # Social graph
     path("simulations/<int:sim_id>/graph/", views.graph_view, name="graph"),

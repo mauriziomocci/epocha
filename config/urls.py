@@ -13,4 +13,5 @@ urlpatterns = [
     path("api/v1/agents/", include("epocha.apps.agents.urls")),
     path("api/v1/worlds/", include("epocha.apps.world.urls")),
     path("api/v1/chat/", include("epocha.apps.chat.urls")),
+    path("api/v1/knowledge/", include("epocha.apps.knowledge.urls")),
 ]

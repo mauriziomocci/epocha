@@ -1,0 +1,389 @@
+{% extends "dashboard/base.html" %}
+{% block title %}{{ simulation.name }} - Knowledge Graph - Epocha{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+<script>
+// Simple force-directed layout (spring-electrical model).
+// Sufficient for graphs up to a few hundred nodes. Runs synchronously
+// for a fixed number of iterations to avoid layout jitter.
+function simpleForceLayout(graph, iterations) {
+    const nodes = graph.nodes();
+    const n = nodes.length;
+    if (n === 0) return;
+
+    nodes.forEach(node => {
+        const attrs = graph.getNodeAttributes(node);
+        if (!attrs.x || !attrs.y) {
+            graph.setNodeAttribute(node, "x", Math.random() * 100);
+            graph.setNodeAttribute(node, "y", Math.random() * 100);
+        }
+    });
+
+    const repulsion = 500;
+    const attraction = 0.01;
+    const damping = 0.9;
+    const velocities = {};
+    nodes.forEach(node => { velocities[node] = { vx: 0, vy: 0 }; });
+
+    for (let iter = 0; iter < iterations; iter++) {
+        for (let i = 0; i < n; i++) {
+            for (let j = i + 1; j < n; j++) {
+                const a = graph.getNodeAttributes(nodes[i]);
+                const b = graph.getNodeAttributes(nodes[j]);
+                let dx = a.x - b.x;
+                let dy = a.y - b.y;
+                let dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+                let force = repulsion / (dist * dist);
+                let fx = (dx / dist) * force;
+                let fy = (dy / dist) * force;
+                velocities[nodes[i]].vx += fx;
+                velocities[nodes[i]].vy += fy;
+                velocities[nodes[j]].vx -= fx;
+                velocities[nodes[j]].vy -= fy;
+            }
+        }
+
+        graph.forEachEdge((edge, attrs, source, target) => {
+            const a = graph.getNodeAttributes(source);
+            const b = graph.getNodeAttributes(target);
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+            let force = dist * attraction;
+            let fx = (dx / dist) * force;
+            let fy = (dy / dist) * force;
+            velocities[source].vx += fx;
+            velocities[source].vy += fy;
+            velocities[target].vx -= fx;
+            velocities[target].vy -= fy;
+        });
+
+        nodes.forEach(node => {
+            const v = velocities[node];
+            v.vx *= damping;
+            v.vy *= damping;
+            graph.setNodeAttribute(node, "x", graph.getNodeAttribute(node, "x") + v.vx);
+            graph.setNodeAttribute(node, "y", graph.getNodeAttribute(node, "y") + v.vy);
+        });
+    }
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<div x-data="knowledgeGraphPage()" x-init="init()" class="relative">
+
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-4">
+        <div class="flex items-center gap-3">
+            <a href="{% url 'dashboard:simulation-detail' sim_id=simulation.id %}"
+               class="text-gray-400 hover:text-gray-200 text-sm flex items-center gap-1">
+                &larr; {{ simulation.name }}
+            </a>
+            <span class="text-gray-600">/</span>
+            <h1 class="text-lg font-semibold">Knowledge Graph</h1>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500" x-text="statsText"></span>
+            <button @click="refreshData()"
+                    class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-medium">
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Entity type filter toggles -->
+    <div class="hidden md:flex flex-wrap gap-2 mb-4 items-center">
+        <span class="text-xs text-gray-500 mr-1">Entity types:</span>
+        <template x-for="(color, etype) in entityColors" :key="etype">
+            <button
+                @click="toggleEntityFilter(etype)"
+                :style="activeEntityTypes[etype] ? `border-color: ${color}; background: ${color}22;` : 'border-color: #4b5563; background: transparent;'"
+                class="px-3 py-1 rounded-full border text-xs font-medium transition-all capitalize"
+                :class="activeEntityTypes[etype] ? 'text-white' : 'text-gray-500'"
+                x-text="etype">
+            </button>
+        </template>
+    </div>
+
+    <!-- Mobile fallback -->
+    <div class="md:hidden flex items-center justify-center h-48 bg-gray-800 rounded-lg border border-gray-700 text-gray-400 text-sm text-center px-6">
+        Open on desktop to explore the knowledge graph.
+    </div>
+
+    <!-- Graph container (desktop only) -->
+    <div class="hidden md:block relative">
+
+        <!-- Loading overlay -->
+        <div x-show="loading"
+             class="absolute inset-0 z-20 flex items-center justify-center bg-gray-950/80 rounded-lg">
+            <div class="text-gray-400 text-sm">Loading graph...</div>
+        </div>
+
+        <!-- Graph canvas -->
+        <div id="kg-container"
+             class="w-full rounded-lg border border-gray-700 bg-gray-950"
+             style="height: calc(100vh - 180px);">
+        </div>
+
+        <!-- Legend -->
+        <div class="absolute bottom-3 left-3 z-10 bg-gray-900/90 border border-gray-700 rounded px-3 py-2 text-xs space-y-1">
+            <div class="text-gray-400 uppercase tracking-wide text-[10px] mb-2">Entity types</div>
+            <template x-for="(color, etype) in entityColors" :key="etype">
+                <div class="flex items-center gap-2">
+                    <div class="w-2.5 h-2.5 rounded-full" :style="`background: ${color}`"></div>
+                    <span class="text-gray-300 capitalize" x-text="etype"></span>
+                </div>
+            </template>
+            <div class="mt-2 pt-2 border-t border-gray-700">
+                <div class="text-gray-400 uppercase tracking-wide text-[10px] mb-2">Relation categories</div>
+                <template x-for="(color, cat) in categoryColors" :key="cat">
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-0.5" :style="`background: ${color}`"></div>
+                        <span class="text-gray-300 capitalize" x-text="cat"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Node detail panel -->
+        <div x-show="selectedNode"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 translate-x-4"
+             x-transition:enter-end="opacity-100 translate-x-0"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100 translate-x-0"
+             x-transition:leave-end="opacity-0 translate-x-4"
+             class="absolute top-0 right-0 z-10 w-80 h-full overflow-y-auto bg-gray-800 border-l border-gray-700 rounded-r-lg p-4 space-y-4">
+
+            <!-- Close -->
+            <div class="flex justify-between items-start">
+                <h2 class="font-semibold text-lg" x-text="selectedNode ? selectedNode.name : ''"></h2>
+                <button @click="selectedNode = null" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+
+            <!-- Type + source -->
+            <div class="space-y-1 text-sm">
+                <div>
+                    <span class="text-gray-400">Type:</span>
+                    <span class="ml-1 capitalize font-medium" x-text="selectedNode ? selectedNode.entity_type : ''"></span>
+                </div>
+                <div>
+                    <span class="text-gray-400">Source:</span>
+                    <span class="ml-1 capitalize" x-text="selectedNode ? selectedNode.source_type : ''"></span>
+                </div>
+                <div>
+                    <span class="text-gray-400">Mentions:</span>
+                    <span class="ml-1" x-text="selectedNode ? selectedNode.mention_count : ''"></span>
+                </div>
+            </div>
+
+            <!-- Description -->
+            <div x-show="selectedNode && selectedNode.description">
+                <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Description</div>
+                <div class="text-sm text-gray-300 leading-relaxed" x-text="selectedNode ? selectedNode.description : ''"></div>
+            </div>
+
+            <!-- Connected edges -->
+            <div x-show="selectedNode && selectedNodeEdges.length > 0">
+                <div class="text-xs uppercase tracking-wide text-gray-500 mb-2">Connections</div>
+                <div class="space-y-1">
+                    <template x-for="edge in selectedNodeEdges" :key="edge.id">
+                        <div class="flex justify-between items-center text-xs bg-gray-700/50 rounded px-2 py-1.5">
+                            <div>
+                                <span class="font-medium" x-text="edge.otherName"></span>
+                                <span class="ml-1 text-gray-400" x-text="edge.relation_type"></span>
+                            </div>
+                            <span class="text-gray-500" x-text="edge.category"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Linked entity -->
+            <div x-show="selectedNode && selectedNode.linked">
+                <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Linked simulation entity</div>
+                <div class="text-sm text-indigo-400"
+                     x-text="selectedNode && selectedNode.linked ? selectedNode.linked.kind + ' #' + selectedNode.linked.id : ''">
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+function knowledgeGraphPage() {
+    return {
+        graphData: null,
+        selectedNode: null,
+        selectedNodeEdges: [],
+        loading: false,
+        renderer: null,
+        hoveredNode: null,
+        statsText: "",
+        entityColors: {{ entity_colors_json|safe }},
+        categoryColors: {{ category_colors_json|safe }},
+        activeEntityTypes: {},
+
+        init() {
+            // Initialize all entity types as active
+            for (const etype in this.entityColors) {
+                this.activeEntityTypes[etype] = true;
+            }
+            this.graphData = {{ initial_data_json|safe }};
+            this.updateStats();
+            this.$nextTick(() => this.renderGraph());
+        },
+
+        updateStats() {
+            if (!this.graphData) return;
+            const s = this.graphData.stats || {};
+            this.statsText = s.returned_nodes + " of " + s.total_nodes + " nodes";
+        },
+
+        async refreshData() {
+            this.loading = true;
+            this.selectedNode = null;
+            try {
+                const response = await fetch("/api/v1/knowledge/{{ simulation.id }}/graph/?limit=100");
+                if (!response.ok) throw new Error("Failed to fetch: " + response.status);
+                this.graphData = await response.json();
+                this.updateStats();
+                this.$nextTick(() => this.renderGraph());
+            } catch (err) {
+                console.error("refreshData error:", err);
+                this.loading = false;
+            }
+        },
+
+        renderGraph() {
+            if (this.renderer) {
+                this.renderer.kill();
+                this.renderer = null;
+            }
+
+            if (!this.graphData) {
+                this.loading = false;
+                return;
+            }
+
+            const data = this.graphData;
+            const graph = new graphology.Graph({ multi: false, type: "directed" });
+
+            // Build a lookup from node id to node data for the detail panel
+            const nodeMap = {};
+            (data.nodes || []).forEach(node => { nodeMap[node.id] = node; });
+
+            // Add nodes
+            (data.nodes || []).forEach(node => {
+                if (!this.activeEntityTypes[node.entity_type]) return;
+
+                const x = Math.random() * 200 - 100;
+                const y = Math.random() * 200 - 100;
+                const size = 8 + Math.min(node.mention_count || 1, 20) * 1.5;
+                const color = this.entityColors[node.entity_type] || "#888888";
+
+                graph.addNode(String(node.id), {
+                    label: node.name,
+                    x, y, size, color,
+                    originalColor: color,
+                    nodeData: node,
+                });
+            });
+
+            // Add edges
+            (data.edges || []).forEach(edge => {
+                const src = String(edge.source);
+                const tgt = String(edge.target);
+                if (!graph.hasNode(src) || !graph.hasNode(tgt)) return;
+                if (graph.hasEdge(src, tgt)) return;
+
+                const catColor = this.categoryColors[edge.category] || "#555555";
+                graph.addEdge(src, tgt, {
+                    color: catColor,
+                    originalColor: catColor,
+                    size: 1 + (edge.weight || 1) * 0.5,
+                    edgeData: edge,
+                });
+            });
+
+            simpleForceLayout(graph, 120);
+
+            const container = document.getElementById("kg-container");
+            if (!container) {
+                this.loading = false;
+                return;
+            }
+
+            this.renderer = new Sigma(graph, container, {
+                renderEdgeLabels: false,
+                defaultEdgeType: "arrow",
+                labelRenderedSizeThreshold: 0,
+                labelSize: 13,
+                labelColor: { color: "#e5e7eb" },
+                nodeReducer: (node, data) => {
+                    const res = { ...data };
+                    if (this.hoveredNode && node !== this.hoveredNode && !graph.neighbors(this.hoveredNode).includes(node)) {
+                        res.color = "#333333";
+                        res.label = "";
+                    }
+                    return res;
+                },
+                edgeReducer: (edge, data) => {
+                    const res = { ...data };
+                    if (this.hoveredNode) {
+                        const [src, tgt] = graph.extremities(edge);
+                        if (src !== this.hoveredNode && tgt !== this.hoveredNode) {
+                            res.color = "#222222";
+                            res.hidden = true;
+                        }
+                    }
+                    return res;
+                },
+            });
+
+            this.renderer.on("enterNode", ({ node }) => {
+                this.hoveredNode = node;
+                this.renderer.refresh();
+            });
+
+            this.renderer.on("leaveNode", () => {
+                this.hoveredNode = null;
+                this.renderer.refresh();
+            });
+
+            const self = this;
+            const currentGraph = graph;
+            this.renderer.on("clickNode", ({ node }) => {
+                const attrs = currentGraph.getNodeAttributes(node);
+                self.selectedNode = attrs.nodeData;
+
+                // Collect connected edges for the detail panel
+                const edges = [];
+                currentGraph.forEachEdge(node, (edgeKey, edgeAttrs, source, target) => {
+                    const otherId = (source === node) ? target : source;
+                    const otherAttrs = currentGraph.getNodeAttributes(otherId);
+                    edges.push({
+                        id: edgeAttrs.edgeData.id,
+                        relation_type: edgeAttrs.edgeData.relation_type,
+                        category: edgeAttrs.edgeData.category,
+                        otherName: otherAttrs.label,
+                    });
+                });
+                self.selectedNodeEdges = edges;
+            });
+
+            this.loading = false;
+        },
+
+        toggleEntityFilter(etype) {
+            this.activeEntityTypes[etype] = !this.activeEntityTypes[etype];
+            this.renderGraph();
+        },
+    };
+}
+</script>
+{% endblock %}
