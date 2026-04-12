@@ -1,0 +1,17 @@
+- [FULL CONTEXT](project_full_context.md) -- READ THIS FIRST: complete project state, what was built, what's next
+- [Italian language](feedback_italian_language.md) -- Comunicare in italiano, codice in inglese
+- [Scientific rigor priority](feedback_scientific_rigor_priority.md) -- Ogni design privilegia il massimo rigore scientifico
+- [Optimization always priority](feedback_optimization_priority.md) -- Ottimizzazione non negoziabile fin da subito, mai "dopo"
+- [Extensible architecture](feedback_extensible_architecture.md) -- Sempre aperto a estensioni future senza riscrittura
+- [Scientific documentation](feedback_scientific_documentation.md) -- Documentare il valore scientifico di ogni feature
+- [Verify assertions](feedback_verify_assertions.md) -- Mai dare per scontate asserzioni scientifiche, verificarle sempre
+- [Post-MVP roadmap](project_roadmap_post_mvp.md) -- Roadmap aggiornata con stato di ogni feature
+- [Analytics deferred](project_analytics_deferred.md) -- Branch comparison, pattern detection, temporal zoom, export rinviati
+- [LLM distortion deferred](project_info_flow_llm_distortion.md) -- Info flow: distorsione LLM rinviata, rule-based per ora
+- [Paolucci reference](reference_paolucci_social_simulation.md) -- Paper CNR su reputazione, gossip, simulazione sociale
+- [Reputation model](project_reputation_model.md) -- Modello reputazione Castelfranchi-Conte-Paolucci (DONE)
+- [Groq failover](feedback_groq_failover.md) -- 4 Groq API keys con rotazione automatica
+- [Graph improvement](feedback_graph_improvement.md) -- Migliorare grafo: densita', colori, tab, sfondo chiaro
+- [Economic model](project_economic_model.md) -- Economia reale + mercati finanziari, ASAP dopo Knowledge Graph
+- [Web scraping](project_web_scraping.md) -- Scraping automatico per contesto storico e dati economici reali
+- [MiroFish comparison](reference_mirofish_comparison.md) -- Gap analysis vs MiroFish: knowledge graph, report agent, grafo
