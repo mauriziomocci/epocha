@@ -266,6 +266,29 @@ If a symptom has no identified cause, the analysis is incomplete.
    - **"Tests passing, deployed, real environment verification pending"**: logic is correct, deployed, but not yet confirmed
    - **"Unit tests only"**: logic tested in isolation only
 
+### CRITICAL: Memory Backup Sync
+
+**CRITICAL RULE**: the project memory is stored in two locations that must stay in sync:
+
+1. **Live memory**: `~/.claude/projects/-Users-mauriziomocci-Documents-workspace-Opensource-epocha/memory/` — read automatically by Claude Code at session start.
+2. **Versioned backup**: `docs/memory-backup/` in the git repository — portable across machines, never lost.
+
+**After every significant work session** (new features implemented, design decisions made, rules added, audit completed), the memory backup must be updated:
+
+```bash
+cp ~/.claude/projects/-Users-mauriziomocci-Documents-workspace-Opensource-epocha/memory/*.md docs/memory-backup/
+git add docs/memory-backup/ && git commit -m "docs: sync memory backup" && git push
+```
+
+**When setting up on a new machine**, restore memory from the backup:
+
+```bash
+mkdir -p ~/.claude/projects/-Users-mauriziomocci-Documents-workspace-Opensource-epocha/memory/
+cp docs/memory-backup/*.md ~/.claude/projects/-Users-mauriziomocci-Documents-workspace-Opensource-epocha/memory/
+```
+
+This is not optional. Lost memory means lost context, lost rules, lost decisions. The backup must always reflect the current state of the live memory.
+
 ### Core Behavior
 
 - **Read CLAUDE.md first**: before starting any task, re-read the Agent Rules in this file
