@@ -18,4 +18,5 @@
 - [Multi-level agents](project_multilevel_agents.md) -- Agenti multi-livello: individui, organizzazioni, stati, coalizioni
 - [Scalability analysis](project_scalability_analysis.md) -- Da 15 a 500 agenti: stime performance, costo, tiered approach
 - [Narrative generator](project_narrative_generator.md) -- Romanzo storico/geopolitico generato dalla simulazione, rigoroso e multilingue
+- [Hegemonic cascade](project_hegemonic_cascade.md) -- Perdita rotte commerciali innesca cascata di declino (Kindleberger, Arrighi, Kennedy)
 - [MiroFish comparison](reference_mirofish_comparison.md) -- Gap analysis vs MiroFish: knowledge graph, report agent, grafo
