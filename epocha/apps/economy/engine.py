@@ -1,14 +1,15 @@
 """Economy tick pipeline orchestrator.
 
-Executes the 8-step economic cycle each tick:
+Executes the 9-step economic cycle each tick:
 0. Expectations update (Nerlove adaptive, personality-modulated)
 1. Production (CES per agent per zone)
 2. Market clearing (Walrasian tatonnement)
-3. Rent (emergent, Ricardian)
-4. Wages (output share)
-5. Taxation (flat income tax -> treasury)
-6. Essential consumption (1 unit/tick deducted)
-7. Monetary update (Fisher velocity) + wealth/mood/stability feedback
+3. Credit market (loan servicing, maturity, defaults, cascade, banking)
+4. Rent (emergent, Ricardian)
+5. Wages (output share)
+6. Taxation (flat income tax -> treasury)
+7. Essential consumption (1 unit/tick deducted)
+8. Monetary update (Fisher velocity) + wealth/mood/stability feedback
 
 This function replaces world/economy.py:process_economy_tick for
 simulations that have the new economy app models initialized.
@@ -21,6 +22,13 @@ import logging
 from epocha.apps.agents.models import Agent
 from epocha.apps.world.models import Government
 
+from .banking import adjust_interest_rate, check_solvency
+from .credit import (
+    process_default_cascade,
+    process_defaults,
+    process_maturity,
+    service_loans,
+)
 from .distribution import compute_rent, compute_taxes, compute_wages
 from .expectations import update_agent_expectations
 from .market import collect_supply_and_demand, execute_trades, tatonnement_prices
@@ -102,6 +110,8 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     total_output = 0.0
     old_prices_all: dict[str, float] = {}
     new_prices_all: dict[str, float] = {}
+
+    credit_processed = False
 
     # === STEP 0: EXPECTATIONS UPDATE (Nerlove adaptive) ===
     # Update agent price expectations BEFORE market clearing so that
@@ -274,7 +284,22 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         for inv in inv_cache.values():
             inv.save(update_fields=["holdings", "cash"])
 
-        # === STEP 3: RENT (emergent Ricardian) ===
+        # === STEP 3: CREDIT MARKET ===
+        # Loan servicing, maturity, defaults, and cascade are processed
+        # once (not per-zone), so we run them after the first zone's
+        # trades. Subsequent zones skip this step via the flag.
+        # Note: loan creation (issue_loan) is NOT called automatically
+        # in the tick -- it is triggered by agent decisions.
+        if not credit_processed:
+            service_loans(simulation, tick)
+            process_maturity(simulation, tick)
+            process_defaults(simulation, tick)
+            process_default_cascade(simulation, tick)
+            adjust_interest_rate(simulation, tick)
+            check_solvency(simulation)
+            credit_processed = True
+
+        # === STEP 4: RENT (emergent Ricardian) ===
         prop_dicts = [
             {"owner_id": p.owner_id, "production_bonus": p.production_bonus}
             for p in properties
@@ -299,7 +324,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     transaction_type="rent",
                 )
 
-        # === STEP 4: WAGES (share of output value) ===
+        # === STEP 5: WAGES (share of output value) ===
         wages = compute_wages(agent_outputs, equilibrium_prices, wage_share=wage_share)
 
         # Sanity cap: no single wage exceeds 100x the median wage.
@@ -330,7 +355,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     transaction_type="wage",
                 )
 
-        # === STEP 5: TAXATION (flat rate -> government treasury) ===
+        # === STEP 6: TAXATION (flat rate -> government treasury) ===
         if tax_policy:
             agent_incomes: dict[int, float] = {}
             for agent_id in set(list(wages.keys()) + list(rents.keys())):
@@ -386,7 +411,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 demand=total_demand.get(good_code, 0.0),
             )
 
-        # === STEP 6: ESSENTIAL CONSUMPTION (1 unit/tick deducted) ===
+        # === STEP 7: ESSENTIAL CONSUMPTION (1 unit/tick deducted) ===
         essential_codes = [g.code for g in goods if g.is_essential]
         for agent in agents:
             inv = inv_cache.get(agent.id)
@@ -396,14 +421,14 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     inv.holdings[code] = max(0.0, current - 1.0)
                 inv.save(update_fields=["holdings"])
 
-    # === STEP 6 (global): MONETARY UPDATE (Fisher velocity) ===
+    # === STEP 8a (global): MONETARY UPDATE (Fisher velocity) ===
     primary_currency.cached_velocity = compute_velocity(
         transaction_volume=total_transaction_volume,
         money_supply=primary_currency.total_supply,
     )
     primary_currency.save(update_fields=["cached_velocity"])
 
-    # === STEP 7: WEALTH + MOOD + STABILITY FEEDBACK ===
+    # === STEP 8b: WEALTH + MOOD + STABILITY FEEDBACK ===
     all_agents = Agent.objects.filter(simulation=simulation, is_alive=True)
     agents_to_update = []
 
