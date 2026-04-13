@@ -6,13 +6,17 @@ from django.db import IntegrityError
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.economy.models import (
+    AgentExpectation,
     AgentInventory,
+    BankingState,
     Currency,
     EconomicLedger,
     GoodCategory,
+    Loan,
     PriceHistory,
     ProductionFactor,
     Property,
+    PropertyListing,
     TaxPolicy,
     ZoneEconomy,
 )
@@ -367,3 +371,258 @@ class TestGovernmentTreasury:
         gov.save(update_fields=["government_treasury"])
         gov.refresh_from_db()
         assert gov.government_treasury["LVR"] == 1000.0
+
+
+# -- Behavioral economy models (Spec 2, Part 1) --
+
+
+@pytest.mark.django_db
+class TestLoan:
+    def test_create_banking_loan(self, simulation, agent):
+        loan = Loan.objects.create(
+            simulation=simulation,
+            lender=None,
+            borrower=agent,
+            lender_type="banking",
+            principal=500.0,
+            interest_rate=0.05,
+            remaining_balance=500.0,
+            issued_at_tick=1,
+            due_at_tick=10,
+        )
+        assert loan.principal == 500.0
+        assert loan.lender_type == "banking"
+        assert loan.status == "active"
+        assert loan.times_rolled_over == 0
+        assert loan.lender is None
+
+    def test_create_agent_loan(self, simulation, agent, zone):
+        lender = Agent.objects.create(
+            simulation=simulation,
+            name="Lender",
+            role="merchant",
+            personality={"openness": 0.6},
+            location=Point(50, 50),
+            zone=zone,
+        )
+        loan = Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=agent,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.08,
+            remaining_balance=200.0,
+            issued_at_tick=5,
+        )
+        assert loan.lender == lender
+        assert loan.lender_type == "agent"
+        assert loan.due_at_tick is None
+
+    def test_loan_with_collateral(self, simulation, agent, zone):
+        prop = Property.objects.create(
+            simulation=simulation,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="land",
+            name="Collateral Farm",
+            value=300.0,
+        )
+        loan = Loan.objects.create(
+            simulation=simulation,
+            borrower=agent,
+            lender_type="banking",
+            principal=150.0,
+            interest_rate=0.06,
+            remaining_balance=150.0,
+            collateral=prop,
+            issued_at_tick=1,
+        )
+        assert loan.collateral == prop
+
+    def test_loan_status_choices(self, simulation, agent):
+        for status in ("active", "repaid", "defaulted", "rolled_over"):
+            loan = Loan.objects.create(
+                simulation=simulation,
+                borrower=agent,
+                lender_type="banking",
+                principal=100.0,
+                interest_rate=0.05,
+                remaining_balance=100.0,
+                issued_at_tick=1,
+                status=status,
+            )
+            assert loan.status == status
+
+
+@pytest.mark.django_db
+class TestPropertyListing:
+    def test_create_listing(self, simulation, agent, zone):
+        prop = Property.objects.create(
+            simulation=simulation,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="land",
+            name="Listed Farm",
+            value=200.0,
+        )
+        listing = PropertyListing.objects.create(
+            property=prop,
+            asking_price=250.0,
+            fundamental_value=200.0,
+            listed_at_tick=3,
+        )
+        assert listing.asking_price == 250.0
+        assert listing.fundamental_value == 200.0
+        assert listing.status == "listed"
+
+    def test_one_listing_per_property(self, simulation, agent, zone):
+        prop = Property.objects.create(
+            simulation=simulation,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="land",
+            name="Unique Farm",
+            value=200.0,
+        )
+        PropertyListing.objects.create(
+            property=prop,
+            asking_price=250.0,
+            fundamental_value=200.0,
+            listed_at_tick=1,
+        )
+        with pytest.raises(IntegrityError):
+            PropertyListing.objects.create(
+                property=prop,
+                asking_price=300.0,
+                fundamental_value=220.0,
+                listed_at_tick=2,
+            )
+
+    def test_listing_status_choices(self, simulation, agent, zone):
+        for i, status in enumerate(("listed", "sold", "withdrawn")):
+            prop = Property.objects.create(
+                simulation=simulation,
+                owner=agent,
+                owner_type="agent",
+                zone=zone,
+                property_type="land",
+                name=f"Farm {status}",
+                value=100.0,
+            )
+            listing = PropertyListing.objects.create(
+                property=prop,
+                asking_price=120.0,
+                fundamental_value=100.0,
+                listed_at_tick=i,
+                status=status,
+            )
+            assert listing.status == status
+
+
+@pytest.mark.django_db
+class TestAgentExpectation:
+    def test_create_expectation(self, agent):
+        exp = AgentExpectation.objects.create(
+            agent=agent,
+            good_code="subsistence",
+            expected_price=3.5,
+            trend_direction="rising",
+            confidence=0.6,
+            lambda_rate=0.3,
+            updated_at_tick=1,
+        )
+        assert exp.expected_price == 3.5
+        assert exp.trend_direction == "rising"
+        assert exp.confidence == 0.6
+        assert exp.lambda_rate == 0.3
+
+    def test_default_confidence(self, agent):
+        exp = AgentExpectation.objects.create(
+            agent=agent,
+            good_code="luxury",
+            expected_price=50.0,
+            lambda_rate=0.25,
+            updated_at_tick=1,
+        )
+        assert exp.confidence == 0.5
+        assert exp.trend_direction == "stable"
+
+    def test_unique_agent_good(self, agent):
+        AgentExpectation.objects.create(
+            agent=agent,
+            good_code="subsistence",
+            expected_price=3.0,
+            lambda_rate=0.3,
+            updated_at_tick=1,
+        )
+        with pytest.raises(IntegrityError):
+            AgentExpectation.objects.create(
+                agent=agent,
+                good_code="subsistence",
+                expected_price=3.5,
+                lambda_rate=0.4,
+                updated_at_tick=2,
+            )
+
+    def test_different_goods_same_agent(self, agent):
+        AgentExpectation.objects.create(
+            agent=agent,
+            good_code="subsistence",
+            expected_price=3.0,
+            lambda_rate=0.3,
+            updated_at_tick=1,
+        )
+        exp2 = AgentExpectation.objects.create(
+            agent=agent,
+            good_code="luxury",
+            expected_price=50.0,
+            lambda_rate=0.25,
+            updated_at_tick=1,
+        )
+        assert exp2.good_code == "luxury"
+        assert AgentExpectation.objects.filter(agent=agent).count() == 2
+
+
+@pytest.mark.django_db
+class TestBankingState:
+    def test_create_banking_state(self, simulation):
+        bs = BankingState.objects.create(
+            simulation=simulation,
+            reserve_ratio=0.10,
+            base_interest_rate=0.05,
+        )
+        assert bs.total_deposits == 0.0
+        assert bs.total_loans_outstanding == 0.0
+        assert bs.is_solvent is True
+        assert bs.confidence_index == 1.0
+
+    def test_one_banking_state_per_simulation(self, simulation):
+        BankingState.objects.create(
+            simulation=simulation,
+            reserve_ratio=0.10,
+            base_interest_rate=0.05,
+        )
+        with pytest.raises(IntegrityError):
+            BankingState.objects.create(
+                simulation=simulation,
+                reserve_ratio=0.15,
+                base_interest_rate=0.06,
+            )
+
+    def test_banking_state_with_data(self, simulation):
+        bs = BankingState.objects.create(
+            simulation=simulation,
+            total_deposits=50000.0,
+            total_loans_outstanding=35000.0,
+            reserve_ratio=0.10,
+            base_interest_rate=0.05,
+            is_solvent=True,
+            confidence_index=0.85,
+        )
+        assert bs.total_deposits == 50000.0
+        assert bs.total_loans_outstanding == 35000.0
+        assert bs.confidence_index == 0.85

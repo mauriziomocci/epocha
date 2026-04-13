@@ -361,6 +361,261 @@ class EconomicLedger(models.Model):
 # -- Economy template model --
 
 
+# -- Behavioral economy models (Spec 2, Part 1) --
+
+
+class Loan(models.Model):
+    """A credit relationship between agents or between the banking system and an agent.
+
+    Scientific basis:
+    - Minsky, H.P. (1986). Stabilizing an Unstable Economy. Yale University Press.
+      Minsky's Financial Instability Hypothesis: agents take on increasing debt
+      during stable periods, leading to fragility. The times_rolled_over field
+      tracks this progressive leveraging.
+    - Stiglitz, J.E. & Weiss, A. (1981). Credit Rationing in Markets with
+      Imperfect Information. American Economic Review 71(3), 393-410.
+      Asymmetric information between lender and borrower justifies collateral
+      requirements and interest rate spreads.
+    """
+
+    LENDER_TYPES = [
+        ("agent", "Agent"),
+        ("banking", "Banking system"),
+    ]
+    STATUS_CHOICES = [
+        ("active", "Active"),
+        ("repaid", "Repaid"),
+        ("defaulted", "Defaulted"),
+        ("rolled_over", "Rolled over"),
+    ]
+
+    simulation = models.ForeignKey(
+        "simulation.Simulation",
+        on_delete=models.CASCADE,
+        related_name="loans",
+    )
+    lender = models.ForeignKey(
+        "agents.Agent",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="loans_given",
+        help_text="Null when lender_type is 'banking' (system-level credit)",
+    )
+    borrower = models.ForeignKey(
+        "agents.Agent",
+        on_delete=models.CASCADE,
+        related_name="loans_taken",
+    )
+    lender_type = models.CharField(max_length=10, choices=LENDER_TYPES)
+    principal = models.FloatField(
+        help_text="Original loan amount in primary currency",
+    )
+    interest_rate = models.FloatField(
+        help_text="Per-tick interest rate (not annualized)",
+    )
+    remaining_balance = models.FloatField(
+        help_text="Outstanding balance including accrued interest",
+    )
+    collateral = models.ForeignKey(
+        "economy.Property",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collateralized_loans",
+        help_text="Property pledged as collateral (Stiglitz & Weiss 1981)",
+    )
+    issued_at_tick = models.PositiveIntegerField()
+    due_at_tick = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Null for open-ended loans",
+    )
+    times_rolled_over = models.PositiveIntegerField(
+        default=0,
+        help_text="Rollover count; high values signal Minsky fragility",
+    )
+    status = models.CharField(
+        max_length=15,
+        choices=STATUS_CHOICES,
+        default="active",
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["simulation", "status"]),
+            models.Index(fields=["borrower", "status"]),
+            models.Index(fields=["lender", "status"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"Loan {self.id}: {self.principal:.0f} "
+            f"({self.lender_type} -> {self.borrower}, {self.status})"
+        )
+
+
+class PropertyListing(models.Model):
+    """A property listed for sale on the market.
+
+    Fundamental value is computed using the Gordon Growth Model
+    (Gordon, M.J. 1959. Dividends, Earnings, and Stock Prices.
+    Review of Economics and Statistics 41(2), 99-105):
+    V = D / (r - g), where D is the expected rent flow, r is the
+    discount rate, and g is the expected rent growth rate.
+
+    The asking_price may diverge from fundamental_value based on
+    agent expectations and personality (speculative premium or
+    distressed discount).
+    """
+
+    STATUS_CHOICES = [
+        ("listed", "Listed"),
+        ("sold", "Sold"),
+        ("withdrawn", "Withdrawn"),
+    ]
+
+    property = models.OneToOneField(
+        Property,
+        on_delete=models.CASCADE,
+        related_name="listing",
+    )
+    asking_price = models.FloatField(
+        help_text="Price set by the seller, may differ from fundamental value",
+    )
+    fundamental_value = models.FloatField(
+        help_text="Gordon (1959) intrinsic value: D / (r - g)",
+    )
+    listed_at_tick = models.PositiveIntegerField()
+    status = models.CharField(
+        max_length=15,
+        choices=STATUS_CHOICES,
+        default="listed",
+    )
+
+    def __str__(self):
+        return (
+            f"Listing for {self.property.name}: {self.asking_price:.0f} ({self.status})"
+        )
+
+
+class AgentExpectation(models.Model):
+    """An agent's price expectation for a specific good.
+
+    Expectations are updated each tick using the Nerlove (1958)
+    adaptive expectations model:
+    E_new = lambda * P_actual + (1 - lambda) * E_old
+
+    The lambda_rate (adaptation speed) is modulated by Big Five
+    personality traits following Costa & McCrae (1992):
+    - High Neuroticism: overreacts to new information (higher lambda)
+    - High Openness: more receptive to change (higher lambda)
+    - High Conscientiousness: more conservative (lower lambda)
+
+    References:
+    - Nerlove, M. (1958). Adaptive Expectations and Cobweb Phenomena.
+      Quarterly Journal of Economics 72(2), 227-240.
+    - Costa, P.T. & McCrae, R.R. (1992). Revised NEO Personality Inventory
+      (NEO PI-R) and NEO Five-Factor Inventory (NEO-FFI) Professional Manual.
+      Psychological Assessment Resources.
+    """
+
+    TREND_CHOICES = [
+        ("rising", "Rising"),
+        ("falling", "Falling"),
+        ("stable", "Stable"),
+    ]
+
+    agent = models.ForeignKey(
+        "agents.Agent",
+        on_delete=models.CASCADE,
+        related_name="expectations",
+    )
+    good_code = models.CharField(max_length=30)
+    expected_price = models.FloatField(
+        help_text="Agent's expected price for next tick (Nerlove 1958)",
+    )
+    trend_direction = models.CharField(
+        max_length=10,
+        choices=TREND_CHOICES,
+        default="stable",
+    )
+    confidence = models.FloatField(
+        default=0.5,
+        help_text="0.0 = no confidence, 1.0 = certain. "
+        "Increases when expectations match reality.",
+    )
+    lambda_rate = models.FloatField(
+        help_text="Adaptation speed [0.05, 0.95], modulated by "
+        "Big Five personality (Costa & McCrae 1992)",
+    )
+    updated_at_tick = models.PositiveIntegerField()
+
+    class Meta:
+        unique_together = ("agent", "good_code")
+
+    def __str__(self):
+        return (
+            f"{self.agent.name} expects {self.good_code}: "
+            f"{self.expected_price:.2f} ({self.trend_direction})"
+        )
+
+
+class BankingState(models.Model):
+    """Aggregate banking system state for a simulation.
+
+    Models a simplified aggregate banking sector rather than
+    individual banks. The reserve_ratio and confidence_index
+    determine credit availability and systemic risk.
+
+    Scientific basis:
+    - Diamond, D.W. & Dybvig, P.H. (1983). Bank Runs, Deposit
+      Insurance, and Liquidity. Journal of Political Economy 91(3),
+      401-419. The confidence_index captures the self-fulfilling
+      prophecy dynamic: low confidence triggers withdrawals, which
+      further reduce confidence (bank run equilibrium).
+
+    When is_solvent is False, no new loans can be issued and
+    existing loans may be called in -- this models the credit
+    freeze observed in financial crises.
+    """
+
+    simulation = models.OneToOneField(
+        "simulation.Simulation",
+        on_delete=models.CASCADE,
+        related_name="banking_state",
+    )
+    total_deposits = models.FloatField(
+        default=0.0,
+        help_text="Sum of all agent deposits in the banking system",
+    )
+    total_loans_outstanding = models.FloatField(
+        default=0.0,
+        help_text="Sum of all active loan balances",
+    )
+    reserve_ratio = models.FloatField(
+        help_text="Fraction of deposits held as reserves (0.0-1.0)",
+    )
+    base_interest_rate = models.FloatField(
+        help_text="Base lending rate before risk adjustments",
+    )
+    is_solvent = models.BooleanField(
+        default=True,
+        help_text="False triggers credit freeze (Diamond & Dybvig 1983)",
+    )
+    confidence_index = models.FloatField(
+        default=1.0,
+        help_text="0.0 = bank run imminent, 1.0 = full confidence",
+    )
+
+    def __str__(self):
+        status = "solvent" if self.is_solvent else "INSOLVENT"
+        return f"Banking ({status}, confidence={self.confidence_index:.2f})"
+
+
+# -- Economy template model --
+
+
 class EconomyTemplate(models.Model):
     """Pre-configured economic template for an era or scenario.
 

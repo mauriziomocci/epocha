@@ -1,6 +1,7 @@
 """Economy tick pipeline orchestrator.
 
-Executes the 7-step economic cycle each tick:
+Executes the 8-step economic cycle each tick:
+0. Expectations update (Nerlove adaptive, personality-modulated)
 1. Production (CES per agent per zone)
 2. Market clearing (Walrasian tatonnement)
 3. Rent (emergent, Ricardian)
@@ -12,6 +13,7 @@ Executes the 7-step economic cycle each tick:
 This function replaces world/economy.py:process_economy_tick for
 simulations that have the new economy app models initialized.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +22,7 @@ from epocha.apps.agents.models import Agent
 from epocha.apps.world.models import Government
 
 from .distribution import compute_rent, compute_taxes, compute_wages
+from .expectations import update_agent_expectations
 from .market import collect_supply_and_demand, execute_trades, tatonnement_prices
 from .models import (
     AgentInventory,
@@ -72,8 +75,9 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         tax_policy = None
 
     zone_economies = list(
-        ZoneEconomy.objects.filter(zone__world__simulation=simulation)
-        .select_related("zone")
+        ZoneEconomy.objects.filter(zone__world__simulation=simulation).select_related(
+            "zone"
+        )
     )
     if not zone_economies:
         return
@@ -99,18 +103,23 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     old_prices_all: dict[str, float] = {}
     new_prices_all: dict[str, float] = {}
 
+    # === STEP 0: EXPECTATIONS UPDATE (Nerlove adaptive) ===
+    # Update agent price expectations BEFORE market clearing so that
+    # expectations reflect the previous tick's prices and can influence
+    # trading decisions in the current tick.
+    update_agent_expectations(simulation, tick)
+
     for ze in zone_economies:
         zone = ze.zone
         agents = list(
-            Agent.objects.filter(simulation=simulation, zone=zone, is_alive=True)
-            .select_related("inventory")
+            Agent.objects.filter(
+                simulation=simulation, zone=zone, is_alive=True
+            ).select_related("inventory")
         )
         if not agents:
             continue
 
-        properties = list(
-            Property.objects.filter(simulation=simulation, zone=zone)
-        )
+        properties = list(Property.objects.filter(simulation=simulation, zone=zone))
         property_owner_ids = {p.owner_id for p in properties if p.owner_id}
 
         old_prices = dict(ze.market_prices)
@@ -142,7 +151,9 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     inv = agent.inventory
                 except AgentInventory.DoesNotExist:
                     inv = AgentInventory.objects.create(
-                        agent=agent, holdings={}, cash={},
+                        agent=agent,
+                        holdings={},
+                        cash={},
                     )
 
                 current_qty = inv.holdings.get(good_code, 0.0)
@@ -151,21 +162,26 @@ def process_economy_tick_new(simulation, tick: int) -> None:
 
                 # Record production in ledger
                 EconomicLedger.objects.create(
-                    simulation=simulation, tick=tick,
-                    from_agent=None, to_agent=agent,
+                    simulation=simulation,
+                    tick=tick,
+                    from_agent=None,
+                    to_agent=agent,
                     currency=primary_currency,
                     good_category=good_map.get(good_code),
-                    quantity=quantity, unit_price=0.0,
+                    quantity=quantity,
+                    unit_price=0.0,
                     total_amount=0.0,
                     transaction_type="production",
                 )
 
-            agent_outputs.append({
-                "agent_id": agent.id,
-                "good_code": good_code,
-                "quantity": quantity,
-                "owns_property": agent.id in property_owner_ids,
-            })
+            agent_outputs.append(
+                {
+                    "agent_id": agent.id,
+                    "good_code": good_code,
+                    "quantity": quantity,
+                    "owns_property": agent.id in property_owner_ids,
+                }
+            )
 
         # === STEP 2: MARKET CLEARING (Walrasian tatonnement) ===
         agent_inventories = []
@@ -174,12 +190,14 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 inv = agent.inventory
             except AgentInventory.DoesNotExist:
                 continue
-            agent_inventories.append({
-                "agent_id": agent.id,
-                "holdings": dict(inv.holdings),
-                "cash_amount": sum(inv.cash.values()),
-                "is_hoarding": False,  # hoard action integration in Part 3
-            })
+            agent_inventories.append(
+                {
+                    "agent_id": agent.id,
+                    "holdings": dict(inv.holdings),
+                    "cash_amount": sum(inv.cash.values()),
+                    "is_hoarding": False,  # hoard action integration in Part 3
+                }
+            )
 
         good_dicts = [
             {
@@ -190,21 +208,27 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             for g in goods
         ]
         total_supply, total_demand, agent_orders = collect_supply_and_demand(
-            agent_inventories, good_dicts, old_prices,
+            agent_inventories,
+            good_dicts,
+            old_prices,
         )
 
         # base_prices from template (GoodCategory.base_price) used as absolute
         # reference for MAX_PRICE_RATIO cap, preventing cross-tick drift.
         template_base_prices = {g.code: g.base_price for g in goods}
         equilibrium_prices, converged = tatonnement_prices(
-            old_prices, total_supply, total_demand,
+            old_prices,
+            total_supply,
+            total_demand,
             base_prices=template_base_prices,
         )
 
         # Execute trades at equilibrium prices
         trades = execute_trades(
-            agent_orders, equilibrium_prices,
-            total_supply, total_demand,
+            agent_orders,
+            equilibrium_prices,
+            total_supply,
+            total_demand,
         )
 
         # Apply trades to inventories
@@ -234,12 +258,14 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 total_transaction_volume += cost
 
                 EconomicLedger.objects.create(
-                    simulation=simulation, tick=tick,
+                    simulation=simulation,
+                    tick=tick,
                     from_agent_id=trade["buyer_id"],
                     to_agent_id=trade["seller_id"],
                     currency=primary_currency,
                     good_category=good_map.get(good),
-                    quantity=qty, unit_price=trade["price"],
+                    quantity=qty,
+                    unit_price=trade["price"],
                     total_amount=cost,
                     transaction_type="trade",
                 )
@@ -264,8 +290,10 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 inv.save(update_fields=["cash"])
                 total_transaction_volume += rent_amount
                 EconomicLedger.objects.create(
-                    simulation=simulation, tick=tick,
-                    from_agent=None, to_agent_id=owner_id,
+                    simulation=simulation,
+                    tick=tick,
+                    from_agent=None,
+                    to_agent_id=owner_id,
                     currency=primary_currency,
                     total_amount=rent_amount,
                     transaction_type="rent",
@@ -293,8 +321,10 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 inv.save(update_fields=["cash"])
                 total_transaction_volume += wage_amount
                 EconomicLedger.objects.create(
-                    simulation=simulation, tick=tick,
-                    from_agent=None, to_agent_id=agent_id,
+                    simulation=simulation,
+                    tick=tick,
+                    from_agent=None,
+                    to_agent_id=agent_id,
                     currency=primary_currency,
                     total_amount=wage_amount,
                     transaction_type="wage",
@@ -323,8 +353,10 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                         inv.cash[cur_code] = cur_cash - tax_amount
                         inv.save(update_fields=["cash"])
                         EconomicLedger.objects.create(
-                            simulation=simulation, tick=tick,
-                            from_agent_id=agent_id, to_agent=None,
+                            simulation=simulation,
+                            tick=tick,
+                            from_agent_id=agent_id,
+                            to_agent=None,
                             currency=primary_currency,
                             total_amount=tax_amount,
                             transaction_type="tax",
@@ -346,7 +378,9 @@ def process_economy_tick_new(simulation, tick: int) -> None:
 
         for good_code, price in equilibrium_prices.items():
             PriceHistory.objects.create(
-                zone_economy=ze, good_code=good_code, tick=tick,
+                zone_economy=ze,
+                good_code=good_code,
+                tick=tick,
                 price=price,
                 supply=total_supply.get(good_code, 0.0),
                 demand=total_demand.get(good_code, 0.0),
@@ -380,8 +414,9 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             continue
 
         property_values = list(
-            Property.objects.filter(owner=agent, owner_type="agent")
-            .values_list("value", flat=True)
+            Property.objects.filter(owner=agent, owner_type="agent").values_list(
+                "value", flat=True
+            )
         )
 
         agent.wealth = update_agent_wealth(
@@ -415,11 +450,15 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         pass
 
     trade_count = EconomicLedger.objects.filter(
-        simulation=simulation, tick=tick, transaction_type="trade",
+        simulation=simulation,
+        tick=tick,
+        transaction_type="trade",
     ).count()
     logger.info(
-        "Economy tick %d: output=%.1f, trades=%d, "
-        "volume=%.1f, inflation=%.1f%%",
-        tick, total_output, trade_count,
-        total_transaction_volume, inflation * 100,
+        "Economy tick %d: output=%.1f, trades=%d, volume=%.1f, inflation=%.1f%%",
+        tick,
+        total_output,
+        trade_count,
+        total_transaction_volume,
+        inflation * 100,
     )

@@ -119,12 +119,98 @@ _OFFICE_PROPERTY = {
 }
 
 
+# Expropriation policies by government type.
+# Democracies and rule-of-law regimes: no expropriation.
+# Autocratic/kleptocratic regimes: elite seizure (selective confiscation).
+# Totalitarian regimes: nationalize all private property.
+# Based on Acemoglu & Robinson (2012), Why Nations Fail, chapters 3-4:
+# extractive institutions concentrate wealth through expropriation,
+# inclusive institutions protect property rights.
+_EXPROPRIATION_BY_GOVERNMENT = {
+    "democracy": "none",
+    "monarchy": "none",
+    "federation": "none",
+    "illiberal_democracy": "none",
+    "oligarchy": "none",
+    "theocracy": "none",
+    "autocracy": "elite_seizure",
+    "terrorist_regime": "elite_seizure",
+    "kleptocracy": "elite_seizure",
+    "junta": "elite_seizure",
+    "totalitarian": "nationalize_all",
+}
+
+
+def _behavioral_config(
+    loan_to_value: float,
+    interest: float,
+    deposits: float,
+    reserve: float = 0.10,
+) -> dict:
+    """Return behavioral economy configuration for a template.
+
+    Parameters are era-specific calibrations for the credit, banking,
+    expectations, and expropriation subsystems introduced in Spec 2 Part 1.
+
+    Args:
+        loan_to_value: Maximum loan-to-value ratio for collateralized loans.
+            Pre-industrial ~0.5 (limited credit markets), modern ~0.8
+            (developed mortgage markets). Tunable design parameter.
+        interest: Base interest rate per tick. Historical ranges: pre-modern
+            5-10% (Homer & Sylla 2005, A History of Interest Rates), modern
+            2-5%. Tunable design parameter.
+        deposits: Initial banking system deposits in primary currency.
+            Scaled to match the era's money supply. Tunable design parameter.
+        reserve: Reserve ratio. Pre-modern banking ~10% (no formal
+            regulation), modern regulated ~3-5% (Basel III). Tunable
+            design parameter.
+    """
+    return {
+        "credit_config": {
+            "loan_to_value": loan_to_value,
+            "max_rollover": 3,
+            "default_loan_duration_ticks": 20,
+        },
+        "banking_config": {
+            "initial_deposits": deposits,
+            "base_interest_rate": interest,
+            "reserve_ratio": reserve,
+        },
+        "expectations_config": {
+            # Nerlove (1958) base lambda: 0.3 is a moderate adaptation
+            # speed. Personality modulation (Costa & McCrae 1992) adjusts
+            # this per-agent. Tunable design parameter.
+            "lambda_base": 0.3,
+            # Big Five modulation coefficients for lambda_rate.
+            # Positive means trait increases adaptation speed.
+            # Tunable design parameters -- directional effects from
+            # Costa & McCrae (1992), magnitudes are calibrated for
+            # the [0.05, 0.95] output range.
+            "neuroticism_mod": 0.15,
+            "openness_mod": 0.10,
+            "conscientiousness_mod": 0.10,
+            # Trend detection threshold: price must differ by more
+            # than this fraction to be classified as rising/falling.
+            # Tunable design parameter.
+            "trend_threshold": 0.05,
+        },
+        "expropriation_policies": _EXPROPRIATION_BY_GOVERNMENT,
+    }
+
+
 def _pre_industrial_template() -> dict:
     """Pre-industrial: agricultural, artisanal, feudal property.
 
     CES sigma 0.5: low factor substitutability, consistent with
     Antras (2004) estimates for pre-modern economies.
     """
+    # Pre-industrial credit: informal lending, high rates, low LTV.
+    # Homer & Sylla (2005): pre-modern rates 5-10%.
+    behavioral = _behavioral_config(
+        loan_to_value=0.5,
+        interest=0.08,
+        deposits=5000.0,
+    )
     return {
         "description": (
             "Agricultural economy with artisanal production,"
@@ -169,6 +255,7 @@ def _pre_industrial_template() -> dict:
             },
             "property_ownership": "class_based",
         },
+        "config": behavioral,
     }
 
 
@@ -179,6 +266,13 @@ def _industrial_template() -> dict:
     early mechanization where labor and capital are becoming more
     interchangeable but not yet fully so.
     """
+    # Industrial credit: formalized banking, moderate rates.
+    # Homer & Sylla (2005): 19th century rates 4-8%.
+    behavioral = _behavioral_config(
+        loan_to_value=0.6,
+        interest=0.06,
+        deposits=20000.0,
+    )
     return {
         "description": (
             "Industrializing economy with factories,"
@@ -215,6 +309,7 @@ def _industrial_template() -> dict:
             },
             "property_ownership": "class_based",
         },
+        "config": behavioral,
     }
 
 
@@ -224,6 +319,14 @@ def _modern_template() -> dict:
     CES sigma 1.2: high factor substitutability, consistent with
     Karabarbounis & Neiman (2014) for the post-1950 period.
     """
+    # Modern credit: developed financial markets, low rates, Basel III reserves.
+    # Post-2008 central bank rates 1-3%.
+    behavioral = _behavioral_config(
+        loan_to_value=0.8,
+        interest=0.03,
+        deposits=100000.0,
+        reserve=0.05,
+    )
     return {
         "description": (
             "Service-dominant economy with high technology,"
@@ -266,6 +369,7 @@ def _modern_template() -> dict:
             },
             "property_ownership": "class_based",
         },
+        "config": behavioral,
     }
 
 
@@ -276,6 +380,14 @@ def _sci_fi_template() -> dict:
     trend toward higher substitutability. No empirical basis --
     this is a design parameter for gameplay purposes.
     """
+    # Sci-fi credit: highly developed financial system, very low rates,
+    # minimal reserves. Speculative extrapolation, no empirical basis.
+    behavioral = _behavioral_config(
+        loan_to_value=0.9,
+        interest=0.02,
+        deposits=500000.0,
+        reserve=0.03,
+    )
     return {
         "description": (
             "Knowledge-dominant economy with advanced"
@@ -328,6 +440,7 @@ def _sci_fi_template() -> dict:
             },
             "property_ownership": "class_based",
         },
+        "config": behavioral,
     }
 
 
@@ -342,12 +455,17 @@ _TEMPLATE_BUILDERS = {
 def load_default_templates() -> None:
     """Load the four default economy templates into the database.
 
-    Idempotent: existing templates are not overwritten. Call from
-    a data migration or a management command.
+    Idempotent: existing templates are not overwritten for their
+    base fields. However, if an existing template lacks the
+    behavioral config keys (credit_config, banking_config,
+    expectations_config, expropriation_policies), the config
+    field is updated to include them. This ensures backward
+    compatibility with templates created before Spec 2 Part 1.
     """
     for name, builder in _TEMPLATE_BUILDERS.items():
         data = builder()
-        EconomyTemplate.objects.get_or_create(
+        behavioral_config = data.get("config", {})
+        template, created = EconomyTemplate.objects.get_or_create(
             name=name,
             defaults={
                 "description": data["description"],
@@ -359,8 +477,15 @@ def load_default_templates() -> None:
                 "tax_config": data["tax_config"],
                 "properties_config": data["properties_config"],
                 "initial_distribution": data["initial_distribution"],
+                "config": behavioral_config,
             },
         )
+        if not created and "credit_config" not in (template.config or {}):
+            # Existing template missing behavioral config -- backfill it.
+            existing_config = template.config or {}
+            existing_config.update(behavioral_config)
+            template.config = existing_config
+            template.save(update_fields=["config"])
 
 
 def get_template(name: str) -> EconomyTemplate:
