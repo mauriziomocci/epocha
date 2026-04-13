@@ -25,7 +25,7 @@ memories, relationships, and current situation, decide what to do next.
 
 Respond ONLY with a JSON object:
 {
-    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group|crime|protest|campaign|move_to",
+    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group|crime|protest|campaign|move_to|hoard",
     "target": "who or what (optional)",
     "reason": "brief internal thought"
 }
@@ -52,6 +52,7 @@ def _build_context(
     political_context=None,
     reputation_context=None,
     zone_context=None,
+    economic_context=None,
 ) -> str:
     """Assemble the situational context string sent as the LLM user prompt.
 
@@ -77,6 +78,9 @@ def _build_context(
         zone_context: Optional pre-formatted string listing available zones with
             distances and reachability for the current tick. None when zone data
             is unavailable.
+        economic_context: Optional pre-formatted string describing the agent's
+            cash, inventory, properties, and local market prices. None when the
+            economy app is not initialized for this simulation.
     """
     parts = [
         f"You are {agent.name}, a {agent.role}.",
@@ -105,6 +109,10 @@ def _build_context(
     # Zone context (available destinations)
     if zone_context:
         parts.append(f"\n{zone_context}")
+
+    # Economic context
+    if economic_context:
+        parts.append(f"\n{economic_context}")
 
     # Injected events that the agent should react to
     if recent_events:
@@ -224,6 +232,14 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     except Exception:
         pass
 
+    # Build economic context
+    economic_context = None
+    try:
+        from epocha.apps.economy.context import build_economic_context
+        economic_context = build_economic_context(agent, tick)
+    except Exception:
+        pass
+
     # Build zone context (reuses world_state from caller and government from political context)
     zone_context = None
     try:
@@ -252,7 +268,7 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
 
     context = _build_context(
         agent, world_state, tick, memories, relationships, recent_events, living_agents, group_context,
-        political_context, reputation_context, zone_context,
+        political_context, reputation_context, zone_context, economic_context,
     )
 
     # 2. Build system prompt with personality

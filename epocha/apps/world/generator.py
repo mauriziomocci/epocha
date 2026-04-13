@@ -184,6 +184,13 @@ def generate_world_from_prompt(prompt: str, simulation, knowledge_graph=None) ->
     # Enrich historical/real agents with biographical research
     enrichment_stats = enrich_simulation_agents(simulation)
 
+    # Initialize economy from template (if economy app is available)
+    try:
+        from epocha.apps.economy.initialization import initialize_economy
+        initialize_economy(simulation)
+    except Exception:
+        logger.debug("Economy initialization skipped (economy app may not be configured)")
+
     logger.info(
         "World generated for simulation %d: %d zones, %d agents (%d enriched)",
         simulation.id, zones_created, agents_created, enrichment_stats["enriched"],
@@ -385,6 +392,13 @@ def _generate_from_knowledge_graph(simulation, knowledge_graph, hint_prompt=""):
 
     # -- Enrichment ----------------------------------------------------------
     enrichment_stats = enrich_simulation_agents(simulation)
+
+    # -- Economy initialization -----------------------------------------------
+    try:
+        from epocha.apps.economy.initialization import initialize_economy
+        initialize_economy(simulation)
+    except Exception:
+        logger.debug("Economy initialization skipped (economy app may not be configured)")
 
     logger.info(
         "World generated from KG for simulation %d: %d zones, %d agents (%d enriched)",

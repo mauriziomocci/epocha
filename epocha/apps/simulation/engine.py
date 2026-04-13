@@ -54,6 +54,7 @@ _ACTION_EMOTIONAL_WEIGHT: dict[str, float] = {
     "protest": 0.4,
     "campaign": 0.2,
     "move_to": 0.2,
+    "hoard": 0.15,
 }
 _DEFAULT_EMOTIONAL_WEIGHT = 0.1
 
@@ -73,6 +74,7 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
     "protest": -0.02,
     "campaign": 0.02,
     "move_to": 0.0,  # Movement module handles its own mood cost
+    "hoard": -0.01,
 }
 
 # Memory decay runs every N ticks to reduce DB writes.
@@ -178,9 +180,22 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
 
 
 def run_economy(simulation) -> None:
-    """Run the economy tick for a simulation's world."""
-    world = simulation.world
-    process_economy_tick(world, simulation.current_tick + 1)
+    """Run the economy tick for a simulation's world.
+
+    Uses the new economy engine (process_economy_tick_new) when the
+    simulation has been initialized with economy models (currencies
+    exist). Falls back to the legacy process_economy_tick otherwise.
+    """
+    tick = simulation.current_tick + 1
+    from epocha.apps.economy.models import Currency
+    if Currency.objects.filter(simulation=simulation).exists():
+        from epocha.apps.economy.engine import process_economy_tick_new
+        from epocha.apps.economy.political_feedback import apply_economic_feedback
+        process_economy_tick_new(simulation, tick)
+        apply_economic_feedback(simulation, tick)
+    else:
+        world = simulation.world
+        process_economy_tick(world, tick)
 
 
 def run_memory_decay(simulation, tick: int) -> None:
@@ -263,8 +278,15 @@ class SimulationEngine:
 
         logger.info("Simulation %d: running tick %d", self.simulation.id, tick)
 
-        # 1. Economy
-        process_economy_tick(world, tick)
+        # 1. Economy -- use new engine if economy data exists, else legacy
+        from epocha.apps.economy.models import Currency
+        if Currency.objects.filter(simulation=self.simulation).exists():
+            from epocha.apps.economy.engine import process_economy_tick_new
+            from epocha.apps.economy.political_feedback import apply_economic_feedback
+            process_economy_tick_new(self.simulation, tick)
+            apply_economic_feedback(self.simulation, tick)
+        else:
+            process_economy_tick(world, tick)
 
         # 2. Agent decisions (sequential fallback)
         agents = list(Agent.objects.filter(simulation=self.simulation, is_alive=True))

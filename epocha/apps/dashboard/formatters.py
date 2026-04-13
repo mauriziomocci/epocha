@@ -23,6 +23,7 @@ _ACTION_VERBS: dict[str, str] = {
     "protest": "protests",
     "campaign": "campaigns for leadership",
     "move_to": "travels to",
+    "hoard": "hoards goods",
 }
 
 
