@@ -86,6 +86,10 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     sim_config = simulation.config or {}
     prod_template = sim_config.get("production_config", {})
     default_sigma = prod_template.get("default_sigma", 0.5)
+    # default_scale: the template's fallback CES scale parameter.
+    # Defaults to 1.0 (conservative) when not specified, so legacy
+    # simulations without this key are not affected. Tunable design parameter.
+    default_scale = prod_template.get("default_scale", 1.0)
     role_production = prod_template.get("role_production", _ROLE_PRODUCTION)
     zone_type_resources = prod_template.get("zone_type_resources", _ZONE_TYPE_RESOURCES)
     wage_share = prod_template.get("wage_share", 0.6)
@@ -125,6 +129,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 zone_type_resources=zone_type_resources,
                 zone_type=zone.zone_type,
                 default_sigma=default_sigma,
+                default_scale=default_scale,
             )
 
             if quantity > 0:
@@ -188,8 +193,12 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             agent_inventories, good_dicts, old_prices,
         )
 
+        # base_prices from template (GoodCategory.base_price) used as absolute
+        # reference for MAX_PRICE_RATIO cap, preventing cross-tick drift.
+        template_base_prices = {g.code: g.base_price for g in goods}
         equilibrium_prices, converged = tatonnement_prices(
             old_prices, total_supply, total_demand,
+            base_prices=template_base_prices,
         )
 
         # Execute trades at equilibrium prices
@@ -264,6 +273,17 @@ def process_economy_tick_new(simulation, tick: int) -> None:
 
         # === STEP 4: WAGES (share of output value) ===
         wages = compute_wages(agent_outputs, equilibrium_prices, wage_share=wage_share)
+
+        # Sanity cap: no single wage exceeds 100x the median wage.
+        # This prevents price-explosion artifacts (from Fix 1-3 residuals or
+        # edge cases) from creating billionaires in a single tick.
+        # The floor of 100.0 ensures the cap is non-trivial even when the
+        # median is very low. Tunable design parameter.
+        if wages:
+            sorted_wages = sorted(wages.values())
+            median_wage = sorted_wages[len(sorted_wages) // 2]
+            max_wage = max(median_wage * 100.0, 100.0)
+            wages = {k: min(v, max_wage) for k, v in wages.items()}
 
         for agent_id, wage_amount in wages.items():
             inv = inv_cache.get(agent_id)

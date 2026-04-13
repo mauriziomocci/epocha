@@ -17,8 +17,15 @@ logger = logging.getLogger(__name__)
 # Tatonnement parameters. Tunable design parameters without theoretical
 # derivation for specific values. Consistent with applied CGE practice
 # (Shoven & Whalley 1992).
-ADJUSTMENT_RATE = 0.1
-MAX_ITERATIONS = 50
+#
+# ADJUSTMENT_RATE: reduced from 0.1 to 0.03 to improve stability in small
+# markets (4-15 agents). Faster steps cause oscillation rather than
+# convergence in sparse markets. Tunable design parameter.
+ADJUSTMENT_RATE = 0.03
+# MAX_ITERATIONS: increased from 50 to 100 to compensate for the smaller
+# step size. More iterations are needed to reach equilibrium at rate 0.03.
+# Tunable design parameter.
+MAX_ITERATIONS = 100
 CONVERGENCE_THRESHOLD = 0.01
 EPSILON = 0.001  # prevents division by zero in supply
 # Maximum price relative to starting price. Prevents runaway prices
@@ -26,6 +33,15 @@ EPSILON = 0.001  # prevents division by zero in supply
 # A 100x price increase represents hyperinflation and should trigger
 # crisis events rather than further price escalation.
 MAX_PRICE_RATIO = 100.0
+# Minimum absolute price floor. No good can trade below this value.
+# Prevents numerical collapse when supply floods a small market.
+# Tunable design parameter.
+MIN_PRICE = 0.01
+# Maximum fractional price change per iteration. Prevents runaway
+# oscillation when excess demand is extreme (e.g. zero supply, infinite
+# excess). At 0.5, prices can at most double or halve each iteration.
+# Tunable design parameter; no theoretical derivation.
+MAX_CHANGE_RATIO = 0.5
 
 
 def tatonnement_prices(
@@ -33,6 +49,7 @@ def tatonnement_prices(
     total_supply: dict[str, float],
     total_demand: dict[str, float],
     *,
+    base_prices: dict[str, float] | None = None,
     adjustment_rate: float = ADJUSTMENT_RATE,
     max_iterations: int = MAX_ITERATIONS,
     convergence_threshold: float = CONVERGENCE_THRESHOLD,
@@ -46,7 +63,7 @@ def tatonnement_prices(
         current_prices: {good_code: price} starting prices.
         total_supply: {good_code: quantity} total offered.
         total_demand: {good_code: quantity} total demanded.
-        adjustment_rate: Step size per iteration. Tunable, default 0.1.
+        adjustment_rate: Step size per iteration. Tunable, default 0.03.
         max_iterations: Safety net for non-convergence (Scarf 1960).
         convergence_threshold: |excess/supply| target.
 
@@ -62,8 +79,27 @@ def tatonnement_prices(
     for iteration in range(max_iterations):
         converged = True
         for good in goods:
-            supply = max(total_supply.get(good, 0.0), EPSILON)
+            raw_supply = total_supply.get(good, 0.0)
+            supply = max(raw_supply, EPSILON)
             demand = total_demand.get(good, 0.0)
+
+            # If there is no real supply AND no real demand for this good
+            # in this zone, skip price adjustment entirely -- there is no
+            # local market for it. Price stays at its current level.
+            # This prevents goods with zero local production from having
+            # their prices explode toward infinity via tatonnement.
+            if raw_supply < EPSILON and demand < EPSILON:
+                continue
+
+            # If there is demand but zero supply, the good is unavailable
+            # locally. Cap the price at MAX_PRICE_RATIO * initial price
+            # rather than iterating toward infinity. In a real economy,
+            # unavailable goods simply aren't traded, not priced at infinity.
+            if raw_supply < EPSILON and demand > 0:
+                max_allowed = initial_prices.get(good, 1.0) * MAX_PRICE_RATIO
+                prices[good] = min(prices[good] * 1.1, max_allowed)
+                continue
+
             excess = demand - supply
 
             relative_excess = abs(excess) / supply
@@ -71,13 +107,28 @@ def tatonnement_prices(
                 converged = False
 
             adjustment = adjustment_rate * excess / supply
-            new_price = max(EPSILON, prices[good] * (1.0 + adjustment))
-            # Cap at MAX_PRICE_RATIO * initial price to prevent runaway
-            # prices when supply is at the epsilon floor. A 100x increase
-            # represents hyperinflation; further escalation would be
-            # handled by crisis events, not price adjustment.
-            max_price = initial_prices.get(good, 1.0) * MAX_PRICE_RATIO
-            prices[good] = min(new_price, max_price)
+            new_price = prices[good] * (1.0 + adjustment)
+
+            # Cap per-iteration price change to prevent runaway oscillation.
+            # Without this cap, extreme excess demand (e.g. zero supply)
+            # sends prices to astronomical levels in a single iteration.
+            # MAX_CHANGE_RATIO=0.5 means prices can at most 1.5x or 0.5x
+            # per iteration. Tunable design parameter.
+            if prices[good] > 0:
+                ratio = new_price / prices[good]
+                if ratio > 1.0 + MAX_CHANGE_RATIO:
+                    new_price = prices[good] * (1.0 + MAX_CHANGE_RATIO)
+                elif ratio < 1.0 - MAX_CHANGE_RATIO:
+                    new_price = prices[good] * (1.0 - MAX_CHANGE_RATIO)
+
+            # Apply absolute floor then MAX_PRICE_RATIO ceiling.
+            # Use base_prices (from template) as the reference for the cap,
+            # NOT the current tick's starting price. This prevents prices
+            # from drifting to astronomical values across multiple ticks
+            # when each tick's "initial price" is already inflated.
+            reference = (base_prices or initial_prices).get(good, 1.0)
+            max_price = reference * MAX_PRICE_RATIO
+            prices[good] = min(max(MIN_PRICE, new_price), max_price)
 
         if converged:
             return prices, True
@@ -120,6 +171,13 @@ def collect_supply_and_demand(
     essential_codes = {g["code"] for g in good_categories if g["is_essential"]}
     subsistence_need = 1.0  # 1 unit per essential good per tick
 
+    # Maximum discretionary demand per agent per good per tick.
+    # Without a cap, low prices combined with high cash produce absurd
+    # demand quantities (e.g. cash=5000, price=0.02 => 25000 units).
+    # 5 units is a reasonable upper bound for a non-essential good in
+    # one tick. Tunable design parameter.
+    MAX_DISCRETIONARY_DEMAND = 5.0
+
     for inv in agent_inventories:
         offers: dict[str, float] = {}
         wants: dict[str, float] = {}
@@ -146,11 +204,17 @@ def collect_supply_and_demand(
                     wants[code] = need
                     total_demand[code] = total_demand.get(code, 0.0) + need
             else:
-                # Non-essential demand proportional to cash / (price * elasticity)
+                # Non-essential demand proportional to cash / (price * elasticity),
+                # capped at MAX_DISCRETIONARY_DEMAND per agent per tick.
+                # The cap prevents absurdly high demand when prices are very
+                # low relative to cash holdings in small simulations.
                 price = max(market_prices.get(code, 1.0), EPSILON)
                 elasticity = max(cat.get("price_elasticity", 1.0), 0.1)
                 cash = inv.get("cash_amount", 0.0)
-                discretionary = (cash * 0.1) / (price * elasticity)
+                discretionary = min(
+                    MAX_DISCRETIONARY_DEMAND,
+                    (cash * 0.1) / (price * elasticity),
+                )
                 if discretionary > 0.01:
                     wants[code] = discretionary
                     total_demand[code] = total_demand.get(code, 0.0) + discretionary

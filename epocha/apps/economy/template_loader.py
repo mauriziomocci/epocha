@@ -147,6 +147,12 @@ def _pre_industrial_template() -> dict:
         "production_config": {
             # CES sigma 0.5: low substitutability (Antras 2004)
             "default_sigma": 0.5,
+            # default_scale: reduced from the implicit 5.0-10.0 range.
+            # With scale=5.0 and typical factor inputs, a single farmer
+            # produces ~5 units/tick -- enough to flood a 4-agent market.
+            # Scale=2.0 yields ~2 units/tick, keeping supply/demand ratios
+            # reasonable in small simulations. Tunable design parameter.
+            "default_scale": 2.0,
             "role_production": _ROLE_PRODUCTION,
             "zone_type_resources": _ZONE_TYPE_RESOURCES,
         },

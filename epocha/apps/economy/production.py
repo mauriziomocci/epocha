@@ -130,6 +130,7 @@ def compute_agent_output(
     zone_type_resources: dict,
     zone_type: str,
     default_sigma: float,
+    default_scale: float = 1.0,
 ) -> tuple[str, float]:
     """Compute what and how much an agent produces in one tick.
 
@@ -141,6 +142,10 @@ def compute_agent_output(
         zone_type_resources: Template config mapping zone types to factor abundances.
         zone_type: The zone's type (urban, rural, etc.).
         default_sigma: CES sigma from the template.
+        default_scale: Fallback CES scale (A) when the good-specific
+            production_config does not specify one. Sourced from the
+            template's production_config["default_scale"]. Tunable
+            design parameter.
 
     Returns:
         Tuple of (good_code, quantity_produced). If the agent's role
@@ -161,9 +166,10 @@ def compute_agent_output(
         # Unmapped roles are less efficient -- tunable design parameter
         skill_weight = 0.8
 
-    # Get production config for this good in this zone
+    # Get production config for this good in this zone.
+    # Fall back to default_scale when the per-good config omits "scale".
     good_prod = zone_economy.production_config.get(good_code, {})
-    scale = good_prod.get("scale", 1.0)
+    scale = good_prod.get("scale", default_scale)
     sigma = good_prod.get("sigma", default_sigma)
     factor_weights = good_prod.get("factors", {})
 
