@@ -755,6 +755,173 @@ class TestDefaults:
 
 
 @pytest.mark.django_db
+class TestDeadAgentLoanDefault:
+    """Loans held by dead agents should be automatically defaulted."""
+
+    def test_dead_agent_loans_default(self, simulation, world_and_zone, currency):
+        """Active loans belonging to dead agents are marked defaulted."""
+        _, zone = world_and_zone
+        agent = Agent.objects.create(
+            simulation=simulation,
+            name="Ghost",
+            role="farmer",
+            personality={},
+            zone=zone,
+            wealth=100.0,
+            mood=0.5,
+            health=0.0,
+            is_alive=False,
+        )
+        AgentInventory.objects.create(agent=agent, holdings={}, cash={currency.code: 50.0})
+        Loan.objects.create(
+            simulation=simulation,
+            borrower=agent,
+            lender_type="banking",
+            principal=100.0,
+            interest_rate=0.05,
+            remaining_balance=80.0,
+            issued_at_tick=0,
+            due_at_tick=20,
+            status="active",
+        )
+        from epocha.apps.economy.credit import default_dead_agent_loans
+
+        count = default_dead_agent_loans(simulation)
+        assert count == 1
+        loan = Loan.objects.get(simulation=simulation, borrower=agent)
+        assert loan.status == "defaulted"
+
+    def test_alive_agent_loans_unaffected(self, simulation, world_and_zone, currency):
+        """Active loans belonging to living agents are not touched."""
+        _, zone = world_and_zone
+        agent = Agent.objects.create(
+            simulation=simulation,
+            name="Alive",
+            role="farmer",
+            personality={},
+            zone=zone,
+            wealth=100.0,
+            mood=0.5,
+            health=1.0,
+            is_alive=True,
+        )
+        AgentInventory.objects.create(agent=agent, holdings={}, cash={currency.code: 50.0})
+        Loan.objects.create(
+            simulation=simulation,
+            borrower=agent,
+            lender_type="banking",
+            principal=100.0,
+            interest_rate=0.05,
+            remaining_balance=80.0,
+            issued_at_tick=0,
+            due_at_tick=20,
+            status="active",
+        )
+        from epocha.apps.economy.credit import default_dead_agent_loans
+
+        count = default_dead_agent_loans(simulation)
+        assert count == 0
+        loan = Loan.objects.get(simulation=simulation, borrower=agent)
+        assert loan.status == "active"
+
+
+@pytest.mark.django_db
+class TestDoublePledgeProtection:
+    """Properties already used as collateral should not be re-pledged."""
+
+    def test_find_unpledged_property(self, simulation, world_and_zone, currency):
+        """Returns the highest-value property not pledged as active loan collateral."""
+        _, zone = world_and_zone
+        agent = Agent.objects.create(
+            simulation=simulation,
+            name="Owner",
+            role="merchant",
+            personality={},
+            zone=zone,
+            wealth=500.0,
+            mood=0.5,
+            health=1.0,
+        )
+        AgentInventory.objects.create(agent=agent, holdings={}, cash={currency.code: 200.0})
+        prop1 = Property.objects.create(
+            simulation=simulation,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="farmland",
+            name="Farm A",
+            value=200.0,
+        )
+        prop2 = Property.objects.create(
+            simulation=simulation,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="farmland",
+            name="Farm B",
+            value=300.0,
+        )
+        # Pledge prop2 as collateral for an active loan
+        Loan.objects.create(
+            simulation=simulation,
+            borrower=agent,
+            lender_type="banking",
+            principal=100.0,
+            interest_rate=0.05,
+            remaining_balance=100.0,
+            collateral=prop2,
+            issued_at_tick=0,
+            due_at_tick=20,
+            status="active",
+        )
+        from epocha.apps.economy.credit import find_best_unpledged_property
+
+        best = find_best_unpledged_property(agent)
+        assert best is not None
+        assert best.id == prop1.id  # prop2 is pledged, prop1 is free
+
+    def test_no_unpledged_property(self, simulation, world_and_zone, currency):
+        """Returns None when all properties are pledged as active collateral."""
+        _, zone = world_and_zone
+        agent = Agent.objects.create(
+            simulation=simulation,
+            name="AllPledged",
+            role="merchant",
+            personality={},
+            zone=zone,
+            wealth=500.0,
+            mood=0.5,
+            health=1.0,
+        )
+        AgentInventory.objects.create(agent=agent, holdings={}, cash={currency.code: 200.0})
+        prop = Property.objects.create(
+            simulation=simulation,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="farmland",
+            name="Farm",
+            value=200.0,
+        )
+        Loan.objects.create(
+            simulation=simulation,
+            borrower=agent,
+            lender_type="banking",
+            principal=100.0,
+            interest_rate=0.05,
+            remaining_balance=100.0,
+            collateral=prop,
+            issued_at_tick=0,
+            due_at_tick=20,
+            status="active",
+        )
+        from epocha.apps.economy.credit import find_best_unpledged_property
+
+        best = find_best_unpledged_property(agent)
+        assert best is None
+
+
+@pytest.mark.django_db
 class TestDefaultCascade:
     """Verify cascade propagation through the debt graph."""
 

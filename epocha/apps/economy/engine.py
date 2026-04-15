@@ -29,6 +29,7 @@ from .banking import (
     recalculate_deposits,
 )
 from .credit import (
+    default_dead_agent_loans,
     process_default_cascade,
     process_defaults,
     process_maturity,
@@ -323,6 +324,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         # Note: loan creation (issue_loan) is NOT called automatically
         # in the tick -- it is triggered by agent decisions.
         if not credit_processed:
+            default_dead_agent_loans(simulation)
             service_loans(simulation, tick)
             process_maturity(simulation, tick)
             process_defaults(simulation, tick)

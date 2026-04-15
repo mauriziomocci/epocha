@@ -700,6 +700,57 @@ def _create_default_reputation_damage(
         )
 
 
+def default_dead_agent_loans(simulation) -> int:
+    """Default all active loans held by dead borrowers.
+
+    Agents who die (is_alive=False) cannot earn income or repay debt.
+    Their loans are defaulted immediately. Collateral seizure and
+    cascade propagation follow the existing default pipeline.
+
+    Called at the start of the credit market step, before service_loans.
+
+    Args:
+        simulation: The simulation instance.
+
+    Returns:
+        Number of loans defaulted.
+    """
+    dead_loans = Loan.objects.filter(
+        simulation=simulation,
+        status="active",
+        borrower__is_alive=False,
+    )
+    count = dead_loans.count()
+    if count > 0:
+        dead_loans.update(status="defaulted")
+        logger.info(
+            "Defaulted %d loans from dead agents in simulation %d",
+            count, simulation.id,
+        )
+    return count
+
+
+def find_best_unpledged_property(agent: Agent) -> "Property | None":
+    """Find the agent's highest-value property not already used as collateral.
+
+    Excludes properties that are collateral for active loans to prevent
+    double-pledging. Uses the related_name 'collateralized_loans' defined
+    on Loan.collateral.
+
+    Args:
+        agent: The agent whose properties to search.
+
+    Returns:
+        The highest-value unpledged Property, or None if none available.
+    """
+    return (
+        Property.objects.filter(owner=agent, owner_type="agent")
+        .exclude(collateralized_loans__status="active")
+        .order_by("-value")
+        .first()
+    )
+
+
 def process_default_cascade(
     simulation,
     tick: int,
