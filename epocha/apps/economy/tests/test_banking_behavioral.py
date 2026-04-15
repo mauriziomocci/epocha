@@ -15,16 +15,19 @@ from epocha.apps.economy.banking import (
 from epocha.apps.economy.initialization import initialize_economy
 from epocha.apps.economy.models import AgentInventory, BankingState
 from epocha.apps.simulation.models import Simulation
+from epocha.apps.users.models import User
 from epocha.apps.world.models import World, Zone
 
 
 @pytest.fixture
 def banking_sim(db):
     """Create a simulation with economy and multiple agents."""
-    sim = Simulation.objects.create(name="bank_test", config={})
+    user = User.objects.create_user(
+        email="banking@epocha.dev", username="bankuser", password="pass1234",
+    )
+    sim = Simulation.objects.create(name="bank_test", seed=42, owner=user, config={})
     world = World.objects.create(
         simulation=sim,
-        name="bank_world",
         stability_index=0.8,
     )
     zone = Zone.objects.create(world=world, name="London", zone_type="urban")
@@ -130,20 +133,33 @@ class TestBroadcastBankingConcern:
         assert concern_count > 0
 
     def test_dedup_prevents_spam(self, banking_sim):
+        """An agent who already received a concern memory within the dedup
+        window (3 ticks) should not receive another one."""
         sim, agents, zone = banking_sim
         bs = BankingState.objects.get(simulation=sim)
         bs.confidence_index = 0.3
         bs.save()
 
-        broadcast_banking_concern(sim, tick=5)
-        count_after_first = Memory.objects.filter(
+        # Manually create a concern memory for ALL agents at tick 5
+        # so the dedup check will prevent any new memories at tick 6.
+        for agent in agents:
+            Memory.objects.create(
+                agent=agent,
+                content="The banking system is under stress. Some depositors "
+                        "are worried about the safety of their savings.",
+                emotional_weight=0.6,
+                source_type="public",
+                tick_created=5,
+            )
+        count_before = Memory.objects.filter(
             agent__simulation=sim,
             content__contains="banking system",
         ).count()
 
         broadcast_banking_concern(sim, tick=6)
-        count_after_second = Memory.objects.filter(
+        count_after = Memory.objects.filter(
             agent__simulation=sim,
             content__contains="banking system",
         ).count()
-        assert count_after_second == count_after_first
+        # No new memories created because all agents already have one
+        assert count_after == count_before
