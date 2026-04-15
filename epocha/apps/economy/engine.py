@@ -54,6 +54,29 @@ from .template_loader import _ROLE_PRODUCTION, _ZONE_TYPE_RESOURCES
 logger = logging.getLogger(__name__)
 
 
+def _get_hoarding_agent_ids(simulation, tick: int) -> set[int]:
+    """Return IDs of agents who chose 'hoard' in the previous tick.
+
+    Reads DecisionLog entries from tick-1 and checks if the JSON
+    output_decision contains the "hoard" action. DecisionLog.output_decision
+    is a TextField containing json.dumps() output, so __contains with
+    '"hoard"' performs a PostgreSQL LIKE substring match.
+
+    Returns an empty set at tick 0 (no previous tick to read).
+    """
+    if tick <= 0:
+        return set()
+
+    from epocha.apps.agents.models import DecisionLog
+
+    hoarding_decisions = DecisionLog.objects.filter(
+        simulation=simulation,
+        tick=tick - 1,
+        output_decision__contains='"hoard"',
+    ).values_list("agent_id", flat=True)
+    return set(hoarding_decisions)
+
+
 def process_economy_tick_new(simulation, tick: int) -> None:
     """Execute one full economic tick for a simulation.
 
@@ -118,6 +141,10 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # expectations reflect the previous tick's prices and can influence
     # trading decisions in the current tick.
     update_agent_expectations(simulation, tick)
+
+    # Get agents who hoarded at the previous tick.
+    # Their goods will not be offered to the market (is_hoarding=True).
+    hoarding_ids = _get_hoarding_agent_ids(simulation, tick)
 
     for ze in zone_economies:
         zone = ze.zone
@@ -205,7 +232,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     "agent_id": agent.id,
                     "holdings": dict(inv.holdings),
                     "cash_amount": sum(inv.cash.values()),
-                    "is_hoarding": False,  # hoard action integration in Part 3
+                    "is_hoarding": agent.id in hoarding_ids,
                 }
             )
 
