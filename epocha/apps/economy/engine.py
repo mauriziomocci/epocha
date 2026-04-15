@@ -22,7 +22,12 @@ import logging
 from epocha.apps.agents.models import Agent
 from epocha.apps.world.models import Government
 
-from .banking import adjust_interest_rate, check_solvency
+from .banking import (
+    adjust_interest_rate,
+    broadcast_banking_concern,
+    check_solvency,
+    recalculate_deposits,
+)
 from .credit import (
     process_default_cascade,
     process_defaults,
@@ -324,6 +329,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             process_default_cascade(simulation, tick)
             adjust_interest_rate(simulation, tick)
             check_solvency(simulation)
+            broadcast_banking_concern(simulation, tick)
             credit_processed = True
 
         # === STEP 4: RENT (emergent Ricardian) ===
@@ -500,6 +506,11 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         world.save(update_fields=["stability_index"])
     except Exception:
         pass
+
+    # === STEP 10: DEPOSIT RECALCULATION ===
+    # Recalculate total_deposits from all agent cash after all economic
+    # transactions are complete.
+    recalculate_deposits(simulation)
 
     trade_count = EconomicLedger.objects.filter(
         simulation=simulation,
