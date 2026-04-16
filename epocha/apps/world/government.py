@@ -490,6 +490,14 @@ def check_transitions(simulation) -> str | None:
         for agent in all_agents
     ])
 
+    # Expropriation: redistribute property per new regime's policy.
+    # Acemoglu & Robinson (2006). Safe when economy not initialized.
+    try:
+        from epocha.apps.economy.property_market import process_expropriation
+        process_expropriation(simulation, previous_type, target_type, current_tick)
+    except Exception:
+        logger.debug("Expropriation skipped (economy not initialized)")
+
     logger.info(
         "Regime transition: simulation=%d tick=%d %s -> %s",
         simulation.pk, current_tick, previous_type, target_type,
@@ -622,6 +630,13 @@ def check_coups(simulation, tick: int) -> dict | None:
         )
         for agent in all_agents
     ])
+
+    # Expropriation: redistribute property per new regime's policy.
+    try:
+        from epocha.apps.economy.property_market import process_expropriation
+        process_expropriation(simulation, previous_type, "autocracy", tick)
+    except Exception:
+        logger.debug("Expropriation skipped after coup (economy not initialized)")
 
     logger.info(
         "Coup succeeded: simulation=%d tick=%d faction=%r leader=%r",

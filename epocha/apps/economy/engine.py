@@ -37,6 +37,7 @@ from .credit import (
 )
 from .distribution import compute_rent, compute_taxes, compute_wages
 from .expectations import update_agent_expectations
+from .property_market import process_property_listings
 from .market import collect_supply_and_demand, execute_trades, tatonnement_prices
 from .models import (
     AgentInventory,
@@ -324,6 +325,12 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         # Note: loan creation (issue_loan) is NOT called automatically
         # in the tick -- it is triggered by agent decisions.
         if not credit_processed:
+            # === STEP 3: PROPERTY MARKET ===
+            # Process listings and match buyers from previous tick.
+            # Runs before credit so property sales generate cash that
+            # may prevent loan defaults.
+            process_property_listings(simulation, tick)
+
             default_dead_agent_loans(simulation)
             service_loans(simulation, tick)
             process_maturity(simulation, tick)

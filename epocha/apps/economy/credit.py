@@ -301,7 +301,7 @@ def issue_loan(
             to_agent=borrower,
             currency=primary_currency,
             total_amount=amount,
-            transaction_type="trade",
+            transaction_type="loan_issued",
         )
 
     # Update banking state for system loans
@@ -382,7 +382,7 @@ def service_loans(simulation, tick: int) -> list[int]:
                 to_agent=loan.lender,
                 currency=primary_currency,
                 total_amount=interest,
-                transaction_type="trade",
+                transaction_type="loan_interest",
             )
         else:
             # Borrower cannot pay interest -- mark for default
@@ -474,7 +474,7 @@ def process_maturity(simulation, tick: int) -> None:
                 to_agent=loan.lender,
                 currency=primary_currency,
                 total_amount=balance,
-                transaction_type="trade",
+                transaction_type="loan_interest",
             )
 
             logger.info("Loan %d repaid by %s", loan.id, loan.borrower.name)
