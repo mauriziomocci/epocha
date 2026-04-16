@@ -25,7 +25,7 @@ memories, relationships, and current situation, decide what to do next.
 
 Respond ONLY with a JSON object:
 {
-    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group|crime|protest|campaign|move_to|hoard",
+    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group|crime|protest|campaign|move_to|hoard|borrow|sell_property|buy_property",
     "target": "who or what (optional)",
     "reason": "brief internal thought"
 }
