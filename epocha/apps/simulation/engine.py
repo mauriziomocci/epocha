@@ -55,6 +55,9 @@ _ACTION_EMOTIONAL_WEIGHT: dict[str, float] = {
     "campaign": 0.2,
     "move_to": 0.2,
     "hoard": 0.15,
+    "borrow": 0.2,
+    "sell_property": 0.3,
+    "buy_property": 0.3,
 }
 _DEFAULT_EMOTIONAL_WEIGHT = 0.1
 
@@ -75,6 +78,9 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
     "campaign": 0.02,
     "move_to": 0.0,  # Movement module handles its own mood cost
     "hoard": -0.01,
+    "borrow": -0.02,
+    "sell_property": -0.01,
+    "buy_property": 0.02,
 }
 
 # Memory decay runs every N ticks to reduce DB writes.
@@ -147,6 +153,99 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
                 execute_movement(agent, target_zone, world, gov)
         except Exception:
             logger.exception("Movement failed for %s", agent.name)
+
+    # Handle borrow action: agent requests a loan from the banking system.
+    # Executes immediately -- cash is transferred in the same tick.
+    if action_type == "borrow":
+        try:
+            from epocha.apps.economy.credit import (
+                evaluate_credit_request,
+                find_best_unpledged_property,
+                issue_loan,
+            )
+
+            collateral = find_best_unpledged_property(agent)
+            if collateral:
+                target_str = action.get("target", "")
+                try:
+                    amount = float(target_str)
+                except (ValueError, TypeError):
+                    amount = collateral.value * 0.5
+
+                approved, result = evaluate_credit_request(
+                    borrower=agent,
+                    amount=amount,
+                    collateral_property=collateral,
+                    simulation=agent.simulation,
+                )
+                if approved:
+                    current_tick = agent.simulation.current_tick + 1
+                    issue_loan(
+                        simulation=agent.simulation,
+                        lender=None,
+                        borrower=agent,
+                        amount=amount,
+                        interest_rate=result,
+                        collateral=collateral,
+                        tick=current_tick,
+                        lender_type="banking",
+                    )
+                else:
+                    Memory.objects.create(
+                        agent=agent,
+                        content=f"Loan request denied: {result}",
+                        emotional_weight=0.3,
+                        source_type="direct",
+                        tick_created=tick,
+                        origin_agent=agent,
+                    )
+        except Exception:
+            logger.exception("Borrow action failed for %s", agent.name)
+
+    # Handle sell_property action: agent lists a property for sale.
+    # Creates a PropertyListing; matching happens at tick+1.
+    if action_type == "sell_property":
+        try:
+            from epocha.apps.economy.models import AgentExpectation, Property, PropertyListing
+            from epocha.apps.economy.property_market import compute_gordon_valuation
+
+            target_type = action.get("target", "")
+            props = Property.objects.filter(owner=agent, owner_type="agent")
+            if target_type:
+                props = props.filter(property_type__icontains=target_type)
+            prop = props.first()
+
+            if prop:
+                # Skip if already actively listed
+                if not PropertyListing.objects.filter(property=prop, status="listed").exists():
+                    # Delete old listings to avoid OneToOneField violation (I-2/A-4)
+                    PropertyListing.objects.filter(property=prop).exclude(status="listed").delete()
+
+                    fundamental = compute_gordon_valuation(prop, agent.simulation)
+
+                    # Expectation-based asking price multiplier.
+                    # Tunable design parameters: 1.1 premium on rising, 0.9 discount on falling.
+                    multiplier = 1.0
+                    exp = AgentExpectation.objects.filter(agent=agent).first()
+                    if exp:
+                        if exp.trend_direction == "rising":
+                            multiplier = 1.1
+                        elif exp.trend_direction == "falling":
+                            multiplier = 0.9
+
+                    asking = fundamental * multiplier
+                    PropertyListing.objects.create(
+                        property=prop,
+                        asking_price=asking,
+                        fundamental_value=fundamental,
+                        listed_at_tick=tick,
+                    )
+        except Exception:
+            logger.exception("Sell property action failed for %s", agent.name)
+
+    # Handle buy_property: intent only, matching happens at tick+1 in
+    # process_property_listings. The DecisionLog already captures the
+    # action; no additional processing needed here.
 
     # Create memory of the action (skip if a duplicate of the same action type
     # was the most recent memory created within the dedup window).

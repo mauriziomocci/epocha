@@ -162,6 +162,22 @@ def initialize_economy(
         "role_production": role_production,
         "zone_type_resources": zone_type_resources,
     }
+
+    # Save behavioral economy configs from the template so that
+    # credit, banking, expectations, and expropriation subsystems
+    # can read their parameters from simulation.config at runtime.
+    # Without this, all behavioral lookups fall back to hardcoded
+    # defaults, ignoring era-specific template calibration.
+    template_behavioral = template.config or {}
+    if template_behavioral.get("credit_config"):
+        sim_config["credit_config"] = template_behavioral["credit_config"]
+    if template_behavioral.get("banking_config"):
+        sim_config["banking_config"] = template_behavioral["banking_config"]
+    if template_behavioral.get("expectations_config"):
+        sim_config["expectations_config"] = template_behavioral["expectations_config"]
+    if template_behavioral.get("expropriation_policies"):
+        sim_config["expropriation_policies"] = template_behavioral["expropriation_policies"]
+
     simulation.config = sim_config
     simulation.save(update_fields=["config"])
 
@@ -234,6 +250,12 @@ def initialize_economy(
                     production_bonus=prop_cfg.get("production_bonus", {}),
                 )
                 properties_created += 1
+
+    # 8. Banking system initialization
+    # Must run after simulation.config is saved so that initialize_banking
+    # can read banking_config from simulation.config.
+    from .banking import initialize_banking
+    initialize_banking(simulation)
 
     logger.info(
         "Economy initialized for simulation %d: %d currencies, %d goods, "

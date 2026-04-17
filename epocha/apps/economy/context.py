@@ -2,15 +2,20 @@
 
 Provides each agent with a summary of their financial situation and
 local market conditions so the LLM can make economically informed
-decisions.
+decisions. Extended with behavioral blocks: price expectations
+(Nerlove 1958), debt situation with Minsky (1986) classification,
+and banking system state (Diamond & Dybvig 1983).
 """
 from __future__ import annotations
 
 import logging
 
 from .models import (
+    AgentExpectation,
     AgentInventory,
+    BankingState,
     Currency,
+    Loan,
     PriceHistory,
     Property,
     ZoneEconomy,
@@ -123,4 +128,199 @@ def build_economic_context(agent, tick: int) -> str | None:
         parts.append(f"\nMarket in {zone_label}:")
         parts.extend(market_lines)
 
+    # Behavioral blocks: expectations, debt, banking
+    expectations_block = _build_expectations_block(agent)
+    if expectations_block:
+        parts.append("")
+        parts.append(expectations_block)
+
+    debt_block = _build_debt_block(agent, simulation, tick, symbol)
+    if debt_block:
+        parts.append("")
+        parts.append(debt_block)
+
+    banking_block = _build_banking_block(simulation)
+    if banking_block:
+        parts.append("")
+        parts.append(banking_block)
+
     return "\n".join(parts)
+
+
+def _confidence_word(confidence: float) -> str:
+    """Map a 0-1 confidence float to a human-readable word.
+
+    Thresholds: high > 0.7, moderate 0.4-0.7, low < 0.4.
+    """
+    if confidence > 0.7:
+        return "high"
+    elif confidence >= 0.4:
+        return "moderate"
+    return "low"
+
+
+def _build_expectations_block(agent) -> str | None:
+    """Build a context block showing the agent's price expectations.
+
+    Uses AgentExpectation records (Nerlove 1958 adaptive expectations).
+    For each good the agent tracks, shows the trend direction, the
+    percentage deviation of the expected price from the current zone
+    market price, and the agent's confidence level.
+
+    Returns None if the agent has no expectations.
+    """
+    expectations = list(
+        AgentExpectation.objects.filter(agent=agent).order_by("good_code")
+    )
+    if not expectations:
+        return None
+
+    # Fetch current zone prices for deviation computation
+    zone_prices: dict[str, float] = {}
+    if agent.zone_id:
+        try:
+            ze = ZoneEconomy.objects.get(zone_id=agent.zone_id)
+            zone_prices = ze.market_prices or {}
+        except ZoneEconomy.DoesNotExist:
+            pass
+
+    lines = ["Price expectations (your assessment):"]
+    for exp in expectations:
+        direction = exp.trend_direction.upper()
+        actual_price = zone_prices.get(exp.good_code)
+        if actual_price and actual_price > 0:
+            pct_dev = ((exp.expected_price - actual_price) / actual_price) * 100
+            sign = "+" if pct_dev >= 0 else ""
+            dev_text = f"{sign}{pct_dev:.0f}% expected"
+        else:
+            dev_text = f"expected {exp.expected_price:.1f}"
+
+        conf = _confidence_word(exp.confidence)
+        good_label = exp.good_code.capitalize()
+        lines.append(f"- {good_label}: {direction} ({dev_text}), confidence: {conf}")
+
+    return "\n".join(lines)
+
+
+def _build_debt_block(agent, simulation, tick: int, symbol: str) -> str | None:
+    """Build a context block showing the agent's debt situation.
+
+    Includes active loan summary, interest due, debt-to-wealth ratio
+    with a qualitative label, Minsky (1986) financing classification,
+    and credit availability from the best unpledged property.
+
+    Returns None if the agent has no active loans AND no unpledged
+    property (nothing useful to report).
+    """
+    active_loans = list(
+        Loan.objects.filter(
+            simulation=simulation,
+            borrower=agent,
+            status="active",
+        )
+    )
+
+    # Find best unpledged property for credit availability
+    unpledged_properties = list(
+        Property.objects.filter(
+            owner=agent,
+            owner_type="agent",
+        ).exclude(
+            collateralized_loans__status="active",
+        ).order_by("-value")
+    )
+    best_property = unpledged_properties[0] if unpledged_properties else None
+
+    # Skip block if nothing to report
+    if not active_loans and not best_property:
+        return None
+
+    lines = ["Your debt situation:"]
+
+    if active_loans:
+        total_balance = sum(loan.remaining_balance for loan in active_loans)
+        interest_due = sum(
+            loan.remaining_balance * loan.interest_rate for loan in active_loans
+        )
+        wealth = max(agent.wealth, 1.0)
+        debt_ratio = total_balance / wealth
+
+        if debt_ratio < 0.3:
+            ratio_word = "safe"
+        elif debt_ratio <= 0.6:
+            ratio_word = "moderate"
+        else:
+            ratio_word = "dangerous"
+
+        lines.append(
+            f"- Active loans: {len(active_loans)} "
+            f"(total balance: {total_balance:.0f} {symbol})"
+        )
+        lines.append(f"- Interest due this tick: {interest_due:.1f} {symbol}")
+        lines.append(
+            f"- Debt-to-wealth ratio: {debt_ratio:.0%} ({ratio_word})"
+        )
+
+        # Lazy import to avoid circular dependency between context and credit
+        from .credit import classify_minsky_stage
+
+        minsky_descriptions = {
+            "hedge": "fully covered, safe",
+            "speculative": "can pay interest, will need to refinance",
+            "ponzi": "cannot cover interest, critical",
+        }
+        minsky_stage = classify_minsky_stage(agent, simulation, tick)
+        minsky_desc = minsky_descriptions.get(minsky_stage, minsky_stage)
+        lines.append(f"- Financial position: {minsky_stage} ({minsky_desc})")
+    else:
+        lines.append("- No active loans")
+
+    # Credit availability from best unpledged property
+    if best_property:
+        from .credit import evaluate_credit_request
+
+        test_amount = best_property.value / 2.0
+        approved, result = evaluate_credit_request(
+            borrower=agent,
+            amount=test_amount,
+            collateral_property=best_property,
+            simulation=simulation,
+        )
+        if approved:
+            lines.append(
+                f"- Credit available: up to {test_amount:.0f} {symbol} "
+                f"at {result:.1%} interest (secured by your {best_property.name})"
+            )
+
+    return "\n".join(lines)
+
+
+def _build_banking_block(simulation) -> str | None:
+    """Build a context block showing the banking system state.
+
+    Shows solvency status, confidence level, and base interest rate
+    from the BankingState model (Diamond & Dybvig 1983).
+
+    Returns None if no BankingState exists for the simulation.
+    """
+    try:
+        bs = BankingState.objects.get(simulation=simulation)
+    except BankingState.DoesNotExist:
+        return None
+
+    if bs.is_solvent:
+        status = "solvent"
+    else:
+        status = "INSOLVENT"
+
+    conf_word = _confidence_word(bs.confidence_index)
+    # Use uppercase for low confidence to signal urgency
+    if conf_word == "low":
+        conf_text = f"LOW ({bs.confidence_index:.1f})"
+    else:
+        conf_text = f"confidence {conf_word}"
+
+    return (
+        f"Banking system: {status}, {conf_text}, "
+        f"base rate {bs.base_interest_rate:.1%}"
+    )

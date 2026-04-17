@@ -202,3 +202,101 @@ class TestInitializeEconomy:
         assert result["currencies"] == 1
         currency = Currency.objects.get(simulation=simulation)
         assert currency.code == "GBP"
+
+
+@pytest.fixture
+def simulation_with_economy(db):
+    """Simulation fully initialized with economy (pre_industrial template).
+
+    Creates a minimal world (2 zones, 4 agents) and calls initialize_economy
+    so tests can assert on the resulting simulation.config and related models.
+    """
+    from django.contrib.gis.geos import Point, Polygon
+
+    from epocha.apps.simulation.models import Simulation
+    from epocha.apps.users.models import User
+    from epocha.apps.world.models import World, Zone
+
+    user = User.objects.create_user(
+        email="behav@epocha.dev",
+        username="behavuser",
+        password="pass1234",
+    )
+    sim = Simulation.objects.create(name="BehavTest", seed=99, owner=user)
+    world = World.objects.create(
+        simulation=sim,
+        distance_scale=133.0,
+        tick_duration_hours=24.0,
+    )
+    z1 = Zone.objects.create(
+        world=world,
+        name="BehavCity",
+        zone_type="urban",
+        boundary=Polygon.from_bbox((0, 0, 100, 100)),
+        center=Point(50, 50),
+    )
+    z2 = Zone.objects.create(
+        world=world,
+        name="BehavRural",
+        zone_type="rural",
+        boundary=Polygon.from_bbox((120, 0, 220, 100)),
+        center=Point(170, 50),
+    )
+    Agent.objects.create(
+        simulation=sim,
+        name="Lord2",
+        role="merchant",
+        social_class="elite",
+        zone=z1,
+        personality={"openness": 0.5},
+        location=Point(50, 50),
+    )
+    Agent.objects.create(
+        simulation=sim,
+        name="Worker2",
+        role="farmer",
+        social_class="working",
+        zone=z2,
+        personality={"openness": 0.5},
+        location=Point(170, 50),
+    )
+    initialize_economy(sim, "pre_industrial")
+    return sim
+
+
+@pytest.mark.django_db
+class TestInitializationBehavioralConfig:
+    """Test that initialize_economy saves behavioral configs to simulation.config."""
+
+    def test_saves_credit_config(self, simulation_with_economy):
+        sim = simulation_with_economy
+        sim.refresh_from_db()
+        sim_config = sim.config or {}
+        assert "credit_config" in sim_config
+        assert "loan_to_value" in sim_config["credit_config"]
+
+    def test_saves_banking_config(self, simulation_with_economy):
+        sim = simulation_with_economy
+        sim.refresh_from_db()
+        sim_config = sim.config or {}
+        assert "banking_config" in sim_config
+        assert "base_interest_rate" in sim_config["banking_config"]
+
+    def test_saves_expectations_config(self, simulation_with_economy):
+        sim = simulation_with_economy
+        sim.refresh_from_db()
+        sim_config = sim.config or {}
+        assert "expectations_config" in sim_config
+        assert "lambda_base" in sim_config["expectations_config"]
+
+    def test_saves_expropriation_policies(self, simulation_with_economy):
+        sim = simulation_with_economy
+        sim.refresh_from_db()
+        sim_config = sim.config or {}
+        assert "expropriation_policies" in sim_config
+        assert "democracy" in sim_config["expropriation_policies"]
+
+    def test_banking_state_created(self, simulation_with_economy):
+        from epocha.apps.economy.models import BankingState
+        sim = simulation_with_economy
+        assert BankingState.objects.filter(simulation=sim).exists()

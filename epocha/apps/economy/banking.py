@@ -23,6 +23,7 @@ References:
 from __future__ import annotations
 
 import logging
+import random
 
 from django.db.models import Sum
 
@@ -275,3 +276,123 @@ def compute_actual_multiplier(banking_state: BankingState) -> float:
         banking_state.total_deposits,
         1.0,
     )
+
+
+def recalculate_deposits(simulation) -> None:
+    """Recalculate total_deposits as the sum of all living agents' cash.
+
+    AgentInventory.cash is a JSONField ({currency_code: amount}), so
+    aggregation requires Python iteration. This is consistent with the
+    pattern used in context.py for individual agent cash summation.
+
+    This approximation treats all agent cash as deposited. Without
+    per-agent deposit tracking (Spec 3), this is the simplest model
+    that gives the reserve ratio real economic meaning.
+    """
+    try:
+        bs = BankingState.objects.get(simulation=simulation)
+    except BankingState.DoesNotExist:
+        return
+
+    from .models import AgentInventory
+
+    inventories = AgentInventory.objects.filter(
+        agent__simulation=simulation,
+        agent__is_alive=True,
+    )
+    total_cash = sum(sum(inv.cash.values()) for inv in inventories)
+    bs.total_deposits = total_cash
+    bs.save(update_fields=["total_deposits"])
+
+
+# Banking concern broadcast constants.
+# Consistent with _MEMORY_DEDUP_TICKS = 3 in simulation/engine.py.
+_CONCERN_DEDUP_TICKS = 3
+
+# Fraction of living agents who receive the initial broadcast.
+# Tunable design parameter modeling information asymmetry.
+_CONCERN_BROADCAST_RATIO = 0.5
+
+# Confidence threshold below which concern is broadcast.
+# Diamond & Dybvig (1983): the concern must precede the crisis
+# to enable the self-fulfilling prophecy.
+_CONCERN_CONFIDENCE_THRESHOLD = 0.5
+
+
+def broadcast_banking_concern(simulation, tick: int) -> int:
+    """Create banking concern memories when confidence is low.
+
+    Trigger condition: BankingState.confidence_index < 0.5
+    REGARDLESS of solvency status. This is essential for Diamond &
+    Dybvig (1983): the bank run is triggered by the FEAR of insolvency,
+    not by actual insolvency.
+
+    Generates memories for a random sample of 50% of living agents.
+    Dedup check prevents duplicate memories within 3 ticks.
+
+    Args:
+        simulation: The simulation instance.
+        tick: Current simulation tick.
+
+    Returns:
+        Number of memories created.
+    """
+    try:
+        bs = BankingState.objects.get(simulation=simulation)
+    except BankingState.DoesNotExist:
+        return 0
+
+    if bs.confidence_index >= _CONCERN_CONFIDENCE_THRESHOLD:
+        return 0
+
+    from epocha.apps.agents.models import Agent, Memory
+
+    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True))
+    if not agents:
+        return 0
+
+    # Sample agents for broadcast
+    sample_size = max(1, int(len(agents) * _CONCERN_BROADCAST_RATIO))
+    sampled = random.sample(agents, min(sample_size, len(agents)))
+
+    content = (
+        "The banking system is under stress. Some depositors "
+        "are worried about the safety of their savings."
+    )
+
+    created_count = 0
+    dedup_min_tick = max(0, tick - _CONCERN_DEDUP_TICKS)
+
+    for agent in sampled:
+        # Dedup: skip if agent already has a banking concern memory
+        # from the last _CONCERN_DEDUP_TICKS ticks.
+        has_recent = Memory.objects.filter(
+            agent=agent,
+            content__contains="banking system",
+            tick_created__gte=dedup_min_tick,
+            is_active=True,
+        ).exists()
+        if has_recent:
+            continue
+
+        Memory.objects.create(
+            agent=agent,
+            content=content,
+            emotional_weight=0.6,
+            source_type="public",
+            tick_created=tick,
+        )
+        created_count += 1
+
+    if created_count > 0:
+        logger.info(
+            "Banking concern broadcast: simulation=%d tick=%d, "
+            "confidence=%.2f, memories_created=%d/%d",
+            simulation.id,
+            tick,
+            bs.confidence_index,
+            created_count,
+            len(sampled),
+        )
+
+    return created_count

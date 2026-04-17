@@ -171,6 +171,9 @@ class DecisionLog(models.Model):
 
     class Meta:
         ordering = ["tick"]
+        indexes = [
+            models.Index(fields=["simulation", "tick"]),
+        ]
 
 
 class ReputationScore(models.Model):

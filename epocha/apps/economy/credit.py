@@ -301,7 +301,7 @@ def issue_loan(
             to_agent=borrower,
             currency=primary_currency,
             total_amount=amount,
-            transaction_type="trade",
+            transaction_type="loan_issued",
         )
 
     # Update banking state for system loans
@@ -382,7 +382,7 @@ def service_loans(simulation, tick: int) -> list[int]:
                 to_agent=loan.lender,
                 currency=primary_currency,
                 total_amount=interest,
-                transaction_type="trade",
+                transaction_type="loan_interest",
             )
         else:
             # Borrower cannot pay interest -- mark for default
@@ -474,7 +474,7 @@ def process_maturity(simulation, tick: int) -> None:
                 to_agent=loan.lender,
                 currency=primary_currency,
                 total_amount=balance,
-                transaction_type="trade",
+                transaction_type="loan_interest",
             )
 
             logger.info("Loan %d repaid by %s", loan.id, loan.borrower.name)
@@ -698,6 +698,57 @@ def _create_default_reputation_damage(
             reliability=1.0,
             tick=tick,
         )
+
+
+def default_dead_agent_loans(simulation) -> int:
+    """Default all active loans held by dead borrowers.
+
+    Agents who die (is_alive=False) cannot earn income or repay debt.
+    Their loans are defaulted immediately. Collateral seizure and
+    cascade propagation follow the existing default pipeline.
+
+    Called at the start of the credit market step, before service_loans.
+
+    Args:
+        simulation: The simulation instance.
+
+    Returns:
+        Number of loans defaulted.
+    """
+    dead_loans = Loan.objects.filter(
+        simulation=simulation,
+        status="active",
+        borrower__is_alive=False,
+    )
+    count = dead_loans.count()
+    if count > 0:
+        dead_loans.update(status="defaulted")
+        logger.info(
+            "Defaulted %d loans from dead agents in simulation %d",
+            count, simulation.id,
+        )
+    return count
+
+
+def find_best_unpledged_property(agent: Agent) -> "Property | None":
+    """Find the agent's highest-value property not already used as collateral.
+
+    Excludes properties that are collateral for active loans to prevent
+    double-pledging. Uses the related_name 'collateralized_loans' defined
+    on Loan.collateral.
+
+    Args:
+        agent: The agent whose properties to search.
+
+    Returns:
+        The highest-value unpledged Property, or None if none available.
+    """
+    return (
+        Property.objects.filter(owner=agent, owner_type="agent")
+        .exclude(collateralized_loans__status="active")
+        .order_by("-value")
+        .first()
+    )
 
 
 def process_default_cascade(

@@ -24,6 +24,9 @@ _ACTION_VERBS: dict[str, str] = {
     "campaign": "campaigns for leadership",
     "move_to": "travels to",
     "hoard": "hoards goods",
+    "borrow": "takes out a loan",
+    "sell_property": "lists property for sale",
+    "buy_property": "wants to buy property",
 }
 
 

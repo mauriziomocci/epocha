@@ -22,8 +22,14 @@ import logging
 from epocha.apps.agents.models import Agent
 from epocha.apps.world.models import Government
 
-from .banking import adjust_interest_rate, check_solvency
+from .banking import (
+    adjust_interest_rate,
+    broadcast_banking_concern,
+    check_solvency,
+    recalculate_deposits,
+)
 from .credit import (
+    default_dead_agent_loans,
     process_default_cascade,
     process_defaults,
     process_maturity,
@@ -31,6 +37,7 @@ from .credit import (
 )
 from .distribution import compute_rent, compute_taxes, compute_wages
 from .expectations import update_agent_expectations
+from .property_market import process_property_listings
 from .market import collect_supply_and_demand, execute_trades, tatonnement_prices
 from .models import (
     AgentInventory,
@@ -52,6 +59,29 @@ from .production import compute_agent_output
 from .template_loader import _ROLE_PRODUCTION, _ZONE_TYPE_RESOURCES
 
 logger = logging.getLogger(__name__)
+
+
+def _get_hoarding_agent_ids(simulation, tick: int) -> set[int]:
+    """Return IDs of agents who chose 'hoard' in the previous tick.
+
+    Reads DecisionLog entries from tick-1 and checks if the JSON
+    output_decision contains the "hoard" action. DecisionLog.output_decision
+    is a TextField containing json.dumps() output, so __contains with
+    '"hoard"' performs a PostgreSQL LIKE substring match.
+
+    Returns an empty set at tick 0 (no previous tick to read).
+    """
+    if tick <= 0:
+        return set()
+
+    from epocha.apps.agents.models import DecisionLog
+
+    hoarding_decisions = DecisionLog.objects.filter(
+        simulation=simulation,
+        tick=tick - 1,
+        output_decision__contains='"hoard"',
+    ).values_list("agent_id", flat=True)
+    return set(hoarding_decisions)
 
 
 def process_economy_tick_new(simulation, tick: int) -> None:
@@ -118,6 +148,10 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # expectations reflect the previous tick's prices and can influence
     # trading decisions in the current tick.
     update_agent_expectations(simulation, tick)
+
+    # Get agents who hoarded at the previous tick.
+    # Their goods will not be offered to the market (is_hoarding=True).
+    hoarding_ids = _get_hoarding_agent_ids(simulation, tick)
 
     for ze in zone_economies:
         zone = ze.zone
@@ -205,7 +239,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     "agent_id": agent.id,
                     "holdings": dict(inv.holdings),
                     "cash_amount": sum(inv.cash.values()),
-                    "is_hoarding": False,  # hoard action integration in Part 3
+                    "is_hoarding": agent.id in hoarding_ids,
                 }
             )
 
@@ -291,12 +325,20 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         # Note: loan creation (issue_loan) is NOT called automatically
         # in the tick -- it is triggered by agent decisions.
         if not credit_processed:
+            # === STEP 3: PROPERTY MARKET ===
+            # Process listings and match buyers from previous tick.
+            # Runs before credit so property sales generate cash that
+            # may prevent loan defaults.
+            process_property_listings(simulation, tick)
+
+            default_dead_agent_loans(simulation)
             service_loans(simulation, tick)
             process_maturity(simulation, tick)
             process_defaults(simulation, tick)
             process_default_cascade(simulation, tick)
             adjust_interest_rate(simulation, tick)
             check_solvency(simulation)
+            broadcast_banking_concern(simulation, tick)
             credit_processed = True
 
         # === STEP 4: RENT (emergent Ricardian) ===
@@ -473,6 +515,11 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         world.save(update_fields=["stability_index"])
     except Exception:
         pass
+
+    # === STEP 10: DEPOSIT RECALCULATION ===
+    # Recalculate total_deposits from all agent cash after all economic
+    # transactions are complete.
+    recalculate_deposits(simulation)
 
     trade_count = EconomicLedger.objects.filter(
         simulation=simulation,
