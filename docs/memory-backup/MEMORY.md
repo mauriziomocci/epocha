@@ -20,3 +20,6 @@
 - [Narrative generator](project_narrative_generator.md) -- Romanzo storico/geopolitico generato dalla simulazione, rigoroso e multilingue
 - [Hegemonic cascade](project_hegemonic_cascade.md) -- Perdita rotte commerciali innesca cascata di declino (Kindleberger, Arrighi, Kennedy)
 - [MiroFish comparison](reference_mirofish_comparison.md) -- Gap analysis vs MiroFish: knowledge graph, report agent, grafo
+- [Behavioral integration WIP](project_behavioral_integration_progress.md) -- Spec 2 Part 3: Plan 3a+3b COMPLETATI (306 test), manca solo Plan 3c (integration test)
+- [Roadmap immediata](project_roadmap_immediate.md) -- Chiudere Spec 2, poi Demografia. Spec 3 finanziaria rimandata, tooling in parallelo
+- [Media layer vision](project_media_layer.md) -- Giornali, social feed, cronaca generati dalla simulazione. Killer feature di presentazione

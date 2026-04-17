@@ -2,8 +2,8 @@
 name: mirofish-comparison
 description: Feature comparison with MiroFish -- what to learn from them, what we do better
 type: reference
+originSessionId: 8f665d74-99ae-4441-b1f2-511d74b26c7d
 ---
-
 MiroFish (https://github.com/666ghj/MiroFish) -- simulatore multi-agente di
 riferimento. Confronto con Epocha per identificare gap e vantaggi.
 
@@ -54,7 +54,12 @@ Il grafo di MiroFish e' piu' denso perche' il knowledge graph ha centinaia
 di entita' estratte dai documenti (persone, luoghi, concetti), non perche'
 ha piu' agenti attivi. Il default di profile generation parallela e' 3.
 
-Non sono concorrenti diretti ma complementari.
+Non sono concorrenti diretti. MiroFish NON simula civilta', nonostante
+il marketing aggressivo ("predict anything", "parallel digital world").
+Verificato il 2026-04-15: nessun modulo economy/government/military/
+demographics nel codebase. L'utente aveva inizialmente pensato che
+MiroFish avesse funzionalita' di civilta', ma ha confermato di aver
+travisato dopo la verifica.
 
 ## Priority per colmare i gap
 
