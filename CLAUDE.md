@@ -319,6 +319,38 @@ This protocol is integrated into every scientific audit, not run as a separate p
 
 **Revision of this rule**: the workflow is modified only on explicit user request. New lessons produce NEW feedback memories, not silent alterations of this rule.
 
+### CRITICAL: Model Selection Policy per Workflow Phase
+
+**CRITICAL RULE**: each phase of the canonical 7-phase workflow uses a specific Claude model. The assignment is NOT a per-session option; it is codified to optimize scientific rigor where it matters and cost/speed where it does not matter less.
+
+**Model assignment per phase**:
+
+| Phase | Model | Rationale |
+|-------|-------|-----------|
+| 1. Ideation | Opus 4.7 | Conceptual exploration, initial clarifications |
+| 2. Requirements (brainstorming, spec, adversarial audit, convergence loop) | **Opus 4.7 with extended thinking** | Scientific rigor, bibliography, formulas, heavy gate. Errors here propagate through the entire pipeline. |
+| 3. Architectural plan design | Opus 4.7 | Architecture, cross-module trade-offs, integration with existing subsystems |
+| 4. Task breakdown + post-validation critical review | Opus 4.7 | Accurate decomposition, detection of hidden gaps before code |
+| 5. Implementation (per-task) | **Sonnet 4.6** | Execution of fully-specified tasks; 3-5× faster and ~5× cheaper than Opus |
+| 5-bis. Per-task routine code review | Sonnet 4.6 | 8-point Mandatory Code Review on atomic task |
+| 5-ter. Final cross-task integration code review | Opus 4.7 | Overall architectural judgment, coherence across tasks |
+| 6. General test + final adversarial code audit | **Opus 4.7** | Heavy final gate; scientific correctness of code; hostile, in-depth auditor |
+| 7. Closure (merge, memory sync, push) | Sonnet 4.6 | Mechanical, deterministic operations |
+
+**Escalation protocol (non-negotiable)**: during phase 5 (Sonnet implementation), if a task reveals an unforeseen edge case, wrong spec assumption, required undeclared refactor, incoherence with existing code, or scientific doubt about a formula/citation — the Sonnet subagent does NOT invent a solution. It **escalates to Opus** via the orchestrating dispatcher. Sonnet resumes only after Opus has revised the spec/plan/task.
+
+Escalation trigger: any time the task requires a **strategic decision** rather than **specified execution**. Bright line: if the answer to "what do I do?" is not fully derivable from the task and spec, escalate.
+
+**Scientific citation accuracy**: Epocha's docstrings cite exact sources (Heligman & Pollard 1980, Jones & Tertilt 2008, etc.). Citations in code MUST match exactly those in the spec — no invention, no paraphrase. Per-task code review by Sonnet must verify this explicitly on every task with a scientific docstring.
+
+**Context preservation paradox**: Sonnet has a smaller context window than Opus 1M. To make it usable in phase 5, tasks produced in phase 4 must be **truly atomic** (file-focused, narrow scope). If a task would require Sonnet to hold the entire plan + spec + reference codebase in context, the task is too large and must be split further in phase 4.
+
+**Haiku is NEVER used**. Haiku is too lightweight for Epocha's constraints (scientific rigor, OWASP security, 8-point Mandatory Review, exact citations). The balance is: **Opus where it counts, Sonnet where it does not count less, Haiku never**.
+
+**Technical mechanism**: per-model delegation is implemented via the `superpowers:subagent-driven-development` skill. The main dispatcher (Opus) orchestrates phases 1-4 and 6-7; for each phase-5 task, the dispatcher dispatches an Agent with explicit `model: "sonnet"` override. On escalation, the subagent returns an escalation flag; the Opus dispatcher takes over, revises, and re-launches or modifies the plan.
+
+**Revising this policy**: only on explicit user request.
+
 ### CRITICAL: Task Breakdown and Sequential Execution (implementation plans only)
 
 **CRITICAL RULE**: every **implementation plan** must be broken into as many well-detailed tasks as possible, each with a checkbox flag (`- [ ]` / `- [x]`), and executed strictly one task at a time with the flag toggled upon completion before moving to the next. No batching multiple tasks without intermediate flagging. No skipping ahead.

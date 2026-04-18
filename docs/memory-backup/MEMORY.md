@@ -7,6 +7,7 @@
 - [Scientific paper goal](feedback_scientific_paper_goal.md) -- Il progetto produrra' un paper: ogni scelta deve essere publication-grade documentata
 - [Task breakdown mandatory](feedback_task_breakdown_mandatory.md) -- OBBLIGATORIO per piani di implementazione: task dettagliati con checkbox, esecuzione sequenziale con flag. Non si applica a edit singoli o micro-operazioni
 - [Canonical workflow](feedback_canonical_workflow.md) -- REGOLA RIGOROSA: 7 fasi obbligatorie per ogni sottosistema (ideazione, requisiti, design, task breakdown, implementazione, test generale, chiusura) con gate pesanti/leggeri
+- [Model selection policy](feedback_model_selection_policy.md) -- REGOLA PERMANENTE: Opus 4.7 fasi 1-4 e 6-7 (critiche/scientifiche), Sonnet 4.6 fase 5 (implementazione), mai Haiku, con escalation protocol
 - [Verify assertions](feedback_verify_assertions.md) -- Mai dare per scontate asserzioni scientifiche, verificarle sempre
 - [Post-MVP roadmap](project_roadmap_post_mvp.md) -- Roadmap aggiornata con stato di ogni feature
 - [Analytics deferred](project_analytics_deferred.md) -- Branch comparison, pattern detection, temporal zoom, export rinviati
