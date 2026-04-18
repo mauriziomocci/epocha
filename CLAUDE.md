@@ -226,6 +226,169 @@ This protocol is integrated into every scientific audit, not run as a separate p
 
 **When to update the FAQ**: any time the spec is revised based on review feedback, add a FAQ entry capturing the decision that was clarified. The FAQ grows with the spec.
 
+### CRITICAL: Canonical 7-Phase Development Workflow
+
+**CRITICAL RULE**: every new subsystem, major feature, or spec in Epocha MUST follow the canonical 7-phase workflow below without exceptions. Skipping phases or confusing gates is a rule violation.
+
+**The 7 phases**:
+
+```
+1. IDEATION (natural-language user input)
+        ↓
+2. REQUIREMENTS
+   - Brainstorming: agent asks in-depth clarifying questions
+   - Spec file written to docs/superpowers/specs/YYYY-MM-DD-<name>.md
+   - Must include: scientific foundations, architecture, design decisions log,
+     alternatives considered, FAQ, known limitations
+   HEAVY GATE:
+   - Three-step design process
+   - Adversarial scientific audit (critical-analyzer subagent)
+   - Mandatory convergence loop (audit → fix → re-audit until CONVERGED)
+   - Explicit human validation of final spec
+        ↓
+3. ARCHITECTURAL PLAN DESIGN
+   - Agent drafts the plan from validated spec
+   - Plan defines: modules, file changes, pipeline ordering, integration surface
+   - Plan does NOT yet contain operational task breakdown
+   LIGHT GATE: human validation of the architectural plan
+        ↓
+4. TASK BREAKDOWN
+   - Decompose plan into small, detailed tasks (see task-breakdown rule)
+   - Each task: checkbox + detailed description + files involved + tests + commit msg
+   - Granularity 2-5 minutes per task; no vague tasks
+   LIGHT GATE: human validation of breakdown
+   + Critical post-validation review (agent rereads with fresh eyes and raises any
+     residual doubts BEFORE touching code; trigger: transition design → implementation;
+     scope: overlooked details likely to be lost during writing; NOT a second
+     brainstorming, NOT a second adversarial audit)
+        ↓
+5. IMPLEMENTATION (task-by-task, sequential)
+   For each task:
+   - Write code exactly as described
+   - Test the task (unit + regression)
+   - Critical, punctual, in-depth code review (8-point Mandatory Code Review)
+   - Flag task as resolved
+   - Move to next task ONLY after completion + flag
+        ↓
+6. GENERAL IMPLEMENTATION TEST
+   - Full test suite (pytest --cov=epocha -v)
+   - End-to-end integration test
+   - Zero failing tests; zero xfail
+   HEAVY GATE:
+   - Final adversarial review (critical-analyzer on CODE, not spec)
+   - Explicit human validation of closure
+        ↓
+7. CLOSURE
+   - Merge feature branch to develop (--no-ff)
+   - Sync memory backup (docs/memory-backup/)
+   - Push
+   - Update progress memory
+```
+
+**Operational principles (non-negotiable)**:
+
+1. **Strict sequentiality between phases**: phase N+1 requires phase N's gate closed. No shortcuts.
+
+2. **Heavy vs light gates**:
+   - **Heavy gates** (rigorous validation): REQUIREMENTS gate (closes the scientific phase; spec is the foundation) and FINAL gate (closes the work).
+   - **Light gates** (quick review, prerequisites already rigorously validated): DESIGN gate (confirm plan coherence with spec) and TASK BREAKDOWN gate (confirm granularity and completeness).
+   - Distinction prevents gate fatigue: each subsystem has 4 gates, 2 heavy and 2 light.
+
+3. **Adversarial review fires at two distinct moments**:
+   - Requirements gate: adversarial on the SPEC (scientific rigor, citations, formulas)
+   - Final gate: adversarial on the CODE (correctness, security, performance)
+   - Separate reviews with distinct scope.
+
+4. **Critical post-validation review (phase 4 gate tail)**:
+   - Trigger: transition from design to code writing
+   - Scope: details that risk being lost because not explicit
+   - NOT a second brainstorming
+   - NOT a second adversarial audit
+   - It is the "last coherence check" before writing code
+
+5. **Task-breakdown rule** activates at phase 4 and governs phase 5 execution.
+
+6. **Verify-before-asserting** and **GOLDEN RULE** are always active, never suspended.
+
+**Mapping to superpowers skills**:
+- Phase 2 (Requirements): `superpowers:brainstorming`
+- Phase 3 + 4 (Design + Task breakdown): `superpowers:writing-plans`
+- Phase 5 (Implementation): `superpowers:executing-plans` or `superpowers:subagent-driven-development`
+- Phase 6 (General test): `superpowers:verification-before-completion`
+- Phase 7 (Closure): `superpowers:finishing-a-development-branch`
+
+**Revision of this rule**: the workflow is modified only on explicit user request. New lessons produce NEW feedback memories, not silent alterations of this rule.
+
+### CRITICAL: Model Selection Policy per Workflow Phase
+
+**CRITICAL RULE**: each phase of the canonical 7-phase workflow uses a specific Claude model. The assignment is NOT a per-session option; it is codified to optimize scientific rigor where it matters and cost/speed where it does not matter less.
+
+**Model assignment per phase**:
+
+| Phase | Model | Rationale |
+|-------|-------|-----------|
+| 1. Ideation | Opus 4.7 | Conceptual exploration, initial clarifications |
+| 2. Requirements (brainstorming, spec, adversarial audit, convergence loop) | **Opus 4.7 with extended thinking** | Scientific rigor, bibliography, formulas, heavy gate. Errors here propagate through the entire pipeline. |
+| 3. Architectural plan design | Opus 4.7 | Architecture, cross-module trade-offs, integration with existing subsystems |
+| 4. Task breakdown + post-validation critical review | Opus 4.7 | Accurate decomposition, detection of hidden gaps before code |
+| 5. Implementation (per-task) | **Sonnet 4.6** | Execution of fully-specified tasks; 3-5× faster and ~5× cheaper than Opus |
+| 5-bis. Per-task routine code review | Sonnet 4.6 | 8-point Mandatory Code Review on atomic task |
+| 5-ter. Final cross-task integration code review | Opus 4.7 | Overall architectural judgment, coherence across tasks |
+| 6. General test + final adversarial code audit | **Opus 4.7** | Heavy final gate; scientific correctness of code; hostile, in-depth auditor |
+| 7. Closure (merge, memory sync, push) | Sonnet 4.6 | Mechanical, deterministic operations |
+
+**Escalation protocol (non-negotiable)**: during phase 5 (Sonnet implementation), if a task reveals an unforeseen edge case, wrong spec assumption, required undeclared refactor, incoherence with existing code, or scientific doubt about a formula/citation — the Sonnet subagent does NOT invent a solution. It **escalates to Opus** via the orchestrating dispatcher. Sonnet resumes only after Opus has revised the spec/plan/task.
+
+Escalation trigger: any time the task requires a **strategic decision** rather than **specified execution**. Bright line: if the answer to "what do I do?" is not fully derivable from the task and spec, escalate.
+
+**Scientific citation accuracy**: Epocha's docstrings cite exact sources (Heligman & Pollard 1980, Jones & Tertilt 2008, etc.). Citations in code MUST match exactly those in the spec — no invention, no paraphrase. Per-task code review by Sonnet must verify this explicitly on every task with a scientific docstring.
+
+**Context preservation paradox**: Sonnet has a smaller context window than Opus 1M. To make it usable in phase 5, tasks produced in phase 4 must be **truly atomic** (file-focused, narrow scope). If a task would require Sonnet to hold the entire plan + spec + reference codebase in context, the task is too large and must be split further in phase 4.
+
+**Haiku is NEVER used**. Haiku is too lightweight for Epocha's constraints (scientific rigor, OWASP security, 8-point Mandatory Review, exact citations). The balance is: **Opus where it counts, Sonnet where it does not count less, Haiku never**.
+
+**Technical mechanism**: per-model delegation is implemented via the `superpowers:subagent-driven-development` skill. The main dispatcher (Opus) orchestrates phases 1-4 and 6-7; for each phase-5 task, the dispatcher dispatches an Agent with explicit `model: "sonnet"` override. On escalation, the subagent returns an escalation flag; the Opus dispatcher takes over, revises, and re-launches or modifies the plan.
+
+**Revising this policy**: only on explicit user request.
+
+### CRITICAL: Task Breakdown and Sequential Execution (implementation plans only)
+
+**CRITICAL RULE**: every **implementation plan** must be broken into as many well-detailed tasks as possible, each with a checkbox flag (`- [ ]` / `- [x]`), and executed strictly one task at a time with the flag toggled upon completion before moving to the next. No batching multiple tasks without intermediate flagging. No skipping ahead.
+
+**Scope and trigger**: the rule activates when a spec has been approved (design + adversarial audit + CONVERGED) and implementation planning begins. It applies to plan files under `docs/superpowers/plans/`.
+
+**What the rule does NOT cover**:
+- Standalone edits not tied to a plan
+- Answers to user questions
+- Documentation commits unrelated to an implementation plan
+- Micro-maintenance operations
+
+Applying the rule to out-of-scope operations would create bureaucratic overhead without benefit. The bright line: if the work lives in `docs/superpowers/plans/` or is descending an approved spec into code, the rule applies; otherwise, it does not.
+
+**Why**: four drivers:
+1. **Transparency**: for a plan the user sees in real time exactly what is done and what remains, without reading diffs.
+2. **Operational granularity**: small tasks mean safe steps, isolated failures, ability to interrupt and resume without losing context.
+3. **Publication-grade audit trail**: each completed task is a documented piece of evidence, consistent with the scientific paper goal of the project.
+4. **Context preservation for the AI agent**: in long plans with dozens of tasks, the currently "in progress" (not yet flagged) task is the agent's focus pointer. Working task-by-task keeps Claude focused on the specific context needed for that single task, without dispersing attention across the whole plan. Without breakdown and sequential flagging, the agent risks losing details, forgetting completed steps, or skipping required files. Flagging is the synchronization mechanism between work state and agent cognitive state — an operational necessity, not only a methodological preference.
+
+**How to apply**:
+- When drafting an implementation plan (after the spec is approved and audited), decompose the work into the smallest coherent tasks. A task is 2-5 minutes of work, a single atomic modification, or a tightly coupled group of files.
+- Each task uses the checkbox syntax (`- [ ] **Step N**: ...`) compatible with the `superpowers:writing-plans` skill and the existing Epocha plan format (see `docs/superpowers/plans/`).
+- No vague tasks. Never write "Implement the feature X"; always write "Create file X with class Y containing method Z that does W, with tests T1-T3".
+- During execution:
+  - Take ONE task
+  - Implement precisely
+  - Toggle the flag to `- [x]`
+  - Move to the next
+  - Do NOT skip ahead. Do NOT batch-process multiple tasks without intermediate flagging.
+- When all tasks are flagged, the plan is done; proceed to merge/PR/memory-sync as usual.
+
+**Non-negotiable within scope**: within the scope defined above, the rule is mandatory with no exceptions. Outside the scope the rule does not apply.
+
+**Compatibility**: the existing plans (Plan 3a, 3b, 3c of Economy) already use this pattern; no retrofit required.
+
+**Typical scale for Epocha**: for a complex subsystem such as Demography, expect 60-80 tasks distributed across 3-5 sequential plans, each containing 15-25 tasks of 2-5 minutes each.
+
 ### CRITICAL: Understand Before Implementing
 
 **CRITICAL RULE**: before writing any code — whether fixing a bug, building a new feature, or designing an architecture — invest time in understanding the full context: how the existing system works, why it works that way, and what already exists. Solving a symptom without understanding the root cause leads to layered workarounds instead of clean solutions.
@@ -296,8 +459,10 @@ This is not optional. Lost memory means lost context, lost rules, lost decisions
 - Avoid over-engineering: only implement what is requested
 - Prefer editing existing files over creating new ones
 - Do NOT create documentation files unless explicitly requested
-- All code, documentation, comments, docstrings, logs: **English only**, NO emoji/emoticon
+- All code, comments, docstrings, logs: **English only**, NO emoji/emoticon
 - Commit messages: **English** (Conventional Commits), PEP 8 with 120 char line limit, double quotes
+- Plan files, test files, README, CLAUDE.md, memory backup: **English only**
+- **Spec files** in `docs/superpowers/specs/` are written **in Italian only** (single authoritative version, no sync burden). An English translation is produced only when needed for paper publication. See `feedback_italian_specs` rule. All other documentation stays English only.
 - Tests: **ZERO failing tests**. Use `pytest.mark.skip(reason="TODO: ...")` when necessary
 
 ### Execution Discipline
