@@ -42,6 +42,11 @@ MIN_PRICE = 0.01
 # excess). At 0.5, prices can at most double or halve each iteration.
 # Tunable design parameter; no theoretical derivation.
 MAX_CHANGE_RATIO = 0.5
+# Subsistence need per agent per essential good per tick.
+# Extracted on 2026-04-18 as part of the Demography Plan 1 integration
+# contract (see docs/superpowers/specs/2026-04-18-demography-design-it.md).
+# Shared with demography/context.py:compute_subsistence_threshold.
+SUBSISTENCE_NEED_PER_AGENT: float = 1.0
 
 
 def tatonnement_prices(
@@ -169,7 +174,7 @@ def collect_supply_and_demand(
     agent_orders: list[dict] = []
 
     essential_codes = {g["code"] for g in good_categories if g["is_essential"]}
-    subsistence_need = 1.0  # 1 unit per essential good per tick
+    subsistence_need = SUBSISTENCE_NEED_PER_AGENT
 
     # Maximum discretionary demand per agent per good per tick.
     # Without a cap, low prices combined with high cash produce absurd
