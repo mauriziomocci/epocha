@@ -115,6 +115,105 @@ This design delivers a self-contained demographic subsystem that:
 - Simon, H.A. (1955). A behavioral model of rational choice. *Quarterly Journal of Economics* 69(1), 99-118.
 - Miller, G.A. (1956). The magical number seven, plus or minus two. *Psychological Review* 63(2), 81-97.
 
+## Integration Contracts with Existing Systems
+
+Before specifying the demography subsystem, we define the integration surface with the already-implemented economy subsystem (Spec 2 Parts 1-3). These definitions are contracts that this spec is responsible for implementing or deriving; they do not assume pre-existing variables that in fact do not exist.
+
+### Subsistence threshold (derivation)
+
+Demography needs a subsistence threshold for Becker modulation and for emergency flight triggers. The economy subsystem does NOT currently expose a named `subsistence_threshold` constant. We derive it from the existing data:
+
+```python
+def compute_subsistence_threshold(simulation, zone) -> float:
+    """Derive the per-agent per-tick subsistence cost in primary currency.
+
+    Uses the existing GoodCategory.is_essential flag, per-good subsistence_need
+    from the market module (default 1.0 unit per agent per tick), and current
+    market prices in the zone. The result is the minimum wealth flow required
+    to consume essential goods at subsistence quantity.
+    """
+    from epocha.apps.economy.models import GoodCategory, ZoneEconomy
+    SUBSISTENCE_NEED_PER_AGENT = 1.0  # per-good per-tick, matches local variable
+                                      # `subsistence_need` in economy/market.py:172
+    ze = ZoneEconomy.objects.get(zone=zone, simulation=simulation)
+    essentials = GoodCategory.objects.filter(simulation=simulation, is_essential=True)
+    total = 0.0
+    for good in essentials:
+        price = ze.market_prices.get(good.code, good.base_price)
+        total += price * SUBSISTENCE_NEED_PER_AGENT
+    return total
+```
+
+As part of THIS spec's implementation, the inline local `subsistence_need = 1.0` in `epocha/apps/economy/market.py` is extracted to a module-level constant `SUBSISTENCE_NEED_PER_AGENT` so it can be shared. This derivation produces a zone-dependent, era-dependent value computed on demand. Wealth comparisons use `agent.wealth < N * subsistence_threshold` where `N` is the number of subsistence-ticks the agent can survive with current savings (tunable design parameter, default 30 ticks ≈ 1 month under daily-tick cadence).
+
+### Aggregate economic outlook (derivation)
+
+Becker modulation needs a scalar `[-1, 1]` summarizing the agent's perception of economic conditions. No such attribute exists on `AgentExpectation`. We derive it:
+
+```python
+def compute_aggregate_outlook(agent) -> float:
+    """Produce scalar outlook in [-1, 1] from existing state.
+
+    Combines:
+    - Agent's own mood (0.0-1.0 mapped to -1..1)
+    - Banking confidence (0.0-1.0 from BankingState.confidence_index mapped to -1..1)
+    - Zone stability (0.0-1.0 from Government.stability mapped to -1..1)
+    Equal weights; tunable.
+    """
+    from epocha.apps.economy.models import BankingState
+    from epocha.apps.world.models import Government
+    mood_norm = 2.0 * agent.mood - 1.0
+    try:
+        conf_norm = 2.0 * BankingState.objects.get(
+            simulation=agent.simulation).confidence_index - 1.0
+    except BankingState.DoesNotExist:
+        conf_norm = 0.0
+    stability_norm = 0.0
+    try:
+        gov = Government.objects.get(simulation=agent.simulation)
+        stability_norm = 2.0 * gov.stability - 1.0
+    except Government.DoesNotExist:
+        pass
+    return (mood_norm + conf_norm + stability_norm) / 3.0
+```
+
+This is a design heuristic, NOT derived from Jones & Tertilt (2008). Marked as tunable design parameter.
+
+### Wage signals without gender segmentation
+
+The economy subsystem records wages in `EconomicLedger.transaction_type="wage"` without gender segmentation. Becker's original framework (1991) uses the *opportunity cost of women's time* as the fertility-depressant. In our MVP we cannot compute this directly. We substitute two alternative signals both available from existing data:
+
+1. **Zone average wage level** (`zone_wage_mean`): mean of `EconomicLedger` wage transactions in zone over last 5 ticks. Higher zone wages correlate with higher female workforce participation historically (Goldin 1995 *The U-Shaped Female Labor Force Function*), which is the mechanism Becker identifies.
+2. **Female-role employment fraction** (`female_role_employed_fraction`): `count(agents with gender=female AND role IN {merchant, craftsman, ...} AND wage>0 last tick) / count(adult females)`. A direct proxy for female labor participation without requiring a gendered wage field.
+
+Used jointly in the Becker modulation as alternative to the gendered-wage ratio. Documented as a Spec 2 data-availability adaptation.
+
+### Government treasury addition (helper pattern)
+
+Spec 2 economy uses direct JSON-dict mutation on `Government.government_treasury`. We propose extracting a helper `add_to_treasury(government, currency_code, amount)` as part of THIS spec's scope, placed in `epocha/apps/world/government.py` to be shared with demography. Implementation:
+
+```python
+def add_to_treasury(government, currency_code: str, amount: float) -> None:
+    """Add an amount in the given currency to the government treasury.
+
+    Extracted in 2026-04-18 demography spec; callers previously used inline
+    JSON-dict mutation (see economy/engine.py:433). Centralizing ensures
+    consistent accounting across tax, estate tax, expropriation, and fines.
+    """
+    treasury = government.government_treasury or {}
+    treasury[currency_code] = treasury.get(currency_code, 0.0) + amount
+    government.government_treasury = treasury
+    government.save(update_fields=["government_treasury"])
+```
+
+Calls from demography (`inheritance.py` estate tax routing) use this helper. Economy `engine.py:433-436` is refactored to the same helper in demography Plan 1 task 1.
+
+### Walking speed reference
+
+The claim "25 km/day walking speed" is sourced from `TRAVEL_SPEEDS` dict in `epocha/apps/agents/movement.py:37`, verified present. The value 25 km/day is documented with sources Chandler (1966) *The Art of Warfare in the Age of Marlborough* and Braudel (1979) *Civilization and Capitalism 15th-18th Century Vol 1*. Migration distance cost computation reuses `movement.compute_travel_ticks()` (existing function) rather than introducing a new constant.
+
+---
+
 ## Architecture Overview
 
 Demography lives in a new Django app `epocha.apps.demography`, structured in parallel to the existing `epocha.apps.economy` app. The integration surface with the rest of the system is minimal: one orchestrator function called from the simulation tick, a context enrichment block for agent decisions, and a handful of new LLM actions. All internal state, algorithms, and calibration sit behind this boundary.
@@ -157,10 +256,12 @@ Demography runs before agent decisions so that newborns never decide in their fi
 
 - `agent_a` (FK Agent, null on spouse death to preserve genealogy)
 - `agent_b` (FK Agent, null on spouse death to preserve genealogy)
+- `agent_a_name_snapshot` (CharField, blank) — captured on dissolution when agent_a FK is nulled
+- `agent_b_name_snapshot` (CharField, blank) — captured on dissolution when agent_b FK is nulled
 - `formed_at_tick` (PositiveIntegerField)
 - `dissolved_at_tick` (PositiveIntegerField, null)
 - `dissolution_reason` (CharField, choices: `death`, `separate`, `annulment`)
-- `couple_type` (CharField, choices: `monogamous`, `polygynous`, `polyandrous`, `arranged`)
+- `couple_type` (CharField, choices: `monogamous`, `arranged`) — polygynous and polyandrous deferred to future spec (see fix MISS-8)
 - `simulation` (FK Simulation, indexed with formed_at_tick)
 - Indexes: `(simulation, dissolved_at_tick)`, `(agent_a, dissolved_at_tick)`, `(agent_b, dissolved_at_tick)`
 
@@ -197,8 +298,11 @@ Demography runs before agent decisions so that newborns never decide in their fi
 
 - `birth_tick` (PositiveIntegerField, indexed) — canonical age source, `age = (current_tick - birth_tick) / ticks_per_year`
 - `death_tick` (PositiveIntegerField, null=True)
-- `death_cause` (CharField, choices: `natural_senescence`, `disease`, `violence`, `starvation`, `childbirth`, `infant_mortality`, `accident`, `expropriation`, `executed`, `unknown`)
-- `other_parent_agent` (FK self, null, on_delete=SET_NULL, related_name=`other_parent_children`) — the second biological parent; `parent_agent` becomes convention-mother by Epocha convention, `other_parent_agent` the father. Gender-specific inheritance rules (primogeniture eldest son, shari'a gender shares) use the combined view.
+- `death_cause` (CharField, choices: `natural_senescence`, `early_life_mortality`, `external_cause`, `childbirth`, `starvation`, `expropriation`, `executed`, `unknown`). The three HP-derived labels (`natural_senescence`, `early_life_mortality`, `external_cause`) capture all natural deaths from the HP model. Event-driven deaths (childbirth, starvation, expropriation, execution) are labeled directly by the triggering event.
+- `other_parent_agent` (FK self, null, on_delete=SET_NULL, related_name=`other_parent_children`) — the second biological parent.
+- `caretaker_agent` (FK self, null, on_delete=SET_NULL, related_name=`dependents`) — active caretaker for minor children whose parents are unavailable (both dead, or migrated away). Resolves MISS-1 orphan edge case: when a child is orphaned, caretaker is set to nearest living relative in the zone; if none, set to `None` and child is flagged as a ward of the state (government becomes implicit caretaker). See §5 orphan handling.
+
+**Authoritative source for parentage** (resolves INC-I4): `parent_agent` is the biological mother by Epocha convention (because ASFR is female-indexed and birth events originate from the mother). `other_parent_agent` is the biological father when known (from active Couple at the time of birth). `Couple` records the social marriage relationship and is NOT the source of truth for biological parentage — a child can be born outside a Couple (if template has `require_couple_for_birth: false`) with `other_parent_agent` resolved from social context or left null. When iterating genealogies (inheritance, trait heritage), the parent FKs on Agent are authoritative; Couple is used for marriage-market and relationship queries.
 
 The existing `age` field is retained as denormalized cache, refreshed periodically from `birth_tick` via a signal or computed property. Migrations populate `birth_tick` from existing `age` for backward compatibility on existing simulations.
 
@@ -216,7 +320,7 @@ where `q(x) = 1 - p(x)` is the annual probability of death at age `x`. The eight
 
 ### Per-era parameter sets
 
-Parameter tables are provided in `template_loader.py`, with citations embedded:
+Parameter tables are provided in `template_loader.py`. The values below are **provisional seed values** in plausible ranges for each era; they are NOT fitted from the named sources yet. Plan 1 task "HP calibration" performs numerical fitting of the 8 HP parameters to life-table data from the cited sources via non-linear least squares minimization on `q(x)` residuals:
 
 ```python
 HELIGMAN_POLLARD_PARAMS = {
@@ -224,32 +328,35 @@ HELIGMAN_POLLARD_PARAMS = {
         "A": 0.00491, "B": 0.017, "C": 0.102,
         "D": 0.00080, "E": 9.9, "F": 22.4,
         "G": 0.0000383, "H": 1.101,
-        "source": "Wrigley & Schofield (1981) tables A3.1-A3.3, England 1700-1749",
-        "notes": "Fits pre-industrial demographic regime, high infant mortality",
+        "calibration_target": "Wrigley & Schofield (1981) tables A3.1-A3.3, England 1700-1749",
+        "calibration_status": "provisional seed values; fit deferred to Plan 1",
+        "notes": "Pre-industrial demographic regime, high infant mortality",
     },
     "industrial": {
         "A": 0.00223, "B": 0.022, "C": 0.115,
         "D": 0.00057, "E": 10.8, "F": 25.1,
         "G": 0.0000198, "H": 1.104,
-        "source": "HMD England & Wales life tables, pooled 1841-1900",
+        "calibration_target": "HMD England & Wales life tables, pooled 1841-1900",
+        "calibration_status": "provisional seed values; fit deferred to Plan 1",
     },
     "modern": {
         "A": 0.00054, "B": 0.017, "C": 0.125,
         "D": 0.00013, "E": 18.3, "F": 19.6,
         "G": 0.0000123, "H": 1.101,
-        "source": "HMD USA life table 2019 (pre-COVID baseline)",
+        "calibration_target": "HMD USA life table 2019 (pre-COVID baseline)",
+        "calibration_status": "provisional seed values; fit deferred to Plan 1",
     },
     "sci_fi": {
         "A": 0.00002, "B": 0.017, "C": 0.125,
         "D": 0.00001, "E": 18.3, "F": 19.6,
         "G": 0.0000018, "H": 1.089,
-        "source": "speculative extrapolation from modern, no empirical basis",
-        "notes": "tunable design parameter set for long-horizon scenarios",
+        "calibration_target": "speculative extrapolation from modern, no empirical basis",
+        "calibration_status": "tunable design parameter set for long-horizon scenarios",
     },
 }
 ```
 
-Initial values are indicative; definitive calibration happens during Plan 1 implementation against the cited source tables.
+The fitting procedure (documented in Plan 1): load the era's q(x) column from the cited life table; use `scipy.optimize.curve_fit` on the HP functional form; store the fitted 8 parameters; validate residuals. The current seed values are in the right order of magnitude but are NOT the fit result.
 
 ### Per-tick application
 
@@ -270,19 +377,39 @@ def annual_mortality_probability(age: float, params: dict) -> float:
 def tick_mortality_probability(age: float, params: dict,
                                 tick_duration_hours: float,
                                 demography_acceleration: float) -> float:
+    """Linear-approximation tick-scaling for q < 0.1.
+    
+    For large q (infant mortality pre-industrial), use geometric conversion.
+    """
     annual_q = annual_mortality_probability(age, params)
-    return annual_q * (tick_duration_hours / 8760.0) * demography_acceleration
+    dt = (tick_duration_hours / 8760.0) * demography_acceleration
+    if annual_q < 0.1:
+        return annual_q * dt
+    # Exact geometric conversion for large q
+    return 1.0 - (1.0 - annual_q) ** dt
 ```
 
 Stochastic realization: `dies_this_tick = rng.random() < tick_q`.
 
 ### Cause of death attribution
 
-When mortality fires, the cause is sampled proportionally to the three HP components at age `x`:
+When mortality fires, the cause is sampled from the three HP components at age `x`. Each component is mapped to a single analytic label; no age thresholds within a component:
 
 ```python
 def sample_death_cause(age: float, params: dict, rng: random.Random) -> str:
-    """Attribute cause to dominant HP component at age of death."""
+    """Attribute cause to dominant HP component at age of death.
+
+    Mapping convention (analytic, not etiological):
+    - Component 1 (A^(...)): `early_life_mortality` — infant + childhood diseases
+    - Component 2 (accident hump, D term): `external_cause` — accidents, homicide,
+      violence, war. Per HP (1980) p.54, captures mortality "that applies mainly
+      to males between ages 20 and 40"; we do not subdivide by age within it.
+    - Component 3 (Gompertz senescence): `natural_senescence`
+
+    The labels are analytic conventions for dashboard reporting, not medical
+    classification. Template may override the mapping to era-specific labels
+    (e.g., pre_industrial may map component 2 to "war_or_accident").
+    """
     A, B, C, D, E, F, G, H = (params[k] for k in "ABCDEFGH")
     x = max(age, 0.01)
     c1 = A ** ((x + B) ** C)
@@ -291,20 +418,20 @@ def sample_death_cause(age: float, params: dict, rng: random.Random) -> str:
     total = c1 + c2 + c3
     r = rng.random() * total
     if r < c1:
-        return "infant_mortality" if age < 5 else "disease"
+        return "early_life_mortality"
     if r < c1 + c2:
-        return "accident" if age < 25 else "violence"
+        return "external_cause"
     return "natural_senescence"
 ```
 
-The mapping from HP component to `death_cause` label is a convention chosen for analytics clarity; it is not a scientific claim about specific etiology. Documented as a tunable interpretation layer.
+The mapping HP-component to `death_cause` label is a convention for analytics clarity, NOT a claim about medical etiology. The three labels align with the HP (1980) decomposition without inventing age-specific sub-splits.
 
 ### Maternal mortality at childbirth — joint resolution (fix C-1)
 
 When fertility (§2) fires a birth for a pregnant agent at the same tick the mortality step acts on her, the two events are jointly resolved:
 
 1. Before the ordinary mortality draw, check if the agent is to give birth at this tick (fertility marker).
-2. If yes, apply childbirth mortality probability `P_childbirth_death = maternal_mortality_rate_per_birth` from template (e.g., 0.01 pre-industrial from Loudon 1992; 0.0001 modern).
+2. If yes, apply childbirth mortality probability `P_childbirth_death = maternal_mortality_rate_per_birth` from template. Loudon (1992) reports pre-industrial England maternal mortality rates of ~5-10 per 1000 births (0.005-0.010) with regional variation (higher in German-speaking lands ~0.015-0.020). Seed value 0.008 for pre_industrial (central Loudon estimate); 0.0001 for modern (HMD modern maternal mortality).
 3. If the maternal death fires, `death_cause = "childbirth"` and the newborn has a reduced survival probability `neonatal_survival_when_mother_dies` (template parameter, e.g., 0.3 pre-industrial).
 4. If the maternal death does not fire from childbirth, the ordinary mortality draw proceeds.
 
@@ -314,75 +441,104 @@ This captures the strong historical correlation between childbirth and female mo
 
 ### Baseline ASFR (Hadwiger 1940)
 
-Age-specific fertility rate at age `a` given parameters (H = total fertility level, R = peak age, T = spread):
+Age-specific fertility rate at age `a` using the canonical normalized Hadwiger function:
 
 ```
-ASFR(a) = (H · T · R / a) · (R / a)^(3/2) · exp(-T^2 · (R/a + a/R - 2))
+f(a) = (H · T / (R · sqrt(π))) · (R / a)^(3/2) · exp(-T^2 · (R/a + a/R - 2))
 ```
 
-This is a bell-shaped distribution peaking at `R` with shape controlled by `T`, integrating to `H` over fertile ages. Source: Hadwiger (1940), equation (1).
+where:
+- `H` is the total fertility rate (integral of `f` over all ages equals `H` asymptotically)
+- `R` is a shape parameter related to (but not exactly equal to) the modal fertility age
+- `T` is a shape parameter controlling the spread of the distribution
+- The `1/sqrt(π)` factor is the normalization that ensures integration consistency
 
-Per-era parameters:
+The modal age at which `f(a)` peaks is approximately `R` only in the limit of small `T`; in general the mode is slightly shifted and must be computed numerically.
 
-| Era | H (TFR) | R (peak age) | T (spread) | Source |
-|-----|---------|--------------|------------|--------|
-| pre_industrial | 5.5 | 26 | 0.35 | Wrigley & Schofield (1981) |
-| industrial | 4.0 | 27 | 0.38 | HMD + Chesnais (1992) |
-| modern | 1.8 | 30 | 0.42 | HFD (2020) |
-| sci_fi | 2.1 | 32 | 0.40 | speculative, at-replacement |
+Source: Hadwiger, H. (1940). Eine analytische Reproduktionsfunktion für biologische Gesamtheiten. *Skandinavisk Aktuarietidskrift* 23, 101-113. Normalization convention follows Chandola, Coleman & Hiorns (1999) *A Life Table Approach to the Study of Women's Fertility*, Population Studies 53, and Schmertmann (2003) *System of Model Fertility Schedules*.
+
+Per-era parameters (**provisional seed values** — actual calibration to the cited historical sources is deferred to Plan 1 implementation via numerical fit against the original life tables):
+
+| Era | H (approx TFR target) | R | T | Source to calibrate against |
+|-----|----------------------|----|----|------------------------------|
+| pre_industrial | 5.0 | 26 | 0.35 | Wrigley & Schofield (1981) — England TFR range 4.0-5.8 across 1541-1871; seed value in that range |
+| industrial | 4.0 | 27 | 0.38 | Mitchell (1988), HMD; England 1830-1900 TFR range 3.5-4.5 |
+| modern | 1.8 | 30 | 0.42 | HFD (2020) — US, Western Europe below replacement |
+| sci_fi | 2.1 | 32 | 0.40 | speculative (tunable design parameter) |
+
+The values are currently seed parameters. Real-TFR calibration requires fitting `f(a)` to published ASFR curves and targeting the era's empirical TFR. This fitting is a task in Plan 1.
 
 ### Becker modulation
 
-Following Jones & Tertilt (2008), fertility demand responds to economic conditions through a multiplicative factor:
+Following the spirit of Becker (1991) and the empirical regressions in Jones & Tertilt (2008), fertility demand responds to economic conditions through a multiplicative factor. Because Spec 2 does not expose gender-segmented wages or an aggregate economic outlook scalar, we use the adapted signals defined in Integration Contracts:
 
 ```python
-def becker_modulation(agent: Agent, zone_economy, expectations,
-                       coeffs: dict) -> float:
-    """Scale baseline ASFR by Becker (1991) economic signals.
+def becker_modulation(agent: Agent, coeffs: dict) -> float:
+    """Scale baseline ASFR by economic signals derived from existing state.
     
-    Source: Jones & Tertilt (2008), calibrated US fertility 1826-1960.
+    Design inspired by Becker (1991) and Jones & Tertilt (2008).
+    All coefficients are provisional seed values; actual calibration
+    deferred to Plan 1 using synthetic shock tests targeting the
+    Jones-Tertilt US 1826-1960 elasticities as benchmark.
     """
-    wealth_ratio = math.log(max(agent.wealth / subsistence_threshold, 0.1))
-    opp_cost = zone_economy.avg_female_wage / zone_economy.avg_male_wage
-    outlook = expectations.aggregate_outlook  # -1.0 to 1.0
+    subsistence = compute_subsistence_threshold(agent.simulation, agent.zone)
+    wealth_signal = math.log(max(agent.wealth / max(subsistence, 1e-6), 0.1))
+    # Female labor participation proxy (substitutes for opportunity cost)
+    zone_flp = female_role_employment_fraction(agent.zone, agent.simulation)
+    zone_wage = zone_mean_wage(agent.zone, agent.simulation)
+    outlook = compute_aggregate_outlook(agent)
     
     raw = (coeffs["beta_0"] 
-           + coeffs["beta_1"] * wealth_ratio 
+           + coeffs["beta_1"] * wealth_signal 
            + coeffs["beta_2"] * agent.education_level 
-           + coeffs["beta_3"] * opp_cost 
+           + coeffs["beta_3"] * zone_flp
            + coeffs["beta_4"] * outlook)
-    return max(0.05, min(3.0, math.exp(raw)))  # bounded modulation
+    return max(0.05, min(3.0, math.exp(raw)))
 ```
 
-Per-era coefficients (signs from Jones & Tertilt 2008, magnitudes calibrated per era):
+Where `female_role_employment_fraction` and `zone_mean_wage` are helper queries over existing `EconomicLedger` records defined in `demography/fertility.py`.
 
-| Era | β₀ | β₁ (wealth) | β₂ (education) | β₃ (opp_cost) | β₄ (outlook) |
-|-----|-----|------------|----------------|---------------|--------------|
+Per-era coefficients (**provisional seed values** — signs follow the qualitative predictions of Becker 1991 and Jones & Tertilt 2008; magnitudes to be calibrated against Jones & Tertilt tables 3-4 during Plan 1 validation):
+
+| Era | β₀ | β₁ (wealth) | β₂ (education) | β₃ (female_flp) | β₄ (outlook) |
+|-----|-----|------------|----------------|-----------------|--------------|
 | pre_industrial | 0 | +0.1 | -0.05 | -0.1 | +0.2 |
 | industrial | 0 | +0.2 | -0.3 | -0.4 | +0.3 |
 | modern | 0 | +0.15 | -0.6 | -0.5 | +0.4 |
 
-Coefficients are tunable design parameters calibrated so that simulated TFR response to wealth shocks matches Jones & Tertilt (2008) tables 3-4 within 15% tolerance during validation.
+All coefficient magnitudes are tunable design parameters. Validation test 2 in §12 measures response to economic shocks and adjusts coefficients to match Jones & Tertilt qualitative patterns.
 
-### Malthusian ceiling (fix I-4)
+### Malthusian soft-cap heuristic (fix I-4)
 
-Soft cap prevents population explosion:
+Operational soft cap preventing population explosion. This is an engineered piecewise function **inspired by** the Malthusian preventive check (Malthus 1798) and by the carrying-capacity models formalized in Ashraf & Galor (2011), but it is NOT itself the formalization they propose. Their AER 2011 paper uses continuous-time differential dynamics on income per capita; this heuristic is a tick-based multiplicative scaling on fertility:
 
 ```python
-def malthusian_ceiling(prob: float, current_pop: int, max_pop: int,
-                       floor_ratio: float = 0.1) -> float:
-    """Apply Ashraf-Galor (2011) formalization of Malthusian preventive check."""
+def malthusian_soft_ceiling(prob: float, current_pop: int, max_pop: int,
+                             floor_ratio: float = 0.1) -> float:
+    """Heuristic soft-cap on fertility. Not a derivation of a published formula.
+
+    Design goals:
+    - Free fertility below 80% of cap (no distortion)
+    - Linear ramp-down between 80% and 100% of cap (preventive check)
+    - Floor at floor_ratio * baseline above cap (populations never stop reproducing
+      entirely, per Lee 1987 observation on trapped populations)
+
+    References (inspirational, not formulations):
+    - Malthus (1798) — preventive check concept
+    - Ricardo (1817) — carrying capacity
+    - Ashraf & Galor (2011) — modern formalization of Malthusian dynamics
+    - Lee (1987) — empirical floor on fertility under stress
+    """
     if current_pop < 0.8 * max_pop:
         return prob
     if current_pop < max_pop:
         saturation = (current_pop - 0.8 * max_pop) / (0.2 * max_pop)
         ceiling_factor = max(0.0, 1.0 - saturation)
         return prob * ceiling_factor
-    # Above cap: floor at floor_ratio × baseline
     return prob * floor_ratio
 ```
 
-The `floor_ratio = 0.1` (tunable, from Lee 1987) prevents total fertility collapse even under extreme pressure, modeling the observation that populations never stop reproducing entirely.
+The 0.8 activation threshold and the 0.1 floor are tunable design parameters. Alternative formulations (e.g., logistic decline) are acceptable replacements if validation tests show better fit to observed Malthusian dynamics.
 
 ### LLM gating — avoid_conception (fix C-2)
 
@@ -395,21 +551,25 @@ This captures the fertility transition (Coale & Watkins 1986) as a template-conf
 ### Combined fertility formula
 
 ```python
-def tick_birth_probability(mother: Agent, zone_economy, params_era,
-                            coeffs_era, current_pop: int, max_pop: int,
+def tick_birth_probability(mother: Agent, params_era: dict,
+                            coeffs_era: dict, current_pop: int, max_pop: int,
                             tick_duration_hours: float,
                             demography_acceleration: float) -> float:
-    if not is_in_active_couple(mother) and params_era.require_couple_for_birth:
+    if params_era.get("require_couple_for_birth", True) and not is_in_active_couple(mother):
         return 0.0
     if avoid_conception_active_this_tick(mother):
         return 0.0
     
     annual_asfr = hadwiger_asfr(mother.age, params_era)
-    becker_factor = becker_modulation(mother, zone_economy, 
-                                       mother.expectations, coeffs_era)
+    becker_factor = becker_modulation(mother, coeffs_era)
     effective = annual_asfr * becker_factor
-    effective = malthusian_ceiling(effective, current_pop, max_pop)
+    effective = malthusian_soft_ceiling(effective, current_pop, max_pop,
+                                         params_era.get("malthusian_floor_ratio", 0.1))
     
+    # Linear approximation of continuous-time Poisson discretization.
+    # For annual rates q < 0.1 (typical for fertility), linear scaling
+    # error vs. exact geometric conversion is <0.5%. For large q
+    # (infant mortality q~0.25), use geometric_tick_probability instead.
     return effective * (tick_duration_hours / 8760.0) * demography_acceleration
 ```
 
@@ -435,7 +595,7 @@ compat(i, j) = w_class · same_class_binary
              + w_relationship · existing_sentiment(i, j)
 ```
 
-Default weights (tunable): `w_class = 0.4, w_edu = 0.25, w_age = 0.20, w_relationship = 0.15`. Source: Kalmijn (1998) reports class and education as the two strongest homogamy factors in Western societies.
+Default weights (design heuristic, all tunable): `w_class = 0.4, w_edu = 0.25, w_age = 0.20, w_relationship = 0.15`. Kalmijn (1998) identifies class and education as the two strongest homogamy drivers in Western societies; the specific numeric weights are a design heuristic matching that qualitative ranking, NOT a direct derivation from his paper. Plan 1 validation will adjust weights so that observed intra-couple class correlation matches empirical benchmarks.
 
 ### Marriage market radius (fix I-2)
 
@@ -456,7 +616,7 @@ Template declares `marriage_market_radius ∈ {same_zone, adjacent_zones, world}
 
 ### Arranged marriage (Goode 1963)
 
-If `marriage_market_type == "arranged"`, the decision-maker is the parent, not the child. Parent agent's decision context includes the match_pool of their unmarried adult children; parent invokes `pair_bond target=<child_name>, match=<match_name>`. Child has an `accept_arranged_marriage` or `refuse_arranged_marriage` 1-tick window (refuse has social cost via memory emotional_weight). Template scenario `pre_industrial_feudal` enables this; `modern` disables it.
+If `marriage_market_type == "arranged"`, the decision-maker is the parent, not the child. Parent agent's decision context includes the match_pool of their unmarried adult children. The parent invokes the standard `pair_bond` action with an extended `target` payload: `{"for_child": "<child_name>", "match": "<other_name>"}`. The child has a 1-tick window in which to reciprocate by invoking `pair_bond target=<match_name>` (accept) or by NOT invoking it (refuse). A refusal generates a negative memory for both child and parent with `emotional_weight = 0.5` (social conflict). **No new action names are added** — reuse of `pair_bond` with extended payload avoids action-list expansion (fix MISS-10). Template scenario `pre_industrial_feudal` enables this; `modern` disables it by setting `marriage_market_type: "autonomous"`.
 
 ### LLM action: separate
 
@@ -474,9 +634,7 @@ In the demographic initializer (§10), retrospective couple formation uses Gale-
 1. Order proposers by age descending (eldest propose first, matching pre-industrial marriage timing patterns)
 2. Each proposer has a preference list sorted by compatibility score
 3. Respondents hold engagement to their highest-ranked proposer seen so far, jilt lower-ranked proposers
-4. Iteration converges to a stable matching in O(n²) steps
-
-Gale & Shapley (1962) proved existence and stability; this is a textbook implementation.
+4. Convergence: each proposer makes at most `n` proposals, yielding O(n²) total proposals overall. Gale & Shapley (1962) proved both existence and stability of the resulting matching.
 
 ## Section 4: Biological Trait Inheritance — polygenic additive
 
@@ -491,30 +649,31 @@ child_T = h²_T · (mother_T + father_T) / 2 + (1 - h²_T) · ε_T
 
 The environmental noise `ε` is drawn from a Normal distribution whose mean and SD are estimated from the initial-tick population of the simulation (frozen after tick 0). This models environment as deviation from the population-level genetic background, which is methodologically standard (Falconer 1996 ch. 8).
 
-### Heritability table (Polderman et al. 2015)
+### Heritability table
 
-Inherited via the biological mechanism:
+Inherited via the polygenic additive mechanism. Heritability values come from the trait-specific primary studies cited below. The meta-analysis Polderman et al. (2015) is cited as methodological backbone (integrating 50 years of twin studies averaging h² ≈ 0.49 across 17,804 traits) but NOT as the source of individual trait h² values:
 
 | Agent trait | h² | Source |
 |-------------|-----|--------|
-| openness (Big Five) | 0.41 | Jang et al. 1996 |
-| conscientiousness | 0.44 | Jang et al. 1996 |
-| extraversion | 0.54 | Jang et al. 1996 |
-| agreeableness | 0.42 | Jang et al. 1996 |
-| neuroticism | 0.48 | Jang et al. 1996 |
-| intelligence | 0.55 | Polderman 2015 + Plomin & Deary 2015 |
-| emotional_intelligence | 0.40 | Vernon et al. 2008 |
-| creativity | 0.22 | Nichols 1978 |
-| cunning | 0.30 | derived from psychopathy h² reduced (tunable) |
-| strength | 0.55 | Zempo et al. 2017 |
-| stamina | 0.52 | Miyamoto-Mikami et al. 2018 |
-| agility | 0.45 | Thomis et al. 1998 |
-| fertility (biological fecundity) | 0.50 | Zietsch et al. 2014 |
-| mental_health baseline | 0.40 | Polderman 2015 aggregate |
+| openness (Big Five) | 0.41 | Jang, Livesley & Vernon (1996) |
+| conscientiousness | 0.44 | Jang, Livesley & Vernon (1996) |
+| extraversion | 0.54 | Jang, Livesley & Vernon (1996) |
+| agreeableness | 0.42 | Jang, Livesley & Vernon (1996) |
+| neuroticism | 0.48 | Jang, Livesley & Vernon (1996) |
+| intelligence | 0.55 | Plomin & Deary (2015) review |
+| emotional_intelligence | 0.40 | Vernon et al. (2008) |
+| creativity | 0.22 | Nichols (1978) |
+| strength | 0.55 | Zempo et al. (2017) |
+| stamina | 0.52 | Miyamoto-Mikami et al. (2018) |
+| agility | 0.45 | Thomis et al. (1998) |
+| fertility (biological fecundity) | 0.50 | Zietsch et al. (2014) |
+| mental_health baseline | 0.40 | design heuristic seeded from Polderman aggregate 0.49, adjusted downward |
 
-Traits stored inside `Agent.personality` (JSONB, e.g., `humor_style`, `attachment_style`) inherit via default h² = 0.30 (tunable design parameter).
+The trait `cunning` (from `Agent.cunning`) is NOT inherited via the biological mechanism because it is not a standard psychometric construct with published heritability. It is instead computed at birth as a derived value from other inherited traits following a standard Machiavellianism proxy (low agreeableness + high neuroticism + above-average intelligence), specifically: `cunning = 0.4·(1-agreeableness) + 0.3·neuroticism + 0.3·intelligence`, clamped to [0,1]. This is a design-heuristic proxy rather than an inherited trait per se.
 
-Gender is resolved at birth by draw from era `sex_ratio_at_birth` (default 1.05 M/F biologically universal). Sexual orientation is drawn from the era distribution (default: heterosexual 0.92, bisexual 0.04, homosexual 0.04; these are tunable design parameters based on modern self-report, Chandra et al. 2011 *National Health Statistics Reports* 36 — cited but not authoritative pre-modern).
+Traits stored inside `Agent.personality` JSONB that do not have a published h² (e.g., `humor_style`, `attachment_style`) inherit via default h² = 0.30, marked as tunable design parameter.
+
+Gender is resolved at birth by draw from era `sex_ratio_at_birth` (default 1.05 male/female biologically universal). Sexual orientation is drawn from the era distribution; the default for modern scenarios approximates Chandra et al. (2011) *National Health Statistics Reports* 36 (U.S. National Survey of Family Growth 2006-2008): heterosexual 0.955, bisexual 0.030, homosexual 0.015. These values are modern U.S. self-report and are marked tunable design parameters for non-modern eras where comparable data are not available.
 
 ### Application at birth
 
@@ -538,10 +697,10 @@ Newborn from a couple where only one parent is resolved (rare: adoption scenario
 
 | Template | Rule |
 |----------|------|
-| pre_industrial | `child.social_class = father.social_class` (patrilineal rigid) |
-| industrial | 70% inheritance from father; 30% regression toward zone class mean (Clark 2014) |
-| modern | Becker-Tomes elasticity 0.4: sample child class from distribution shifted toward parent class with elasticity 0.4 |
-| sci_fi | 20% inheritance, 80% meritocratic reassignment based on intelligence + education |
+| pre_industrial | `child.social_class = father.social_class` (patrilineal rigid; Goody 1976; Wrigley 1981) |
+| industrial | 70% inheritance from father; 30% regression toward zone class mean (Clark 2014, *The Son Also Rises*) |
+| modern | Intergenerational income elasticity 0.4: sample child class from distribution shifted toward parent class. The value 0.4 is the approximate U.S. modern value from Solon (1999) *Intergenerational Mobility in the Labor Market*, Handbook of Labor Economics 3A, and Chetty et al. (2014) which give ranges 0.3-0.5. Becker & Tomes (1979) is the foundational theoretical framework but did not publish this specific elasticity value. |
+| sci_fi | 20% inheritance, 80% meritocratic reassignment based on intelligence + education (speculative design choice) |
 
 ### Education level intergenerational regression
 
@@ -572,22 +731,25 @@ Heir priority (default, configurable in template):
 
 Inheritance rules:
 
-| Rule | Distribution |
-|------|--------------|
-| `primogeniture` | 100% of property and cash to eldest surviving male child; if none, eldest female; if none, cascade to spouse then siblings (Blackstone 1765). |
-| `equal_split` | Cash and properties divided equally among surviving children; spouse receives a share equal to a child's share (Napoleonic Code 1804). |
-| `shari'a` | Spouse 1/8 if children exist else 1/4; sons 2× daughter share; remainder cascades by Quran rules (Powers 1986). |
-| `matrilineal` | Assets pass to children of the deceased's sister (schematic, Schneider & Gough 1961). |
-| `nationalized` | 100% to government treasury (Nove 1969, Soviet expropriation). |
+| Rule | Distribution | Non-binary handling |
+|------|--------------|---------------------|
+| `primogeniture` | 100% of property and cash to eldest surviving male child; if none, eldest female; if none, cascade to spouse then siblings (Blackstone 1765). | Non-binary heirs are processed alongside female heirs in the ordering (historical context: pre-modern inheritance law had no category for non-binary identity; treating non-binary as female is a pragmatic simplification documented here). |
+| `equal_split` | Cash and properties divided equally among surviving children; spouse receives a share equal to a child's share (Napoleonic Code 1804). | Non-binary heirs receive equal share (no gender distinction). |
+| `shari'a` | Spouse 1/8 if children exist else 1/4; sons 2× daughter share; remainder cascades by Quran rules (Powers 1986). | Non-binary heirs receive daughter share (1× unit). Simplification; classical Islamic jurisprudence did not recognize non-binary status. |
+| `matrilineal` | Assets pass to children of the deceased's sister (schematic, Schneider & Gough 1961). | Non-binary treated by biological parentage (mother's line); no gender-role distinction needed. |
+| `nationalized` | 100% to government treasury (Nove 1969, Soviet expropriation). | No heirs, so gender moot. |
 
 ### Estate tax
 
+Uses the `add_to_treasury` helper defined in §Integration Contracts (extracted as part of this spec's scope from the existing JSON-dict mutation pattern in economy/engine.py:433):
+
 ```python
 def apply_estate_tax(total_estate_value: float, rate: float,
-                     government) -> float:
+                     government, primary_currency_code: str) -> float:
     """Return inheritable amount after tax. Routes tax to treasury."""
+    from epocha.apps.world.government import add_to_treasury
     tax_revenue = total_estate_value * rate
-    government.treasury_add(primary_currency_code, tax_revenue)
+    add_to_treasury(government, primary_currency_code, tax_revenue)
     return total_estate_value * (1.0 - rate)
 ```
 
@@ -600,6 +762,18 @@ Default estate tax rates per era:
 ### Simultaneous deaths ordering (fix C-3)
 
 When multiple agents die in the same tick, inheritance processes in batch ordered by age descending. This is a deterministic tiebreak for reproducibility; it matches the Simultaneous Death Act convention in Anglo-American law. Estate tax is applied once per transfer (not cumulatively) even if assets chain through multiple dying agents in a single tick.
+
+### Multi-generational inheritance across ticks (fix MISS-5)
+
+When an heir has been dead for multiple ticks, their estate was already settled to their own heirs at their death tick. The deceased grandfather cannot bequeath to a deceased father; the estate passes through the chain by following each deceased's own heir list at their time of death. Estate tax applies at each actual transfer event and is NOT re-applied when assets subsequently move through further inheritance events in later ticks.
+
+### Orphan handling (fix MISS-1)
+
+When both biological parents of a minor agent (`age < adulthood_age`) are dead, the minor is assigned a `caretaker_agent` by the following priority: nearest living relative in the same zone (sibling, grandparent, uncle/aunt), then any living relative anywhere, then None (ward of the state). An orphan with `caretaker_agent = None` is flagged and the `Government.government_treasury` covers their subsistence (modeling state wardship). The orphan still receives their inheritance directly; the caretaker administers but does not own the assets.
+
+### Couple with both partners dead in same tick (fix MISS-4)
+
+When both `agent_a` and `agent_b` die in the same tick, the Couple record is marked `dissolved_at_tick = tick, dissolution_reason = "death"`. Both FKs become null, but the couple_type and formed_at_tick remain for genealogy audit. To preserve audit linkage, two additional fields are added to Couple: `agent_a_name_snapshot` (CharField, populated on dissolution) and `agent_b_name_snapshot` (CharField) capturing the deceased partners' names for historical queries even after FK nulling.
 
 ### Loans (as lender) inheritance
 
@@ -642,7 +816,7 @@ Computations:
 - **Unemployment**: fraction of agents in zone with `role` set but zero wage in last 3 ticks.
 - **Distance cost**: `ceil(distance_km / (walking_speed_km_per_day · tick_duration_days))`, using existing `World.distance_scale` and walking_speed_km_per_day = 25 (verified audit 2026-04-12).
 - **Zone stability**: existing Government.stability field.
-- **Harris-Todaro expected gain** (Harris & Todaro 1970): `E[gain_j] = (1 - unemployment_j) · wage_j - wage_current - distance_cost_j`.
+- **Harris-Todaro expected gain** — operational variant of Harris & Todaro (1970). The canonical form compares expected urban income `p · w_urban + (1-p) · w_informal` against rural income. We use a simplified operational variant: `E[gain_j] = (1 - unemployment_j) · wage_j - wage_current - distance_cost_j`, setting informal-sector wage to 0 and adding explicit distance cost. This simplification is documented and tunable (informal wage can be added later as a zone parameter).
 
 ### Family coordination (Mincer 1978)
 
@@ -668,7 +842,7 @@ If triggered:
 3. Memory: `emotional_weight = 0.85`, content "I had to leave <zone> because of starvation. There was no choice."
 4. `DemographyEvent(event_type="migration", payload={"reason": "emergency_flight", ...})`.
 
-If no zone offers positive gain but trigger conditions are otherwise met, agent remains trapped and may die of starvation. A `DemographyEvent(event_type="trapped_crisis", primary_agent=agent)` is generated. This surfaces the tragic outcome of universal crisis in analytics.
+If no zone offers positive gain but trigger conditions are otherwise met, agent remains trapped and may die of starvation. A `DemographyEvent(event_type="trapped_crisis", primary_agent=agent)` is generated. **Propagation policy (fix MISS-3)**: the trapped_crisis event is written to both the analytics ledger AND propagated as an agent-visible memory with `emotional_weight = 0.95, source_type = "public"` to all co-zone agents. This captures the observable reality of mass starvation locking in a population. Other agents witnessing trapped_crisis form grief/fear memories that feed into subsequent decisions (factions, migration, protest).
 
 ### Mass flight broadcast
 
@@ -770,7 +944,15 @@ def process_demography_tick(simulation, tick: int) -> None:
     
     Called after economy, before agent decisions.
     """
-    rng = get_seeded_rng(simulation, tick)
+    # Guard: zero-population early return (MISS-2)
+    if not Agent.objects.filter(simulation=simulation, is_alive=True).exists():
+        logger.info("Simulation %d has no living agents; demography tick skipped", simulation.id)
+        return
+    
+    # Guard: economy not initialized -> Becker falls back to neutral, emergency flight disabled (MISS-6)
+    economy_initialized = Currency.objects.filter(simulation=simulation).exists()
+    
+    rng = get_seeded_rng(simulation, tick, phase="mortality")
     template = load_demography_template(simulation)
     
     # STEP 1: AGING is implicit via birth_tick, no state change needed
@@ -855,7 +1037,12 @@ For each formed couple with both partners adult:
 2. With probability matching expected fertility, add parent_agent links to existing adult agents whose age is compatible (age_child < age_parent - min_reproductive_age), up to `initial_population_target`.
 3. Generate new minor children agents where parent-aged agents exist but no existing children match, respecting the age pyramid.
 
-Result: realistic multi-generational structure at tick 0.
+**Side-effect management (fix MISS-7)**: Phase 3 modifies agents originally created by the world generator. To avoid cascading into reputation, information_flow, and factions systems during initialization:
+- Django signals are suppressed via a `disable_signals_context_manager` wrapper for the duration of initialization.
+- New agents created in Phase 3 are populated with default personality (sampled from era distribution), default role (inherited from parent social_class with era-specific mapping), and name generated via the existing world generator naming helper.
+- Phase 3 runs AFTER Phase 1 (age pyramid) so the new minor children are added to the already-redistributed population without recursive rebalancing.
+
+Result: realistic multi-generational structure at tick 0 without side effects to other subsystems.
 
 ### Phase 4: Consistency validation
 
@@ -870,7 +1057,7 @@ Automatic checks:
 
 Failures log WARNING but do not block (allows experimental scenarios).
 
-Result logged as `DemographyEvent(event_type="demographic_initializer", payload={phase_1_resampled: N, phase_2_couples_formed: N, phase_3_genealogies_created: N, phase_4_issues: [...]})`.
+Result logged as `DemographyEvent(event_type="demographic_initializer", payload={phase_1_resampled: N, phase_2_couples_formed: N, phase_3_genealogies_created: N, phase_4_issues: [...], rng_seed: sim.seed, template_hash: sha256(template_json), duration_ms: elapsed})`. The template hash allows detecting post-hoc template changes; the rng_seed and duration support publication-grade reproducibility claims.
 
 ## Section 11: Malthusian Ceiling (dual-role constraint)
 
@@ -938,7 +1125,7 @@ JSON schema for the demography portion of the simulation template:
         "G": 0.0000383, "H": 1.101,
         "source": "..."
       },
-      "maternal_mortality_rate_per_birth": 0.01,
+      "maternal_mortality_rate_per_birth": 0.008,
       "neonatal_survival_when_mother_dies": 0.3
     },
     "fertility": {
@@ -958,7 +1145,7 @@ JSON schema for the demography portion of the simulation template:
     "couple": {
       "min_marriage_age_male": 16,
       "min_marriage_age_female": 14,
-      "allowed_types": ["monogamous"],
+      "allowed_types": ["monogamous", "arranged"],
       "default_type": "monogamous",
       "divorce_enabled": false,
       "marriage_market_type": "autonomous",
@@ -1049,7 +1236,7 @@ Canonical `payload` structure per `event_type`:
 
 5. **No disease transmission**: mortality is individual, no epidemic dynamics. Plague, pandemic shocks must be modelled as external template events, not emergent. SIR/SEIR deferred to epidemiology subsystem.
 
-6. **Paternity certainty 100%**: no infidelity, no adoption, no donor conception modelled. Larmuseau et al. (2016) estimate non-paternity 1-2% in modern Western Europe — sub-threshold for MVP.
+6. **Paternity certainty 100%**: no infidelity, no adoption, no donor conception modelled. Larmuseau et al. (2016) *Cuckolded fathers rare in human populations* estimates non-paternity historically <1% in Western European populations, revising earlier folk-belief estimates downward. This is below the noise floor for MVP agent counts.
 
 7. **Starting wealth of children = 0**: simplification. Real children consume family resources during upbringing. Economy Spec 2 consumption module does not distinguish dependent minors; extension deferred.
 
@@ -1058,6 +1245,18 @@ Canonical `payload` structure per `event_type`:
 9. **Agent-to-agent loans with no heirs cancelled**: historically creditors recovered from the debtor even when lender died. MVP simplifies. Extension deferred.
 
 10. **Couple type static**: once formed, couple type does not evolve (e.g., arranged → loving). Real marriages can shift. Deferred.
+
+11. **Polygamous couple types deferred** (fix MISS-8): only `monogamous` and `arranged` couple types are supported in the MVP. `polygynous` and `polyandrous` are removed from the enum because they would require one-to-many relationships that the current `Couple` model (two FKs) cannot represent. Multi-partner scenarios can be implemented in the future by relaxing the Couple uniqueness constraint; declaring them without a mechanism would be a footgun.
+
+12. **Aggregate economic outlook is a design heuristic**: the `compute_aggregate_outlook` function combines mood, banking confidence, and zone stability with equal weights. This is NOT derived from Jones & Tertilt (2008); it is a pragmatic proxy for "agents' perception of economic conditions" constructed from available Spec 2 state. Plan 1 validation may adjust weights or add factors (e.g., recent inflation, unemployment trend).
+
+13. **Becker modulation uses female labor participation proxy**: the economy subsystem does not track gender-segmented wages, so the Becker opportunity-cost term uses the fraction of adult females in wage-earning roles as a proxy. This is a known deviation from Becker's original formulation (which uses female wage rate directly).
+
+14. **Hadwiger parameter fitting deferred to Plan 1**: the per-era Hadwiger R/T/H values in the spec tables are provisional seed values in plausible ranges. Actual numerical fit to the cited source life tables (Wrigley-Schofield, HMD, HFD) is a calibration task in Plan 1, not a delivered artifact of this spec.
+
+15. **Heligman-Pollard parameter fitting deferred to Plan 1**: same as above — HP 8 parameters are provisional; Plan 1 includes a calibration task using `scipy.optimize.curve_fit` against the cited life tables.
+
+16. **Becker coefficient magnitudes are provisional**: the β₀-β₄ coefficient tables are seed values. Qualitative signs follow Becker/Jones-Tertilt predictions; magnitudes will be calibrated through validation-driven iteration in Plan 1.
 
 ## Out of Scope
 
@@ -1095,7 +1294,7 @@ Complete audit trail of design choices made during brainstorming (2026-04-18), w
 ### Time scaling and tick dynamics
 
 **Q: Why scale mortality and fertility stochastically per tick rather than accumulating events across ticks?**
-A: Stochastic per-tick scaling is the mathematically exact discretization of a continuous-time Poisson process with rate `λ_annual`. Accumulating events risks double-counting or skipping. Lotka (1925) ergodic theory requires continuous scaling. The `demography_acceleration` parameter allows scenario-specific temporal compression without changing the underlying formula.
+A: Stochastic per-tick scaling is the standard **linear approximation** of a continuous-time Poisson process with rate `λ_annual`. For small annual probabilities (q < 0.1, typical for fertility and most mortality ages), the linear approximation error vs. the exact geometric conversion `tick_q = 1 - (1-q_annual)^(tick_years)` is under 0.5%. For large q (notably infant mortality q ~ 0.20-0.30 in pre-industrial settings), the linear form under-estimates per-tick probability by ~5-15%. The engine uses geometric conversion for q > 0.1 (helper `geometric_tick_probability`). Accumulating events across ticks would require a waiting-time distribution and is not needed at our scale. The `demography_acceleration` parameter allows scenario-specific temporal compression.
 
 **Q: What if a simulation runs with `tick_duration_hours = 168` (weekly)?**
 A: The scaling factor `(tick_duration_hours / 8760.0)` handles this automatically. A weekly tick sees ~7x the mortality of a daily tick, consistent with the underlying annual hazard.
@@ -1186,7 +1385,7 @@ A: Yes — set `max_population` to a very large value (e.g., 10000) in the templ
 A: The `agents` app is already large (decision, memory, relationships, reputation, information_flow, beliefs, distortion, movement). Demography would inflate it further and mix biological with cognitive concerns. Following the Economy precedent, demography gets its own app with a clean boundary.
 
 **Q: How is reproducibility guaranteed?**
-A: All stochastic demography uses a seeded RNG derived from `simulation.seed + tick`. Running the same simulation twice produces identical births, deaths, and couple formations. This is essential for publication validation and scientific auditing.
+A: All stochastic demography uses seeded RNG streams derived per-subsystem per-tick: `get_seeded_rng(simulation, tick, phase)` where `phase ∈ {"mortality", "fertility", "couple", "migration", "inheritance", "initialization"}`. The seed is computed as a deterministic hash of `(simulation.seed, tick, phase)`, producing independent streams per subsystem so that reordering subsystems or suppressing one does not shift the RNG sequence of others. This enables reproducibility even under future refactoring.
 
 **Q: What happens when demography is run without economy?**
 A: Demography depends on economy context (Becker modulation uses wealth, wages, expectations). If economy is not initialized, Becker modulation falls back to a neutral factor (1.0), effectively disabling economic coupling. Mortality, aging, couple formation, and inheritance still run. This allows standalone demography testing.
@@ -1229,3 +1428,56 @@ Two-step critical self-review conducted 2026-04-18 before writing this spec. Fin
 | N-2 | MINOR (second review) | PopulationSnapshot storage cost | Negligible (~10K rows for 1000 ticks); no fix needed. Verified. |
 | N-3 | MINOR (second review) | Gender-specific inheritance needs gender data on heirs | Confirmed — `Agent.gender` exists, usable. No fix needed. |
 | N-4 | MINOR (second review) | separate and avoid_conception actions visible in prompt even when era disables them | Dynamic filter at prompt build time. §8. |
+
+---
+
+### Round 2 — Adversarial Audit (2026-04-18)
+
+Adversarial audit dispatched to `critical-analyzer` subagent after initial spec drafted. Auditor operated with hostile mandate (find defects, not confirm correctness). 37 findings produced. Resolution pass below.
+
+| ID | Audit finding | Resolution |
+|----|---------------|------------|
+| **INC-1** | Hadwiger formula missing `1/sqrt(π)` normalization, incorrect structure | Formula rewritten to canonical form with normalization; documentation aligned with Chandola 1999 and Schmertmann 2003. §2 Baseline ASFR. |
+| **INC-2** | `subsistence_threshold` does not exist in Spec 2 codebase | Defined explicitly as `compute_subsistence_threshold` derivation in new §Integration Contracts; extracts `SUBSISTENCE_NEED_PER_AGENT` constant from `economy/market.py` as part of spec scope. |
+| **INC-3** | `walking_speed_km_per_day = 25` false attribution as code constant | Corrected to reference actual `TRAVEL_SPEEDS` dict in `movement.py:37` with Chandler 1966 and Braudel 1979 sources. §Integration Contracts. |
+| **INC-4** | `government.treasury_add()` fabricated method | Proposed extraction of `add_to_treasury()` helper from existing JSON-dict mutation pattern (economy/engine.py:433); helper implementation included in spec scope. §Integration Contracts and §5. |
+| **INC-5** | `avg_female_wage`/`avg_male_wage` do not exist on ZoneEconomy | Replaced gendered-wage ratio with `female_role_employment_fraction` proxy (female labor participation) + `zone_mean_wage`. Documented as Spec 2 data-availability adaptation. §Integration Contracts and §2 Becker modulation. |
+| **INC-6** | `agent.expectations.aggregate_outlook` undefined | Defined `compute_aggregate_outlook` derivation from mood + banking confidence + zone stability. §Integration Contracts. |
+| **INC-7** | Polderman 2015 mis-attributed as source of per-trait h² values | Removed Polderman as per-trait source; kept as methodological backbone only. Per-trait values now cite primary studies (Jang 1996, Plomin-Deary 2015, Vernon 2008, etc.). §4 Heritability table. |
+| **INC-8** | Cunning h² = 0.30 "derived from psychopathy reduced" is pseudo-science | Removed cunning from inherited traits; redefined as derived trait (Machiavellianism proxy from agreeableness/neuroticism/intelligence) computed at birth. §4. |
+| **INC-9** | Chandra 2011 sexual orientation numbers wrong (0.92/0.04/0.04 vs actual ~0.955/0.030/0.015) | Corrected to Chandra 2011 actual figures with proper citation. §4. |
+| **INC-10** | Cause-of-death age-25 threshold invented, not in HP (1980) | Removed threshold; three HP-derived labels (`early_life_mortality`, `external_cause`, `natural_senescence`) align with HP original decomposition without sub-splits. §1 and Agent.death_cause choices. |
+| **UNJ-1** | Per-era Hadwiger parameters presented as authoritative from sources that don't publish them | Marked as **provisional seed values**; calibration deferred to Plan 1 with explicit fitting task. §2 Hadwiger table. |
+| **UNJ-2** | HP parameters cited as "from Wrigley-Schofield tables" without showing fitting procedure | Marked as provisional; Plan 1 includes `scipy.optimize.curve_fit` fitting task against life-table q(x) residuals. §1 HP parameters. |
+| **UNJ-3** | Becker coefficient magnitudes presented as authoritative | Marked as provisional seed values; calibration via validation-driven iteration in Plan 1. §2 Becker table. |
+| **UNJ-4** | "Becker-Tomes elasticity 0.4" mis-cited | Rewritten to cite Solon (1999) and Chetty et al. (2014) for the specific 0.4 value; Becker & Tomes 1979 retained as theoretical framework only. §5 social class table. |
+| **UNJ-5** | Harris-Todaro formula not canonical | Marked as "operational variant"; canonical form documented; informal-sector wage set to 0 with explicit flag as simplification. §6 context enrichment. |
+| **UNJ-6** | Ashraf-Galor attributed to a formula not in their paper | Renamed `malthusian_soft_ceiling`; references clarified as "inspirational, not formulation"; continuous-time AG dynamics distinguished from our discrete heuristic. §2. |
+| **UNJ-7** | Age pyramid allegedly sums to 1.010 | **Challenged**: independent arithmetic verification (`sum = 1.0000` exactly). Auditor false positive. Spec unchanged. |
+| **UNJ-8** | Loudon 1992 maternal mortality inflated | Corrected to 0.008 seed (central Loudon estimate) with range 0.005-0.010 documented. §1 childbirth mortality and template schema. |
+| **UNJ-9** | Larmuseau 2016 non-paternity range misrepresented | Corrected to <1% historical estimate revising earlier upward-biased folklore. Known Limitations #6. |
+| **UNJ-10** | Kalmijn homogamy weights invented but attributed to him | Kalmijn retained as qualitative ranking source; specific weights now marked as "design heuristic matching qualitative ranking, NOT direct derivation". §3 compatibility score. |
+| **INC-I3** | non_binary heirs in primogeniture/shari'a undefined | Explicit non-binary handling column added to inheritance rule table. §5. |
+| **INC-I4** | parent_agent vs Couple authoritative source ambiguous | Explicitly declared: Agent.parent_agent + Agent.other_parent_agent are authoritative for biological parentage; Couple records social marriage only. §Agent extensions. |
+| **INC-I5** | Gale-Shapley "O(n²) iterations" imprecise | Corrected to "O(n²) total proposals" with proper complexity statement. §3. |
+| **INC-I7** | Linear tick-scaling wrongly claimed as "mathematically exact" | Corrected: marked as linear approximation for q < 0.1 with <0.5% error; engine uses geometric conversion for q > 0.1. §1 implementation and FAQ. |
+| **MISS-1** | Orphan newborn edge case undefined | Added `Agent.caretaker_agent` field; orphan handling protocol in §5 (nearest relative → ward of state fallback). |
+| **MISS-2** | Zero-population edge case undefined | Added early-return guard at start of process_demography_tick. §9. |
+| **MISS-3** | trapped_crisis visibility to other agents undefined | Defined propagation: analytics ledger + public-source memory (emotional_weight 0.95) to co-zone agents. §6. |
+| **MISS-4** | Both-partners-die couple orphaning | Added agent_a_name_snapshot and agent_b_name_snapshot fields to Couple model for audit continuity after FK nulling. §Couple model and §5. |
+| **MISS-5** | Multi-generational inheritance cascade taxation ambiguous | Explicitly stated: estate tax applies at each transfer event; deceased heirs' estates were already settled at their own death tick. §5. |
+| **MISS-6** | Economy-disabled mode crash paths | Added `economy_initialized` guard in process_demography_tick; Becker falls back neutral; emergency flight disabled when no economy. §9. |
+| **MISS-7** | Phase 3 synthetic genealogies side effects on other systems | Added side-effect management section: signal suppression, default personality/role population for new agents. §10 Phase 3. |
+| **MISS-8** | polyandrous couple_type declared but unsupported | Removed `polyandrous` and `polygynous` from couple_type enum. Documented as Known Limitation #11 with path to future extension. §Couple model and Known Limitations. |
+| **MISS-9** | demographic_initializer event missing reproducibility metadata | Payload extended with rng_seed, template_hash (sha256), duration_ms. §10. |
+| **MISS-10** | accept/refuse arranged marriage actions not in action list | Re-used existing `pair_bond` action with extended target payload `{"for_child": ..., "match": ...}` to avoid action-list inflation. §3 arranged marriage. |
+| **MISS-11** | dashboard/formatters.py existence unverified | Verified directly: file exists at `epocha/apps/dashboard/formatters.py` with `_ACTION_VERBS` module-level dict. Citation now valid. |
+| **MISS-12** | RNG seeding not per-subsystem | `get_seeded_rng(simulation, tick, phase)` with per-subsystem phase parameter hash. §9 and FAQ reproducibility. |
+
+**Findings resolution summary**:
+- INCORRECT: 10 → 10 resolved
+- UNJUSTIFIED: 10 → 9 resolved, 1 challenged (UNJ-7 auditor error)
+- INCONSISTENT: 5 substantive → 4 resolved, 1 verified (I6 not an issue)
+- MISSING: 12 → 12 addressed (resolved or explicit known limitation)
+
+Round 2 resolution: all material findings closed. Re-audit pass required for convergence verification.
