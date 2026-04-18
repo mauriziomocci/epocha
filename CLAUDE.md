@@ -226,6 +226,99 @@ This protocol is integrated into every scientific audit, not run as a separate p
 
 **When to update the FAQ**: any time the spec is revised based on review feedback, add a FAQ entry capturing the decision that was clarified. The FAQ grows with the spec.
 
+### CRITICAL: Canonical 7-Phase Development Workflow
+
+**CRITICAL RULE**: every new subsystem, major feature, or spec in Epocha MUST follow the canonical 7-phase workflow below without exceptions. Skipping phases or confusing gates is a rule violation.
+
+**The 7 phases**:
+
+```
+1. IDEATION (natural-language user input)
+        ↓
+2. REQUIREMENTS
+   - Brainstorming: agent asks in-depth clarifying questions
+   - Spec file written to docs/superpowers/specs/YYYY-MM-DD-<name>.md
+   - Must include: scientific foundations, architecture, design decisions log,
+     alternatives considered, FAQ, known limitations
+   HEAVY GATE:
+   - Three-step design process
+   - Adversarial scientific audit (critical-analyzer subagent)
+   - Mandatory convergence loop (audit → fix → re-audit until CONVERGED)
+   - Explicit human validation of final spec
+        ↓
+3. ARCHITECTURAL PLAN DESIGN
+   - Agent drafts the plan from validated spec
+   - Plan defines: modules, file changes, pipeline ordering, integration surface
+   - Plan does NOT yet contain operational task breakdown
+   LIGHT GATE: human validation of the architectural plan
+        ↓
+4. TASK BREAKDOWN
+   - Decompose plan into small, detailed tasks (see task-breakdown rule)
+   - Each task: checkbox + detailed description + files involved + tests + commit msg
+   - Granularity 2-5 minutes per task; no vague tasks
+   LIGHT GATE: human validation of breakdown
+   + Critical post-validation review (agent rereads with fresh eyes and raises any
+     residual doubts BEFORE touching code; trigger: transition design → implementation;
+     scope: overlooked details likely to be lost during writing; NOT a second
+     brainstorming, NOT a second adversarial audit)
+        ↓
+5. IMPLEMENTATION (task-by-task, sequential)
+   For each task:
+   - Write code exactly as described
+   - Test the task (unit + regression)
+   - Critical, punctual, in-depth code review (8-point Mandatory Code Review)
+   - Flag task as resolved
+   - Move to next task ONLY after completion + flag
+        ↓
+6. GENERAL IMPLEMENTATION TEST
+   - Full test suite (pytest --cov=epocha -v)
+   - End-to-end integration test
+   - Zero failing tests; zero xfail
+   HEAVY GATE:
+   - Final adversarial review (critical-analyzer on CODE, not spec)
+   - Explicit human validation of closure
+        ↓
+7. CLOSURE
+   - Merge feature branch to develop (--no-ff)
+   - Sync memory backup (docs/memory-backup/)
+   - Push
+   - Update progress memory
+```
+
+**Operational principles (non-negotiable)**:
+
+1. **Strict sequentiality between phases**: phase N+1 requires phase N's gate closed. No shortcuts.
+
+2. **Heavy vs light gates**:
+   - **Heavy gates** (rigorous validation): REQUIREMENTS gate (closes the scientific phase; spec is the foundation) and FINAL gate (closes the work).
+   - **Light gates** (quick review, prerequisites already rigorously validated): DESIGN gate (confirm plan coherence with spec) and TASK BREAKDOWN gate (confirm granularity and completeness).
+   - Distinction prevents gate fatigue: each subsystem has 4 gates, 2 heavy and 2 light.
+
+3. **Adversarial review fires at two distinct moments**:
+   - Requirements gate: adversarial on the SPEC (scientific rigor, citations, formulas)
+   - Final gate: adversarial on the CODE (correctness, security, performance)
+   - Separate reviews with distinct scope.
+
+4. **Critical post-validation review (phase 4 gate tail)**:
+   - Trigger: transition from design to code writing
+   - Scope: details that risk being lost because not explicit
+   - NOT a second brainstorming
+   - NOT a second adversarial audit
+   - It is the "last coherence check" before writing code
+
+5. **Task-breakdown rule** activates at phase 4 and governs phase 5 execution.
+
+6. **Verify-before-asserting** and **GOLDEN RULE** are always active, never suspended.
+
+**Mapping to superpowers skills**:
+- Phase 2 (Requirements): `superpowers:brainstorming`
+- Phase 3 + 4 (Design + Task breakdown): `superpowers:writing-plans`
+- Phase 5 (Implementation): `superpowers:executing-plans` or `superpowers:subagent-driven-development`
+- Phase 6 (General test): `superpowers:verification-before-completion`
+- Phase 7 (Closure): `superpowers:finishing-a-development-branch`
+
+**Revision of this rule**: the workflow is modified only on explicit user request. New lessons produce NEW feedback memories, not silent alterations of this rule.
+
 ### CRITICAL: Task Breakdown and Sequential Execution (implementation plans only)
 
 **CRITICAL RULE**: every **implementation plan** must be broken into as many well-detailed tasks as possible, each with a checkbox flag (`- [ ]` / `- [x]`), and executed strictly one task at a time with the flag toggled upon completion before moving to the next. No batching multiple tasks without intermediate flagging. No skipping ahead.
