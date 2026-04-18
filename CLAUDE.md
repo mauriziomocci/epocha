@@ -459,8 +459,10 @@ This is not optional. Lost memory means lost context, lost rules, lost decisions
 - Avoid over-engineering: only implement what is requested
 - Prefer editing existing files over creating new ones
 - Do NOT create documentation files unless explicitly requested
-- All code, documentation, comments, docstrings, logs: **English only**, NO emoji/emoticon
+- All code, comments, docstrings, logs: **English only**, NO emoji/emoticon
 - Commit messages: **English** (Conventional Commits), PEP 8 with 120 char line limit, double quotes
+- Plan files, test files, README, CLAUDE.md, memory backup: **English only**
+- **Spec files** in `docs/superpowers/specs/` are **bilingual**: primary `.md` in English + companion `-it.md` in Italian, kept strictly in sync. See `feedback_bilingual_specs` rule. All other documentation stays English only.
 - Tests: **ZERO failing tests**. Use `pytest.mark.skip(reason="TODO: ...")` when necessary
 
 ### Execution Discipline
