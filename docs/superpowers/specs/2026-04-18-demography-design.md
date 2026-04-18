@@ -25,7 +25,7 @@ This design delivers a self-contained demographic subsystem that:
 - Disease-driven mortality (SIR/SEIR epidemics) — planned as a separate epidemiology subsystem
 - Transitional era templates with time-varying parameters (mortality transition 1750-1900, fertility transition 1870-1960)
 - Adoption, step-parenting, donor conception
-- Polyandrous marriage market mechanics beyond type declaration
+- Multi-partner marriage structures (polygynous / polyandrous) — Couple model currently has two FKs only
 - Return migration explicit modelling
 - Cultural/linguistic/religious intergenerational transmission beyond personality traits
 - Life course career and education choices
@@ -40,6 +40,8 @@ This design delivers a self-contained demographic subsystem that:
 
 **Fertility**
 - Hadwiger, H. (1940). Eine analytische Reproduktionsfunktion für biologische Gesamtheiten. *Skandinavisk Aktuarietidskrift* 23, 101-113.
+- Chandola, T., Coleman, D.A. & Hiorns, R.W. (1999). Recent European fertility patterns: fitting curves to 'distorted' distributions. *Population Studies* 53(3), 317-329.
+- Schmertmann, C.P. (2003). A system of model fertility schedules with graphically intuitive parameters. *Demographic Research* 9, 81-110.
 - Becker, G.S. (1991). *A Treatise on the Family*, enlarged edition. Harvard University Press.
 - Coale, A.J. & Watkins, S.C. (eds.) (1986). *The Decline of Fertility in Europe*. Princeton University Press.
 - Jones, L.E. & Tertilt, M. (2008). An economic history of fertility in the U.S., 1826-1960. In Rupert, P. (ed.), *Frontiers of Family Economics* 1, 165-230.
@@ -72,6 +74,8 @@ This design delivers a self-contained demographic subsystem that:
 
 **Social and economic inheritance**
 - Becker, G.S. & Tomes, N. (1979). An equilibrium theory of the distribution of income and intergenerational mobility. *Journal of Political Economy* 87(6), 1153-1189.
+- Solon, G. (1999). Intergenerational mobility in the labor market. In Ashenfelter, O. & Card, D. (eds.), *Handbook of Labor Economics* Vol. 3A, Ch. 29, 1761-1800. Elsevier.
+- Goldin, C. (1995). The U-shaped female labor force function in economic development and economic history. In Schultz, T.P. (ed.), *Investment in Women's Human Capital*, 61-90. University of Chicago Press.
 - Piketty, T. (2014). *Capital in the Twenty-First Century*. Harvard University Press.
 - Kotlikoff, L.J. & Summers, L.H. (1981). The role of intergenerational transfers in aggregate capital accumulation. *Journal of Political Economy* 89(4), 706-732.
 - Clark, G. (2014). *The Son Also Rises: Surnames and the History of Social Mobility*. Princeton University Press.
@@ -184,7 +188,7 @@ This is a design heuristic, NOT derived from Jones & Tertilt (2008). Marked as t
 The economy subsystem records wages in `EconomicLedger.transaction_type="wage"` without gender segmentation. Becker's original framework (1991) uses the *opportunity cost of women's time* as the fertility-depressant. In our MVP we cannot compute this directly. We substitute two alternative signals both available from existing data:
 
 1. **Zone average wage level** (`zone_wage_mean`): mean of `EconomicLedger` wage transactions in zone over last 5 ticks. Higher zone wages correlate with higher female workforce participation historically (Goldin 1995 *The U-Shaped Female Labor Force Function*), which is the mechanism Becker identifies.
-2. **Female-role employment fraction** (`female_role_employed_fraction`): `count(agents with gender=female AND role IN {merchant, craftsman, ...} AND wage>0 last tick) / count(adult females)`. A direct proxy for female labor participation without requiring a gendered wage field.
+2. **Female-role employment fraction** (`female_role_employment_fraction`): `count(agents with gender=female AND role IN {merchant, craftsman, ...} AND wage>0 last tick) / count(adult females)`. A direct proxy for female labor participation without requiring a gendered wage field.
 
 Used jointly in the Becker modulation as alternative to the gendered-wage ratio. Documented as a Spec 2 data-availability adaptation.
 
@@ -455,7 +459,7 @@ where:
 
 The modal age at which `f(a)` peaks is approximately `R` only in the limit of small `T`; in general the mode is slightly shifted and must be computed numerically.
 
-Source: Hadwiger, H. (1940). Eine analytische Reproduktionsfunktion für biologische Gesamtheiten. *Skandinavisk Aktuarietidskrift* 23, 101-113. Normalization convention follows Chandola, Coleman & Hiorns (1999) *A Life Table Approach to the Study of Women's Fertility*, Population Studies 53, and Schmertmann (2003) *System of Model Fertility Schedules*.
+Source: Hadwiger, H. (1940). Eine analytische Reproduktionsfunktion für biologische Gesamtheiten. *Skandinavisk Aktuarietidskrift* 23, 101-113. Normalization convention follows Chandola, Coleman & Hiorns (1999) "Recent European fertility patterns: fitting curves to 'distorted' distributions", *Population Studies* 53(3), 317-329; and Schmertmann (2003) "A system of model fertility schedules with graphically intuitive parameters", *Demographic Research* 9, 81-110.
 
 Per-era parameters (**provisional seed values** — actual calibration to the cited historical sources is deferred to Plan 1 implementation via numerical fit against the original life tables):
 
@@ -625,7 +629,7 @@ If `marriage_market_type == "arranged"`, the decision-maker is the parent, not t
 
 ### Automatic dissolution on death
 
-When one partner dies (detected in §1 mortality step), any active Couple they belong to is automatically marked dissolved with reason="death". Surviving partner receives a bereavement memory with `emotional_weight = 0.9` (Parkes 1972). After `mourning_ticks` (template parameter; default 365 tick-equivalent for pre_industrial, 180 for modern), the surviving partner re-enters the marriage market.
+When one partner dies (detected in §1 mortality step), any active Couple they belong to is automatically marked dissolved with reason="death". The deceased partner's name is captured into the corresponding `agent_a_name_snapshot` or `agent_b_name_snapshot` field BEFORE the FK is nulled, preserving the historical record regardless of which partner died. Surviving partner receives a bereavement memory with `emotional_weight = 0.9` (Parkes 1972). After `mourning_ticks` (template parameter; default 365 tick-equivalent for pre_industrial, 180 for modern), the surviving partner re-enters the marriage market.
 
 ### Stable matching in initialization
 
@@ -831,7 +835,7 @@ When an agent in active Couple with minor children decides `move_to target=<zone
 
 Trigger conditions (all three simultaneously):
 
-- `agent.wealth < subsistence_threshold` (from economy Spec 2)
+- `agent.wealth < compute_subsistence_threshold(agent.simulation, agent.zone)` (helper defined in §Integration Contracts)
 - `consecutive_ticks_under_subsistence >= flight_trigger_ticks` (tunable, default 30)
 - `max(expected_harris_todaro_gain over other zones) > 0` (at least one zone offers improvement; fix I-5)
 
@@ -969,6 +973,11 @@ def process_demography_tick(simulation, tick: int) -> None:
             if mortality_fires(agent, tick, rng, template):
                 process_death(agent, tick, rng, template)
     
+    # STEP 3.5: ORPHAN CARETAKER ASSIGNMENT (MISS-1 fix)
+    # After all deaths in STEP 2-3, assign caretaker_agent for minor
+    # agents whose both biological parents are now dead.
+    assign_caretakers_for_orphans(simulation, tick)
+
     # STEP 4: COUPLE MARKET (resolve previous-tick pair_bond/separate intents)
     process_pair_bond_intents(simulation, tick, rng, template)
     process_separate_intents(simulation, tick, template)
@@ -1161,10 +1170,17 @@ JSON schema for the demography portion of the simulation template:
         "openness": 0.41, "conscientiousness": 0.44, "extraversion": 0.54,
         "agreeableness": 0.42, "neuroticism": 0.48,
         "intelligence": 0.55, "emotional_intelligence": 0.40,
-        "creativity": 0.22, "cunning": 0.30,
+        "creativity": 0.22,
         "strength": 0.55, "stamina": 0.52, "agility": 0.45,
         "fertility": 0.50, "mental_health_baseline": 0.40,
         "default": 0.30
+      },
+      "derived_trait_formulas": {
+        "cunning": {
+          "description": "Computed at birth from inherited traits (not heritable itself).",
+          "formula": "0.4*(1-agreeableness) + 0.3*neuroticism + 0.3*intelligence",
+          "range": [0.0, 1.0]
+        }
       }
     },
     "social_inheritance": {
@@ -1263,7 +1279,7 @@ Canonical `payload` structure per `event_type`:
 - Disease mortality (SIR/SEIR epidemics) — separate epidemiology subsystem
 - Transitional era templates (time-varying parameters)
 - Adoption, step-parenting, donor conception, surrogacy
-- Polyandrous marriage market dynamics beyond declared type
+- Multi-partner marriage structures (polygynous / polyandrous) — requires a future Couple model redesign
 - Return migration as explicit flow
 - Cultural/linguistic/religious intergenerational transmission (culture subsystem)
 - Life course career and education decisions beyond simple regression
@@ -1311,7 +1327,7 @@ A: Lee-Carter (1992) requires empirical mortality data for each population-year 
 A: Death cause is used for analytics differentiation, not biological realism. Separating causes explicitly (one RV per cause) would require independent hazard calibration and would multiply tunable parameters. Attributing causally to the dominant component at age of death is a defensible shorthand with documented assumptions.
 
 **Q: How is childbirth mortality reconciled with ordinary HP mortality?**
-A: Childbirth mortality is applied before the ordinary HP draw for mothers who are about to give birth in the same tick. This mirrors real correlation: maternal mortality events occur *during* delivery, not as an independent senescence draw. The template parameter `maternal_mortality_rate_per_birth` is calibrated separately (Loudon 1992 gives ~1% pre-industrial England).
+A: Childbirth mortality is applied before the ordinary HP draw for mothers who are about to give birth in the same tick. This mirrors real correlation: maternal mortality events occur *during* delivery, not as an independent senescence draw. The template parameter `maternal_mortality_rate_per_birth` is calibrated separately (Loudon 1992 reports pre-industrial England at 5-10 per 1000 births; the template default is 0.008 as central estimate).
 
 ### Fertility
 
@@ -1333,7 +1349,7 @@ A: Initialization requires a globally stable and reproducible matching on many a
 A: The window is defaulted to 1 tick but configurable. After expiry, the original proposer's intent is stale; the couple is not formed. The would-be respondent can initiate a new proposal if desired.
 
 **Q: How do arranged marriages work for LLM decisions?**
-A: When `marriage_market_type: "arranged"` is set in the template, the parent agent sees the match pool for their adult unmarried children in their decision context. Parent invokes `pair_bond target=<child_name>, match=<other_name>`. The child has one tick to `accept_arranged_marriage` or `refuse_arranged_marriage`; refusal costs social standing via negative memory.
+A: When `marriage_market_type: "arranged"` is set in the template, the parent agent sees the match pool for their adult unmarried children in their decision context. Parent invokes the standard `pair_bond` action with an extended target payload `{"for_child": "<child_name>", "match": "<other_name>"}`. The child has a 1-tick window in which to reciprocate by invoking `pair_bond target=<match_name>` (accept) or not invoking `pair_bond` (refuse). A refusal generates a negative memory for both child and parent. No new action names are introduced — the existing `pair_bond` action is reused.
 
 ### Trait inheritance
 
@@ -1355,7 +1371,7 @@ A: Historical accuracy. Pre-industrial Europe includes primogeniture (England af
 A: They pass to the same heirs under the active inheritance rule. If no heirs (nationalized or childless), the loan transfers to the banking system (lender=None, lender_type="banking") and continues to be serviced. Agent-to-agent loans without heirs are simply cancelled at MVP — this is a documented simplification.
 
 **Q: How does estate tax interact with government.treasury?**
-A: The computed estate tax is routed via `government.treasury_add(primary_currency_code, tax_revenue)`, the same mechanism used by Spec 2 TaxPolicy. No new integration is required.
+A: The computed estate tax is routed via the new helper `add_to_treasury(government, primary_currency_code, tax_revenue)` defined in §Integration Contracts. This helper centralizes treasury accumulation, replacing the inline JSON-dict mutation currently used in economy/engine.py (which this spec refactors to the helper as part of its scope).
 
 ### Migration
 
@@ -1481,3 +1497,27 @@ Adversarial audit dispatched to `critical-analyzer` subagent after initial spec 
 - MISSING: 12 → 12 addressed (resolved or explicit known limitation)
 
 Round 2 resolution: all material findings closed. Re-audit pass required for convergence verification.
+
+---
+
+### Round 3 — Re-Audit (2026-04-18)
+
+Second adversarial pass to verify Round 2 resolutions and hunt for new issues introduced by fixes. 34 of 36 findings verified RESOLVED, 1 CHALLENGED_CORRECTLY (UNJ-7, auditor arithmetic error confirmed via Fractions verification). Detected 3 MAJOR new issues (NEW-1, NEW-2, NEW-3, NEW-7) from incomplete fix propagation to FAQ and template schema, and 4 new citations missing from bibliography.
+
+Round 3 resolution table:
+
+| ID | Issue | Resolution |
+|----|-------|------------|
+| **NEW-1** | §6 emergency flight still cites `subsistence_threshold (from economy Spec 2)` | Replaced with explicit `compute_subsistence_threshold(agent.simulation, agent.zone)` invocation. §6. |
+| **NEW-2** | FAQ retains `government.treasury_add()` fabricated method | FAQ rewritten to cite `add_to_treasury(government, ...)` helper with reference to §Integration Contracts. |
+| **NEW-3** | Template schema `heritability.cunning = 0.30` contradicts §4 fix | Removed from `heritability` dict; added new `derived_trait_formulas.cunning` section capturing the Machiavellianism proxy formula. Template schema now internally consistent. |
+| **NEW-4** | Pipeline missing explicit orphan caretaker step | Added STEP 3.5 `assign_caretakers_for_orphans(simulation, tick)` after mortality-fertility joint resolution. §9. |
+| **NEW-5** | Single-death couple dissolution doesn't explicitly populate name_snapshot | §3 "Automatic dissolution on death" now explicitly states that name snapshot is captured BEFORE FK nulling, for all death-driven dissolutions regardless of single/dual. |
+| **NEW-6** | "Polyandrous marriage market beyond declared type" phrase obsolete | Rephrased both occurrences to "Multi-partner marriage structures (polygynous / polyandrous) — Couple model currently has two FKs only". |
+| **NEW-7** | FAQ arranged marriage cites nonexistent actions | Rewritten to use reciprocal `pair_bond` pattern with extended payload, consistent with §3. |
+| **NEW-8** | Naming drift `female_role_employment_fraction` vs `female_role_employed_fraction` | Unified to `female_role_employment_fraction` across the spec. |
+| **NEW-9** | FAQ Loudon "~1%" vs body 0.008 | FAQ rewritten: "Loudon 1992 reports pre-industrial England at 5-10 per 1000 births; template default is 0.008 as central estimate." |
+| **NEW-10** | `cunning` computed-at-birth responsibility not attributed | Template schema now explicitly defines `derived_trait_formulas.cunning`; `inheritance.py` module is the implementation site by default (documented indirectly via formula location in schema). |
+| **Citations added to Scientific Foundations** | Chandola et al. 1999, Schmertmann 2003, Solon 1999, Goldin 1995 | All four added to the bibliography under the appropriate subsections (Fertility; Social and economic inheritance). Chandola title corrected to "Recent European fertility patterns: fitting curves to 'distorted' distributions". |
+
+Round 3 resolution summary: 10 new issues addressed + 4 citation additions. Ready for re-audit convergence check.

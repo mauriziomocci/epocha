@@ -226,6 +226,44 @@ This protocol is integrated into every scientific audit, not run as a separate p
 
 **When to update the FAQ**: any time the spec is revised based on review feedback, add a FAQ entry capturing the decision that was clarified. The FAQ grows with the spec.
 
+### CRITICAL: Task Breakdown and Sequential Execution (implementation plans only)
+
+**CRITICAL RULE**: every **implementation plan** must be broken into as many well-detailed tasks as possible, each with a checkbox flag (`- [ ]` / `- [x]`), and executed strictly one task at a time with the flag toggled upon completion before moving to the next. No batching multiple tasks without intermediate flagging. No skipping ahead.
+
+**Scope and trigger**: the rule activates when a spec has been approved (design + adversarial audit + CONVERGED) and implementation planning begins. It applies to plan files under `docs/superpowers/plans/`.
+
+**What the rule does NOT cover**:
+- Standalone edits not tied to a plan
+- Answers to user questions
+- Documentation commits unrelated to an implementation plan
+- Micro-maintenance operations
+
+Applying the rule to out-of-scope operations would create bureaucratic overhead without benefit. The bright line: if the work lives in `docs/superpowers/plans/` or is descending an approved spec into code, the rule applies; otherwise, it does not.
+
+**Why**: four drivers:
+1. **Transparency**: for a plan the user sees in real time exactly what is done and what remains, without reading diffs.
+2. **Operational granularity**: small tasks mean safe steps, isolated failures, ability to interrupt and resume without losing context.
+3. **Publication-grade audit trail**: each completed task is a documented piece of evidence, consistent with the scientific paper goal of the project.
+4. **Context preservation for the AI agent**: in long plans with dozens of tasks, the currently "in progress" (not yet flagged) task is the agent's focus pointer. Working task-by-task keeps Claude focused on the specific context needed for that single task, without dispersing attention across the whole plan. Without breakdown and sequential flagging, the agent risks losing details, forgetting completed steps, or skipping required files. Flagging is the synchronization mechanism between work state and agent cognitive state — an operational necessity, not only a methodological preference.
+
+**How to apply**:
+- When drafting an implementation plan (after the spec is approved and audited), decompose the work into the smallest coherent tasks. A task is 2-5 minutes of work, a single atomic modification, or a tightly coupled group of files.
+- Each task uses the checkbox syntax (`- [ ] **Step N**: ...`) compatible with the `superpowers:writing-plans` skill and the existing Epocha plan format (see `docs/superpowers/plans/`).
+- No vague tasks. Never write "Implement the feature X"; always write "Create file X with class Y containing method Z that does W, with tests T1-T3".
+- During execution:
+  - Take ONE task
+  - Implement precisely
+  - Toggle the flag to `- [x]`
+  - Move to the next
+  - Do NOT skip ahead. Do NOT batch-process multiple tasks without intermediate flagging.
+- When all tasks are flagged, the plan is done; proceed to merge/PR/memory-sync as usual.
+
+**Non-negotiable within scope**: within the scope defined above, the rule is mandatory with no exceptions. Outside the scope the rule does not apply.
+
+**Compatibility**: the existing plans (Plan 3a, 3b, 3c of Economy) already use this pattern; no retrofit required.
+
+**Typical scale for Epocha**: for a complex subsystem such as Demography, expect 60-80 tasks distributed across 3-5 sequential plans, each containing 15-25 tasks of 2-5 minutes each.
+
 ### CRITICAL: Understand Before Implementing
 
 **CRITICAL RULE**: before writing any code — whether fixing a bug, building a new feature, or designing an architecture — invest time in understanding the full context: how the existing system works, why it works that way, and what already exists. Solving a symptom without understanding the root cause leads to layered workarounds instead of clean solutions.
