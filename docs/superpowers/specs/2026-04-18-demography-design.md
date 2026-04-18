@@ -1,7 +1,9 @@
 # Demography Subsystem Design
 
+> **LEGACY NOTE** (2026-04-18): This English version is a legacy artifact from the brief bilingual-specs transition. The authoritative spec is `2026-04-18-demography-design-it.md` (Italian) per the `feedback_italian_specs` project rule. Future revisions apply only to the Italian version. This file is kept for historical traceability but is NOT maintained going forward. An English translation will be produced only at paper publication time from the stable Italian version.
+
 **Date**: 2026-04-18
-**Status**: Approved for implementation
+**Status**: Approved for implementation — see Italian version for authoritative content
 **Paradigm**: Full biological life cycle (birth, aging, reproduction, inheritance, migration, death) as an emergent agent-level process calibrated on historical demographic data.
 **Depends on**: Economy Spec 1 (neoclassical, completed), Economy Spec 2 Parts 1-3 (behavioral, completed). Requires no new external data at initialization time.
 **Audit**: two-step critical self-review completed (see Audit Resolution Log).

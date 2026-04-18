@@ -462,7 +462,7 @@ This is not optional. Lost memory means lost context, lost rules, lost decisions
 - All code, comments, docstrings, logs: **English only**, NO emoji/emoticon
 - Commit messages: **English** (Conventional Commits), PEP 8 with 120 char line limit, double quotes
 - Plan files, test files, README, CLAUDE.md, memory backup: **English only**
-- **Spec files** in `docs/superpowers/specs/` are **bilingual**: primary `.md` in English + companion `-it.md` in Italian, kept strictly in sync. See `feedback_bilingual_specs` rule. All other documentation stays English only.
+- **Spec files** in `docs/superpowers/specs/` are written **in Italian only** (single authoritative version, no sync burden). An English translation is produced only when needed for paper publication. See `feedback_italian_specs` rule. All other documentation stays English only.
 - Tests: **ZERO failing tests**. Use `pytest.mark.skip(reason="TODO: ...")` when necessary
 
 ### Execution Discipline
