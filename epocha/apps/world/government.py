@@ -761,3 +761,26 @@ def process_political_cycle(simulation, tick: int) -> None:
         "process_political_cycle complete: simulation=%d tick=%d type=%r",
         simulation.pk, tick, government.government_type,
     )
+
+
+# ---------------------------------------------------------------------------
+# Treasury helper
+# ---------------------------------------------------------------------------
+
+def add_to_treasury(government, currency_code: str, amount: float) -> None:
+    """Add an amount in the given currency to the government treasury.
+
+    Extracted on 2026-04-18 as part of the Demography Plan 1
+    integration contract. Prior callers used inline JSON-dict mutation
+    (see economy/engine.py). Centralizing ensures consistent accounting
+    across tax, estate tax, expropriation, and future fines.
+
+    Args:
+        government: Government instance to credit.
+        currency_code: Currency code to add the amount under.
+        amount: Amount in the specified currency.
+    """
+    treasury = government.government_treasury or {}
+    treasury[currency_code] = treasury.get(currency_code, 0.0) + amount
+    government.government_treasury = treasury
+    government.save(update_fields=["government_treasury"])

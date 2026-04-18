@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 
 from epocha.apps.agents.models import Agent
+from epocha.apps.world.government import add_to_treasury
 from epocha.apps.world.models import Government
 
 from .banking import (
@@ -430,11 +431,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                         )
 
             if gov and tax_result["total_revenue"] > 0:
-                treasury = gov.government_treasury or {}
-                prev = treasury.get(cur_code, 0.0)
-                treasury[cur_code] = prev + tax_result["total_revenue"]
-                gov.government_treasury = treasury
-                gov.save(update_fields=["government_treasury"])
+                add_to_treasury(gov, cur_code, tax_result["total_revenue"])
 
         # Update zone prices and write price history
         ze.market_prices = equilibrium_prices
