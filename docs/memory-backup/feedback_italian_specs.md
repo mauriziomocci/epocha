@@ -16,8 +16,8 @@ originSessionId: f9bc7a55-71c4-45ed-9602-f5e328a6175e
 - La bibliografia mantiene i titoli originali (inglese per paper inglesi, tedesco per paper tedeschi come Hadwiger 1940, ecc.) perché i titoli di paper non si traducono mai
 
 **NON si applica a** (restano inglese only):
-- Codice sorgente
-- Commenti e docstring nel codice
+- Codice sorgente reale scritto in Fase 5 (implementazione)
+- Commenti e docstring nel **codice reale** (gli implementer traducono sempre in inglese al momento della scrittura, anche se nello spec il commento era in italiano)
 - Commit messages
 - Log applicativi
 - File di piano in `docs/superpowers/plans/`
@@ -25,6 +25,15 @@ originSessionId: f9bc7a55-71c4-45ed-9602-f5e328a6175e
 - README tecnici
 - CLAUDE.md
 - Memory files di progetto
+
+## Code block nello spec
+
+Le code block Python (o altri linguaggi) INCASTONATE nello spec italiano possono contenere commenti e docstring in italiano per mantenere la leggibilita' del documento. Sono **illustrative**, non direttamente copia-incollabili nel codice reale. In Fase 5, quando l'implementer scrive il vero codice:
+1. Usa la struttura del code block come riferimento
+2. Riscrive commenti, docstring, e log messages **in inglese**, mantenendo il contenuto tecnico equivalente
+3. Nessun commento italiano deve sopravvivere nel codice reale — neanche per errore di copia-incolla
+
+La code review critica per-task (CLAUDE.md Mandatory Code Review, punto 7 "Documentazione") verifica questo esplicitamente.
 
 ## Why
 
