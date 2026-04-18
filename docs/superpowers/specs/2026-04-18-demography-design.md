@@ -1523,3 +1523,13 @@ Round 3 resolution table:
 | **Citations added to Scientific Foundations** | Chandola et al. 1999, Schmertmann 2003, Solon 1999, Goldin 1995 | All four added to the bibliography under the appropriate subsections (Fertility; Social and economic inheritance). Chandola title corrected to "Recent European fertility patterns: fitting curves to 'distorted' distributions". |
 
 Round 3 resolution summary: 10 new issues addressed + 4 citation additions. Ready for re-audit convergence check.
+
+---
+
+### Round 4 — Convergence Verdict (2026-04-18)
+
+Fourth adversarial pass verified full resolution of NEW-10 via the explicit "Responsibility contract" paragraph in §4 and the updated File Changes Summary entry for `inheritance.py`. Scan for new issues returned zero BLOCKER and zero MAJOR. Five MINOR/NIT observations (NEW-11 through NEW-15) were classified as non-blocking refinements or implementation-plan-level details. Round 3 MINOR residuals (helper contracts such as `assign_caretakers_for_orphans`) remain unchanged and non-blocking.
+
+**Verdict: CONVERGED**
+
+All INCORRECT findings resolved, all UNJUSTIFIED either cited or explicitly marked as tunable design parameters, all INCONSISTENT reconciled, all MISSING documented. No new blocking issues introduced by fixes. Spec meets the CLAUDE.md mandatory convergence criterion and is ready for human validation and implementation planning.
