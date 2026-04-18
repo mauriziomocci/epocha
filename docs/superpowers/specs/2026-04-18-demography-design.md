@@ -675,6 +675,8 @@ Inherited via the polygenic additive mechanism. Heritability values come from th
 
 The trait `cunning` (from `Agent.cunning`) is NOT inherited via the biological mechanism because it is not a standard psychometric construct with published heritability. It is instead computed at birth as a derived value from other inherited traits following a standard Machiavellianism proxy (low agreeableness + high neuroticism + above-average intelligence), specifically: `cunning = 0.4·(1-agreeableness) + 0.3·neuroticism + 0.3·intelligence`, clamped to [0,1]. This is a design-heuristic proxy rather than an inherited trait per se.
 
+**Responsibility contract**: `inheritance.py` reads the `trait_inheritance.derived_trait_formulas` section from the simulation's demography template *after* applying the polygenic additive inheritance to all heritable traits. For each entry in `derived_trait_formulas` (currently only `cunning`), it evaluates the formula against the newly-computed heritable traits of the newborn and sets the corresponding `Agent` field. The formula string is parsed via a small expression evaluator restricted to arithmetic and trait references (no arbitrary code execution); the set of referenceable traits matches the `heritability` dict keys. This contract makes the derived-trait computation a first-class responsibility of `inheritance.py`, not an implicit side activity.
+
 Traits stored inside `Agent.personality` JSONB that do not have a published h² (e.g., `humor_style`, `attachment_style`) inherit via default h² = 0.30, marked as tunable design parameter.
 
 Gender is resolved at birth by draw from era `sex_ratio_at_birth` (default 1.05 male/female biologically universal). Sexual orientation is drawn from the era distribution; the default for modern scenarios approximates Chandra et al. (2011) *National Health Statistics Reports* 36 (U.S. National Survey of Family Growth 2006-2008): heterosexual 0.955, bisexual 0.030, homosexual 0.015. These values are modern U.S. self-report and are marked tunable design parameters for non-modern eras where comparable data are not available.
@@ -1227,7 +1229,7 @@ Canonical `payload` structure per `event_type`:
 | `epocha/apps/demography/mortality.py` | New | Heligman-Pollard |
 | `epocha/apps/demography/fertility.py` | New | Hadwiger × Becker × Malthusian |
 | `epocha/apps/demography/couple.py` | New | Gale-Shapley, pair_bond/separate handlers |
-| `epocha/apps/demography/inheritance.py` | New | Biological + economic inheritance |
+| `epocha/apps/demography/inheritance.py` | New | Biological polygenic additive + derived trait formulas (e.g. cunning) + economic inheritance per-era |
 | `epocha/apps/demography/migration.py` | New | Context enrichment + family + flight |
 | `epocha/apps/demography/initialization.py` | New | Age pyramid + couples + genealogies |
 | `epocha/apps/demography/engine.py` | New | process_demography_tick orchestrator |
@@ -1517,7 +1519,7 @@ Round 3 resolution table:
 | **NEW-7** | FAQ arranged marriage cites nonexistent actions | Rewritten to use reciprocal `pair_bond` pattern with extended payload, consistent with §3. |
 | **NEW-8** | Naming drift `female_role_employment_fraction` vs `female_role_employed_fraction` | Unified to `female_role_employment_fraction` across the spec. |
 | **NEW-9** | FAQ Loudon "~1%" vs body 0.008 | FAQ rewritten: "Loudon 1992 reports pre-industrial England at 5-10 per 1000 births; template default is 0.008 as central estimate." |
-| **NEW-10** | `cunning` computed-at-birth responsibility not attributed | Template schema now explicitly defines `derived_trait_formulas.cunning`; `inheritance.py` module is the implementation site by default (documented indirectly via formula location in schema). |
+| **NEW-10** | `cunning` computed-at-birth responsibility not attributed | Template schema defines `derived_trait_formulas.cunning`; §4 adds explicit "Responsibility contract" paragraph stating that `inheritance.py` reads `trait_inheritance.derived_trait_formulas` AFTER polygenic additive inheritance and evaluates each formula against the newborn's traits with a restricted expression evaluator. File Changes Summary updated: inheritance.py responsibility now includes "derived trait formulas (e.g. cunning)" explicitly. |
 | **Citations added to Scientific Foundations** | Chandola et al. 1999, Schmertmann 2003, Solon 1999, Goldin 1995 | All four added to the bibliography under the appropriate subsections (Fertility; Social and economic inheritance). Chandola title corrected to "Recent European fertility patterns: fitting curves to 'distorted' distributions". |
 
 Round 3 resolution summary: 10 new issues addressed + 4 citation additions. Ready for re-audit convergence check.
