@@ -72,6 +72,47 @@ class Agent(models.Model):
     group = models.ForeignKey("Group", null=True, blank=True, on_delete=models.SET_NULL, related_name="members")
     parent_agent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children", help_text="Biological parent (for lineage tracking)")
 
+    # Demography extensions (Plan 1 of demography spec).
+    birth_tick = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Canonical age source; age = (current_tick - birth_tick) / ticks_per_year",
+    )
+    death_tick = models.PositiveIntegerField(null=True, blank=True)
+
+    class DeathCause(models.TextChoices):
+        NATURAL_SENESCENCE = "natural_senescence", "Natural senescence"
+        EARLY_LIFE_MORTALITY = "early_life_mortality", "Early-life mortality"
+        EXTERNAL_CAUSE = "external_cause", "External cause"
+        CHILDBIRTH = "childbirth", "Childbirth"
+        STARVATION = "starvation", "Starvation"
+        EXPROPRIATION = "expropriation", "Expropriation"
+        EXECUTED = "executed", "Executed"
+        UNKNOWN = "unknown", "Unknown"
+
+    death_cause = models.CharField(
+        max_length=30,
+        choices=DeathCause.choices,
+        blank=True,
+    )
+    other_parent_agent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="other_parent_children",
+        help_text="Second biological parent (father by Epocha convention)",
+    )
+    caretaker_agent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="dependents",
+        help_text="Active caretaker for a minor when parents are unavailable",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
