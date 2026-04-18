@@ -31,3 +31,6 @@ requests>=2.32
 pgvector>=0.3.6
 fastembed>=0.3.6
 langchain-text-splitters>=0.2.2
+
+# Scientific computing (demography mortality fitting)
+scipy==1.14.1
