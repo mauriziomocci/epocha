@@ -20,8 +20,13 @@ def user(db):
 
 @pytest.fixture
 def sim_with_agents(user):
+    # Default status is paused so finalize_tick does not attempt to
+    # re-enqueue run_simulation_loop via apply_async. Tests that want to
+    # exercise the re-enqueue path flip the status to running explicitly
+    # after patching run_simulation_loop. This prevents chord-in-eager
+    # mode from attempting to contact the Celery result backend.
     sim = Simulation.objects.create(
-        name="ChordTest", seed=42, owner=user, status="running"
+        name="ChordTest", seed=42, owner=user, status=Simulation.Status.PAUSED
     )
     world = World.objects.create(simulation=sim)
     Zone.objects.create(world=world, name="Village", zone_type="urban")
@@ -115,6 +120,8 @@ class TestFinalizeTick:
 
     def test_reenqueues_if_still_running(self, sim_with_agents):
         """If simulation is still running, re-enqueue the loop."""
+        sim_with_agents.status = Simulation.Status.RUNNING
+        sim_with_agents.save()
         with patch("epocha.apps.simulation.tasks.run_simulation_loop") as mock_loop:
             finalize_tick([], sim_with_agents.id, 1)
             mock_loop.apply_async.assert_called_once()
@@ -125,6 +132,8 @@ class TestRunSimulationLoopChord:
     @patch("epocha.apps.simulation.tasks.chord")
     def test_dispatches_chord_for_all_agents(self, mock_chord, sim_with_agents):
         """The loop should build a chord with one task per living agent."""
+        sim_with_agents.status = Simulation.Status.RUNNING
+        sim_with_agents.save()
         run_simulation_loop(sim_with_agents.id)
 
         # chord() was called with a list of task signatures
@@ -137,6 +146,8 @@ class TestRunSimulationLoopChord:
         """Economy tick must run before the agent chord is dispatched."""
         from epocha.apps.agents.models import Agent
 
+        sim_with_agents.status = Simulation.Status.RUNNING
+        sim_with_agents.save()
         run_simulation_loop(sim_with_agents.id)
 
         # Economy ran: agents' wealth should have changed from initial 50
@@ -159,6 +170,8 @@ class TestRunSimulationLoopChord:
         """With no living agents, finalize_tick should be called directly."""
         from epocha.apps.agents.models import Agent
 
+        sim_with_agents.status = Simulation.Status.RUNNING
+        sim_with_agents.save()
         Agent.objects.filter(simulation=sim_with_agents).update(is_alive=False)
 
         with patch("epocha.apps.simulation.tasks.finalize_tick") as mock_finalize:
