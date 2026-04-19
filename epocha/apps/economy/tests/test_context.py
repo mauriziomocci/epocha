@@ -148,8 +148,10 @@ class TestBuildEconomicContext:
 @pytest.mark.django_db
 class TestHoardActionInPrompt:
     def test_hoard_in_system_prompt(self):
-        from epocha.apps.agents.decision import _DECISION_SYSTEM_PROMPT
-        assert "hoard" in _DECISION_SYSTEM_PROMPT
+        # _DECISION_SYSTEM_PROMPT was replaced by _BASE_ACTIONS + _build_system_prompt
+        # in Plan 2 (dynamic era filter). Verify hoard is in the base action vocabulary.
+        from epocha.apps.agents.decision import _BASE_ACTIONS
+        assert "hoard" in _BASE_ACTIONS
 
     def test_hoard_in_action_verbs(self):
         from epocha.apps.dashboard.formatters import _ACTION_VERBS
