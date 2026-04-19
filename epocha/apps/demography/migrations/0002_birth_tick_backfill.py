@@ -21,7 +21,10 @@ def backfill_birth_tick(apps, schema_editor):
         ticks_per_year = 8760.0 / tick_duration_hours
         current_tick = simulation.current_tick or 0
         age_in_ticks = int(round(agent.age * ticks_per_year))
-        agent.birth_tick = max(0, current_tick - age_in_ticks)
+        # Negative birth_tick is valid for agents born before simulation start
+        # (Agent.birth_tick is a signed BigIntegerField). The previous clamp to 0
+        # silently lost generational information for every pre-existing agent.
+        agent.birth_tick = current_tick - age_in_ticks
         agent.save(update_fields=["birth_tick"])
 
 

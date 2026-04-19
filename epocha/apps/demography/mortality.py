@@ -16,6 +16,17 @@ from typing import Mapping
 
 HP_PARAM_KEYS = tuple("ABCDEFGH")
 
+# Upper bound on the annual mortality probability returned by
+# annual_mortality_probability. The geometric tick scaling at
+# tick_mortality_probability computes (1 - q_annual) ** dt, which requires
+# (1 - q_annual) to stay strictly above zero to avoid math.log(0) issues
+# further downstream (e.g. in life-expectancy computations). Capping at
+# 0.999 preserves three significant digits of the upper tail while
+# guaranteeing a non-zero survival probability. Tunable design parameter;
+# raising it closer to 1.0 sharpens the upper tail but risks numerical
+# instability in downstream consumers.
+_MAX_ANNUAL_MORTALITY_PROBABILITY: float = 0.999
+
 
 def _unpack(params: Mapping[str, float]) -> tuple[float, ...]:
     return tuple(float(params[k]) for k in HP_PARAM_KEYS)
@@ -39,7 +50,7 @@ def annual_mortality_probability(age: float, params: Mapping[str, float]) -> flo
     c1, c2, c3 = _hp_components(age, params)
     q_over_p = c1 + c2 + c3
     q = q_over_p / (1.0 + q_over_p)
-    return min(q, 0.999)
+    return min(q, _MAX_ANNUAL_MORTALITY_PROBABILITY)
 
 
 def tick_mortality_probability(

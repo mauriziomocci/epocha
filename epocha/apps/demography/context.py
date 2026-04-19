@@ -52,10 +52,13 @@ def compute_aggregate_outlook(agent) -> float:
         conf_norm = 2.0 * float(confidence) - 1.0
     except BankingState.DoesNotExist:
         conf_norm = 0.0
+    # Government.stability is non-nullable with default=0.5; the only case in
+    # which it is unavailable is when the Government record does not exist
+    # (economy not initialized), handled by the DoesNotExist branch.
     stability_norm = 0.0
     try:
         gov = Government.objects.get(simulation=agent.simulation)
-        stability_norm = 2.0 * float(gov.stability if gov.stability is not None else 0.5) - 1.0
+        stability_norm = 2.0 * float(gov.stability) - 1.0
     except Government.DoesNotExist:
         pass
     return (mood_norm + conf_norm + stability_norm) / 3.0

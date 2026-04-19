@@ -70,14 +70,30 @@ class Agent(models.Model):
     )
     is_alive = models.BooleanField(default=True)
     group = models.ForeignKey("Group", null=True, blank=True, on_delete=models.SET_NULL, related_name="members")
-    parent_agent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children", help_text="Biological parent (for lineage tracking)")
+    parent_agent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="children",
+        help_text=(
+            "Biological mother by Epocha convention (ASFR is female-indexed). "
+            "Agents created before demography Plan 1 may violate this convention; "
+            "enforce only for agents born from the demography engine onwards. "
+            "See other_parent_agent for the father."
+        ),
+    )
 
     # Demography extensions (Plan 1 of demography spec).
-    birth_tick = models.PositiveIntegerField(
+    # BigIntegerField is signed: pre-existing agents whose age predates
+    # simulation start have a negative birth_tick. This keeps the canonical
+    # age source consistent with Agent.age across backfills.
+    birth_tick = models.BigIntegerField(
         null=True,
         blank=True,
         db_index=True,
-        help_text="Canonical age source; age = (current_tick - birth_tick) / ticks_per_year",
+        help_text=(
+            "Canonical age source; "
+            "age = (current_tick - birth_tick) / ticks_per_year. "
+            "Negative values are valid for agents older than the simulation."
+        ),
     )
     death_tick = models.PositiveIntegerField(null=True, blank=True)
 

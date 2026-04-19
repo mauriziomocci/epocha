@@ -6,6 +6,7 @@ Scientific foundations:
 - Couple as unit of analysis for inheritance and family migration
 """
 from django.db import models
+from django.db.models import F, Q
 
 
 class Couple(models.Model):
@@ -67,6 +68,22 @@ class Couple(models.Model):
             models.Index(fields=["simulation", "dissolved_at_tick"]),
             models.Index(fields=["agent_a", "dissolved_at_tick"]),
             models.Index(fields=["agent_b", "dissolved_at_tick"]),
+        ]
+        constraints = [
+            # Canonical ordering: when both partners are present, agent_a.id
+            # must be strictly lower than agent_b.id. This prevents two
+            # distinct rows representing the same pair with swapped FKs, a
+            # class of bug that would corrupt heir resolution and duplicate
+            # couple counts. When one partner has been nulled (death),
+            # the constraint becomes vacuous.
+            models.CheckConstraint(
+                condition=(
+                    Q(agent_a__isnull=True)
+                    | Q(agent_b__isnull=True)
+                    | Q(agent_a__lt=F("agent_b"))
+                ),
+                name="couple_canonical_ordering",
+            ),
         ]
 
     def __str__(self):

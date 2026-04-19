@@ -39,7 +39,12 @@ from .credit import (
 from .distribution import compute_rent, compute_taxes, compute_wages
 from .expectations import update_agent_expectations
 from .property_market import process_property_listings
-from .market import collect_supply_and_demand, execute_trades, tatonnement_prices
+from .market import (
+    SUBSISTENCE_NEED_PER_AGENT,
+    collect_supply_and_demand,
+    execute_trades,
+    tatonnement_prices,
+)
 from .models import (
     AgentInventory,
     Currency,
@@ -457,7 +462,9 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             if inv:
                 for code in essential_codes:
                     current = inv.holdings.get(code, 0.0)
-                    inv.holdings[code] = max(0.0, current - 1.0)
+                    inv.holdings[code] = max(
+                        0.0, current - SUBSISTENCE_NEED_PER_AGENT
+                    )
                 inv.save(update_fields=["holdings"])
 
     # === STEP 8a (global): MONETARY UPDATE (Fisher velocity) ===
