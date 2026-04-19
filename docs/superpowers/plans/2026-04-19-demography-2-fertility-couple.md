@@ -76,7 +76,7 @@
 **Files:**
 - Create: `epocha/apps/demography/fertility.py`
 
-- [ ] **Step 1: Create the module**
+- [x] **Step 1: Create the module**
 
 ```python
 """Fertility model for demography: Hadwiger ASFR modulated by Becker (1991)
@@ -122,7 +122,7 @@ def hadwiger_asfr(age: float, params: Mapping[str, float]) -> float:
     return coef * shape * tail
 ```
 
-- [ ] **Step 2: Manual sanity check**
+- [x] **Step 2: Manual sanity check**
 
 Run: `docker compose -f docker-compose.local.yml exec web python -c "from epocha.apps.demography.fertility import hadwiger_asfr; print(hadwiger_asfr(26, {'H': 5.0, 'R': 26, 'T': 3.5}))"`
 
@@ -130,7 +130,7 @@ Expected: a finite positive number in the vicinity of 0.38 (peak of a Hadwiger d
 
 **Spec and template correction (carried by this plan)**: the Hadwiger `T` values shipped in Plan 1 were off by a factor of ten — Chandola, Coleman & Hiorns (1999) and Schmertmann (2003) both use T in the range [2, 10] for realistic fertility distributions. With the original T=0.35 the peak drops to ~0.04 and the distribution peaks at the lower age bound instead of at R. Fix applied in this plan on the same feature branch: update the five JSON templates in `epocha/apps/demography/templates/` and the Hadwiger tables in both spec files. Plan 1 tests are unaffected because Plan 1 never computes Hadwiger values.
 
-- [ ] **Step 3: No commit yet**
+- [x] **Step 3: No commit yet**
 
 Commit lands in Task 7 together with the fertility tests.
 
@@ -141,7 +141,7 @@ Commit lands in Task 7 together with the fertility tests.
 **Files:**
 - Modify: `epocha/apps/demography/fertility.py`
 
-- [ ] **Step 1: Append the Becker modulation function**
+- [x] **Step 1: Append the Becker modulation function**
 
 Use the integration-contract helpers from Plan 1 (`compute_subsistence_threshold`, `compute_aggregate_outlook`). For the female labor participation and zone mean wage proxies, compute them inline using the existing `EconomicLedger` wage transactions:
 
@@ -223,7 +223,7 @@ def becker_modulation(agent, coeffs: Mapping[str, float]) -> float:
 **Files:**
 - Modify: `epocha/apps/demography/fertility.py`
 
-- [ ] **Step 1: Append the Malthusian soft ceiling function**
+- [x] **Step 1: Append the Malthusian soft ceiling function**
 
 ```python
 def malthusian_soft_ceiling(
@@ -263,7 +263,7 @@ def malthusian_soft_ceiling(
 **Files:**
 - Modify: `epocha/apps/demography/fertility.py`
 
-- [ ] **Step 1: Append the combined formula**
+- [x] **Step 1: Append the combined formula**
 
 ```python
 def tick_birth_probability(
@@ -331,7 +331,7 @@ def _effective_age_in_years(
 **Files:**
 - Modify: `epocha/apps/demography/fertility.py`
 
-- [ ] **Step 1: Append flag helpers**
+- [x] **Step 1: Append flag helpers**
 
 ```python
 def set_avoid_conception_flag(agent) -> None:
@@ -372,7 +372,7 @@ def is_avoid_conception_active_this_tick(agent) -> bool:
 **Files:**
 - Modify: `epocha/apps/demography/fertility.py`
 
-- [ ] **Step 1: Append the joint resolution function**
+- [x] **Step 1: Append the joint resolution function**
 
 Childbirth mortality must be applied before the ordinary HP draw for the mother (spec §Sezione 1 fix C-1). This plan implements the helper; Plan 4's engine orchestrator will call it during the joint step.
 
@@ -427,7 +427,7 @@ def resolve_childbirth_event(
 **Files:**
 - Create: `epocha/apps/demography/tests/test_fertility.py`
 
-- [ ] **Step 1: Write the test file**
+- [x] **Step 1: Write the test file**
 
 Cover:
 - `hadwiger_asfr` returns 0 outside [12, 50]
@@ -447,13 +447,13 @@ Cover:
 
 Use `random.Random(seed)` for stochastic tests. Reuse the `sim_with_zone` fixture pattern from `test_models.py`; create couples explicitly by calling `Couple.objects.create` with `_ordered_pair` so the constraint is satisfied.
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/apps/demography/tests/test_fertility.py --reuse-db -v --tb=short`
 
 Expected: all tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```
 feat(demography): add fertility module with Hadwiger x Becker x Malthusian
