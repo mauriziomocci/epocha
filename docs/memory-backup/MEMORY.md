@@ -26,7 +26,8 @@
 - [Hegemonic cascade](project_hegemonic_cascade.md) -- Perdita rotte commerciali innesca cascata di declino (Kindleberger, Arrighi, Kennedy)
 - [MiroFish comparison](reference_mirofish_comparison.md) -- Gap analysis vs MiroFish: knowledge graph, report agent, grafo
 - [Behavioral integration WIP](project_behavioral_integration_progress.md) -- Spec 2 Part 3: Plan 3a+3b COMPLETATI (306 test), manca solo Plan 3c (integration test)
-- [Demography Plan 1 complete](project_demography_plan1_complete.md) -- Plan 1 mergiata in develop 2026-04-19, commit 41bf508. Audit CONVERGED. Plan 2 prossimo.
+- [Demography Plan 1 complete](project_demography_plan1_complete.md) -- Plan 1 mergiata in develop 2026-04-19, commit 41bf508. Audit CONVERGED.
+- [Demography Plan 2 complete](project_demography_plan2_complete.md) -- Plan 2 (Fertility + Couple + LLM Actions) mergiata in develop 2026-04-19, commit 715d5fa. Audit CONVERGED round 2. PROSSIMO: README + whitepaper rewrite PRIMA di Plan 3.
 - [README rewrite todo](project_readme_rewrite_todo.md) -- FOLLOW-UP one-shot: riscrivere README.md e README.it.md (molto obsoleti) al termine del Plan 2.
 - [README bilingual maintenance](feedback_readme_bilingual_maintenance.md) -- REGOLA PERMANENTE: README.md e README.it.md sempre aggiornati e sincronizzati ad ogni cambiamento rilevante (architettura, stack, regole, roadmap, setup).
 - [Whitepaper bilingual](feedback_whitepaper_bilingual.md) -- REGOLA PERMANENTE: due whitepaper scientifici rigorosi (EN + IT) living documents linkati dai README, struttura paper standard (abstract/methods/results/discussion), sempre in sync col codice merged.
