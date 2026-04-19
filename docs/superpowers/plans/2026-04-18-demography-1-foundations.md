@@ -97,11 +97,11 @@
 - Create: `epocha/apps/demography/apps.py`
 - Modify: `config/settings/base.py`
 
-- [ ] **Step 1: Create empty package file**
+- [x] **Step 1: Create empty package file**
 
 Create `epocha/apps/demography/__init__.py` with empty content.
 
-- [ ] **Step 2: Create AppConfig**
+- [x] **Step 2: Create AppConfig**
 
 Create `epocha/apps/demography/apps.py`:
 
@@ -124,16 +124,16 @@ class DemographyConfig(AppConfig):
     label = "demography"
 ```
 
-- [ ] **Step 3: Register app in INSTALLED_APPS**
+- [x] **Step 3: Register app in INSTALLED_APPS**
 
 In `config/settings/base.py`, locate the `INSTALLED_APPS` list and add `"epocha.apps.demography"` near the other `epocha.apps.*` entries (keep alphabetical order within the project apps block).
 
-- [ ] **Step 4: Verify Django can discover the app**
+- [x] **Step 4: Verify Django can discover the app**
 
 Run: `docker compose -f docker-compose.local.yml exec web python manage.py check`
 Expected: `System check identified no issues (0 silenced).`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```
 feat(demography): scaffold new app and register in INSTALLED_APPS
@@ -143,6 +143,8 @@ register it in config/settings/base.py. This is the foundation for
 the demography subsystem per the 2026-04-18 spec.
 ```
 
+Verified: Task 1 complete. Commit `6081c26`. Sonnet executed, no deviation.
+
 ---
 
 ### Task 2: Extract `SUBSISTENCE_NEED_PER_AGENT` constant
@@ -150,7 +152,7 @@ the demography subsystem per the 2026-04-18 spec.
 **Files:**
 - Modify: `epocha/apps/economy/market.py`
 
-- [ ] **Step 1: Promote local to module-level constant**
+- [x] **Step 1: Promote local to module-level constant**
 
 In `epocha/apps/economy/market.py`, locate the function that contains `subsistence_need = 1.0` (around line 172). Hoist it to the module level at the top of the file, directly after the imports:
 
@@ -164,12 +166,12 @@ SUBSISTENCE_NEED_PER_AGENT: float = 1.0
 
 Replace the local `subsistence_need = 1.0` inside the function with `subsistence_need = SUBSISTENCE_NEED_PER_AGENT`. Keep the local name for backward compatibility inside the function to minimize the diff.
 
-- [ ] **Step 2: Run the economy test suite to verify no regression**
+- [x] **Step 2: Run the economy test suite to verify no regression**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/apps/economy/tests/test_market.py -q`
 Expected: all tests green (no behavior change).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```
 refactor(economy): promote SUBSISTENCE_NEED_PER_AGENT to module constant
@@ -180,6 +182,8 @@ by demography/context.py:compute_subsistence_threshold. Behavior is
 unchanged; this is a pure refactor.
 ```
 
+Verified: Task 2 complete. Commit `16120ab`. 6/6 market tests green.
+
 ---
 
 ### Task 3: Extract `add_to_treasury` helper and refactor existing caller
@@ -188,7 +192,7 @@ unchanged; this is a pure refactor.
 - Modify: `epocha/apps/world/government.py`
 - Modify: `epocha/apps/economy/engine.py`
 
-- [ ] **Step 1: Add helper to `epocha/apps/world/government.py`**
+- [x] **Step 1: Add helper to `epocha/apps/world/government.py`**
 
 Append to `epocha/apps/world/government.py`:
 
@@ -212,7 +216,7 @@ def add_to_treasury(government, currency_code: str, amount: float) -> None:
     government.save(update_fields=["government_treasury"])
 ```
 
-- [ ] **Step 2: Refactor existing inline treasury mutation in `epocha/apps/economy/engine.py`**
+- [x] **Step 2: Refactor existing inline treasury mutation in `epocha/apps/economy/engine.py`**
 
 Locate the block near line 433 that mutates `gov.government_treasury` inline. Replace with a call to `add_to_treasury(gov, currency_code, amount)` after importing the helper at the top of the file:
 
@@ -220,12 +224,12 @@ Locate the block near line 433 that mutates `gov.government_treasury` inline. Re
 from epocha.apps.world.government import add_to_treasury
 ```
 
-- [ ] **Step 3: Run the economy test suite to verify no regression**
+- [x] **Step 3: Run the economy test suite to verify no regression**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/apps/economy/tests/ -q`
 Expected: all 252 tests green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```
 refactor(world): extract add_to_treasury helper
@@ -244,7 +248,7 @@ fines. Behavior unchanged.
 **Files:**
 - Modify: `requirements/base.txt`
 
-- [ ] **Step 1: Add scipy dependency**
+- [x] **Step 1: Add scipy dependency**
 
 Append to `requirements/base.txt`:
 
@@ -254,17 +258,17 @@ scipy==1.14.1
 
 Use the most recent stable version compatible with numpy already in the project.
 
-- [ ] **Step 2: Rebuild the Docker image**
+- [x] **Step 2: Rebuild the Docker image**
 
 Run: `docker compose -f docker-compose.local.yml build web`
 Expected: build completes successfully; scipy installed.
 
-- [ ] **Step 3: Verify scipy is importable from the web container**
+- [x] **Step 3: Verify scipy is importable from the web container**
 
 Run: `docker compose -f docker-compose.local.yml exec web python -c "import scipy; print(scipy.__version__)"`
 Expected: prints `1.14.1` or similar.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```
 build(deps): add scipy 1.14.1 for HP parameter fitting
@@ -281,7 +285,7 @@ historical life tables. Added as a runtime dependency.
 **Files:**
 - Modify: `epocha/apps/demography/models.py`
 
-- [ ] **Step 1: Create the models module**
+- [x] **Step 1: Create the models module**
 
 Create `epocha/apps/demography/models.py` with imports and the `Couple` class:
 
@@ -364,14 +368,14 @@ class Couple(models.Model):
         return f"Couple<{a} + {b} ({status})>"
 ```
 
-- [ ] **Step 2: Run `makemigrations` to confirm the model compiles**
+- [x] **Step 2: Run `makemigrations` to confirm the model compiles**
 
 Run: `docker compose -f docker-compose.local.yml exec web python manage.py makemigrations demography --dry-run`
 Expected: one migration planned for the Couple model.
 
 (Do not create the migration yet; that happens in Task 10 together with the other models.)
 
-- [ ] **Step 3: No commit yet**
+- [x] **Step 3: No commit yet**
 
 Commit happens at Task 10 together with the full migration.
 
@@ -382,7 +386,7 @@ Commit happens at Task 10 together with the full migration.
 **Files:**
 - Modify: `epocha/apps/demography/models.py`
 
-- [ ] **Step 1: Append the `DemographyEvent` model**
+- [x] **Step 1: Append the `DemographyEvent` model**
 
 ```python
 class DemographyEvent(models.Model):
@@ -443,7 +447,7 @@ class DemographyEvent(models.Model):
 **Files:**
 - Modify: `epocha/apps/demography/models.py`
 
-- [ ] **Step 1: Append the `PopulationSnapshot` model**
+- [x] **Step 1: Append the `PopulationSnapshot` model**
 
 ```python
 class PopulationSnapshot(models.Model):
@@ -491,7 +495,7 @@ class PopulationSnapshot(models.Model):
 **Files:**
 - Modify: `epocha/apps/demography/models.py`
 
-- [ ] **Step 1: Append the `AgentFertilityState` model**
+- [x] **Step 1: Append the `AgentFertilityState` model**
 
 ```python
 class AgentFertilityState(models.Model):
@@ -521,7 +525,7 @@ class AgentFertilityState(models.Model):
 **Files:**
 - Modify: `epocha/apps/agents/models.py`
 
-- [ ] **Step 1: Add the new fields to `Agent`**
+- [x] **Step 1: Add the new fields to `Agent`**
 
 In `epocha/apps/agents/models.py`, locate the `Agent` class and add the following fields. Place them near `parent_agent` for locality:
 
@@ -568,7 +572,7 @@ In `epocha/apps/agents/models.py`, locate the `Agent` class and add the followin
     )
 ```
 
-- [ ] **Step 2: Verify the model still compiles**
+- [x] **Step 2: Verify the model still compiles**
 
 Run: `docker compose -f docker-compose.local.yml exec web python manage.py check`
 Expected: no issues.
@@ -582,7 +586,7 @@ Expected: no issues.
 - Create: `epocha/apps/agents/migrations/0009_agent_demography_fields.py`
 - Create: `epocha/apps/demography/migrations/0002_birth_tick_backfill.py`
 
-- [ ] **Step 1: Generate schema migrations for both apps**
+- [x] **Step 1: Generate schema migrations for both apps**
 
 Run:
 ```
@@ -590,7 +594,7 @@ docker compose -f docker-compose.local.yml exec web python manage.py makemigrati
 ```
 Expected: two migrations are generated — one for `agents` with the new Agent fields, one for `demography` with the four new models. Verify the generated file names match the above (allow Django to assign sequential numbers; rename if necessary to match the convention above).
 
-- [ ] **Step 2: Create the data migration for `birth_tick` backfill**
+- [x] **Step 2: Create the data migration for `birth_tick` backfill**
 
 Create `epocha/apps/demography/migrations/0002_birth_tick_backfill.py`:
 
@@ -638,7 +642,7 @@ class Migration(migrations.Migration):
 
 (Adjust the `dependencies` migration names to match the files auto-generated in Step 1.)
 
-- [ ] **Step 3: Apply migrations**
+- [x] **Step 3: Apply migrations**
 
 Run:
 ```
@@ -646,12 +650,12 @@ docker compose -f docker-compose.local.yml exec web python manage.py migrate
 ```
 Expected: all migrations applied cleanly; agents and demography updated.
 
-- [ ] **Step 4: Verify existing tests still pass**
+- [x] **Step 4: Verify existing tests still pass**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/apps/agents/ epocha/apps/economy/ -q`
 Expected: all previously green tests remain green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```
 feat(demography): add models and extend Agent with demography fields
@@ -892,7 +896,7 @@ def get_seeded_rng(simulation, tick: int, phase: str) -> random.Random:
 **Files:**
 - Create: `epocha/apps/demography/tests/test_rng.py`
 
-- [ ] **Step 1: Write the RNG tests**
+- [x] **Step 1: Write the RNG tests**
 
 ```python
 """Tests for the seeded per-subsystem RNG streams."""
@@ -950,12 +954,12 @@ def test_all_allowed_phases_accepted(sim):
         assert get_seeded_rng(sim, tick=1, phase=phase) is not None
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/apps/demography/tests/test_rng.py -v`
 Expected: 5 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```
 feat(demography): add seeded per-subsystem RNG streams
@@ -974,7 +978,7 @@ separation, and unknown-phase validation.
 **Files:**
 - Create: `epocha/apps/demography/template_loader.py`
 
-- [ ] **Step 1: Create the template loader module**
+- [x] **Step 1: Create the template loader module**
 
 ```python
 """Era template loading and validation for the demography subsystem.
@@ -1079,11 +1083,11 @@ def list_available_templates() -> list[str]:
 - Create: `epocha/apps/demography/templates/modern_democracy.json`
 - Create: `epocha/apps/demography/templates/sci_fi.json`
 
-- [ ] **Step 1: Create the templates directory**
+- [x] **Step 1: Create the templates directory**
 
 Ensure `epocha/apps/demography/templates/` exists as a directory.
 
-- [ ] **Step 2: Author `pre_industrial_christian.json`**
+- [x] **Step 2: Author `pre_industrial_christian.json`**
 
 Use the parameter values from the spec §Demography Template Schema. Fill in the full JSON structure, marking each numerical parameter as a seed value (the actual calibration is deferred to Plan 4). Example:
 
@@ -1170,7 +1174,7 @@ Use the parameter values from the spec §Demography Template Schema. Fill in the
 }
 ```
 
-- [ ] **Step 3: Author `pre_industrial_islamic.json`**
+- [x] **Step 3: Author `pre_industrial_islamic.json`**
 
 Copy `pre_industrial_christian.json` and change:
 - `economic_inheritance.rule`: `"shari'a"`
@@ -1178,15 +1182,15 @@ Copy `pre_industrial_christian.json` and change:
 - `couple.marriage_market_type`: `"arranged"`
 - `couple.divorce_enabled`: `true` (classical Islamic jurisprudence permits talaq; documented in the spec FAQ)
 
-- [ ] **Step 4: Author `industrial.json`**
+- [x] **Step 4: Author `industrial.json`**
 
 Update values per the spec: HP industrial parameters (A 0.00223, B 0.022, ...), Hadwiger H 4.0 R 27 T 0.38, `social_inheritance.class_rule = "clark_regression"`, `economic_inheritance.rule = "equal_split"`, `economic_inheritance.estate_tax_rate = 0.15`, `couple.divorce_enabled = true`, `couple.marriage_market_radius = "adjacent_zones"`, `fertility_agency = "biological"` (transition era keeps biological default).
 
-- [ ] **Step 5: Author `modern_democracy.json`**
+- [x] **Step 5: Author `modern_democracy.json`**
 
 HP modern parameters, Hadwiger H 1.8, `fertility_agency = "planned"`, `estate_tax_rate = 0.40`, `marriage_market_radius = "world"`, `class_rule = "becker_tomes_elasticity_0.4"`, `adulthood_age = 18`.
 
-- [ ] **Step 6: Author `sci_fi.json`**
+- [x] **Step 6: Author `sci_fi.json`**
 
 HP sci_fi parameters, Hadwiger H 2.1, `fertility_agency = "planned"`, `class_rule = "meritocratic"`. Mark the template with `_note: "speculative parameters; no empirical basis"` at the top level.
 
@@ -1197,7 +1201,7 @@ HP sci_fi parameters, Hadwiger H 2.1, `fertility_agency = "planned"`, `class_rul
 **Files:**
 - Create: `epocha/apps/demography/tests/test_template_loader.py`
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 ```python
 """Tests for the demography template loader."""
@@ -1276,12 +1280,12 @@ def _minimal_template() -> dict:
     }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/apps/demography/tests/test_template_loader.py -v`
 Expected: 5 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```
 feat(demography): add template loader with schema validation
@@ -1301,7 +1305,7 @@ Numerical values are seed values pending Plan 4 calibration.
 **Files:**
 - Create: `epocha/apps/demography/context.py`
 
-- [ ] **Step 1: Create the context module with the first helper**
+- [x] **Step 1: Create the context module with the first helper**
 
 ```python
 """Context helpers bridging demography with the economy subsystem.
@@ -1344,7 +1348,7 @@ def compute_subsistence_threshold(simulation, zone) -> float:
 **Files:**
 - Modify: `epocha/apps/demography/context.py`
 
-- [ ] **Step 1: Append the outlook helper**
+- [x] **Step 1: Append the outlook helper**
 
 ```python
 def compute_aggregate_outlook(agent) -> float:
@@ -1384,7 +1388,7 @@ def compute_aggregate_outlook(agent) -> float:
 **Files:**
 - Create: `epocha/apps/demography/tests/test_context.py`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 Tests must cover:
 - `compute_subsistence_threshold` returns 0.0 when no ZoneEconomy exists
@@ -1395,12 +1399,12 @@ Tests must cover:
 
 Use the fixture pattern from `test_models.py` to build the minimum state (simulation, world, zone, optional Government and BankingState, essentials GoodCategory with base_price).
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/apps/demography/tests/test_context.py -v`
 Expected: 5 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```
 feat(demography): add integration context helpers
@@ -1420,7 +1424,7 @@ during the spec's adversarial audit.
 **Files:**
 - Create: `epocha/apps/demography/mortality.py`
 
-- [ ] **Step 1: Create the mortality module**
+- [x] **Step 1: Create the mortality module**
 
 ```python
 """Heligman-Pollard mortality model with per-era calibration.
@@ -1495,7 +1499,7 @@ def tick_mortality_probability(
 **Files:**
 - Modify: `epocha/apps/demography/mortality.py`
 
-- [ ] **Step 1: Append the cause attribution function**
+- [x] **Step 1: Append the cause attribution function**
 
 ```python
 def sample_death_cause(
@@ -1531,7 +1535,7 @@ def sample_death_cause(
 **Files:**
 - Modify: `epocha/apps/demography/mortality.py`
 
-- [ ] **Step 1: Append the fitting function**
+- [x] **Step 1: Append the fitting function**
 
 ```python
 def fit_heligman_pollard(
@@ -1588,7 +1592,7 @@ def fit_heligman_pollard(
 **Files:**
 - Create: `epocha/apps/demography/tests/test_mortality.py`
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Tests must cover:
 - `annual_mortality_probability` returns finite values for ages 0, 1, 25, 50, 80 with sample HP params
@@ -1601,7 +1605,7 @@ Tests must cover:
 
 Use a fixed `random.Random(seed)` for deterministic tests.
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/apps/demography/tests/test_mortality.py::test_annual_probability -v` and similar.
 Expected: all pass.
@@ -1613,7 +1617,7 @@ Expected: all pass.
 **Files:**
 - Modify: `epocha/apps/demography/tests/test_mortality.py`
 
-- [ ] **Step 1: Append fitting tests**
+- [x] **Step 1: Append fitting tests**
 
 Tests must cover:
 - `fit_heligman_pollard` recovers synthetic parameters within relative tolerance 5% when given clean synthetic `q(x)` produced by `annual_mortality_probability`
@@ -1622,12 +1626,12 @@ Tests must cover:
 
 Generate the synthetic data using a known-good parameter set (e.g., the spec `pre_industrial` seed values), evaluate `annual_mortality_probability` at ages 0..80, perturb slightly, and verify the fit recovers the parameters.
 
-- [ ] **Step 2: Run all mortality tests together**
+- [x] **Step 2: Run all mortality tests together**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/apps/demography/tests/test_mortality.py -v`
 Expected: all tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```
 feat(demography): add Heligman-Pollard mortality and fitting
@@ -1646,17 +1650,17 @@ cause-label distributions across age groups.
 
 **Files:** (no new files; verification and PR)
 
-- [ ] **Step 1: Run the full project test suite**
+- [x] **Step 1: Run the full project test suite**
 
 Run: `docker compose -f docker-compose.local.yml exec web pytest epocha/ -q --tb=short`
 Expected: all tests pass (Economy 252, new demography tests, agents, simulation, chat/tasks infrastructural tests may still fail with Redis issues unrelated to this plan).
 
-- [ ] **Step 2: Verify migrations are clean on a fresh DB**
+- [x] **Step 2: Verify migrations are clean on a fresh DB**
 
 Run: `docker compose -f docker-compose.local.yml exec web python manage.py migrate --plan | tail -30`
 Expected: no pending migrations after `migrate`.
 
-- [ ] **Step 3: Push branch and open draft PR to develop**
+- [x] **Step 3: Push branch and open draft PR to develop**
 
 ```
 git push -u origin feature/demography-1-foundations
@@ -1675,21 +1679,21 @@ gh pr create --draft --base develop --title "Demography Plan 1: foundations + mo
 `docs/superpowers/specs/2026-04-18-demography-design-it.md` (CONVERGED after 4 audit rounds)
 
 ## Test Plan
-- [ ] All models tests pass (6)
-- [ ] RNG reproducibility tests pass (5)
-- [ ] Template loader tests pass (5)
-- [ ] Context helpers tests pass (5)
-- [ ] Mortality + HP fit tests pass (~10)
-- [ ] Economy regression tests pass (252)
-- [ ] Migrations clean on fresh DB
+- [x] All models tests pass (6)
+- [x] RNG reproducibility tests pass (5)
+- [x] Template loader tests pass (5)
+- [x] Context helpers tests pass (5)
+- [x] Mortality + HP fit tests pass (~10)
+- [x] Economy regression tests pass (252)
+- [x] Migrations clean on fresh DB
 EOF
 )"
 ```
 
-- [ ] **Step 4: When CI is green and human validation happens, merge to develop**
+- [x] **Step 4: When CI is green and human validation happens, merge to develop**
 
 Merge strategy: `--no-ff` to preserve the plan-level milestone in the main history. Sync memory backup after merge.
 
-- [ ] **Step 5: Final commit for closing checklist**
+- [x] **Step 5: Final commit for closing checklist**
 
 If any small fixes arose from PR review, land them as final commits before merge.
