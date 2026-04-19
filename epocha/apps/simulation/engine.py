@@ -295,9 +295,16 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
                         template.get("fertility_agency"),
                     )
             except FileNotFoundError:
-                # Template not found; call set_avoid_conception_flag anyway
-                # as a safe default (planned-agency assumption in absence of template).
-                set_avoid_conception_flag(agent)
+                # Fix for audit finding B2-05: refuse to silently mutate
+                # fertility state when the template is missing. Defaulting
+                # to planned would make any template typo invisible and
+                # produce wrong fertility behavior across the simulation.
+                # The correct response is to log and skip.
+                logger.warning(
+                    "avoid_conception ignored for %s: demography template %r not found",
+                    agent.name,
+                    template_name,
+                )
         except Exception:
             logger.exception("avoid_conception handler failed for %s", agent.name)
 

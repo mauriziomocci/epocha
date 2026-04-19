@@ -12,9 +12,11 @@ Sources:
 """
 from __future__ import annotations
 
-from typing import Iterable
+import logging
 
 from django.db.models import Q
+
+logger = logging.getLogger(__name__)
 
 
 def _ordered_pair(agent_a, agent_b) -> tuple:
@@ -180,18 +182,29 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
     with __contains then parses each match via json.loads to extract the
     action and payload. The resolver:
     1. Collects pair_bond DecisionLog entries from tick - 1.
-    2. Builds a graph of directed intents (proposer -> target agent id).
+    2. Two-pass intent ingestion to satisfy Goode (1963) arranged-marriage
+       semantics (fix for audit finding B2-06):
+       - Pass A: direct intents where the proposer is the DecisionLog
+         author. These represent the agent acting on her own behalf.
+       - Pass B: `for_child` payloads where a parent proposes on behalf
+         of a child. These are recorded ONLY when the child has not
+         already expressed a direct intent in Pass A, so parental
+         initiative cannot override the child's own choice.
     3. Forms a couple when both ends of an edge pair_bonded each other,
        or when the era template sets implicit_mutual_consent=True.
     4. Skips pairs where either agent is already in an active couple.
-    5. Handles arranged marriage: when the payload contains for_child,
-       the intent is reattributed to the named child toward the match.
+    5. Resolution is wrapped in a transaction and uses deterministic
+       (sorted) iteration so two runs with the same seed produce the
+       same matching (fix for audit finding B2-03).
+    6. Malformed DecisionLog JSON is logged at WARNING level instead of
+       being silently skipped (fix for audit finding B2-02).
 
     Sources:
     - Tick+1 settlement pattern from Economy Spec 2 Plan 3b (property market).
     - Arranged marriage reattribution follows Goode (1963) §7.
     """
     import json
+    from django.db import transaction
     from epocha.apps.agents.models import Agent, DecisionLog
     from epocha.apps.demography.template_loader import load_template
 
@@ -205,71 +218,101 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
         simulation=simulation,
         tick=tick - 1,
         output_decision__contains='"pair_bond"',
-    ).select_related("agent")
+    ).select_related("agent").order_by("agent_id", "id")
 
-    intents: dict[int, set[int]] = {}
+    direct_intents: dict[int, list[int]] = {}
+    arranged_intents: list[tuple[int, int]] = []
     by_id: dict[int, Agent] = {}
 
+    def _resolve_agent_by_name(name: str) -> Agent | None:
+        if not name:
+            return None
+        return Agent.objects.filter(
+            simulation=simulation, name=name, is_alive=True,
+        ).first()
+
+    def _add_direct(proposer: Agent, match_id: int) -> None:
+        by_id[proposer.id] = proposer
+        bucket = direct_intents.setdefault(proposer.id, [])
+        if match_id not in bucket:
+            bucket.append(match_id)
+
+    # Pass A: direct and arranged-marriage intents.
     for entry in entries:
         try:
             decision = json.loads(entry.output_decision)
         except (json.JSONDecodeError, TypeError):
+            logger.warning(
+                "pair_bond intent dropped: malformed JSON for DecisionLog id=%d",
+                entry.id,
+            )
             continue
         if decision.get("action") != "pair_bond":
             continue
-        proposer = entry.agent
-        # Arranged marriage: extract child from payload and reattribute intent
         target_payload = decision.get("target")
-        match_name: str | None = None
-        if isinstance(target_payload, dict):
+        if isinstance(target_payload, dict) and target_payload.get("for_child"):
+            # Arranged marriage: record for Pass B, not applied yet
             child_name = target_payload.get("for_child")
-            if child_name:
-                child = Agent.objects.filter(
-                    simulation=simulation, name=child_name, is_alive=True,
-                ).first()
-                if child is None:
-                    continue
-                proposer = child
+            match_name = target_payload.get("match")
+            child = _resolve_agent_by_name(child_name) if isinstance(child_name, str) else None
+            match = _resolve_agent_by_name(match_name) if isinstance(match_name, str) else None
+            if child is None or match is None:
+                continue
+            by_id[child.id] = child
+            arranged_intents.append((child.id, match.id))
+            continue
+        if isinstance(target_payload, dict):
             match_name = target_payload.get("match")
         elif isinstance(target_payload, str):
             match_name = target_payload
-        if not match_name:
+        else:
             continue
-        match = Agent.objects.filter(
-            simulation=simulation, name=match_name, is_alive=True,
-        ).first()
+        match = _resolve_agent_by_name(match_name) if isinstance(match_name, str) else None
         if match is None:
             continue
-        by_id[proposer.id] = proposer
-        intents.setdefault(proposer.id, set()).add(match.id)
+        _add_direct(entry.agent, match.id)
+
+    # Pass B: arranged intents applied ONLY when the child has no direct intent.
+    # Deterministic order by (child_id, match_id).
+    for child_id, match_id in sorted(arranged_intents):
+        if child_id in direct_intents:
+            continue
+        child = by_id.get(child_id)
+        if child is None:
+            continue
+        _add_direct(child, match_id)
 
     formed: list = []
     used: set[int] = set()
-    for proposer_id, targets in intents.items():
-        if proposer_id in used:
-            continue
-        proposer = by_id[proposer_id]
-        if is_in_active_couple(proposer):
-            continue
-        for target_id in targets:
-            if target_id in used:
+    with transaction.atomic():
+        # Deterministic iteration (fix B2-03): sort by proposer id
+        for proposer_id in sorted(direct_intents):
+            if proposer_id in used:
                 continue
-            target = Agent.objects.filter(id=target_id, is_alive=True).first()
-            if target is None or is_in_active_couple(target):
+            proposer = by_id[proposer_id]
+            if is_in_active_couple(proposer):
                 continue
-            mutual = proposer_id in intents.get(target_id, set())
-            if not mutual and not implicit_consent:
-                continue
-            couple = form_couple(
-                proposer,
-                target,
-                formed_at_tick=tick,
-                couple_type=couple_cfg.get("default_type", "monogamous"),
-            )
-            formed.append(couple)
-            used.add(proposer_id)
-            used.add(target_id)
-            break
+            for target_id in direct_intents[proposer_id]:
+                if target_id in used:
+                    continue
+                target = Agent.objects.filter(id=target_id, is_alive=True).first()
+                if target is None or is_in_active_couple(target):
+                    continue
+                mutual = target_id in direct_intents and proposer_id in direct_intents.get(
+                    target_id, []
+                )
+                if not mutual and not implicit_consent:
+                    continue
+                couple = form_couple(
+                    proposer,
+                    target,
+                    formed_at_tick=tick,
+                    couple_type=couple_cfg.get("default_type", "monogamous"),
+                )
+                formed.append(couple)
+                used.add(proposer_id)
+                used.add(target_id)
+                break
     return formed
 
 
@@ -303,6 +346,13 @@ def resolve_separate_intents(simulation, tick: int) -> list["Couple"]:
         try:
             decision = json.loads(entry.output_decision)
         except (json.JSONDecodeError, TypeError):
+            # Fix for audit finding B2-02: malformed JSON should be logged,
+            # not silently dropped. A dropped separate intent would leave a
+            # couple active that was supposed to dissolve, a subtle bug.
+            logger.warning(
+                "separate intent dropped: malformed JSON for DecisionLog id=%d",
+                entry.id,
+            )
             continue
         if decision.get("action") != "separate":
             continue

@@ -155,6 +155,7 @@ def tick_birth_probability(
     current_pop: int,
     tick_duration_hours: float,
     demography_acceleration: float = 1.0,
+    current_tick: int | None = None,
 ) -> float:
     """Compute the per-tick birth probability for a female agent.
 
@@ -163,22 +164,34 @@ def tick_birth_probability(
     couple (if required by the era) or when avoid_conception is flagged
     for the current tick.
 
+    Callers SHOULD pass `current_tick` explicitly (the authoritative tick
+    from the simulation engine) to avoid reading a stale cached value off
+    the agent's FK (see audit finding B2-04). When omitted, the helper
+    queries the Simulation table for the current tick on every age
+    computation, which is correct but incurs an extra query per call.
+
     Scales the annual rate to a single tick using the linear
     approximation for small annual rates (typical for fertility).
     """
-    from epocha.apps.demography.models import AgentFertilityState  # noqa: F401
     from epocha.apps.demography.couple import is_in_active_couple
+    from epocha.apps.demography.models import AgentFertilityState  # noqa: F401
+    from epocha.apps.simulation.models import Simulation
+
+    if current_tick is None:
+        current_tick = (
+            Simulation.objects.only("current_tick").get(pk=mother.simulation_id).current_tick
+        )
 
     fertility_cfg = params_era["fertility"]
     require_couple = bool(fertility_cfg.get("require_couple_for_birth", True))
     if require_couple and not is_in_active_couple(mother):
         return 0.0
-    if is_avoid_conception_active_this_tick(mother):
+    if is_avoid_conception_active_this_tick(mother, current_tick=current_tick):
         return 0.0
 
     hadwiger_params = fertility_cfg["hadwiger"]
     annual_asfr = hadwiger_asfr(_effective_age_in_years(
-        mother, tick_duration_hours, demography_acceleration,
+        mother, tick_duration_hours, demography_acceleration, current_tick=current_tick,
     ), hadwiger_params)
     if annual_asfr <= 0.0:
         return 0.0
@@ -198,11 +211,26 @@ def _effective_age_in_years(
     agent,
     tick_duration_hours: float,
     demography_acceleration: float,
+    current_tick: int | None = None,
 ) -> float:
-    """Compute the agent's age in years using birth_tick as canonical source."""
+    """Compute the agent's age in years using birth_tick as canonical source.
+
+    Callers should pass `current_tick` explicitly when available (the
+    authoritative tick from the simulation engine), so this helper does
+    not depend on the freshness of the cached FK object `agent.simulation`
+    (fix for audit finding B2-04).
+    """
+    from epocha.apps.simulation.models import Simulation
+
     if agent.birth_tick is None:
         return float(agent.age or 0)
-    current_tick = agent.simulation.current_tick if agent.simulation else 0
+    if current_tick is None:
+        if agent.simulation_id is None:
+            current_tick = 0
+        else:
+            current_tick = (
+                Simulation.objects.only("current_tick").get(pk=agent.simulation_id).current_tick
+            )
     ticks_per_year = 8760.0 / tick_duration_hours
     return (current_tick - agent.birth_tick) / max(1e-9, ticks_per_year) * demography_acceleration
 
@@ -216,22 +244,36 @@ def set_avoid_conception_flag(agent) -> None:
 
     The fertility check at tick+1 reads this flag. Tick+1 settlement
     matches the property market pattern from Economy Spec 2.
+
+    The current tick is taken from the simulation table (authoritative
+    source) rather than from the cached FK object on `agent`, so a stale
+    cached `agent.simulation` cannot produce a wrong flag value under
+    concurrent tick advancement.
     """
     from epocha.apps.demography.models import AgentFertilityState
+    from epocha.apps.simulation.models import Simulation
 
-    tick = agent.simulation.current_tick
+    tick = Simulation.objects.only("current_tick").get(pk=agent.simulation_id).current_tick
     state, _ = AgentFertilityState.objects.get_or_create(agent=agent)
     state.avoid_conception_flag_tick = tick
     state.save(update_fields=["avoid_conception_flag_tick"])
 
 
-def is_avoid_conception_active_this_tick(agent) -> bool:
+def is_avoid_conception_active_this_tick(agent, current_tick: int | None = None) -> bool:
     """True when the agent flagged avoid_conception at the previous tick.
 
     Reading the flag set at tick T - 1 during tick T makes avoid_conception
     a tick+1-settled action, consistent with property-market semantics.
+
+    Callers MUST pass `current_tick` explicitly when they have it, so the
+    result does not depend on the freshness of the cached FK object
+    `agent.simulation`. The fallback path reads the authoritative current
+    tick from the Simulation table (fix for audit finding B2-04). Relying
+    on `agent.simulation.current_tick` directly is vulnerable to Django's
+    FK caching and has produced wrong results in the Celery chord path.
     """
     from epocha.apps.demography.models import AgentFertilityState
+    from epocha.apps.simulation.models import Simulation
 
     try:
         state = agent.fertility_state
@@ -239,7 +281,11 @@ def is_avoid_conception_active_this_tick(agent) -> bool:
         return False
     if state.avoid_conception_flag_tick is None:
         return False
-    return state.avoid_conception_flag_tick == agent.simulation.current_tick - 1
+    if current_tick is None:
+        current_tick = (
+            Simulation.objects.only("current_tick").get(pk=agent.simulation_id).current_tick
+        )
+    return state.avoid_conception_flag_tick == current_tick - 1
 
 
 # ---------------------------------------------------------------------------
