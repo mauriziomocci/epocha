@@ -1,4 +1,5 @@
-- [FULL CONTEXT](project_full_context.md) -- READ THIS FIRST: complete project state, what was built, what's next
+- [SESSION RESUME 2026-04-20](project_session_resume_2026_04_20.md) -- READ FIRST: riepilogo sessione precedente + prossimi step obbligati (README + whitepaper prima di Plan 3)
+- [FULL CONTEXT](project_full_context.md) -- complete project state (parziale/obsoleto, priorita' al session resume)
 - [Italian language](feedback_italian_language.md) -- Comunicare in italiano, codice in inglese
 - [Scientific rigor priority](feedback_scientific_rigor_priority.md) -- Ogni design privilegia il massimo rigore scientifico
 - [Optimization always priority](feedback_optimization_priority.md) -- Ottimizzazione non negoziabile fin da subito, mai "dopo"
