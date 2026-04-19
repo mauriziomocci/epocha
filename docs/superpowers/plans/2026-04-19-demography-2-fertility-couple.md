@@ -681,53 +681,74 @@ def form_couple(
 
 The intent is stored in `DecisionLog` via the existing `apply_agent_action` pipeline; no new model is required. The resolver reads the previous tick's log and forms couples for mutually consenting pairs.
 
+**DecisionLog actual schema** (verified in `epocha/apps/agents/models.py:217`): the model has ONLY `output_decision = TextField` containing the full JSON blob from the LLM. There are no separate `action`, `target`, or `target_payload` columns. The resolver parses the JSON via `json.loads()` and reads the `action` key from the decoded dict. This matches the pattern used by Economy Spec 2 Plan 3b for `hoard` / `buy_property` intents. Pre-filter via `output_decision__contains='"pair_bond"'` for a fast substring scan, then JSON-parse only the matches for correctness.
+
 ```python
 def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
     """Process pair_bond intents from tick - 1, form couples where mutual.
 
-    Returns the list of newly formed Couples. The resolver:
-    1. Collects all pair_bond DecisionLog entries from tick - 1.
-    2. Builds a graph of directed intents (proposer -> target).
-    3. Forms a couple when both ends of an edge pair_bonded each other
-       (explicit mutual consent), OR when the era template sets
-       implicit_mutual_consent and only one side proposed.
+    Reads DecisionLog.output_decision (TextField, JSON blob). Pre-filters
+    with __contains then parses each match via json.loads to extract the
+    action and payload. The resolver:
+    1. Collects pair_bond DecisionLog entries from tick - 1.
+    2. Builds a graph of directed intents (proposer -> target agent id).
+    3. Forms a couple when both ends of an edge pair_bonded each other,
+       or when the era template sets implicit_mutual_consent=True.
     4. Skips pairs where either agent is already in an active couple.
-    5. Handles arranged-marriage payloads: when a parent proposes on
-       behalf of a child via {"for_child": ..., "match": ...}, the
-       intent is treated as originating from the child toward the
-       match. Mutual consent rules still apply.
+    5. Handles arranged marriage: when the payload contains for_child,
+       the intent is reattributed to the named child toward the match.
     """
     import json
     from epocha.apps.agents.models import Agent, DecisionLog
     from epocha.apps.demography.template_loader import load_template
 
-    template = load_template(simulation.config.get("demography_template", "pre_industrial_christian"))
+    sim_config = simulation.config or {}
+    template_name = sim_config.get("demography_template", "pre_industrial_christian")
+    template = load_template(template_name)
     couple_cfg = template["couple"]
     implicit_consent = bool(couple_cfg.get("implicit_mutual_consent", True))
 
     entries = DecisionLog.objects.filter(
-        simulation=simulation, tick=tick - 1, action="pair_bond",
+        simulation=simulation,
+        tick=tick - 1,
+        output_decision__contains='"pair_bond"',
     ).select_related("agent")
 
     intents: dict[int, set[int]] = {}
     by_id: dict[int, Agent] = {}
 
     for entry in entries:
-        proposer = entry.agent
-        target_id = _resolve_pair_bond_target(entry, simulation)
-        if target_id is None:
+        try:
+            decision = json.loads(entry.output_decision)
+        except (json.JSONDecodeError, TypeError):
             continue
-        # Arranged marriage: treat proposer as the child named in payload
-        if isinstance(entry.target_payload, dict) and "for_child" in entry.target_payload:
-            child_name = entry.target_payload["for_child"]
-            child = Agent.objects.filter(
-                simulation=simulation, name=child_name, is_alive=True,
-            ).first()
-            if child is None:
-                continue
-            proposer = child
+        if decision.get("action") != "pair_bond":
+            continue
+        proposer = entry.agent
+        # Arranged marriage: extract child from payload and reattribute intent
+        target_payload = decision.get("target")
+        match_name: str | None = None
+        if isinstance(target_payload, dict):
+            child_name = target_payload.get("for_child")
+            if child_name:
+                child = Agent.objects.filter(
+                    simulation=simulation, name=child_name, is_alive=True,
+                ).first()
+                if child is None:
+                    continue
+                proposer = child
+            match_name = target_payload.get("match")
+        elif isinstance(target_payload, str):
+            match_name = target_payload
+        if not match_name:
+            continue
+        match = Agent.objects.filter(
+            simulation=simulation, name=match_name, is_alive=True,
+        ).first()
+        if match is None:
+            continue
         by_id[proposer.id] = proposer
-        intents.setdefault(proposer.id, set()).add(target_id)
+        intents.setdefault(proposer.id, set()).add(match.id)
 
     formed: list = []
     used: set[int] = set()
@@ -757,25 +778,7 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
             used.add(target_id)
             break
     return formed
-
-
-def _resolve_pair_bond_target(entry, simulation) -> int | None:
-    """Extract a target agent id from a pair_bond DecisionLog entry."""
-    from epocha.apps.agents.models import Agent
-
-    payload = entry.target_payload or {}
-    target_name = payload.get("match") if isinstance(payload, dict) else None
-    if not target_name:
-        target_name = entry.target if isinstance(entry.target, str) else None
-    if not target_name:
-        return None
-    match = Agent.objects.filter(
-        simulation=simulation, name=target_name, is_alive=True,
-    ).first()
-    return match.id if match else None
 ```
-
-**Implementer note**: this task assumes `DecisionLog` exposes the fields `action` and `target_payload` and `target`. If the current model uses different names, escalate to Opus for clarification before adapting.
 
 ---
 
@@ -790,23 +793,36 @@ def _resolve_pair_bond_target(entry, simulation) -> int | None:
 def resolve_separate_intents(simulation, tick: int) -> list["Couple"]:
     """Process separate intents from tick - 1, dissolve active couples.
 
-    Skips if the era template has divorce_enabled=False.
+    Reads DecisionLog.output_decision (JSON blob) with __contains pre-filter
+    and json.loads verification, same pattern as resolve_pair_bond_intents.
 
+    Skips entirely when the era template has divorce_enabled=False.
     Returns the list of dissolved Couples.
     """
+    import json
     from epocha.apps.agents.models import DecisionLog
     from epocha.apps.demography.template_loader import load_template
 
-    template = load_template(simulation.config.get("demography_template", "pre_industrial_christian"))
+    sim_config = simulation.config or {}
+    template_name = sim_config.get("demography_template", "pre_industrial_christian")
+    template = load_template(template_name)
     if not bool(template["couple"].get("divorce_enabled", False)):
         return []
 
     entries = DecisionLog.objects.filter(
-        simulation=simulation, tick=tick - 1, action="separate",
+        simulation=simulation,
+        tick=tick - 1,
+        output_decision__contains='"separate"',
     ).select_related("agent")
 
     dissolved: list = []
     for entry in entries:
+        try:
+            decision = json.loads(entry.output_decision)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if decision.get("action") != "separate":
+            continue
         couple = active_couple_for(entry.agent)
         if couple is None:
             continue
@@ -958,10 +974,14 @@ Read the era template via `demography.template_loader.load_template(name)` using
 
 - [ ] **Step 1: Dispatch the three actions**
 
-Add handlers that:
-- `pair_bond`: write a `DecisionLog` entry with `action="pair_bond"` and the target payload. No immediate state change; Task 11 resolver handles it at tick + 1.
-- `separate`: same pattern; Task 12 resolver handles it.
-- `avoid_conception`: call `demography.fertility.set_avoid_conception_flag(agent)`. Only valid when the era permits it; otherwise silently ignored.
+**DecisionLog contract**: `DecisionLog.output_decision` is a TextField containing `json.dumps(action_dict)` where `action_dict` has the shape `{"action": "...", "target": ..., "reason": ...}`. The existing `apply_agent_action` in `simulation/engine.py` already writes the log entry with the LLM's decision; per-action handlers run AFTER the log is written and perform side effects specific to the action. For `pair_bond` and `separate` the side effect is *nothing at this tick* — the resolvers in Tasks 11 and 12 read the log at tick + 1. For `avoid_conception` the side effect is immediate: set the fertility-state flag.
+
+Implementation:
+- `pair_bond`: no handler body beyond the existing `DecisionLog` write. Task 11 resolver picks up the intent at tick + 1 by scanning `output_decision__contains='"pair_bond"'` and parsing JSON to extract the `target` payload.
+- `separate`: same pattern. Task 12 resolver at tick + 1.
+- `avoid_conception`: import and call `demography.fertility.set_avoid_conception_flag(agent)`. Guard with an era check — if the era template has `fertility_agency != "planned"`, log a warning and skip the flag mutation.
+
+The target payload for arranged marriage is an object `{"for_child": "<child_name>", "match": "<other_name>"}` rather than a plain string. The LLM is instructed to emit this shape via the system-prompt extension in Task 16; the resolver in Task 11 handles both shapes (string target vs object target with `for_child`).
 
 ---
 
@@ -1044,18 +1064,24 @@ Mood deltas and emotional weights calibrated per spec Section 8
 **Files:**
 - Create: `epocha/apps/demography/tests/test_integration_plan2.py`
 
-- [ ] **Step 1: Write the integration test**
+- [ ] **Step 1: Write the integration test (deterministic)**
 
-Scenario:
-1. Create a simulation with demography_template="modern_democracy" (fertility_agency="planned", divorce_enabled=true)
-2. Create two adult female agents (A, B) and two adult male agents (C, D) with deterministic IDs
-3. Tick T: A pair_bonds C, C pair_bonds A → expect Couple(A, C) at tick T+1
-4. Tick T+1: verify Couple exists, verify is_in_active_couple(A) and is_in_active_couple(C)
-5. Tick T+2: A invokes avoid_conception
-6. Tick T+3: inject a high ASFR condition and verify the birth does NOT fire because of the tick+2 flag (flag tick == current_tick - 1 only at tick T+3)
-7. Tick T+4: A does not invoke avoid_conception; verify tick_birth_probability > 0
-8. Tick T+5: A invokes separate
-9. Tick T+6: verify Couple is dissolved, is_in_active_couple(A) is False, A re-enters the pool
+The test asserts state transitions, NOT stochastic outcomes. It does not actually sample births — it asserts that `tick_birth_probability` is zero when expected (avoid_conception active, no couple, or outside fertile window) and non-zero otherwise. This keeps the test deterministic and independent of the RNG stream.
+
+Scenario (using `demography_template="modern_democracy"` which has `fertility_agency="planned"` and `divorce_enabled=true`):
+
+1. Create the simulation + world + zone. Populate `ZoneEconomy`, `GoodCategory` (at least one essential), and a `Government` so `compute_subsistence_threshold` and `compute_aggregate_outlook` return finite values.
+2. Create four adult agents with deterministic creation order so their PKs are monotonic: female A, female B, male C, male D. All in the fertile age window; set `education_level`, `wealth`, `mood` to plausible values.
+3. Create `DecisionLog` entries at tick T simulating `apply_agent_action` output — for A: `output_decision=json.dumps({"action": "pair_bond", "target": "C", "reason": "..."})`; mirror entry from C toward A for explicit mutual consent.
+4. Advance `simulation.current_tick = T + 1` and call `resolve_pair_bond_intents(simulation, tick=T+1, rng=...)`. Assert exactly one Couple formed with `(A, C)` (or `(C, A)` after canonical ordering).
+5. Assert `is_in_active_couple(A) is True` and `is_in_active_couple(C) is True`.
+6. At tick `T + 2`, call `set_avoid_conception_flag(A)` (simulating the action handler). Assert `AgentFertilityState` row for A has `avoid_conception_flag_tick == T + 2`.
+7. Advance `simulation.current_tick = T + 3`. Call `tick_birth_probability(A, template, ...)`. Assert return is `0.0` because `is_avoid_conception_active_this_tick(A)` is True (`flag_tick == T+2 == current_tick - 1`).
+8. Advance `simulation.current_tick = T + 4`. Assert `tick_birth_probability(A, template, ...) > 0.0` — the flag is now stale (`flag_tick != current_tick - 1`), A is in an active couple, and A is in the fertile window.
+9. Create `DecisionLog` entry at tick `T + 4` for A: `output_decision=json.dumps({"action": "separate", ...})`. Advance to tick `T + 5` and call `resolve_separate_intents(simulation, tick=T+5)`. Assert the Couple is dissolved (`dissolved_at_tick == T+5`, `dissolution_reason == "separate"`).
+10. Assert `is_in_active_couple(A) is False` and that A can be paired again by a subsequent `resolve_pair_bond_intents` call.
+
+This flow exercises every moving piece of Plan 2 without relying on any single probabilistic draw to go a specific way. All stochastic logic (Becker modulation, Malthusian ceiling) is exercised indirectly through the `tick_birth_probability > 0` assertion which is a property, not an event.
 
 - [ ] **Step 2: Run the test**
 
