@@ -1,0 +1,80 @@
+{
+  "acceleration": 1.0,
+  "max_population": 500,
+  "fertility_agency": "biological",
+  "mortality": {
+    "heligman_pollard": {
+      "A": 0.00491, "B": 0.017, "C": 0.102,
+      "D": 0.00080, "E": 9.9, "F": 22.4,
+      "G": 0.0000383, "H": 1.101
+    },
+    "maternal_mortality_rate_per_birth": 0.008,
+    "neonatal_survival_when_mother_dies": 0.3
+  },
+  "fertility": {
+    "hadwiger": {"H": 5.0, "R": 26, "T": 0.35},
+    "becker_coefficients": {
+      "beta_0": 0.0, "beta_1": 0.1, "beta_2": -0.05,
+      "beta_3": -0.1, "beta_4": 0.2
+    },
+    "require_couple_for_birth": true,
+    "malthusian_floor_ratio": 0.1
+  },
+  "age_pyramid": [
+    [0, 5, 0.15], [5, 10, 0.12], [10, 15, 0.11],
+    [15, 20, 0.10], [20, 25, 0.09], [25, 30, 0.08],
+    [30, 35, 0.07], [35, 40, 0.06], [40, 45, 0.05],
+    [45, 50, 0.05], [50, 55, 0.04], [55, 60, 0.03],
+    [60, 65, 0.02], [65, 70, 0.015], [70, 75, 0.01],
+    [75, 80, 0.005]
+  ],
+  "sex_ratio_at_birth": 1.05,
+  "sexual_orientation_distribution": {
+    "heterosexual": 0.955, "bisexual": 0.030, "homosexual": 0.015
+  },
+  "couple": {
+    "min_marriage_age_male": 16,
+    "min_marriage_age_female": 14,
+    "allowed_types": ["monogamous", "arranged"],
+    "default_type": "monogamous",
+    "divorce_enabled": false,
+    "marriage_market_type": "autonomous",
+    "marriage_market_radius": "same_zone",
+    "implicit_mutual_consent": true,
+    "mourning_ticks": 365,
+    "homogamy_weights": {
+      "w_class": 0.4, "w_edu": 0.25, "w_age": 0.20, "w_relationship": 0.15
+    }
+  },
+  "trait_inheritance": {
+    "heritability": {
+      "openness": 0.41, "conscientiousness": 0.44, "extraversion": 0.54,
+      "agreeableness": 0.42, "neuroticism": 0.48,
+      "intelligence": 0.55, "emotional_intelligence": 0.40,
+      "creativity": 0.22,
+      "strength": 0.55, "stamina": 0.52, "agility": 0.45,
+      "fertility": 0.50, "mental_health_baseline": 0.40,
+      "default": 0.30
+    },
+    "derived_trait_formulas": {
+      "cunning": {
+        "description": "Computed at birth from inherited traits (not heritable itself).",
+        "formula": "0.4*(1-agreeableness) + 0.3*neuroticism + 0.3*intelligence",
+        "range": [0.0, 1.0]
+      }
+    }
+  },
+  "social_inheritance": {
+    "class_rule": "patrilineal_rigid",
+    "education_regression_rho": 0.5
+  },
+  "economic_inheritance": {
+    "rule": "primogeniture",
+    "heir_priority": ["spouse", "children", "siblings", "extended_family", "government"],
+    "estate_tax_rate": 0.0
+  },
+  "migration": {
+    "flight_trigger_ticks": 30,
+    "adulthood_age": 16
+  }
+}
