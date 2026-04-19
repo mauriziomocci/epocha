@@ -19,17 +19,88 @@ from .personality import build_personality_prompt
 
 logger = logging.getLogger(__name__)
 
-# System prompt instructing the LLM to produce a structured JSON decision.
-_DECISION_SYSTEM_PROMPT = """You are simulating a person in a world. Based on your personality,
-memories, relationships, and current situation, decide what to do next.
+# Base action vocabulary for the LLM decision prompt.
+# Era-aware actions (pair_bond, separate, avoid_conception) are appended by
+# _build_system_prompt() after filtering unavailable options for the current era.
+_BASE_ACTIONS = (
+    "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group"
+    "|crime|protest|campaign|move_to|hoard|borrow|sell_property|buy_property"
+)
 
-Respond ONLY with a JSON object:
-{
-    "action": "work|rest|socialize|explore|trade|argue|help|avoid|form_group|join_group|crime|protest|campaign|move_to|hoard|borrow|sell_property|buy_property",
-    "target": "who or what (optional)",
-    "reason": "brief internal thought"
+# Demography actions and their LLM-facing descriptions.
+# pair_bond: always available (no era restriction).
+# separate: filtered out when divorce_enabled is False for the agent's era.
+# avoid_conception: filtered out when fertility_agency != "planned".
+_DEMOGRAPHY_ACTION_DESCRIPTIONS = {
+    "pair_bond": "form a committed romantic partnership with a named person",
+    "separate": "end your current partnership and part ways",
+    "avoid_conception": "consciously choose to delay having children this season",
 }
-"""
+
+
+def _build_system_prompt(agent) -> str:
+    """Compose the full system prompt for the decision LLM, including the
+    era-filtered demography action vocabulary.
+
+    Reads the demography template attached to the agent's simulation config
+    (key: ``demography_template``) to decide which couple/fertility actions
+    are available. Falls back gracefully to all three if the template cannot
+    be loaded (e.g. economy-only simulations without demography data).
+
+    Args:
+        agent: The Agent instance making a decision this tick.
+
+    Returns:
+        The complete system prompt string: personality + base actions +
+        era-available demography actions.
+    """
+    personality_prompt = build_personality_prompt(agent.personality)
+
+    # Build the era-filtered action list.
+    available_demo_actions = list(_DEMOGRAPHY_ACTION_DESCRIPTIONS.keys())
+    try:
+        from epocha.apps.demography.template_loader import load_template
+
+        template_name = agent.simulation.config.get("demography_template", "pre_industrial_christian")
+        template = load_template(template_name)
+
+        # Remove 'separate' when the era forbids divorce.
+        if not template.get("couple", {}).get("divorce_enabled", True):
+            available_demo_actions = [a for a in available_demo_actions if a != "separate"]
+
+        # Remove 'avoid_conception' when fertility is purely biological (no agency).
+        if template.get("fertility_agency") != "planned":
+            available_demo_actions = [a for a in available_demo_actions if a != "avoid_conception"]
+
+    except Exception:
+        # Fallback: keep all three actions (legacy economy-only simulations).
+        pass
+
+    action_vocab = _BASE_ACTIONS
+    if available_demo_actions:
+        action_vocab += "|" + "|".join(available_demo_actions)
+
+    # Build the demography action description block (only for available actions).
+    demo_lines = "\n".join(
+        f'  "{action}": {desc}'
+        for action, desc in _DEMOGRAPHY_ACTION_DESCRIPTIONS.items()
+        if action in available_demo_actions
+    )
+    demo_section = f"\nDemography actions:\n{demo_lines}" if demo_lines else ""
+
+    system_prompt_body = (
+        f"You are simulating a person in a world. Based on your personality,\n"
+        f"memories, relationships, and current situation, decide what to do next.\n"
+        f"\nRespond ONLY with a JSON object:\n"
+        f'{{\n'
+        f'    "action": "{action_vocab}",\n'
+        f'    "target": "who or what (optional)",\n'
+        f'    "reason": "brief internal thought"\n'
+        f"}}"
+        f"{demo_section}"
+    )
+
+    return f"{personality_prompt}\n\n{system_prompt_body}"
 
 # Fallback action when the LLM response cannot be parsed as JSON.
 _FALLBACK_ACTION = {"action": "rest", "reason": "confused"}
@@ -271,9 +342,8 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
         political_context, reputation_context, zone_context, economic_context,
     )
 
-    # 2. Build system prompt with personality
-    personality_prompt = build_personality_prompt(agent.personality)
-    system_prompt = f"{personality_prompt}\n\n{_DECISION_SYSTEM_PROMPT}"
+    # 2. Build system prompt with personality and era-filtered action vocabulary
+    system_prompt = _build_system_prompt(agent)
 
     # 3. Call LLM (/no_think disables Qwen3 reasoning for faster responses)
     raw_response = client.complete(

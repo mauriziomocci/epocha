@@ -84,6 +84,15 @@ class Couple(models.Model):
                 ),
                 name="couple_canonical_ordering",
             ),
+            # Active couple uniqueness (fix for Plan 2 audit finding B2-01).
+            # At most one undissolved Couple per ordered pair of agents.
+            # Prevents duplicate active couples under Celery chord workers
+            # or repeated resolver invocations at the same tick.
+            models.UniqueConstraint(
+                fields=["agent_a", "agent_b"],
+                condition=Q(dissolved_at_tick__isnull=True),
+                name="unique_active_couple",
+            ),
         ]
 
     def __str__(self):

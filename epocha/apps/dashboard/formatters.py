@@ -27,6 +27,10 @@ _ACTION_VERBS: dict[str, str] = {
     "borrow": "takes out a loan",
     "sell_property": "lists property for sale",
     "buy_property": "wants to buy property",
+    # Demography actions (Plan 2).
+    "pair_bond": "formed a couple with",
+    "separate": "separated from",
+    "avoid_conception": "chose to delay having children",
 }
 
 

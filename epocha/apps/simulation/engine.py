@@ -58,6 +58,13 @@ _ACTION_EMOTIONAL_WEIGHT: dict[str, float] = {
     "borrow": 0.2,
     "sell_property": 0.3,
     "buy_property": 0.3,
+    # Demography actions (Plan 2).
+    # pair_bond weight 0.7: forming a couple is a high-salience life event.
+    # separate weight 0.8: separation is highly emotionally salient (grief, loss).
+    # avoid_conception weight 0.2: a deliberate but low-drama personal choice.
+    "pair_bond": 0.7,
+    "separate": 0.8,
+    "avoid_conception": 0.2,
 }
 _DEFAULT_EMOTIONAL_WEIGHT = 0.1
 
@@ -81,6 +88,13 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
     "borrow": -0.02,
     "sell_property": -0.01,
     "buy_property": 0.02,
+    # Demography actions (Plan 2).
+    # pair_bond +0.10: forming a couple is a positive life event (Becker 1991, utility gain from marriage).
+    # separate -0.15: separation has significant negative mood impact (well-being literature).
+    # avoid_conception -0.01: slight negative signal (unmet preference or social pressure).
+    "pair_bond": 0.10,
+    "separate": -0.15,
+    "avoid_conception": -0.01,
 }
 
 # Memory decay runs every N ticks to reduce DB writes.
@@ -246,6 +260,53 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
     # Handle buy_property: intent only, matching happens at tick+1 in
     # process_property_listings. The DecisionLog already captures the
     # action; no additional processing needed here.
+
+    # Handle pair_bond: intent registration only.
+    # Tick+1 resolution (Gale-Shapley stable matching) happens in the couple
+    # module invoked by Plan 4 initialization. The DecisionLog captures the
+    # intent; no additional mutation is required here.
+    # pair_bond targeting an unrecognised name is not an error: the couple
+    # resolver filters invalid targets at resolution time.
+
+    # Handle separate: intent registration only.
+    # Actual Couple dissolution is executed by the couple module at tick+1.
+    # The DecisionLog captures the intent; no additional mutation here.
+
+    # Handle avoid_conception: set the one-tick avoidance flag on the agent's
+    # fertility state so that tick_birth_probability returns 0.0 this tick.
+    # Guard: skip silently if the agent's era template has fertility_agency !=
+    # "planned" (flag is meaningless in biological-agency eras) or if the
+    # demography subsystem is not present (economy-only simulations).
+    if action_type == "avoid_conception":
+        try:
+            from epocha.apps.demography.template_loader import load_template
+            from epocha.apps.demography.fertility import set_avoid_conception_flag
+
+            template_name = agent.simulation.config.get("demography_template", "pre_industrial_christian")
+            try:
+                template = load_template(template_name)
+                if template.get("fertility_agency") == "planned":
+                    set_avoid_conception_flag(agent)
+                else:
+                    logger.warning(
+                        "avoid_conception action ignored for %s: era template '%s' has fertility_agency=%r",
+                        agent.name,
+                        template_name,
+                        template.get("fertility_agency"),
+                    )
+            except FileNotFoundError:
+                # Fix for audit finding B2-05: refuse to silently mutate
+                # fertility state when the template is missing. Defaulting
+                # to planned would make any template typo invisible and
+                # produce wrong fertility behavior across the simulation.
+                # The correct response is to log and skip.
+                logger.warning(
+                    "avoid_conception ignored for %s: demography template %r not found",
+                    agent.name,
+                    template_name,
+                )
+        except Exception:
+            logger.exception("avoid_conception handler failed for %s", agent.name)
 
     # Create memory of the action (skip if a duplicate of the same action type
     # was the most recent memory created within the dedup window).
