@@ -52,6 +52,7 @@ LOCAL_APPS = [
     "epocha.apps.chat",
     "epocha.apps.llm_adapter",
     "epocha.apps.dashboard",
+    "epocha.apps.demography",
     "epocha.apps.knowledge",
     "epocha.apps.economy",
 ]

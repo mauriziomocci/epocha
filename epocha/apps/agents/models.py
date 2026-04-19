@@ -70,7 +70,64 @@ class Agent(models.Model):
     )
     is_alive = models.BooleanField(default=True)
     group = models.ForeignKey("Group", null=True, blank=True, on_delete=models.SET_NULL, related_name="members")
-    parent_agent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children", help_text="Biological parent (for lineage tracking)")
+    parent_agent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="children",
+        help_text=(
+            "Biological mother by Epocha convention (ASFR is female-indexed). "
+            "Agents created before demography Plan 1 may violate this convention; "
+            "enforce only for agents born from the demography engine onwards. "
+            "See other_parent_agent for the father."
+        ),
+    )
+
+    # Demography extensions (Plan 1 of demography spec).
+    # BigIntegerField is signed: pre-existing agents whose age predates
+    # simulation start have a negative birth_tick. This keeps the canonical
+    # age source consistent with Agent.age across backfills.
+    birth_tick = models.BigIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Canonical age source; "
+            "age = (current_tick - birth_tick) / ticks_per_year. "
+            "Negative values are valid for agents older than the simulation."
+        ),
+    )
+    death_tick = models.PositiveIntegerField(null=True, blank=True)
+
+    class DeathCause(models.TextChoices):
+        NATURAL_SENESCENCE = "natural_senescence", "Natural senescence"
+        EARLY_LIFE_MORTALITY = "early_life_mortality", "Early-life mortality"
+        EXTERNAL_CAUSE = "external_cause", "External cause"
+        CHILDBIRTH = "childbirth", "Childbirth"
+        STARVATION = "starvation", "Starvation"
+        EXPROPRIATION = "expropriation", "Expropriation"
+        EXECUTED = "executed", "Executed"
+        UNKNOWN = "unknown", "Unknown"
+
+    death_cause = models.CharField(
+        max_length=30,
+        choices=DeathCause.choices,
+        blank=True,
+    )
+    other_parent_agent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="other_parent_children",
+        help_text="Second biological parent (father by Epocha convention)",
+    )
+    caretaker_agent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="dependents",
+        help_text="Active caretaker for a minor when parents are unavailable",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 

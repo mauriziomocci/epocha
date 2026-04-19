@@ -54,3 +54,4 @@ coverage.xml
 node_modules/
 .playwright-mcp/
 .superpowers/
+.claude/
