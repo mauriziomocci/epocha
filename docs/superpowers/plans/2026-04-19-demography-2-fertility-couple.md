@@ -124,9 +124,11 @@ def hadwiger_asfr(age: float, params: Mapping[str, float]) -> float:
 
 - [ ] **Step 2: Manual sanity check**
 
-Run: `docker compose -f docker-compose.local.yml exec web python -c "from epocha.apps.demography.fertility import hadwiger_asfr; print(hadwiger_asfr(26, {'H': 5.0, 'R': 26, 'T': 0.35}))"`
+Run: `docker compose -f docker-compose.local.yml exec web python -c "from epocha.apps.demography.fertility import hadwiger_asfr; print(hadwiger_asfr(26, {'H': 5.0, 'R': 26, 'T': 3.5}))"`
 
-Expected: a finite positive number in the vicinity of 0.2..0.4 (integral of Hadwiger with those params is near TFR=5 distributed over about 35 years of fertility).
+Expected: a finite positive number in the vicinity of 0.38 (peak of a Hadwiger distribution with H=5, R=26, T=3.5 is H·T/(R·sqrt(pi)) ≈ 0.38). The T values in Plan 1's JSON templates (0.35, 0.38, 0.42, 0.40) are a factor-of-ten error and must be corrected to (3.5, 3.8, 4.2, 4.0). A companion fix commit in this plan updates the templates and the spec tables accordingly — see the note below.
+
+**Spec and template correction (carried by this plan)**: the Hadwiger `T` values shipped in Plan 1 were off by a factor of ten — Chandola, Coleman & Hiorns (1999) and Schmertmann (2003) both use T in the range [2, 10] for realistic fertility distributions. With the original T=0.35 the peak drops to ~0.04 and the distribution peaks at the lower age bound instead of at R. Fix applied in this plan on the same feature branch: update the five JSON templates in `epocha/apps/demography/templates/` and the Hadwiger tables in both spec files. Plan 1 tests are unaffected because Plan 1 never computes Hadwiger values.
 
 - [ ] **Step 3: No commit yet**
 

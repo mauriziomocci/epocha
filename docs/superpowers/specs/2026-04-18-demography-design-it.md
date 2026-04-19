@@ -466,10 +466,10 @@ Parametri per-era (**valori provvisori di seed** — la calibrazione effettiva s
 
 | Era | H (target TFR approx) | R | T | Fonte contro cui calibrare |
 |-----|----------------------|----|----|------------------------------|
-| pre_industrial | 5.0 | 26 | 0.35 | Wrigley & Schofield (1981) — England TFR range 4.0-5.8 attraverso 1541-1871; valore seed in quel range |
-| industrial | 4.0 | 27 | 0.38 | Mitchell (1988), HMD; England 1830-1900 TFR range 3.5-4.5 |
-| modern | 1.8 | 30 | 0.42 | HFD (2020) — US, Europa Occidentale sotto replacement |
-| sci_fi | 2.1 | 32 | 0.40 | speculativo (parametro di design tunable) |
+| pre_industrial | 5.0 | 26 | 3.5 | Wrigley & Schofield (1981) — England TFR range 4.0-5.8 attraverso 1541-1871; valore seed in quel range |
+| industrial | 4.0 | 27 | 3.8 | Mitchell (1988), HMD; England 1830-1900 TFR range 3.5-4.5 |
+| modern | 1.8 | 30 | 4.2 | HFD (2020) — US, Europa Occidentale sotto replacement |
+| sci_fi | 2.1 | 32 | 4.0 | speculativo (parametro di design tunable) |
 
 I valori sono attualmente parametri di seed. La calibrazione TFR reale richiede fitting di `f(a)` a curve ASFR pubblicate e targeting del TFR empirico dell'era. Questo fitting è un task in Plan 1.
 
@@ -1141,7 +1141,7 @@ Schema JSON per la porzione demografica del template di simulazione:
       "neonatal_survival_when_mother_dies": 0.3
     },
     "fertility": {
-      "hadwiger": {"H": 5.5, "R": 26, "T": 0.35},
+      "hadwiger": {"H": 5.5, "R": 26, "T": 3.5},
       "becker_coefficients": {
         "beta_0": 0.0, "beta_1": 0.1, "beta_2": -0.05,
         "beta_3": -0.1, "beta_4": 0.2

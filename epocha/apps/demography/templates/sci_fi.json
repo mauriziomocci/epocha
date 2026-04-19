@@ -13,7 +13,7 @@
     "neonatal_survival_when_mother_dies": 0.99
   },
   "fertility": {
-    "hadwiger": {"H": 2.1, "R": 32, "T": 0.40},
+    "hadwiger": {"H": 2.1, "R": 32, "T": 4.0},
     "becker_coefficients": {
       "beta_0": 0.0, "beta_1": 0.1, "beta_2": -0.05,
       "beta_3": -0.1, "beta_4": 0.2
