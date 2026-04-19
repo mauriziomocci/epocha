@@ -4,11 +4,13 @@ description: FOLLOW-UP da eseguire al termine del Plan 2 demografia: riscrivere 
 type: project
 originSessionId: f9bc7a55-71c4-45ed-9602-f5e328a6175e
 ---
-# README rewrite — follow-up
+# README rewrite + whitepaper creation — follow-up
 
 **Stato**: pendente, da eseguire al termine del Plan 2 demografia o in una finestra dedicata subito dopo.
 
-**Richiesta dell'utente** (2026-04-19): sia `README.md` (inglese) che `README.it.md` (italiano) sono molto obsoleti e vanno riscritti.
+**Richieste dell'utente** (2026-04-19):
+1. Sia `README.md` (inglese) che `README.it.md` (italiano) sono molto obsoleti e vanno riscritti.
+2. Vanno creati anche due whitepaper scientifici rigorosi: `docs/whitepaper/epocha-whitepaper.md` (EN, linkato da README.md) e `docs/whitepaper/epocha-whitepaper.it.md` (IT, linkato da README.it.md). Living documents che descrivono lo stato corrente del sistema. Vedi `feedback_whitepaper_bilingual` per il dettaglio della regola permanente.
 
 **Perche' ora e' diventato rilevante**: Economy Spec 2 (Parts 1-3) e ora Demography Plan 1 hanno aggiunto moduli, modelli, regole di progetto, apps, pattern scientifici e policy di workflow che NON sono riflessi nei due README attuali.
 

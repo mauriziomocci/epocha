@@ -495,9 +495,10 @@ This is not optional. Lost memory means lost context, lost rules, lost decisions
 After any code change, update all affected documentation **in the same commit**:
 
 - **Docstrings**: update if method signature, behavior, or return value changed
-- **README files**: update if the change affects architecture, workflows, configuration, or operational procedures
+- **README files**: BOTH `README.md` (English, primary) AND `README.it.md` (Italian, companion) must be kept up to date AND synchronized at all times. A change is "README-relevant" when it affects architecture, stack, project rules, roadmap / state, setup or operational instructions, scientific references, validation benchmarks, or any public integration surface. Divergence between the two READMEs is a documentation bug to fix immediately. Citations stay in the original language; code names, commands, file paths stay unchanged; narrative text is translated. Plain bug fixes, internal refactors, and tests-only commits do NOT trigger a README update. See `feedback_readme_bilingual_maintenance` for the full rule.
+- **Scientific whitepapers**: BOTH `docs/whitepaper/epocha-whitepaper.md` (English) AND `docs/whitepaper/epocha-whitepaper.it.md` (Italian) are living documents describing the current behavior of the system, linked from the corresponding README. They follow scientific paper best practices: numbered sections (Abstract, Introduction, Background, Methods, Implementation, Calibration, Validation, Discussion, Known Limitations, Conclusions, References, Appendices), numbered equations and figures, Author-Date citations, bibliography with DOI/URL, reproducibility notes (commit hash, dependency versions, seed RNGs, exact benchmark commands). Publication-grade rigor — every claim cited or marked as tunable design parameter, every simplification explicit, every parameter derivable from the text. Every merge to develop that touches scientific models, parameters, algorithms, calibration, or integration surface MUST update both whitepapers in sync. See `feedback_whitepaper_bilingual` for the full rule and the detailed structure requirements.
 
-Do NOT leave documentation updates for a separate commit.
+Do NOT leave documentation updates for a separate commit unless the delta is large enough to warrant its own review (> ~50 lines of diff on the READMEs); in that case, open a dedicated `fix/docs-readme-*` branch and land before the next merge to develop.
 
 ### Mandatory Code Review
 
