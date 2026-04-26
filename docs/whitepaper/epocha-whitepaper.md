@@ -60,23 +60,95 @@ Status headers in §4 use the form:
 
 # 1. Introduction
 
-<draft in Task 2>
-
 ## 1.1 Context
 
-<draft in Task 2>
+The notion of *psychohistory* — a quantitative science capable of predicting the
+trajectory of large populations even when individual behavior remains
+unpredictable — was introduced as a literary device by Asimov in the
+*Foundation* saga (Asimov 1951). It has remained fictional, but the underlying
+intuition — that aggregate social dynamics admit a formal treatment — has been
+pursued for decades by complementary research traditions in computational social
+science. Schelling's segregation models showed that strong macroscopic
+patterns can emerge from very local individual rules (Schelling 1971).
+Agent-based modeling matured into a methodology with the Sugarscape work of
+Epstein and Axtell, which framed social science "from the bottom up" by
+growing artificial societies inside a controlled computational substrate
+(Epstein and Axtell 1996). A decade later, Bonabeau consolidated agent-based
+modeling as a general technique for simulating human systems and outlined the
+conditions under which it adds value over equation-based approaches (Bonabeau
+2002).
+
+A second, more recent line of work has emerged with large language models. By
+endowing agents with LLM-driven cognition, recent studies have demonstrated
+that synthetic populations can reproduce non-trivial behavioral patterns
+observed in human samples (Argyle et al. 2023) and that small communities of
+generative agents can exhibit credible social dynamics — memory formation,
+reflection, planning, and inter-agent coordination — over short simulated
+horizons (Park et al. 2023). Epocha sits at the intersection of these two
+lines: it inherits the long-horizon, multi-scale ambition of classical
+agent-based social simulation, and it adopts LLM-driven cognition to enrich
+agent decision-making with personality, memory, and natural-language
+deliberation.
 
 ## 1.2 Research gap addressed
 
-<draft in Task 2>
+Existing LLM-driven agent simulations concentrate on small groups of agents
+over short simulated horizons (days to weeks of simulated time, dozens of
+agents at most), and they typically operate in deliberately stylised
+environments without an underlying demographic or economic substrate.
+Conversely, established demographic and economic micro-simulators support
+populations of millions over decades or centuries, but their agents are
+rule-based: they lack persistent personality, episodic memory, and the
+capacity for free-form reasoning that distinguishes human decision-making.
+Epocha targets the gap between these two traditions. Its objective is
+long-horizon, multi-scale simulation of populations whose individual agents
+combine published demographic and economic dynamics with LLM-driven
+personality-rich cognition, while remaining auditable, reproducible, and
+grounded in primary scientific sources.
 
 ## 1.3 Contributions
 
-<draft in Task 2>
+This whitepaper and the accompanying open-source codebase contribute the
+following:
+
+- An end-to-end open-source civilization simulator that integrates demographic
+  and economic micro-simulation with LLM-driven agent cognition under a
+  permissive license.
+- A bilingual scientific whitepaper (English and Italian) maintained as a
+  living document and frozen at each merge to the development branch, with
+  every formula, parameter, and algorithm cited to a primary source.
+- A canonical seven-phase development workflow with mandatory adversarial
+  scientific audits that must reach explicit convergence before any
+  scientific module is merged.
+- A reproducibility infrastructure built on era templates, seeded
+  pseudo-random number generation, and frozen-at-commit references, so that
+  any reported result can be regenerated from a known state.
+- A modular architecture in which audited modules (currently demographic
+  mortality, fertility, and couple formation) and designed-but-unaudited
+  modules coexist behind explicit status headers, allowing readers to
+  distinguish converged science from work in progress.
 
 ## 1.4 Document structure and status legend
 
-<draft in Task 2 — extends the legend in the front matter with cross-references>
+This whitepaper extends the maturity legend introduced in the front matter
+(see *Document structure and status legend* above) with explicit cross-
+references in each chapter. Chapter 2 reviews related work in agent-based
+modeling, LLM-driven simulation, demographic micro-simulation, economic
+agent-based models, and reputation and information diffusion. Chapter 3
+describes the system architecture: tick engine, agent decision pipeline,
+cross-module integration contracts, RNG strategy, LLM provider adapter, the
+economic substrate, the persistence model, and the interaction layer.
+Chapter 4 contains the audited methods, with one section per converged
+module. Chapter 5 documents the implementation — repository layout,
+module-to-spec mapping, persistence details. Chapter 6 covers calibration
+(parameter tables, era templates, fitting procedures) and chapter 7 the
+validation methodology (target datasets, comparison metrics, acceptance
+thresholds, reproducibility commands, status). Chapter 8 lists subsystems
+that are implemented but whose adversarial audit is still pending. Chapter
+9 sets out the roadmap, chapter 10 discusses scope and design choices,
+chapter 11 catalogues known limitations, chapter 12 concludes. Chapter 13
+collects all references and chapter 14 holds the appendices (parameter
+tables, reproducibility instructions, era template schema).
 
 ---
 
@@ -309,6 +381,30 @@ Status headers in §4 use the form:
 # 13. References
 
 <draft in Task 7 (initial seed) and updated incrementally through W2 and W3>
+
+<!-- Entries added in Task 2 -->
+
+- Argyle, L. P., Busby, E. C., Fulda, N., Gubler, J. R., Rytting, C., and
+  Wingate, D. (2023). Out of one, many: using language models to simulate
+  human samples. *Political Analysis*, 31(3), 337–351.
+  https://doi.org/10.1017/pan.2023.2
+- Asimov, I. (1951). *Foundation*. Gnome Press, New York. [VERIFICATION
+  PENDING — first-edition publisher and year cited from common reference;
+  to be reconciled in Task 7 against an authoritative bibliography.]
+- Bonabeau, E. (2002). Agent-based modeling: methods and techniques for
+  simulating human systems. *Proceedings of the National Academy of
+  Sciences*, 99(Suppl. 3), 7280–7287.
+  https://doi.org/10.1073/pnas.082080899
+- Epstein, J. M., and Axtell, R. (1996). *Growing Artificial Societies:
+  Social Science from the Bottom Up*. Brookings Institution Press /
+  MIT Press, Washington, DC and Cambridge, MA. ISBN 978-0-262-55025-3.
+- Park, J. S., O'Brien, J. C., Cai, C. J., Morris, M. R., Liang, P., and
+  Bernstein, M. S. (2023). Generative agents: interactive simulacra of
+  human behavior. *arXiv preprint* 2304.03442.
+  https://arxiv.org/abs/2304.03442
+- Schelling, T. C. (1971). Dynamic models of segregation. *Journal of
+  Mathematical Sociology*, 1(2), 143–186.
+  https://doi.org/10.1080/0022250X.1971.9989794
 
 ---
 
