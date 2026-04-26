@@ -1,4 +1,5 @@
-- [SESSION RESUME 2026-04-20](project_session_resume_2026_04_20.md) -- READ FIRST: riepilogo sessione precedente + prossimi step obbligati (README + whitepaper prima di Plan 3)
+- [SESSION RESUME 2026-04-26](project_session_resume_2026_04_26.md) -- READ FIRST: branch feature/readme-and-whitepaper-catchup in volo a F6 Task 43, 30 commit ahead of develop, pendente Task 43+44 audit + F7 closure
+- [SESSION RESUME 2026-04-20](project_session_resume_2026_04_20.md) -- READ FIRST se 2026-04-26 mancante: riepilogo sessione precedente + prossimi step obbligati (README + whitepaper prima di Plan 3)
 - [FULL CONTEXT](project_full_context.md) -- complete project state (parziale/obsoleto, priorita' al session resume)
 - [Italian language](feedback_italian_language.md) -- Comunicare in italiano, codice in inglese
 - [Scientific rigor priority](feedback_scientific_rigor_priority.md) -- Ogni design privilegia il massimo rigore scientifico
@@ -30,6 +31,10 @@
 - [Demography Plan 1 complete](project_demography_plan1_complete.md) -- Plan 1 mergiata in develop 2026-04-19, commit 41bf508. Audit CONVERGED.
 - [Demography Plan 2 complete](project_demography_plan2_complete.md) -- Plan 2 (Fertility + Couple + LLM Actions) mergiata in develop 2026-04-19, commit 715d5fa. Audit CONVERGED round 2. PROSSIMO: README + whitepaper rewrite PRIMA di Plan 3.
 - [README rewrite todo](project_readme_rewrite_todo.md) -- FOLLOW-UP one-shot: riscrivere README.md e README.it.md (molto obsoleti) al termine del Plan 2.
+- [Audit re-pass batch 2026-04-12 pending](project_audit_repass_batch_2026_04_12_pending.md) -- HIGH-PRIORITY post-Plan 3: Round 2 re-audit per 8 moduli (reputation, distortion, info_flow, belief, government, stratification, movement, factions). Stato attuale: remediation done, Round 2 pending = NON CONVERGED.
+- [Validation experiments pending](project_validation_experiments_pending.md) -- FOLLOW-UP scheduled: esecuzione benchmark validation (HMD fit, Wrigley-Schofield, Irish Famine, Hajnal) -- prerequisito per submission paper, non blocca sviluppo.
+- [Whitepaper doc-sync rule](feedback_whitepaper_doc_sync.md) -- REGOLA PERMANENTE: PR su modulo cap. 4 aggiorna whitepaper nello stesso commit. Mapping vivo, enforce via PR checklist (no hook finche' mapping piccolo + dev singolo).
+- [Whitepaper promotion pipeline](project_whitepaper_promotion_pipeline.md) -- Procedura standard per promuovere modulo da cap. 8 (audit pending) a cap. 4 (Methods) dopo CONVERGED. Branch dedicato whitepaper-promote/<modulo>.
 - [README bilingual maintenance](feedback_readme_bilingual_maintenance.md) -- REGOLA PERMANENTE: README.md e README.it.md sempre aggiornati e sincronizzati ad ogni cambiamento rilevante (architettura, stack, regole, roadmap, setup).
 - [Whitepaper bilingual](feedback_whitepaper_bilingual.md) -- REGOLA PERMANENTE: due whitepaper scientifici rigorosi (EN + IT) living documents linkati dai README, struttura paper standard (abstract/methods/results/discussion), sempre in sync col codice merged.
 - [Roadmap immediata](project_roadmap_immediate.md) -- Chiudere Spec 2, poi Demografia. Spec 3 finanziaria rimandata, tooling in parallelo
