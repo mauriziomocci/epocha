@@ -709,7 +709,109 @@ The five coefficients are described in `becker_modulation()` (fertility.py:85–
 
 ### 4.1.3 Couple formation and dissolution (Gale-Shapley + Goode 1963)
 
-<draft in Task 12>
+> Status: implemented as of commit `<filled-on-merge>`, spec audit CONVERGED 2026-04-18 round 4.
+
+**Background.** Couple formation in Epocha runs on two distinct mechanisms because the genealogy module has two distinct workloads with incompatible semantics. At simulation initialization the module has to populate a synthetic founder population with a plausible joint distribution of partnered and unpartnered adults: every eligible adult sees every other eligible adult once, and the matching has to be stable in the Gale and Shapley (1962) sense so that no two unmatched agents would prefer each other to their assigned partners — otherwise the founder population starts in a non-equilibrium state that the per-tick dynamics would then have to undo. At runtime, by contrast, couples form one or two at a time as agents make individual decisions through the LLM pipeline, and the appropriate primitive is not a global matching but a tick+1-settled intent resolver, in the same family as the property-market settlement pattern documented in Chapter 4.2.3: an agent declares the intent to pair-bond with a named target on tick `T`, the resolver runs at the start of tick `T+1`, and a couple is created when both ends of the edge declared the intent toward each other (or when the era template authorizes implicit consent). A single-mechanism design was rejected. Running Gale-Shapley on every tick would re-stabilize the entire dating market on each iteration, dissolving and re-pairing existing couples as relative scores drift, which is sociologically implausible (real couples have switching costs) and computationally `O(n²)` per tick. Running pure intent resolution at initialization would leave the founder population statistically arbitrary, with couples formed by whichever agent happened to be processed first rather than by mutual preference. The hybrid design — stable matching once at `t = 0`, intent-driven settlement thereafter — gets the right invariants from each regime. Arranged marriage is layered on top of the runtime mechanism rather than implemented as a separate code path. Goode (1963) describes arranged marriage as a system in which the proposer is a parent acting on behalf of an unmarried child, and the child retains a structurally weaker but non-zero veto right; Epocha represents this with a two-pass extension of the same `pair_bond` action, where Pass A collects direct intents authored by the agent herself and Pass B collects parental `for_child` intents that are honored only when the child has not already declared a direct intent in Pass A. The two-pass ordering preserves Goode's asymmetry — the parent can initiate, but the child's own declaration always wins — without introducing a separate `arranged_pair_bond` action that would inflate the LLM action space. The canonical `agent_a.id < agent_b.id` ordering invariant is enforced at the model layer by a `CheckConstraint`, not as a soft convention, because two rows representing the same pair with swapped foreign keys would silently corrupt heir resolution and double-count active couples in the population snapshot; a single `_ordered_pair()` helper is the only path through which `Couple.objects.create()` is reached.
+
+**Model.** The compatibility score between two candidate partners follows Kalmijn's (1998) homogamy framework, which decomposes assortative mating into a small number of socio-economic dimensions weighted by their cultural salience in the era under study. The weighted score in Epocha takes four components — class similarity, education proximity, age proximity, and existing relational sentiment — each normalized to `[0, 1]` before weighting:
+
+```
+hg(a, b; w, τ) = w_class · 1[class(a) = class(b)]
+               + w_edu   · exp(-|e(a) - e(b)|)
+               + w_age   · exp(-|age(a) - age(b)| / τ)
+               + w_rel   · ((sent(a, b) + 1) / 2)            (4.6)
+```
+
+Equation (4.6) is the implementation of `homogamy_score(a, b, weights, age_tolerance_years=10.0)` in `epocha/apps/demography/couple.py:60-95`. The four weights `w_class`, `w_edu`, `w_age`, `w_rel` sum to one in each era template and shift the relative importance of structural versus affective dimensions across eras (Table 4.5). The relational term reads `Relationship.sentiment ∈ [-1, 1]` from the agent layer and folds it into `[0, 1]` with the standard affine map; when no `Relationship` row exists the term defaults to `0.5` (neutral), so the score remains well-defined for previously unacquainted candidates. The exponential kernel on age proximity uses `τ = 10.0` years as the default tolerance, matching the order of magnitude of attested age-gap distributions in the demographic literature; `τ` is a function argument rather than a per-era field as of the pinned commit and is held constant across templates pending Plan 4 calibration.
+
+The initialization mechanism applies Gale-Shapley deferred acceptance over the score function (4.6). With the eligible male population as the proposing side and the eligible female population as the responding side (or the reverse — the algorithm is symmetric in correctness, asymmetric only in the well-known proposer-optimal property that Gale and Shapley 1962 prove), the algorithm runs:
+
+```
+function stable_matching(P, R, score_fn):                     (4.7)
+    rank[p] = sort(R, key=lambda r: -score_fn(p, r))     ∀ p ∈ P
+    score[r][p] = score_fn(p, r)                          ∀ r ∈ R, p ∈ P
+    free = list(P)
+    engaged = {}                                          # respondent → proposer
+    next_idx = {p: 0 for p in P}
+    while free:
+        p = free.pop(0)
+        if next_idx[p] >= len(rank[p]): continue
+        r = rank[p][next_idx[p]]; next_idx[p] += 1
+        if r not in engaged:
+            engaged[r] = p
+        elif score[r][p] > score[r][engaged[r]]:
+            free.append(engaged[r]); engaged[r] = p
+        else:
+            free.append(p)
+    return [(p, r) for r, p in engaged.items()]
+```
+
+Equation (4.7) is the canonical deferred-acceptance algorithm of Gale and Shapley (1962, Theorems 1 and 2): existence of a stable matching is guaranteed, the result is proposer-optimal, and complexity is `O(|P|·|R|)` in the worst case. The implementation in `couple.py:98-150` is a direct transcription of the textbook form, with one Epocha-specific adaptation: when `|P| ≠ |R|`, the smaller side is fully matched and the larger side has an unmatched residual, which is the demographically realistic outcome (some adults remain single).
+
+The runtime mechanism is a tick+1 resolver over `DecisionLog` entries authored at the previous tick. The two-pass structure required by the Goode (1963) arranged-marriage semantics is:
+
+```
+function resolve_pair_bond_intents(simulation, tick, rng):    (4.8)
+    template = load_template(simulation.config.demography_template)
+    consent  = template.couple.implicit_mutual_consent
+    entries  = DecisionLog.filter(sim, tick-1, contains '"pair_bond"')
+    direct, arranged = {}, []
+    # Pass A: direct intents (agent acts on her own behalf)
+    for e in entries:
+        d = json.loads(e.output_decision); if d.action ≠ 'pair_bond': continue
+        if d.target.for_child: arranged.append((child_id, match_id)); continue
+        direct[e.agent.id].append(match_id)
+    # Pass B: arranged intents only where child has no direct intent
+    for (child_id, match_id) in sorted(arranged):
+        if child_id in direct: continue          # child's own choice wins
+        direct[child_id].append(match_id)
+    # Resolution: deterministic ordering, mutual or implicit consent
+    used = set(); formed = []
+    with transaction.atomic():
+        for proposer_id in sorted(direct):
+            if proposer_id in used: continue
+            for target_id in direct[proposer_id]:
+                if target_id in used: continue
+                mutual = (proposer_id in direct.get(target_id, []))
+                if not mutual and not consent: continue
+                formed.append(form_couple(proposer, target, formed_at_tick=tick))
+                used.update({proposer_id, target_id}); break
+    return formed
+```
+
+Equation (4.8) is the implementation of `resolve_pair_bond_intents()` in `couple.py:178-316`. Pass A and Pass B are the audit-resolution fix B2-06 that gives Goode's asymmetry its operational meaning (parent proposes, child can override by declaring her own intent). The deterministic `sorted()` over proposer ids and over arranged tuples is the audit-resolution fix B2-03: two runs with the same RNG seed must produce the same matching, which requires iteration order to be id-keyed rather than insertion-order-dependent. Malformed `output_decision` JSON is logged at WARNING level (audit fix B2-02) rather than silently skipped, so a parsing bug cannot cause intents to disappear without trace. The whole resolver runs inside a single `transaction.atomic()` block: either all couples for the tick are committed, or none, which preserves the Population Snapshot invariant that `couples_active(tick)` is the count after a complete settlement step. Couple objects are always created through `form_couple(agent_x, agent_y, formed_at_tick, couple_type='monogamous')` in `couple.py:153-175`, which in turn calls the `_ordered_pair()` helper that enforces the canonical ordering invariant before delegating to `Couple.objects.create()`.
+
+**Parameters.** Per-era couple-formation parameters are loaded from the same JSON templates as mortality and fertility, under the `couple` key. Table 4.5 lists the values shipped with the five Plan 1 templates. The `marriage_market_type` field selects between `autonomous` (the agent herself authors the `pair_bond` intent) and `arranged` (a parent agent authors the intent on behalf of an unmarried child via the `for_child` payload); the same five-template set carries `arranged` only on `pre_industrial_islamic`, with the four other templates set to `autonomous`. The `implicit_mutual_consent` flag governs whether the resolver requires both ends of the edge to have declared the intent (`false`) or honors a one-sided declaration as long as the target is eligible (`true`); all five Plan 1 templates ship with `implicit_mutual_consent: true` and the field is recorded in Table 4.5 as a uniform value rather than as a per-era differentiator. The `divorce_enabled` flag gates `resolve_separate_intents()`: when `false`, the resolver returns an empty list immediately without scanning `DecisionLog`, which models the canonical Catholic-marriage indissolubility regime carried by `pre_industrial_christian`; when `true`, separate intents declared at tick `T-1` dissolve the active couple at tick `T` with `dissolution_reason = 'separate'`.
+
+Table 4.5 — Per-era couple-formation parameters (templates shipped in Plan 1).
+
+| Era template                 | `marriage_market_type` | `divorce_enabled` | `min_age` (M / F) | `mourning_ticks` | `marriage_market_radius` |
+|------------------------------|------------------------|-------------------|-------------------|------------------|--------------------------|
+| `pre_industrial_christian`   | `autonomous`           | false             | 16 / 14           | 365              | `same_zone`              |
+| `pre_industrial_islamic`     | `arranged`             | true              | 16 / 14           | 365              | `same_zone`              |
+| `industrial`                 | `autonomous`           | true              | 18 / 16           | 180              | `adjacent_zones`         |
+| `modern_democracy`           | `autonomous`           | true              | 18 / 18           | 90               | `world`                  |
+| `sci_fi`                     | `autonomous`           | true              | 18 / 18           | 30               | `world`                  |
+
+All five templates ship with `allowed_types = ["monogamous", "arranged"]`, `default_type = "monogamous"`, and `implicit_mutual_consent = true`. The homogamy weights vary across eras to reflect the cultural salience of each Kalmijn (1998) dimension under different historical regimes (Table 4.6): the two pre-industrial templates and the industrial template put substantial weight on social class, which loses ground in the modern-democracy template in favor of education proximity, and the speculative `sci_fi` template demotes class almost entirely in favor of relational sentiment.
+
+Table 4.6 — Per-era homogamy weights for equation (4.6).
+
+| Era template                 | `w_class` | `w_edu` | `w_age` | `w_rel` |
+|------------------------------|----------:|--------:|--------:|--------:|
+| `pre_industrial_christian`   | 0.40      | 0.25    | 0.20    | 0.15    |
+| `pre_industrial_islamic`     | 0.40      | 0.25    | 0.20    | 0.15    |
+| `industrial`                 | 0.35      | 0.30    | 0.20    | 0.15    |
+| `modern_democracy`           | 0.20      | 0.40    | 0.20    | 0.20    |
+| `sci_fi`                     | 0.10      | 0.30    | 0.20    | 0.40    |
+
+The `age_tolerance_years` parameter `τ` of equation (4.6) is held at the default value `10.0` across all templates, as a function argument to `homogamy_score()` rather than a per-template field; lifting it into the template schema is documented as a Plan 4 calibration deliverable.
+
+**Algorithm.** Three coordinated operations make up the couple lifecycle. At initialization, the founder-population builder calls `stable_matching(proposers, respondents, score_fn)` once with `score_fn = lambda p, r: homogamy_score(p, r, era_weights)` and the eligible adult subpopulations as the two sides; each returned `(p, r)` pair is then routed through `form_couple()` to materialize the database row with the canonical-ordering invariant enforced. At runtime, the demography step calls `resolve_pair_bond_intents(simulation, tick, rng)` once per tick, which reads `DecisionLog` entries authored at tick `T-1` with the SQL `__contains` pre-filter `'"pair_bond"'` and verifies each match by `json.loads()`, runs the two-pass ingestion (direct intents in Pass A, arranged `for_child` intents in Pass B with child-priority override), and creates couples in deterministic id-sorted order under a single `transaction.atomic()`. A pair where either partner is already in an active couple — checked by `is_in_active_couple()` against the unique-active-couple constraint that fix B2-01 added — is skipped, so duplicate active couples cannot be created even under repeated resolver invocations or chord workers. The companion resolver `resolve_separate_intents(simulation, tick)` reads `'"separate"'` `DecisionLog` entries from tick `T-1` with the same JSON pattern, returns immediately when the era template has `divorce_enabled: false`, and otherwise marks the active couple of each declarant as `dissolved_at_tick = tick`, `dissolution_reason = 'separate'`. The third operation, `dissolve_on_death(deceased_agent, tick)` in `couple.py:369-392`, is invoked from the mortality-resolution path when a partnered agent dies: it nulls the appropriate FK (`agent_a` or `agent_b` depending on which side the deceased was), captures the deceased's name into the corresponding `*_name_snapshot` field so the genealogical record survives the FK cascade, sets `dissolution_reason = 'death'`, and persists with a single `update_fields=[...]` save. As of the pinned commit, this dissolution path is a regular function call rather than a Django signal handler — the spec considered an `agents.Agent` `post_save` signal listening for `is_alive` transitions and rejected it on the grounds that signals add hidden coupling and are harder to audit than an explicit invocation from the mortality module. The couple lifecycle is exercised by the demography unit-test suite (`epocha/apps/demography/tests/test_couple.py`) but, consistent with the gap noted in §4.1.1 and §4.1.2, none of `stable_matching()`, `resolve_pair_bond_intents()`, `resolve_separate_intents()`, or `dissolve_on_death()` is invoked from `epocha/apps/simulation/engine.py` or `epocha/apps/simulation/tasks.py` as of the pinned commit (a `grep` for the function names outside `epocha/apps/demography/` returns only commentary at `engine.py:265-272` describing the tick+1 resolution semantics and the `pair_bond` action's role in the decision pipeline). The integration into the live tick loop is tracked alongside the equivalent mortality and fertility gaps as a Plan 4 deliverable (Initialization, Engine integration, and Historical validation).
+
+**Simplifications.** The current implementation deliberately omits four refinements that the family-demography literature treats as proper extensions rather than corrections of the baseline mechanism. First, only monogamous couples are representable: the `Couple` model carries exactly two foreign keys, and the spec records polygynous and polyandrous couple types as deferred (audit fix MISS-8) because supporting more than two partners would require relaxing the `unique_active_couple` constraint and reworking the heir-resolution path; the `couple_type` enum exposes `monogamous` and `arranged` as the two canonical values, with `arranged` indicating the formation pathway (parent-mediated) rather than a partner-count distinction. Second, the agent layer carries three gender values (`male`, `female`, `non_binary`) and four sexual-orientation values (`heterosexual`, `homosexual`, `bisexual`, `asexual`) in `agents/models.py:11-20`, but the homogamy score and the stable-matching algorithm of equations (4.6) and (4.7) do not consume these fields as of the pinned commit: candidate filtering on gender and orientation is the responsibility of the caller that builds the `proposers` and `respondents` lists, and the founder-population builder that performs that filtering for non-heterosexual or non-binary configurations is itself part of the Plan 4 initialization deliverable. Third, no remarriage cooldown is enforced beyond the per-era `mourning_ticks` field reported in Table 4.5: the field is loaded from the template but not yet consumed by any code path, so a widowed agent can in principle re-pair on the tick following the death of a partner; wiring `mourning_ticks` into the eligibility check of `resolve_pair_bond_intents()` is a one-line change reserved for Plan 4. Fourth, Gale-Shapley is applied at initialization only, not as a fallback at runtime when a large unmatched cohort accumulates: the per-tick mechanism is exclusively intent-driven, on the assumption that the LLM agents will declare `pair_bond` intents at a rate consistent with the population's marriage market; if the validation suite of Chapter 7 reveals systematic underformation, a periodic re-application of the matching primitive over unmatched eligible adults is the natural extension and is documented in the demography spec under the Known Limitations heading.
+
+
 
 ## 4.2 Economy — Behavioral integration
 
@@ -932,10 +1034,17 @@ The five coefficients are described in `becker_modulation()` (fertility.py:85–
 - Epstein, J. M., and Axtell, R. (1996). *Growing Artificial Societies:
   Social Science from the Bottom Up*. Brookings Institution Press /
   MIT Press, Washington, DC and Cambridge, MA. ISBN 978-0-262-55025-3.
+- Gale, D., and Shapley, L. S. (1962). College admissions and the
+  stability of marriage. *The American Mathematical Monthly*, 69(1),
+  9-15. https://doi.org/10.2307/2312726
 - Gompertz, B. (1825). On the nature of the function expressive of the
   law of human mortality, and on a new mode of determining the value of
   life contingencies. *Philosophical Transactions of the Royal Society
   of London*, 115, 513–583. https://doi.org/10.1098/rstl.1825.0026
+- Goode, W. J. (1963). *World Revolution and Family Patterns*. The Free
+  Press of Glencoe, New York. (Pre-ISBN monograph; Free Press / Macmillan
+  edition, xii+432 pp. Source for the arranged-marriage typology and the
+  parent-child asymmetry adopted in §4.1.3.)
 - Gualdi, S., Tarzia, M., Zamponi, F., and Bouchaud, J.-P. (2015).
   Tipping points in macroeconomic agent-based models. *Journal of
   Economic Dynamics and Control*, 50, 29–61.
@@ -958,6 +1067,9 @@ The five coefficients are described in `becker_modulation()` (fertility.py:85–
 - Human Mortality Database (HMD) (2024). University of California,
   Berkeley (USA) and Max Planck Institute for Demographic Research
   (Germany). https://www.mortality.org
+- Kalmijn, M. (1998). Intermarriage and homogamy: causes, patterns,
+  trends. *Annual Review of Sociology*, 24, 395-421.
+  https://doi.org/10.1146/annurev.soc.24.1.395
 - Lee, R. D., and Carter, L. R. (1992). Modeling and forecasting U.S.
   mortality. *Journal of the American Statistical Association*, 87(419),
   659–671. https://doi.org/10.1080/01621459.1992.10475265
