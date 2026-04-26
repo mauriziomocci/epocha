@@ -352,19 +352,125 @@ on the Allport-Postman and Bartlett tradition.
 
 ## 3.1 Tick engine and time scales
 
-<draft in Task 5>
+The simulation advances in discrete ticks. Each tick is interpreted by the
+configured era template as one calendar month, year, or decade — the
+calibration constants of the demography and economy modules are themselves
+expressed against this nominal step, so changing the time scale changes the
+parameter set rather than the engine. A tick is atomic: the orchestrator
+runs the economy update first, then a Celery chord dispatches one
+`process_agent_turn` task per living agent in parallel, then the chord
+callback `finalize_tick` runs information flow, faction dynamics, the
+political cycle, relationship and memory decay, captures a snapshot,
+detects epochal crises, advances the tick counter, broadcasts to connected
+WebSocket clients, and finally re-enqueues `run_simulation_loop` with a
+countdown derived from the simulation speed multiplier (see
+`epocha/apps/simulation/tasks.py`). Re-enqueuing rather than long-polling
+keeps every tick a fresh task whose lifetime matches its work, which lets
+the broker survive worker restarts without losing the simulation. Within a
+tick the order of agents is deterministic — the chord header is built from
+`Agent.objects.filter(...).values_list("id", flat=True)`, whose ordering is
+the model's default primary key sequence — so any non-determinism comes
+from the LLM call and the per-tick seeded RNG streams documented in §3.4,
+never from scheduling. A real-time event-driven design was rejected because
+discrete ticks are the natural granularity of the demographic and economic
+literature the calibration draws on (Heligman and Pollard 1980, Hadwiger
+1940), because per-tick reproducibility is the contract the validation
+suite of Chapter 7 depends on, and because chord-based parallelism scales
+horizontally on Celery workers without locking shared state.
+
+```
+tick N      pre-snapshot ──> economy tick ──> chord(process_agent_turn × N agents)
+                                                            │
+                                                            ▼
+                                              finalize_tick callback
+                                                            │
+                                                            ▼
+            information flow ──> factions ──> politics ──> relationship/memory decay
+                                                            │
+                                                            ▼
+            post-snapshot + crisis detection ──> tick counter ++ ──> WebSocket broadcast
+                                                            │
+                                                            ▼
+                                              re-enqueue run_simulation_loop (tick N+1)
+```
 
 ## 3.2 Agent decision pipeline (Big Five + memory + LLM)
 
-<draft in Task 5>
+Each living agent goes through a four-stage pipeline implemented in
+`epocha/apps/agents/decision.py::process_agent_decision`. Stage one
+gathers context: the top-k relevant memories (ranked by emotional weight
+descending, then recency descending, in
+`epocha/apps/agents/memory.py::get_relevant_memories`), the agent's outgoing
+relationships, recent injected events, the enumerated list of valid
+interaction targets, and optional faction, political, reputation, zone, and
+economic context blocks. Stage two assembles the user prompt from these
+fragments. Stage three builds the system prompt by concatenating the
+Big Five personality description produced by
+`epocha/apps/agents/personality.py::build_personality_prompt` with the
+era-filtered action vocabulary returned by `_build_system_prompt`; the Big
+Five trait values map to natural-language descriptors using cutoffs at 0.3
+and 0.7, following the five-factor model validated across instruments and
+observers (McCrae and Costa 1987). Stage four calls the LLM through the
+provider-agnostic adapter (Chapter 3.5), strips markdown fences from the
+response, parses the JSON action with a fallback to `{"action": "rest",
+"reason": "confused"}` when the LLM returns malformed output, and persists
+the full input context and parsed action to a `DecisionLog` row for replay
+and offline auditing.
+
+Memories are written by `apply_agent_action` with an emotional weight drawn
+from a per-action lookup table (for example 0.8 for `betray`, 0.7 for
+`pair_bond`, 0.05 for `rest`); high-weight memories survive much longer
+because the decay routine in `memory.py::decay_memories` dampens the
+forgetting rate by `1 + 5 × emotional_weight` and exempts memories with
+weight ≥ 0.6 from decay entirely, modeling the consolidation effect that
+Brown and Kulik called flashbulb memories (Brown and Kulik 1977). The
+description above places the decision pipeline, the personality module, and
+the memory module in this chapter rather than in Chapter 4 because their
+implementations have not yet completed Round 2 of the adversarial spec
+audit demanded by the project's scientific-method rule. They will be
+promoted to Methods (Chapter 4) when that audit converges; the architecture
+description here is sufficient to follow the rest of the document but is
+not Methods-grade.
 
 ## 3.3 Cross-module integration contracts (treasury, subsistence, outlook)
 
-<draft in Task 5>
+Three explicit functions form the contract surface between demography and
+the economy/world subsystems. They were extracted from inline mutations and
+ad hoc lookups during Demography Plan 1 to make integration boundaries
+testable in isolation and auditable as a single point of dependency
+between subsystems. Implicit globals were rejected because they hide the
+coupling and make the demography module impossible to test without booting
+a full economy.
+
+| Contract | Signature | Semantics | Caller / Implementer |
+|----------|-----------|-----------|----------------------|
+| Treasury credit | `add_to_treasury(government, currency_code, amount)` in `epocha/apps/world/government.py` | Adds `amount` of `currency_code` to `government.government_treasury` (a JSON map from currency code to balance) and persists the row. | Called from `epocha/apps/economy/engine.py` (taxation) and from inheritance/estate-tax logic in the demography subsystem; implemented in `world/government.py`. |
+| Subsistence threshold | `compute_subsistence_threshold(simulation, zone)` in `epocha/apps/demography/context.py` | Returns the per-agent per-tick wealth flow needed to consume essential goods at the zone's current market prices, using `GoodCategory.is_essential` and the `SUBSISTENCE_NEED_PER_AGENT` constant from `economy/market.py`. | Called by `demography/fertility.py::becker_modulation`; implemented in `demography/context.py`. |
+| Aggregate outlook | `compute_aggregate_outlook(agent)` in `epocha/apps/demography/context.py` | Returns a scalar in `[-1, 1]` summarizing the agent's economic perception as the equally-weighted average of agent mood, banking confidence, and government stability, each rescaled from `[0, 1]` to `[-1, 1]`. Documented as a tunable design heuristic, not derived from Jones and Tertilt (2008). | Called by `demography/fertility.py::becker_modulation`; implemented in `demography/context.py`. |
 
 ## 3.4 RNG strategy and reproducibility
 
-<draft in Task 5>
+All stochastic decisions in the demography subsystem draw from per-stream
+seeded random number generators rather than the process-wide
+`random.random`. The helper
+`epocha/apps/demography/rng.py::get_seeded_rng(simulation, tick, phase)`
+returns a fresh `random.Random` whose seed is the first eight bytes of
+`sha256(f"{simulation.id}:{simulation.seed}:{tick}:{phase}")`. The phase
+label must belong to a closed set (`mortality`, `fertility`, `couple`,
+`migration`, `inheritance`, `initialization`); an unknown label raises
+`ValueError` to prevent silent stream collisions. Per-stream isolation is
+deliberate: reordering or suppressing the mortality routine in a refactor
+must not shift the random sequence that fertility, couple formation, or
+inheritance see at the same tick, otherwise reproducibility across
+refactors collapses. Given the commit hash of the codebase, the
+`simulation.seed`, and the initial state of the database, every tick of a
+run is deterministic and reproducible across machines. One known debt is
+tracked as A-5 for Plan 4: when both `simulation.seed` and `simulation.id`
+are `None`, the RNG helper falls back to `0` for both, so two unsaved
+simulations with no explicit seed running the same tick draw identical
+streams. The condition is rare in practice (`simulation.id` is `None` only
+between `Simulation()` instantiation and `.save()`), but the fix is to
+require an explicit seed at simulation creation time.
 
 ## 3.5 LLM provider adapter and rate limiting
 
@@ -575,6 +681,8 @@ on the Allport-Postman and Bartlett tradition.
   simulating human systems. *Proceedings of the National Academy of
   Sciences*, 99(Suppl. 3), 7280–7287.
   https://doi.org/10.1073/pnas.082080899
+- Brown, R., and Kulik, J. (1977). Flashbulb memories. *Cognition*, 5(1),
+  73–99. https://doi.org/10.1016/0010-0277(77)90018-X
 <!-- VERIFICATION PENDING: chapter pagination in the Friedman 1956 edited volume not verified (no DOI for the chapter). Task 7 to reconcile. -->
 - Cagan, P. (1956). The monetary dynamics of hyperinflation. In M.
   Friedman (ed.), *Studies in the Quantity Theory of Money*. University
@@ -628,6 +736,10 @@ on the Allport-Postman and Bartlett tradition.
 - Masad, D., and Kazil, J. (2015). Mesa: an agent-based modeling framework.
   In *Proceedings of the 14th Python in Science Conference (SciPy 2015)*,
   51–58. https://doi.org/10.25080/Majora-7b98e3ed-009
+- McCrae, R. R., and Costa, P. T. (1987). Validation of the five-factor
+  model of personality across instruments and observers. *Journal of
+  Personality and Social Psychology*, 52(1), 81–90.
+  https://doi.org/10.1037/0022-3514.52.1.81
 <!-- VERIFICATION PENDING: ISBN of the 1986 Yale University Press first edition not verified against a primary source (Worldcat blocked). Task 7 to reconcile. -->
 - Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. Yale
   University Press, New Haven.
