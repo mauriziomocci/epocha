@@ -474,19 +474,126 @@ require an explicit seed at simulation creation time.
 
 ## 3.5 LLM provider adapter and rate limiting
 
-<draft in Task 6>
+The adapter exposes a single `BaseLLMProvider` interface
+(`epocha/apps/llm_adapter/providers/base.py`) implemented by an
+`OpenAIProvider` (`providers/openai.py`) that targets any endpoint
+honoring the OpenAI chat completions schema. The same class therefore
+serves OpenAI proper, Google Gemini, Groq, OpenRouter, Together AI,
+Mistral, and locally hosted runners such as LM Studio and Ollama: only
+the `base_url`, model identifier, and key change. Configuration lives
+in `config/settings/base.py` under `EPOCHA_DEFAULT_LLM_PROVIDER`,
+`EPOCHA_LLM_API_KEY`, `EPOCHA_LLM_MODEL`, and `EPOCHA_LLM_BASE_URL`,
+with a parallel `EPOCHA_CHAT_LLM_*` set used by `get_chat_llm_client()`
+for agent conversations; when the chat provider is configured it is
+wrapped in a `FallbackProvider` that transparently rolls over to the
+main provider on failure. Two complementary defenses guard against
+quota exhaustion. Inside `OpenAIProvider`, `EPOCHA_LLM_API_KEY` accepts
+a comma-separated list of keys: when a `RateLimitError` (HTTP 429)
+exhausts the in-call retry budget (three retries with exponential
+backoff at base two seconds, see `_MAX_RETRIES` and
+`_RETRY_BASE_DELAY_SECONDS`) the provider rotates to the next key
+before re-raising. This is the mechanism currently used to spread
+load across multiple Groq free-tier keys, but the rotation is generic
+and supports any number of keys. At the process level,
+`epocha/apps/llm_adapter/rate_limiter.py` provides a Redis-backed
+sliding window counter (one minute TTL, default 50 requests per
+minute per provider) usable by orchestration code that needs to throttle
+ahead of the provider's own limit. Per-call accounting is persisted in
+the `LLMRequest` model (provider, model, token counts, USD cost,
+latency, success flag, optional `simulation_id`); pricing is derived
+from a per-model table in `providers/openai.py` with a conservative
+default for unlisted models.
 
 ## 3.6 Economic substrate (production, monetary, market clearing, distribution)
 
-<draft in Task 6 — note: descriptive, NOT Methods-grade>
+The economy app under `epocha/apps/economy/` collects the modules that
+turn agent activity into production, prices, money, and income flows.
+`production.py` implements a Constant Elasticity of Substitution (CES)
+production function in the form
+`Q = A · [Σ αᵢ Xᵢ^ρ]^(1/ρ)` with `ρ = (σ-1)/σ` and falls back to the
+Cobb-Douglas log form near `σ = 1` and to a Leontief minimum near
+`σ = 0` to avoid the numerical singularity. The CES form is the
+classical generalization introduced by Arrow et al. (1961), with the
+multi-factor extension following standard applied CGE practice
+(Shoven and Whalley 1992). `market.py` clears each zone-local market
+through Walrasian tâtonnement (Walras 1874): given supply, demand,
+and current prices, prices are nudged proportionally to excess demand
+until either the relative excess falls below a convergence threshold
+or a configurable iteration cap is reached. The cap is the explicit
+safety net for the well-known non-convergence regime with three or
+more goods (Scarf 1960). The remaining modules cover the rest of the
+substrate: `monetary.py` keeps a velocity counter and a Fisher
+identity check used as a diagnostic rather than as a price rule;
+`distribution.py` derives rent in a simplified Ricardian fashion plus
+a flat wage and tax flow; `banking.py` and `credit.py` wrap a single
+aggregate banking sector that adjusts the base rate through a
+Wicksellian feedback (Wicksell 1898) and tracks loan defaults with
+breadth-first cascade propagation (Minsky 1986; Stiglitz and Weiss
+1981); `expectations.py`, `political_feedback.py`, and
+`property_market.py` connect the economy to agents and to the
+political loop.
+
+This subsystem is documented in this chapter rather than in §4 Methods
+because it has not yet completed a Round 2 adversarial scientific
+audit. The literature pointers above are descriptive of the families
+of models implemented and of the source citations recorded inside the
+modules themselves, not assertions of Methods-grade verified fidelity:
+several constants are explicitly tagged as tunable design parameters
+in the source (the tâtonnement adjustment rate, the maximum price
+ratio, the discretionary demand cap, the mood satiation thresholds,
+the default cascade depth) and their numerical values do not yet have
+the line-by-line citation chain required for the §4 status. The
+audited layer that sits on top of this substrate is the behavioral
+integration described in §4.2: that integration consumes the prices,
+trades, and income flows produced by the substrate and adds the
+adaptive expectations, satisficing, and political feedback that have
+passed Round 2.
 
 ## 3.7 Persistence model
 
-<draft in Task 6>
+State is held in PostgreSQL with PostGIS already installed
+(`django.contrib.gis` is in `INSTALLED_APPS` and zone geometries are
+stored as WGS84 `PolygonField`/`PointField` since migration
+`world.0003_zone_postgis_geometry`). Identifier conventions follow
+the Django default of 64-bit auto-incrementing integer primary keys,
+configured globally via `DEFAULT_AUTO_FIELD =
+"django.db.models.BigAutoField"` in `config/settings/base.py`, with
+no UUID primary keys at the time of writing; foreign keys throughout
+the apps therefore carry integer references. The one notable
+deviation from "all positive integers" is the `birth_tick` column on
+`agents.Agent` introduced by Plan 1 of the demography spec: it is a
+`BigIntegerField` rather than `PositiveIntegerField` precisely so
+that pre-existing agents whose age predates the simulation start can
+carry a negative birth tick, keeping the canonical age formula
+`age = (current_tick − birth_tick) / ticks_per_year` valid across
+backfills. Atomic requests are enabled per-database
+(`ATOMIC_REQUESTS = True`) to keep API and tick handlers transactional
+by default. The migration plan beyond MVP (tracked in
+`docs/memory-backup/project_roadmap_post_mvp.md`) is to broaden
+PostGIS use beyond zone geometry into agent trajectories and routed
+distance queries.
 
 ## 3.8 Interaction layer (Dashboard, Chat WebSocket)
 
-<draft in Task 6>
+Real-time observation goes through Django Channels over Redis. Two
+WebSocket routes are exposed:
+`ws/simulation/<simulation_id>/` is served by
+`epocha/apps/simulation/consumers.py:SimulationConsumer` and pushes
+tick-by-tick state to whoever is watching a simulation, while
+`ws/chat/<agent_id>/` is served by
+`epocha/apps/chat/consumers.py:ChatConsumer` and carries the
+synchronous conversation between a human user and one specific agent
+(URL patterns in `epocha/apps/{simulation,chat}/routing.py`, integer
+IDs because primary keys are `BigAutoField`; see §3.7). The dashboard
+itself (`epocha/apps/dashboard/`) is intentionally a server-rendered
+Django templates application rather than a single-page app: the base
+template `dashboard/base.html` loads Alpine.js from a CDN for small
+client-side enrichments such as toggles and live counters, which keeps
+the JavaScript footprint and operational complexity proportional to
+the project's research focus. Pages cover the simulation list,
+detail, analytics, graph, and report views, plus the chat and
+group-chat surfaces, all hitting the same Django views and ORM that
+back the API.
 
 ---
 
@@ -670,6 +777,10 @@ require an explicit seed at simulation creation time.
   Wingate, D. (2023). Out of one, many: using language models to simulate
   human samples. *Political Analysis*, 31(3), 337–351.
   https://doi.org/10.1017/pan.2023.2
+- Arrow, K. J., Chenery, H. B., Minhas, B. S., and Solow, R. M. (1961).
+  Capital-labor substitution and economic efficiency. *The Review of
+  Economics and Statistics*, 43(3), 225–250.
+  https://doi.org/10.2307/1927286
 <!-- VERIFICATION PENDING: 1951 Gnome Press fix-up vs original 1942 Astounding Science Fiction story (May 1942 issue, "Foundation"). Task 7 to reconcile -->
 - Asimov, I. (1951). *Foundation*. Gnome Press, New York.
 - Axelrod, R. (1984). *The Evolution of Cooperation*. Basic Books, New
@@ -761,6 +872,11 @@ require an explicit seed at simulation creation time.
 <!-- VERIFICATION PENDING: Population: An English Selection vol/pages and JSTOR identifier not verified directly; the publication is confirmed (Population, vol. 53, HS1, 97–136, December 1998) but the canonical English-Selection variant pages should be reconciled in Task 7. -->
 - van Imhoff, E., and Post, W. (1998). Microsimulation methods for
   population projection. *Population: An English Selection*, 10, 97–138.
+<!-- VERIFICATION PENDING: original 1874 Lausanne edition by L. Corbaz et Cie. and the canonical 1954 Allen and Unwin English translation by William Jaffé not directly verified against a primary source (Worldcat lookup blocked). Task 7 to reconcile. -->
+- Walras, L. (1874). *Éléments d'économie politique pure, ou théorie de
+  la richesse sociale*. L. Corbaz et Cie., Lausanne. English translation
+  by W. Jaffé (1954), *Elements of Pure Economics, or the Theory of
+  Social Wealth*. Allen and Unwin, London.
 - Wilensky, U. (1999). NetLogo. Center for Connected Learning and
   Computer-Based Modeling, Northwestern University, Evanston, IL.
   http://ccl.northwestern.edu/netlogo/
