@@ -12,7 +12,34 @@ license: "Apache 2.0"
 
 ## Abstract
 
-<placeholder — written at end of W3 once Methods and Validation chapters are in place>
+Epocha is an open-source civilization simulator that combines large-scale
+agent-based modeling with LLM-driven cognition under the long-horizon,
+multi-scale ambition of Asimov's psychohistory. The project addresses a gap
+between two adjacent research traditions: established demographic and
+economic micro-simulators support populations of millions over decades but
+rely on rule-based agents that lack persistent personality, episodic memory,
+and natural-language deliberation, while recent LLM agent simulations
+endow agents with rich cognition but operate over small groups, short
+horizons, and stylised environments without an underlying demographic or
+economic substrate. The whitepaper documents the system architecture (tick
+engine, agent decision pipeline, RNG strategy, LLM provider adapter,
+economic substrate, persistence model, dashboard and chat layer), six
+audited scientific modules — Heligman-Pollard mortality, Hadwiger-with-Becker
+fertility, Gale-Shapley with Goode 1963 couple formation, Cagan-Nerlove
+adaptive expectations, Diamond-Dybvig credit and banking, and a
+Gordon-anchored property market — and eight subsystems implemented in code
+but awaiting Round 2 adversarial scientific audit (rumor propagation,
+political institutions, movement, factions, reputation, knowledge graph,
+economy base layer). Every formula, parameter, and algorithm in the audited
+chapters is cited to a primary source; calibration tables are presented per
+era template and consolidated in Appendix A; the validation methodology
+specifies datasets, metrics, and acceptance thresholds against which Plan 4
+will execute the empirical campaign. Reproducibility infrastructure rests on
+era templates, per-phase seeded RNG streams, frozen-at-commit references,
+and a bilingual scientific whitepaper maintained as a living document.
+The project is released under Apache 2.0, with a canonical seven-phase
+development workflow and mandatory adversarial audits gating every merge to
+the development branch.
 
 ## Keywords
 
@@ -1204,19 +1231,307 @@ The roadmap is ordered by priority rather than by chronology: the audit re-pass 
 
 # 10. Discussion
 
-<draft in Task 25>
+Every choice documented in the preceding chapters carries a trade-off that
+is worth stating in the open rather than hiding behind the convergence
+verdict of the audit. The most consequential is the cost of LLM cognition
+relative to the realism it buys: a tick that exercises the full agent
+decision pipeline of §3.2 carries a token cost per agent that scales with
+the personality, memory, and contextual blocks the prompt must include, and
+the per-tick budget envelope therefore caps the population the simulator
+can carry on a given hardware tier rather than emerging from a structural
+property of the model. The Plan 1 and Plan 2 audited modules accept several
+deliberate simplifications to keep the per-tick cost bounded under this
+envelope. The Hadwiger ASFR of §4.1.2 is evaluated deterministically at the
+agent's age rather than drawn from a per-mother stochastic model of
+time-to-conception; the Becker modulation coefficients of Table 4.4 are
+homogeneous across all five demography templates pending Plan 4 calibration;
+the Diamond-Dybvig credit-and-banking machinery of §4.2.2 carries a single
+aggregate bank rather than a population of competing banks with an
+inter-bank lending channel; the property-market settlement of §4.2.3 is
+single-round take-it-or-leave-it rather than a multi-round bid-ask
+convergence. None of these simplifications is a defect in the audited
+sense — each is documented inline in the corresponding §4.x Simplifications
+paragraph and tracked as a Plan 4 calibration deliverable — but their
+cumulative effect is that the audited scientific layer is leaner than the
+literature surveyed in §2 would in principle support. A second visible
+trade-off is the engine-integration gap that §4.1 carries: mortality,
+fertility, and couple formation are implemented and unit-tested in
+isolation, but their orchestration into the live tick loop in
+`epocha/apps/simulation/engine.py` is the central deliverable of Plan 4
+and is not yet active in production code, in contrast to the §4.2 economy
+modules that are genuinely live in the per-tick pipeline. Finally, the
+validation campaign of Chapter 7 is methodological rather than evidential
+as of the pinned commit: the targets, metrics, and acceptance thresholds
+are specified, but the experiments that consume them are tracked under
+`project_validation_experiments_pending.md` and bound to the same Plan 4
+deliverable.
+
+The scientific limits of the present work go beyond the simplifications
+inside the audited subset. Eight modules — the rumor-propagation cluster of
+§8.1, the political-institutions cluster of §8.2, movement (§8.3),
+factions (§8.4), reputation (§8.5), the Knowledge Graph (§8.6), and the
+economy base layer (§8.7) — are implemented in code and exercised by unit
+tests but have not yet completed the Round 2 adversarial audit that gates
+promotion to Chapter 4 status; the open INCORRECT, UNJUSTIFIED, INCONSISTENT,
+and MISSING findings from the 2026-04-12 batch audit are catalogued in
+`docs/scientific-audit-2026-04-12.md` and tracked under
+`project_audit_repass_batch_2026_04_12_pending.md`. Within the audited
+subset, several parameter values are seeded as calibration heuristics rather
+than derived from a primary-source measurement: the Becker modulation
+coefficients `β₀..β₄` of equation (4.3), the per-agent adaptation-rate
+modulation coefficients `n_mod`, `o_mod`, `c_mod` of equation (4.10), the
+Stiglitz-Weiss `risk_premium = 0.5` of equation (4.13), and the Allen-Gale
+`CASCADE_LOSS_THRESHOLD = 0.5` of the contagion pass are all documented
+inline as tunable design parameters with the per-era differentiation
+deferred to Plan 4. The discrete-time tick scheme is itself a substantive
+modelling choice: events that occur within the same tick — multiple deaths,
+simultaneous births, a property sale and a loan default on the same agent —
+are resolved sequentially within the per-tick orchestrator rather than
+treated as genuinely concurrent, which is the appropriate granularity for
+the per-tick cost envelope but which suppresses any intra-tick interaction
+the continuous-time literature would expose. The joint maternal-mortality
+resolver of §4.1.2 is the one place where intra-tick coupling is treated
+explicitly, and it is treated that way precisely because resolving generic
+mortality first and childbirth mortality second on the same mother in the
+same tick would produce a measurable bias.
+
+Where Epocha sits in the broader landscape is best read against three
+neighboring traditions. Pure rule-based ABM platforms (NetLogo, Mesa,
+Repast HPC, EURACE) excel at scaling to populations of millions of agents
+under fully specified individual rules, on the strength of decades of
+optimisation work and a mature toolchain; the cost of that scale is that
+individual-agent cognition is constrained to whatever the rule grammar can
+express, and emergent behavior that would require natural-language
+reasoning, narrative memory, or personality-modulated deliberation has to
+be approximated by hand-tuned heuristics. Pure LLM agent simulations
+(Park et al. 2023 and the family of generative-agent experiments that
+followed) excel at the opposite end: dozens of agents in a stylised
+environment can exhibit credible social dynamics with no hand-tuned
+behavioral grammar, on the strength of the LLM's natural-language
+cognition; the cost is that the demographic and economic substrates these
+experiments inherit from the surrounding environment are too thin to carry
+multi-decade horizons or population-level statistics that the social-science
+literature would recognise as well-formed. Epocha's contribution is the
+hybrid: a rule-based substrate (§3.6 economic engine, §4.1 demographic
+engine, §4.2 behavioral integration) that carries the population dynamics
+on the timescales the demographic and economic literature operates on, with
+LLM cognition layered on top of the substrate at the per-agent decision
+step (§3.2) where personality, memory, and natural-language deliberation
+carry the explanatory weight. The hybrid pays a cost in per-tick LLM tokens
+that pure rule-based platforms do not, and inherits a cost in audit
+discipline that pure LLM platforms have not historically borne, but in
+exchange it makes the multi-scale aggregation explicit (individual to
+faction to state) and admits long-horizon experiments that neither neighbor
+can run with comparable scientific grounding.
+
+The class of research questions Epocha is designed to enable follows
+directly from the hybrid. Long-horizon emergence experiments — does a
+specific institutional arrangement, a specific shock pattern, or a specific
+personality distribution produce the qualitative trajectories the historical
+record exhibits over centuries — become tractable because the audited
+demographic and economic substrate carries the multi-decade dynamics while
+the LLM-cognition layer carries the per-agent variation. Counterfactual and
+intervention experiments — what would have happened if the Irish Famine of
+§7.1 had triggered an earlier institutional response, what would have
+happened if the property-market crash of §4.2.3 had been preceded by a
+different banking-confidence trajectory — become tractable because the
+era-template machinery makes the parameter intervention explicit and the
+seeded RNG of §3.4 makes the run reproducible. Multi-scale aggregation —
+from individual cognition through faction-level coordination to state-level
+policy — becomes tractable because the persistence model of §3.7 carries
+both the individual-agent rows and the institutional rows as first-class
+entities rather than as derived aggregates. And narrative reproducibility
+across runs — the same scenario re-run with the same seed produces the
+same per-agent decision log and the same emergent narrative arc — becomes
+the basis for the publication-grade scientific paper that the project's
+roadmap of Chapter 9 names as its final deliverable.
 
 ---
 
 # 11. Known Limitations
 
-<draft in Task 26>
+The following catalogue groups the open limitations by module. Each entry is
+deliberately short — the substantive context lives in the corresponding §4
+Simplifications paragraph or §8 status line — and exists here as a single
+authoritative inventory for the reader who needs the project-wide view in
+one place. Two cross-cutting follow-ups underlie most of the entries: the
+audit re-pass on the eight §8 modules tracked under
+`project_audit_repass_batch_2026_04_12_pending.md` and the validation
+campaign tracked under `project_validation_experiments_pending.md`.
+
+**Mortality (§4.1.1).**
+- No cohort effects: every agent is exposed to the era template active at
+  the simulation tick rather than to the mortality regime in force at the
+  agent's birth.
+- Coarse cause-of-death labels (`early_life_mortality`, `external_cause`,
+  `natural_senescence`) reflect the three HP components rather than a
+  medical aetiology.
+- No explicit tail model beyond the biological extreme: the `0.999` cap on
+  annual mortality probability is a numerical guard for the geometric tick
+  conversion, not a substantive late-life-mortality plateau.
+- Per-tick evaluation is exercised by the unit-test suite but is not yet
+  invoked from the live tick loop in `epocha/apps/simulation/engine.py`;
+  integration is the central deliverable of demography Plan 4.
+
+**Fertility (§4.1.2).**
+- Hadwiger ASFR is evaluated deterministically at the agent's age with no
+  inter-individual heterogeneity in biological fecundity, in contrast to
+  the Bayesian-learning extension that would let each agent learn its own
+  `T` parameter from realised inter-birth intervals.
+- Twin and higher-order multiple births are not modelled: each successful
+  birth event creates exactly one newborn.
+- Becker modulation coefficients of Table 4.4 are homogeneous across all
+  five demography templates, tracked as audit debt B2-07 and assigned to
+  Plan 4 calibration.
+- Tick-loop integration deferred to demography Plan 4.
+
+**Couple formation (§4.1.3).**
+- Only monogamous couples are representable; polygynous and polyandrous
+  configurations are deferred (audit fix MISS-8).
+- Two-gender schema for the matching primitives: although the agent layer
+  carries `male`, `female`, `non_binary`, the homogamy score and the
+  stable-matching algorithm do not consume gender or sexual orientation
+  fields as of the pinned commit.
+- No remarriage cooldown: the per-template `mourning_ticks` field is
+  loaded but not yet consumed by the eligibility check, so a widowed
+  agent can in principle re-pair on the tick following the partner's
+  death.
+- Gale-Shapley is applied at initialisation only, not as a runtime
+  fallback when a large unmatched cohort accumulates.
+- Tick-loop integration deferred to demography Plan 4.
+
+**Adaptive expectations (§4.2.1).**
+- Single-variable per good: only the price level is forecast, with no
+  joint cross-good forecast, no separate inflation-rate forecast, and no
+  second-moment forecast.
+- Per-agent `λ` is homogeneous across goods within a single agent; a
+  goods-specific differentiation is a future refinement.
+- The adaptation rate is not itself learned: the personality modulation
+  of equation (4.10) is static, with no mechanism by which an agent whose
+  forecasts have been systematically wrong updates its own `λ`.
+- Multi-zone price aggregation is a last-write-wins merge of
+  `ZoneEconomy.market_prices` rather than a per-zone forecast per agent.
+
+**Credit and banking (§4.2.2).**
+- Single aggregate bank per simulation: no inter-bank lending market, no
+  inter-bank exposure graph, no central-bank lender of last resort.
+- Deposit insurance is abstract: `BankingState.is_solvent` gates new loan
+  issuance but no explicit deposit-insurance fund exists, and depositors
+  cannot literally withdraw deposits because `AgentInventory.cash`
+  represents on-hand cash already.
+- Loan negotiation is single-round take-it-or-leave-it; multi-round
+  counter-proposals on amount, collateral, or duration are deferred.
+- Rollover interest-rate increment is fixed at `1.10` per rollover rather
+  than being a function of borrower leverage or the macroeconomic stress
+  signal carried by the banking-confidence index.
+
+**Property market (§4.2.3).**
+- Single-round matching per tick: a buyer who loses to another buyer
+  ordered earlier in the iteration receives no second chance within the
+  same tick.
+- Listings reset per tick after the `10`-tick expiration window with no
+  time-priority fallback at equal price.
+- Buyer intent is binary: `buy_property` does not carry a target type or
+  a maximum price, and the matching pass selects the cheapest listing in
+  the buyer's zone regardless of fit between property type and buyer
+  role.
+- Seller asking-price formation is owned by the LLM-decision layer of
+  §3.2 rather than by the property market itself; this subsection treats
+  the asking price as exogenous.
+
+**Designed subsystems pending Round 2 audit (§8).** Eight modules across
+five clusters carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING
+findings from the 2026-04-12 batch audit: rumor propagation (information
+flow, distortion, belief filter); political institutions (government,
+institutions, stratification); movement; factions; reputation; the
+Knowledge Graph; the economy base layer. Resolution and convergence
+re-audit are tracked under
+`project_audit_repass_batch_2026_04_12_pending.md` and gate the promotion
+of these modules from §8 to §4 status, the inclusion of their parameters
+in §6 calibration tables, and their entry into the §7 validation campaign.
+
+**Validation experiments (Chapter 7).** The methodology — datasets,
+metrics, and acceptance thresholds — is specified across §7.1 to §7.3, but
+the experimental campaign that consumes the methodology is bound to Plan 4
+and is tracked under `project_validation_experiments_pending.md`.
+
+**Knowledge Graph (§8.6).** The graph is currently materialised in batch
+passes from the simulation log; live update from a running simulation,
+which is the prerequisite for graph-grounded LLM context at the per-tick
+decision step, is the dedicated work item of the roadmap of Chapter 9.
+
+**Cross-cutting limitations.** Spatial dynamics beyond the abstract zone
+graph are not exercised: PostGIS is enabled and zone geometries are stored
+as WGS84 polygons per §3.6, but routed-distance queries between zones,
+per-tick agent trajectory storage with spatial indices, and per-zone
+catchment analysis for the economy and demography modules are deferred to
+the broader-PostGIS work item of Chapter 9. The discrete-time tick scheme
+of §3.1 resolves intra-tick events sequentially within the per-tick
+orchestrator rather than treating them as concurrent, with the joint
+maternal-mortality resolver of §4.1.2 the one place where intra-tick
+coupling is treated explicitly. Real-time event handling between ticks is
+not supported.
 
 ---
 
 # 12. Conclusions
 
-<draft in Task 27>
+Epocha as documented at the pinned commit ships an audited demographic
+substrate covering Heligman-Pollard mortality, Hadwiger-with-Becker
+fertility, and Gale-Shapley with Goode 1963 couple formation (§4.1), an
+audited behavioral economy covering Cagan-Nerlove adaptive expectations,
+Diamond-Dybvig credit and banking, and a Gordon-anchored property market
+(§4.2), an LLM-driven agent decision pipeline that consumes the
+substrate's per-tick state and writes back into the persistence layer
+(§3.2), and eight implemented-but-pre-audit subsystems (§8) covering rumor
+propagation, political institutions, movement, factions, reputation, the
+Knowledge Graph, and the economy base layer. The runtime infrastructure
+covers a tick engine with self-enqueuing Celery loop, a per-phase seeded
+RNG strategy that makes every run reproducible across machines from the
+commit hash, the seed, and the initial database state (§3.4), an
+LLM-provider adapter that abstracts over OpenAI proper, Groq, Gemini,
+OpenRouter, Together AI, Mistral, LM Studio, and Ollama with key rotation
+and a Redis-backed sliding-window limiter (§3.5), and a dashboard plus
+WebSocket chat layer that exposes the live simulation state and
+agent-by-agent conversation surface to the operator (§3.8).
+
+What distinguishes this codebase from the surrounding landscape is less
+the individual modules — most have well-known antecedents in the
+literature surveyed in §2 — and more the discipline that produces and
+maintains them. The bilingual whitepaper of §1 is a living document
+frozen at every merge to the development branch, with the Italian
+companion published alongside the English original; every formula,
+parameter, and algorithm in the audited chapters cites a primary source,
+and unverified assertions are flagged inline rather than presented as
+fact. The seven-phase canonical workflow that governs every subsystem
+(ideation, requirements, plan, task breakdown, implementation, general
+test, closure) carries two heavy and two light gates with explicit human
+approval at each, and the mandatory adversarial-audit policy fires the
+`critical-analyzer` reviewer at both spec time and code time with a
+convergence loop that does not close on "close enough". Reproducibility
+is built in rather than retrofitted: era templates carry the per-epoch
+parameter values out of the source code and into auditable artefacts,
+seeded RNG streams are partitioned by simulation, tick, and phase so
+that a refactor cannot silently shift the random sequence one subsystem
+sees, and Appendix B records the exact commands by which any reported
+result can be regenerated from a clean checkout pinned at the
+frozen-at-commit hash.
+
+The codebase is open source under the Apache 2.0 licence at
+https://github.com/mauriziomocci/epocha, and contributions are welcome
+through the canonical seven-phase workflow described in this paper.
+Readers who wish to extend an audited module in §4 should expect a
+spec-first contribution path with mandatory adversarial scientific audit
+before any code is merged; readers who wish to advance one of the §8
+modules through Round 2 audit will find the open findings catalogued in
+`docs/scientific-audit-2026-04-12.md` and tracked under
+`project_audit_repass_batch_2026_04_12_pending.md`. The roadmap of
+Chapter 9 names the immediate priorities — the audit re-pass on the
+2026-04-12 batch, demography Plan 3 (inheritance and migration),
+demography Plan 4 (engine integration and historical validation), and
+the next economy spec extending §4.2 to bond and equity markets — and
+serves as the entry point for new contributors looking for a well-scoped
+work item.
 
 ---
 
@@ -1478,12 +1793,374 @@ The roadmap is ordered by priority rather than by chronology: the audit re-pass 
 
 ## Appendix A — Full parameter tables
 
-<draft in Task 28>
+Appendix A is the canonical consolidated inventory of every parameter
+consumed by the audited Methods chapters of §4.1 (demography) and §4.2
+(economy behavioral integration). Each row records the parameter name as
+declared in the source, its semantic meaning, the admissible range, the
+value(s) per era template, the primary-source citation already present in
+§13, and the calibration status — `verified` when the value is taken
+from a cited primary source, `tunable` when the value is a calibration
+heuristic deferred to Plan 4, `heuristic` when the value encodes a
+structural bound coded outside the templates. The §4.x inline tables
+remain in place as introductory summaries; this appendix is the
+authoritative reference for the consolidated view.
+
+**A.1 — Heligman-Pollard mortality (§4.1.1).** The eight HP parameters are
+defined per equation (4.1). Admissible ranges match the bounds enforced by
+`fit_heligman_pollard()` in `mortality.py:148-149` and are coherent with
+the actuarial literature on the HP model; per-era values are the seed
+values shipped with the Plan 1 templates and are provisional pending the
+Plan 4 fitting campaign against the cited targets. Pre-industrial Christian
+and pre-industrial Islamic share identical mortality blocks.
+
+| Parameter | Meaning | Admissible range | Pre-industrial (Christian/Islamic) | Industrial | Modern democracy | Sci-fi | Source | Status |
+|---|---|---|---|---|---|---|---|---|
+| `A` | Level of mortality at age 1 (childhood component) | `[0, 0.1]` | 0.00491 | 0.00223 | 0.00054 | 0.00002 | Heligman and Pollard (1980) | tunable |
+| `B` | Mortality at age 0 relative to age 1 (infancy intercept) | `[0, 0.5]` | 0.017 | 0.022 | 0.017 | 0.017 | Heligman and Pollard (1980) | tunable |
+| `C` | Rate of decline of childhood mortality with age | `[0, 1.0]` | 0.102 | 0.115 | 0.125 | 0.125 | Heligman and Pollard (1980) | tunable |
+| `D` | Peak amplitude of the young-adult accident hump | `[0, 0.05]` | 0.00080 | 0.00057 | 0.00013 | 0.00001 | Heligman and Pollard (1980) | tunable |
+| `E` | Inverse width (sharpness) of the accident hump | `[0.1, 50]` | 9.9 | 10.8 | 18.3 | 18.3 | Heligman and Pollard (1980) | tunable |
+| `F` | Age at which the accident hump is centred (years) | `[1.0, 50]` | 22.4 | 25.1 | 19.6 | 19.6 | Heligman and Pollard (1980) | tunable |
+| `G` | Senescent mortality at age 0 (Gompertz intercept) | `[0, 0.001]` | 0.0000383 | 0.0000198 | 0.0000123 | 0.0000018 | Heligman and Pollard (1980); Gompertz (1825) | tunable |
+| `H` | Rate of exponential increase of senescent mortality with age | `[1.0, 1.5]` | 1.101 | 1.104 | 1.101 | 1.089 | Heligman and Pollard (1980); Gompertz (1825) | tunable |
+
+Calibration targets per template: pre-industrial pair against Wrigley and
+Schofield (1981) tables A3.1-A3.3 (England 1700-1749); industrial against
+HMD England and Wales pooled life tables 1841-1900; modern democracy
+against HMD USA life table 2019 (pre-COVID baseline); sci-fi as
+speculative extrapolation with no empirical basis (`sci_fi.json`).
+
+**A.2 — Hadwiger fertility schedule and ceiling (§4.1.2).** The three
+Hadwiger parameters are defined per equation (4.2); the Malthusian soft
+ceiling parameters of equation (4.4) carry the same per-template
+specification.
+
+| Parameter | Meaning | Admissible range | Pre-industrial (Christian/Islamic) | Industrial | Modern democracy | Sci-fi | Source | Status |
+|---|---|---|---|---|---|---|---|---|
+| `H` | Target Total Fertility Rate (integral of `f_HW` over fertile window) | `[0, ~10]` | 5.0 | 4.0 | 1.8 | 2.1 | Hadwiger (1940); Wrigley and Schofield (1981) | tunable |
+| `R` | Peak-fertility shape parameter | `[15, 40]` | 26 | 27 | 30 | 32 | Hadwiger (1940); Chandola, Coleman and Hiorns (1999) | tunable |
+| `T` | Spread of the age-specific fertility distribution | `[1, 10]` | 3.5 | 3.8 | 4.2 | 4.0 | Hadwiger (1940); Chandola, Coleman and Hiorns (1999) | tunable |
+| `max_population` | Population cap for the Malthusian ceiling | structural | 500 | 500 | 500 | 500 | Engineering constraint (per-tick budget); Ashraf and Galor (2011) | heuristic |
+| `malthusian_floor_ratio` (`ρ`) | Floor multiplier on per-tick birth probability above the cap | `[0, 1]` | 0.10 | 0.05 | 0.01 | 0.00 | Engineering heuristic; Ashraf and Galor (2011) qualitative shape | heuristic |
+
+**A.3 — Becker fertility-modulation coefficients (§4.1.2, equation 4.3).**
+The five coefficients are seeded with identical values across all five
+demography templates pending Plan 4 calibration; tracked as audit debt
+B2-07.
+
+| Coefficient | Meaning | Seed value (all templates) | Admissible range | Source | Status |
+|---|---|---:|---|---|---|
+| `β₀` | Baseline log-shift on the modulation factor | 0.0 | unbounded | Inspired by Becker (1991); Epocha implementation choice | tunable |
+| `β₁` | Elasticity to log-wealth relative to subsistence | 0.10 | sign positive | Inspired by Becker (1991) | tunable |
+| `β₂` | Penalty per unit of parental education | −0.05 | sign negative | Inspired by Becker (1991) | tunable |
+| `β₃` | Penalty per unit of zone female labour-force participation | −0.10 | sign negative | Inspired by Becker (1991) | tunable |
+| `β₄` | Elasticity to aggregate macro-outlook signal | 0.20 | sign positive | Epocha extension; outlook computed in `context.compute_aggregate_outlook()` | tunable |
+| modulation clip | Output bound on `m_BK` after exponentiation | `[0.05, 3.0]` | structural | Implementation guard against degenerate inputs | heuristic |
+
+**A.4 — Maternal mortality at childbirth (§4.1.2, joint resolver).** The
+two coefficients consumed by `resolve_childbirth_event()` are template
+fields under `mortality.maternal_mortality_rate_per_birth` and
+`mortality.neonatal_survival_when_mother_dies`; values reflect the
+historical-target ranges discussed in the demography spec.
+
+| Parameter | Meaning | Pre-industrial (Christian/Islamic) | Industrial | Modern democracy | Sci-fi | Source | Status |
+|---|---|---:|---:|---:|---:|---|---|
+| `maternal_mortality_rate_per_birth` | Probability of maternal death per live birth | 0.012 | 0.005 | 0.0001 | 0.00001 | Demography spec (per-template seed); calibration pending Plan 4 | tunable |
+| `neonatal_survival_when_mother_dies` | Probability the newborn survives when the mother dies in childbirth | 0.30 | 0.50 | 0.95 | 0.99 | Demography spec (per-template seed); calibration pending Plan 4 | tunable |
+
+**A.5 — Couple-formation parameters (§4.1.3).** Per-template values for
+the runtime resolver and for the Kalmijn (1998) homogamy weights of
+equation (4.6).
+
+| Parameter | Meaning | Pre-industrial Christian | Pre-industrial Islamic | Industrial | Modern democracy | Sci-fi | Source | Status |
+|---|---|---|---|---|---|---|---|---|
+| `marriage_market_type` | `autonomous` vs `arranged` (parent-mediated under Goode 1963 Pass B) | `autonomous` | `arranged` | `autonomous` | `autonomous` | `autonomous` | Goode (1963); demography spec | tunable |
+| `divorce_enabled` | Gates `resolve_separate_intents()` | false | true | true | true | true | Demography spec; Catholic-marriage indissolubility for Christian template | tunable |
+| `implicit_mutual_consent` | One-sided declaration suffices when true | true | true | true | true | true | Demography spec | tunable |
+| `min_age` (M / F) | Minimum age for the eligibility check (years) | 16 / 14 | 16 / 14 | 18 / 16 | 18 / 18 | 18 / 18 | Demography spec; historical-attestation order of magnitude | tunable |
+| `mourning_ticks` | Cooldown after partner's death (loaded but not yet consumed) | 365 | 365 | 180 | 90 | 30 | Demography spec | tunable |
+| `marriage_market_radius` | Spatial scope of candidate pool | `same_zone` | `same_zone` | `adjacent_zones` | `world` | `world` | Demography spec; spatial structure inherited from §3.6 | tunable |
+| `w_class` | Class similarity weight in equation (4.6) | 0.40 | 0.40 | 0.35 | 0.20 | 0.10 | Kalmijn (1998); per-era cultural-salience calibration | tunable |
+| `w_edu` | Education proximity weight | 0.25 | 0.25 | 0.30 | 0.40 | 0.30 | Kalmijn (1998) | tunable |
+| `w_age` | Age proximity weight | 0.20 | 0.20 | 0.20 | 0.20 | 0.20 | Kalmijn (1998) | tunable |
+| `w_rel` | Existing relational sentiment weight | 0.15 | 0.15 | 0.15 | 0.20 | 0.40 | Kalmijn (1998); Epocha extension via `Relationship.sentiment` | tunable |
+| `age_tolerance_years` (`τ`) | Decay scale of the exponential age kernel (function argument) | 10.0 | 10.0 | 10.0 | 10.0 | 10.0 | Demographic-literature order of magnitude; promotion to per-template field reserved for Plan 4 | heuristic |
+
+**A.6 — Adaptive-expectations parameters (§4.2.1).** The expectations
+config block is populated by `_behavioral_config()` in
+`template_loader.py:179-196` and is identical across all four economy
+templates pending Plan 4 calibration. Structural bounds are coded as
+module constants in `expectations.py:38-39`.
+
+| Parameter | Meaning | Seed value (all economy templates) | Admissible range | Source | Status |
+|---|---|---:|---|---|---|
+| `lambda_base` | Baseline adaptation rate before personality modulation | 0.30 | `(0, 1)` | Cagan (1956); Nerlove (1958) | tunable |
+| `neuroticism_mod` | Magnitude of positive Neuroticism contribution to per-agent `λ` | 0.15 | `≥ 0` | Costa and McCrae (1992); Epocha extension | tunable |
+| `openness_mod` | Magnitude of positive Openness contribution to per-agent `λ` | 0.10 | `≥ 0` | Costa and McCrae (1992); Epocha extension | tunable |
+| `conscientiousness_mod` | Magnitude of negative Conscientiousness contribution to per-agent `λ` | 0.10 | `≥ 0` | Costa and McCrae (1992); Epocha extension | tunable |
+| `trend_threshold` | Fractional deviation from `expected_price` required to change `trend_direction` | 0.05 | `(0, 1)` | Epocha design choice; tunable | tunable |
+| `_LAMBDA_MIN` (structural) | Lower bound on per-agent `λ` after equation (4.10) | 0.05 | structural | Implementation guard against static forecast | heuristic |
+| `_LAMBDA_MAX` (structural) | Upper bound on per-agent `λ` after equation (4.10) | 0.95 | structural | Implementation guard against naive expectation | heuristic |
+| confidence step | Per-tick increment/decrement on `AgentExpectation.confidence` | ±0.05 | `(0, 1)` | Epocha design choice; tunable | tunable |
+
+**A.7 — Credit and banking, per-era (§4.2.2).** The four economy templates
+shipped with the economy app — pre-industrial, industrial, modern, sci-fi —
+carry differentiated `credit_config` and `banking_config` blocks
+calibrated qualitatively against Homer and Sylla (2005) and the Basel III
+reserve-ratio convention.
+
+| Parameter | Meaning | Pre-industrial | Industrial | Modern | Sci-fi | Source | Status |
+|---|---|---:|---:|---:|---:|---|---|
+| `loan_to_value` | Maximum loan-to-collateral-value ratio in (4.12) | 0.50 | 0.60 | 0.80 | 0.90 | Stiglitz and Weiss (1981); Homer and Sylla (2005) qualitative ranges | tunable |
+| `base_interest_rate` | Initial base rate before Wicksellian adjustment | 0.08 | 0.06 | 0.03 | 0.02 | Homer and Sylla (2005); Wicksell (1898) for the adjustment law | tunable |
+| `initial_deposits` | Banking-system seed deposits in primary-currency units | 5 000 | 20 000 | 100 000 | 500 000 | Engineering seed scaled by era money supply | tunable |
+| `reserve_ratio` | Required reserve ratio (Basel III convention for modern) | 0.10 | 0.10 | 0.05 | 0.03 | Basel III; Diamond and Dybvig (1983) | tunable |
+
+**A.8 — Credit and banking, structural and uniform (§4.2.2).** Parameters
+that are uniform across all four templates pending Plan 4 calibration, or
+that are coded as module-level constants because they encode the
+qualitative shape of the bank-run dynamic rather than calibration choices.
+
+| Parameter | Meaning | Value | Where coded | Source | Status |
+|---|---|---:|---|---|---|
+| `risk_premium` | Coefficient on the borrower-leverage spread in (4.13) | 0.50 | `credit.py:189-194`; `credit_config.risk_premium` | Stiglitz and Weiss (1981) qualitative; magnitude is Epocha design | tunable |
+| `max_rollover` | Maximum number of times a maturing loan may be rolled over | 3 | `credit_config.max_rollover` | Minsky (1986) qualitative; magnitude is Epocha design | tunable |
+| `default_loan_duration_ticks` | Default loan duration when caller passes none | 20 | `credit_config.default_loan_duration_ticks` | Epocha design choice | tunable |
+| `_CONCERN_CONFIDENCE_THRESHOLD` | Threshold of (4.11) below which banking-concern memories are broadcast | 0.50 | `banking.py:319` | Diamond and Dybvig (1983) qualitative; threshold is Epocha design | heuristic |
+| `_CONCERN_BROADCAST_RATIO` | Fraction of living population that receives the per-tick concern broadcast | 0.50 | `banking.py:319` | Engineering choice for memory-write budget | heuristic |
+| `_CONCERN_DEDUP_TICKS` | Deduplication window aligned to agent-engine memory dedup | 3 | `banking.py:319` | Engineering choice; aligned with `simulation/engine.py` constant | heuristic |
+| `CASCADE_LOSS_THRESHOLD` | Fraction of lender wealth above which a default loss propagates | 0.50 | `credit.py:50` | Allen and Gale (2000) qualitative | heuristic |
+| cascade `max_depth` | BFS cap on default-cascade propagation | 3 | `process_default_cascade()` argument | Allen and Gale (2000) empirical-network diameter (3-5 links) | heuristic |
+| rollover repricing factor | Per-rollover interest-rate multiplier | 1.10 | `credit.py:504` | Epocha design choice; deferred refinement under §4.2.2 | tunable |
+| solvency confidence step | `confidence_index` decrement per tick of insolvency | −0.10 | `banking.py` `check_solvency()` | Epocha design; trust-asymmetry observation | heuristic |
+| solvency recovery step | `confidence_index` increment per tick of recovery | +0.05 | `banking.py` `check_solvency()` | Epocha design; trust-asymmetry observation | heuristic |
+| base-rate clamp | Lower and upper clamp on `base_interest_rate` after Wicksellian adjustment | `[0.005, 0.50]` | `banking.py:112-194` | Implementation guard | heuristic |
+
+**A.9 — Property market (§4.2.3).** No standalone era-template config
+block; values are inherited from the credit and expectations configs and
+two property-market design parameters are coded outside the templates.
+
+| Parameter | Meaning | Value | Where coded | Source | Status |
+|---|---|---:|---|---|---|
+| `trend_threshold` | Fractional deviation classifying asking price as rising/falling/stable | 0.05 | inherited from `expectations_config.trend_threshold` | Audit fix C-5 of 2026-04-15 convergence | tunable |
+| `listing_expiration_ticks` | Stale listings withdrawn after this many ticks | 10 | `property_market.py:222` | Epocha design choice; multi-period market timescale | heuristic |
+| Gordon denominator floor | Floor on `(r − g)` in `V = R / (r − g)` to prevent division by zero | 0.01 | `property_market.py:114-121` | Implementation guard against `r ≈ g` | heuristic |
+| Gordon valuation lower clip | Lower bound on `fundamental_value` as multiple of `property.value` | 0.1× | `property_market.py:114-121` | Implementation guard against transient rent collapses | heuristic |
+| Gordon valuation upper clip | Upper bound on `fundamental_value` as multiple of `property.value` | 10× | `property_market.py:114-121` | Implementation guard; binding constraint on bubble magnitude per spec audit log | heuristic |
 
 ## Appendix B — Reproducibility
 
-<draft in Task 29>
+Appendix B records the operational steps by which any result reported in
+this whitepaper can be regenerated from a clean checkout. The reference
+that pins the codebase state for the present revision is the value of the
+`frozen-at-commit` field in the front matter, populated at merge time
+under phase 7 of the canonical workflow; running on a different commit
+will produce results that may differ in numeric detail even when the
+qualitative behavior is preserved.
+
+**Repository.** The canonical source is
+https://github.com/mauriziomocci/epocha, mirrored to no other public
+location. The `develop` branch carries the integration of work that has
+passed all gates of the canonical seven-phase workflow and the periodic
+memory-backup sync described in the project CLAUDE.md; the `main` branch
+is reserved for releases.
+
+**Pinned commit.** The value of the `frozen-at-commit` field at the top
+of this document — currently `<filled-on-merge>` and resolved at merge to
+the SHA of the integrating commit — is the canonical reproduction
+reference. The same placeholder appears on each `Status` header in §4 and
+is filled atomically at phase 7 closure.
+
+**Runtime environment.** Python 3.12 with the dependency set pinned in
+`requirements/base.txt` (production-baseline transitive set),
+`requirements/local.txt` (development extensions including pytest and
+debug tooling), and `requirements/production.txt` (production overrides).
+Direct PostgreSQL with PostGIS extension is required for the spatial
+fields enabled in `world.0003_zone_postgis_geometry`; Redis is required
+for Celery broker and the LLM rate limiter; the Docker compose file
+`docker-compose.local.yml` packages Postgres+PostGIS, Redis, the Django
+application, the Celery worker, and the Celery beat scheduler with the
+correct service wiring.
+
+**Bringing up the stack from a clean checkout.**
+
+```bash
+git clone https://github.com/mauriziomocci/epocha.git
+cd epocha
+git checkout <frozen-at-commit>
+docker compose -f docker-compose.local.yml up --build
+```
+
+The first invocation builds the application image and runs the migration
+trail under `epocha/apps/<app>/migrations/`, applied linearly without
+squashing per the project rule. The dashboard is exposed at the host port
+declared in the compose file; LLM-provider credentials must be configured
+through the `EPOCHA_LLM_BASE_URL`, `EPOCHA_LLM_MODEL`, and
+`EPOCHA_LLM_API_KEY` settings of `config/settings/base.py` (and the
+`EPOCHA_CHAT_LLM_*` parallel for the chat-side provider) before the agent
+decision pipeline of §3.2 can dispatch a tick.
+
+**Test invocation.**
+
+```bash
+docker compose -f docker-compose.local.yml exec web \
+    pytest --cov=epocha -v
+```
+
+The full suite covers the audited modules of §4.1 and §4.2 at the
+algorithm level, the cross-module integration paths exercised by
+`epocha/apps/economy/engine.py:process_economy_tick_new()`, and the
+Django-level model and serializer machinery of every app under
+`epocha/apps/`. Per-module subsets are addressable by directory path:
+`pytest epocha/apps/demography/ -v` for the §4.1 modules,
+`pytest epocha/apps/economy/ -v` for the §4.2 modules.
+
+**Seeded RNG.** Per §3.4, every stochastic decision in the demography
+subsystem draws from a per-stream seeded `random.Random` returned by
+`epocha.apps.demography.rng.get_seeded_rng(simulation, tick, phase)`,
+where `phase` is one of the closed set `mortality`, `fertility`,
+`couple`, `migration`, `inheritance`, `initialization`. The seed is
+derived as the first eight bytes of
+`sha256(f"{simulation.id}:{simulation.seed}:{tick}:{phase}")`, so two
+runs with the same `simulation.id`, `simulation.seed`, and code revision
+produce identical per-tick draws across the lifetime of the simulation.
+Reordering or suppressing one subsystem in a refactor does not shift the
+random sequence the others see at the same tick, which is the property
+that makes refactor-stable reproducibility possible. The known debt A-5
+documented in §3.4 — a fallback to `0` when both `simulation.seed` and
+`simulation.id` are `None` — is rare in practice and tracked for Plan 4.
+
+**Era template loading.** Per Appendix C, the demography templates are
+five JSON files under `epocha/apps/demography/templates/` and the
+economy templates are four Python factory functions in
+`epocha/apps/economy/template_loader.py`. The demography loader
+(`template_loader.py`) validates each JSON file against the implicit
+schema defined by the consumers in §4.1 — every key is consumed by a
+specific model and unknown keys raise a validation error rather than
+being silently ignored. The economy factories return a nested dictionary
+that the loader passes to `EconomyTemplate.objects.get_or_create()`; the
+behavioral block is built once by `_behavioral_config()` and is identical
+across all four templates pending Plan 4 calibration. To run a simulation
+under a specific era template, set the corresponding `Simulation.config`
+fields (`demography_template`, `economy_template`) at simulation creation
+through the dashboard or the management API.
+
+**Validation experiments.** The methodology of Chapter 7 specifies the
+target datasets (§7.1), comparison metrics (§7.2), and acceptance
+thresholds (§7.3); the experimental campaign that consumes them is
+tracked under `docs/memory-backup/project_validation_experiments_pending.md`
+and is bound to demography Plan 4. The Plan 4 deliverable will introduce
+a `validation/` directory at the repository root with one Python script
+per audited module and a Makefile target that runs the entire campaign
+under a single command on a clean checkout.
 
 ## Appendix C — Era templates JSON schema and source
 
-<draft in Task 29>
+The simulation supports two parallel template systems whose existence is
+documented in §6.2. Appendix C describes the on-disk shape of each system
+without inflating the document with the full JSON content; the
+authoritative payloads live in the source tree at the paths recorded
+below.
+
+**C.1 — Demography templates (JSON, five files).** Each file under
+`epocha/apps/demography/templates/` carries a flat dictionary with three
+top-level blocks (`mortality`, `fertility`, `couple`) consumed by the
+audited models of §4.1. The implicit schema is narrow: every key is
+consumed by a specific function in `mortality.py`, `fertility.py`, or
+`couple.py`, and unknown keys at load time raise a validation error
+rather than being silently ignored.
+
+The `mortality` block carries the eight Heligman-Pollard parameters
+defined per equation (4.1) plus the maternal-mortality coefficients
+consumed by the joint resolver of §4.1.2:
+
+- `A`, `B`, `C` — childhood-decline parameters of equation (4.1)
+- `D`, `E`, `F` — accident-hump parameters
+- `G`, `H` — Gompertz senescent-rise parameters
+- `maternal_mortality_rate_per_birth` — probability of maternal death per
+  live birth
+- `neonatal_survival_when_mother_dies` — probability the newborn
+  survives when the mother dies in childbirth
+
+The `fertility` block carries the three Hadwiger parameters of equation
+(4.2), the five Becker modulation coefficients of equation (4.3), and
+the Malthusian-ceiling parameters of equation (4.4):
+
+- `H`, `R`, `T` — Hadwiger schedule of equation (4.2)
+- `becker_beta_0` through `becker_beta_4` — Becker coefficients
+- `malthusian_floor_ratio` (`ρ`) — soft-ceiling floor multiplier
+- `max_population` — Malthusian-ceiling cap
+
+The `couple` block carries the runtime-resolver fields and the Kalmijn
+homogamy weights of equation (4.6):
+
+- `marriage_market_type` — `autonomous` or `arranged`
+- `divorce_enabled` — gates `resolve_separate_intents()`
+- `implicit_mutual_consent` — one-sided declaration suffices when true
+- `min_age_male`, `min_age_female` — eligibility minimums in years
+- `mourning_ticks` — cooldown after partner's death (loaded but not yet
+  consumed)
+- `marriage_market_radius` — `same_zone`, `adjacent_zones`, or `world`
+- `homogamy_weights` — sub-block carrying `w_class`, `w_edu`, `w_age`,
+  `w_rel` summing to one
+- `allowed_types`, `default_type` — couple typology
+
+The five files shipped with Plan 1 are summarised in Table C.1.
+
+Table C.1 — Demography templates shipped with Plan 1.
+
+| Template name | File path | Era scope |
+|---|---|---|
+| `pre_industrial_christian` | `epocha/apps/demography/templates/pre_industrial_christian.json` | Pre-industrial Western Christendom; calibration target Wrigley and Schofield (1981) England 1700-1749; carries Catholic-marriage indissolubility (`divorce_enabled: false`); identical mortality and fertility blocks to `pre_industrial_islamic`, differs only in the couple block |
+| `pre_industrial_islamic` | `epocha/apps/demography/templates/pre_industrial_islamic.json` | Pre-industrial Islamic world; same biological schedules as `pre_industrial_christian`; carries arranged-marriage regime (`marriage_market_type: arranged`) under Goode (1963) Pass B semantics |
+| `industrial` | `epocha/apps/demography/templates/industrial.json` | Industrial transition; calibration target HMD England and Wales pooled 1841-1900; broadened marriage-market radius to `adjacent_zones` reflecting urbanisation |
+| `modern_democracy` | `epocha/apps/demography/templates/modern_democracy.json` | Modern liberal democracy; calibration target HMD USA 2019 (pre-COVID baseline); marriage-market radius `world` reflecting modern mobility |
+| `sci_fi` | `epocha/apps/demography/templates/sci_fi.json` | Speculative far-future template; no empirical calibration target; documented inline in the source as speculative |
+
+**C.2 — Economy templates (Python factories, four functions).** Each
+factory under `epocha/apps/economy/template_loader.py` returns a nested
+dictionary that the loader passes to
+`EconomyTemplate.objects.get_or_create()`. The factory pattern was chosen
+over per-template JSON files on the grounds that the per-era
+differentiation reduces to a small set of inputs (currency table, goods
+elasticities, factor stocks, behavioral configuration) and the Python
+factory exposes those inputs as named arguments more legibly than four
+parallel JSON files would. The behavioral block is built once by
+`_behavioral_config()` and is identical across all four templates pending
+Plan 4 calibration.
+
+Table C.2 — Economy templates shipped with the economy app.
+
+| Template name | Factory function | Scope |
+|---|---|---|
+| `pre_industrial` | `_pre_industrial_template()` (`epocha/apps/economy/template_loader.py`) | Pre-industrial agrarian economy; carries the canonical farmland-workshop-shop property typology, low loan-to-value of 0.50, base interest rate 0.08 calibrated against Homer and Sylla (2005) for the pre-modern range |
+| `industrial` | `_industrial_template()` | Industrial transition; adds the factory property type at base value 500; loan-to-value 0.60; base interest rate 0.06 |
+| `modern` | `_modern_template()` | Modern central-bank-anchored economy; adds the office property type at base value 300; loan-to-value 0.80; base interest rate 0.03; reserve ratio 0.05 calibrated against the Basel III convention |
+| `sci_fi` | `_sci_fi_template()` | Speculative far-future template; adds automated factory at base value 1 000 and research lab at base value 800; loan-to-value 0.90; base interest rate 0.02; reserve ratio 0.03 |
+
+The `_behavioral_config()` shared block at `template_loader.py:144-198`
+populates the `expectations_config`, `credit_config`, and `banking_config`
+sub-blocks consumed by the audited modules of §4.2. The per-era
+differentiation of `λ_base`, the Becker modulation coefficients,
+`risk_premium`, `max_rollover`, and `default_loan_duration_ticks` is the
+explicit calibration debt assigned to Plan 4. The discrepancy in count
+between five demography templates and four economy templates is
+documented in §6.2: the demography spec required separating the two
+pre-industrial confessional regimes to support the marriage-market and
+divorce-regime distinction, while the economy spec found no analogous
+structural distinction at the price-and-credit layer.
+
+**C.3 — Loading and validation.** Both template systems are loaded at
+simulation creation time through `template_loader.py` modules in their
+respective apps. The demography loader validates the JSON against the
+implicit schema by attempting to construct each model's parameter object
+and rejecting the load with a descriptive `ValueError` when any required
+field is missing or any value falls outside the admissible range
+documented in Appendix A. The economy loader performs the same role for
+the Python-factory output, with the difference that the factory itself
+controls the produced dictionary and a malformed factory output indicates
+a bug in the factory rather than a corrupted JSON file. The strict
+validation discipline is the property that makes the per-era
+differentiation auditable: a typo in a template field is caught at
+simulation creation rather than producing silently incorrect per-tick
+behavior downstream.
