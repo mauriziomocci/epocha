@@ -961,41 +961,117 @@ Equation (4.15) is implemented in `process_defaults()` at `epocha/apps/economy/c
 
 # 5. Implementation
 
-<draft in Task 20>
+Chapter 5 documents how the abstract architecture of Chapter 3 and the audited models of Chapter 4 are laid down on disk. The intent is that a reader who has internalized the previous chapters can navigate the codebase without first reverse-engineering the directory tree, and that the mapping between each implemented module and its design spec is explicit rather than implicit. The chapter is deliberately compact: it points at the source of truth rather than re-narrating what the source already states.
 
 ## 5.1 Repository layout
 
-<draft in Task 20>
+The repository is organized into four top-level directories under the project root:
+
+```
+epocha/
+├── config/                     Django project package (settings, ASGI, Celery, root URL)
+│   ├── settings/               Split settings: base, local, production
+│   ├── asgi.py                 ASGI entry point for HTTP and WebSocket
+│   ├── celery.py               Celery app declaration and task autodiscovery
+│   └── urls.py                 Root URL configuration mounting per-app routers
+├── epocha/
+│   ├── apps/                   Django apps, one per simulation subsystem
+│   │   ├── agents/             Big Five personality, memory, decision pipeline,
+│   │   │                       reputation, information flow, factions, movement,
+│   │   │                       relationships, social graph
+│   │   ├── chat/               WebSocket conversation layer with agents
+│   │   ├── dashboard/          Operator UI, simulation overview, graph rendering
+│   │   ├── demography/         Mortality, fertility, couple formation,
+│   │   │                       inheritance, age structure
+│   │   ├── economy/            Production, monetary, market clearing, credit,
+│   │   │                       banking, expectations, property market,
+│   │   │                       distribution, political feedback
+│   │   ├── knowledge/          Knowledge graph and structured fact store
+│   │   ├── llm_adapter/        Provider abstraction, key rotation, rate limiter,
+│   │   │                       per-call accounting (`LLMRequest`)
+│   │   ├── simulation/         Tick engine, Celery loop, simulation lifecycle,
+│   │   │                       seed and RNG bookkeeping
+│   │   ├── users/              Authentication and operator accounts (boilerplate)
+│   │   └── world/              Geography, zones, government, institutions,
+│   │                            stratification, document parsing, generators
+│   └── common/                 Shared utilities: pagination, permissions,
+│                                exceptions, mixins, generic helpers
+├── compose/                    Dockerfiles and entrypoints for local and prod
+├── requirements/               Pinned dependency sets: base, local, production
+└── docs/                       Specs, plans, memory backup, whitepapers
+```
+
+The split between `config/` and `epocha/` follows the django-cookiecutter convention: `config/` carries the project-level wiring that is independent of the domain, while `epocha/` carries the domain itself. Apps under `epocha/apps/` are intentionally narrow: each one owns a closed set of concerns and exposes its public surface through `models.py`, `serializers.py`, `views.py`, `urls.py`, and a per-domain set of service modules whose names match the §4 model boundaries (`mortality.py`, `fertility.py`, `couple.py`, `expectations.py`, `credit.py`, `property_market.py`, and so on). Cross-app communication goes through model foreign keys and through the per-tick orchestrator in `simulation/`, never through ad-hoc imports between domain modules; this is the structural rule that keeps the dependency graph acyclic and that makes per-app testing tractable.
 
 ## 5.2 Module-to-spec mapping
 
-<draft in Task 20>
+Table 5.1 records the design spec or specs that govern each Django app under `epocha/apps/`. Specs are stored under `docs/superpowers/specs/` in date-prefixed kebab-case form; multiple specs against the same app reflect the staged design history of that subsystem (an initial design spec followed by behavioral or integration revisions). Apps tagged "n/a — boilerplate" carry no domain logic of their own beyond Django defaults and therefore have no companion design spec.
+
+Table 5.1 — Mapping from `epocha/apps/<app>` to the governing design spec.
+
+| App | Design spec(s) under `docs/superpowers/specs/` |
+|---|---|
+| `agents` | `2026-04-05-information-flow-design.md` (information flow), `2026-04-05-factions-leadership-design.md` (factions and leadership), `2026-04-06-reputation-model-design.md` (reputation), `2026-04-06-social-graph-design.md` (relationships and social graph), `2026-04-07-movement-system-design.md` (movement) |
+| `chat` | `2026-03-30-integrated-dashboard-chat-design.md` |
+| `dashboard` | `2026-03-30-integrated-dashboard-chat-design.md`, `2026-04-06-analytics-psicostoriografia-design.md` |
+| `demography` | `2026-04-18-demography-design.md` |
+| `economy` | `2026-04-12-economy-base-design.md`, `2026-04-13-economy-behavioral-design.md`, `2026-04-15-economy-behavioral-integration-design.md` |
+| `knowledge` | `2026-04-11-knowledge-graph-design.md` |
+| `llm_adapter` | `2026-03-22-epocha-design.md` (master spec, §3.5) |
+| `simulation` | `2026-03-22-epocha-design.md` (master spec, §3.1, §3.4) |
+| `users` | n/a — boilerplate |
+| `world` | `2026-04-05-government-institutions-stratification-design.md` (government, institutions, stratification), `2026-04-06-postgis-geodjango-design.md` (geographic substrate) |
+
+The master spec `2026-03-22-epocha-design.md` covers cross-cutting concerns (tick engine, RNG strategy, LLM adapter contract, persistence conventions) that are not owned by any single domain app and are referenced by every other spec. The Italian companion `2026-04-18-demography-design-it.md` shadows the demography design as the human-readable artifact used during the spec-approval gate; per the bilingual policy of the master CLAUDE.md it is the authoritative single version for that subsystem.
 
 ## 5.3 LLM provider adapter and rate limiting
 
-<draft in Task 20>
+The implementation pointer for the adapter described in §3.5 is `epocha/apps/llm_adapter/providers/`, with `base.py` defining the abstract `BaseLLMProvider` interface and `openai.py` providing the concrete OpenAI-compatible implementation that targets every supported endpoint (OpenAI proper, Groq, Google Gemini, OpenRouter, Together AI, Mistral, LM Studio, Ollama). Switching providers is a settings change rather than a code change: `EPOCHA_LLM_BASE_URL`, `EPOCHA_LLM_MODEL`, and `EPOCHA_LLM_API_KEY` in `config/settings/base.py` select the endpoint, and the same triple has a `EPOCHA_CHAT_LLM_*` parallel for the chat-side provider that `get_chat_llm_client()` wraps in a `FallbackProvider`. Local LM Studio runs are configured exactly like remote endpoints: the `base_url` points at `http://localhost:1234/v1` (the default LM Studio server URL), `EPOCHA_LLM_API_KEY` is left unset or set to a placeholder, and the model identifier matches the model loaded in the LM Studio UI. The Groq key-rotation pattern that backstops the free tier is implemented inside `OpenAIProvider`: `EPOCHA_LLM_API_KEY` accepts a comma-separated list of keys, and on `RateLimitError` the provider rotates to the next key after exhausting the in-call retry budget. The process-level Redis-backed sliding-window limiter in `epocha/apps/llm_adapter/rate_limiter.py` is the second line of defense and is invoked by orchestration code that needs to throttle ahead of the provider's own limit. Per-call accounting writes to the `LLMRequest` model so that token usage and USD cost are observable per simulation in the dashboard.
 
 ## 5.4 Persistence model details
 
-<draft in Task 20>
+PostgreSQL is the canonical store, with PostGIS already enabled at the Django level: `django.contrib.gis` is in `INSTALLED_APPS` (`config/settings/base.py:33`) and the `world` app stores zone geometries as WGS84 `PolygonField`/`PointField` from migration `world.0003_zone_postgis_geometry` onward. The default primary key is the Django 64-bit auto-increment integer (`DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"`); no UUID columns are used as of the pinned commit, and foreign keys throughout the apps therefore carry integer references. Atomic per-request transactions are enabled (`ATOMIC_REQUESTS = True`) so that API and tick handlers run inside a transaction by default.
+
+Migration discipline follows the project rule that no migration is applied to `develop` without the corresponding model change being merged in the same commit; migrations under `epocha/apps/<app>/migrations/` are linear and never squashed across releases, on the grounds that the simulation itself is the source of truth and rolling back a migration must remain a git-level operation. Two persistence-model conventions, both formalized during the demography Plan 1 audit, deserve explicit mention because they cross multiple apps. First, every monetary balance is stored as a `JSONField` keyed by ISO-4217-style currency code rather than as a single `DecimalField`: `AgentInventory.cash` (`epocha/apps/economy/models.py:203`) and the analogous treasury fields on government and banking entities all carry per-currency dictionaries so that multi-currency balances and per-currency analytics are preserved without schema migrations when a new currency is introduced by a sci-fi or modern template. Second, the `Agent.birth_tick` column on `agents.Agent` is a `BigIntegerField` rather than a `PositiveIntegerField` (`epocha/apps/agents/models.py:88`); the signed type is required because pre-existing agents whose age predates the simulation start carry a negative birth tick, and the canonical age formula `age = (current_tick − birth_tick) / ticks_per_year` would otherwise lose validity at the founder-population boundary. The migration trail at `agents.0009_agent_birth_tick_*` and `agents.0010_alter_agent_birth_tick_*` records the introduction of the field and its subsequent retyping during the Plan 1 convergence loop.
 
 ---
 
 # 6. Calibration
 
-<draft in Task 21>
+Chapter 6 documents the calibration surface of the audited modules and the era-template machinery that carries the per-epoch parameter values into the simulation. Where Chapter 4 narrates each model and presents its parameter table inline alongside the equations it parameterizes, Chapter 6 takes the complementary view: it consolidates the calibration pointers in a single place, describes the two distinct schema conventions used for demography and economy templates, and records which fits are implemented today and which are deferred to Plan 4.
 
 ## 6.1 Parameter tables per audited module
 
-<draft in Task 21>
+The per-module parameter tables are presented inline in Chapter 4 next to the equations they govern, on the principle that a parameter is most legible when it sits beside its model rather than in a back-of-book appendix. Table 6.1 below is therefore an index, not a duplicate.
+
+Table 6.1 — Index of inline parameter tables by audited module.
+
+| Audited module | Inline tables in Chapter 4 |
+|---|---|
+| Mortality (Heligman-Pollard) | Tables 4.1 (HP parameter semantics and admissible ranges) and 4.2 (per-era HP values across the five Plan 1 templates) |
+| Fertility (Hadwiger ASFR + Becker modulation) | Tables 4.3 (per-era Hadwiger values) and 4.4 (Becker modulation coefficients, currently homogeneous across all five templates per debt B2-07) |
+| Couple formation (Gale-Shapley + Goode 1963) | Tables 4.5 (per-era couple-formation parameters) and 4.6 (per-era homogamy weights for equation (4.6)) |
+| Adaptive expectations (Cagan 1956) | Table 4.7 (parameters seeded by `_behavioral_config()`, identical across all four economy templates pending Plan 4 calibration) |
+| Credit and banking (Diamond-Dybvig + fractional reserve) | Tables 4.8 (per-era credit and banking parameters) and 4.9 (parameters uniform across all four templates pending Plan 4) |
+| Property market | No standalone table — parameters inherit from the credit configuration of §4.2.2 (loan-to-value, base interest rate as the discount rate `r`) and from the expectations configuration of §4.2.1 (the `trend_threshold = 0.05` for asking-price classification). Two property-market-specific design parameters are coded outside the templates and documented inline in §4.2.3: the listing-expiration window of `10` ticks (`property_market.py:222`) and the Gordon-valuation guard band that floors the denominator at `0.01` and clips the resulting valuation to `[0.1 · property.value, 10 · property.value]` (`property_market.py:114-121`). |
+
+The `sci_fi.json` template is documented in its own source file as speculative and carries no empirical calibration target across any of the audited modules.
 
 ## 6.2 Era templates and tunable heuristics
 
-<draft in Task 21>
+The simulation supports two parallel template systems that originated from independent design decisions in the demography and economy specs. The discrepancy in shape and count is a deliberate side effect of the staged spec history rather than a structural intent, and it is recorded explicitly here because the two systems will eventually converge during Plan 4.
+
+The demography templates are five JSON files under `epocha/apps/demography/templates/`: `pre_industrial_christian.json`, `pre_industrial_islamic.json`, `industrial.json`, `modern_democracy.json`, and `sci_fi.json`. Each file carries a flat dictionary with three top-level keys (`mortality`, `fertility`, `couple`), each holding the parameter values consumed by the corresponding model of §4.1. The pre-industrial pair is a deliberate split: the two files share identical mortality and fertility blocks (because the empirical historical record does not justify per-confession differentiation in the underlying biological schedules) and differ only in the `couple` block, where `pre_industrial_islamic.json` carries `marriage_market_type: arranged` against the autonomous regime of all the other templates and `pre_industrial_christian.json` carries `divorce_enabled: false` to model the canonical Catholic-marriage indissolubility regime. The JSON schema is intentionally narrow: every key is consumed by a specific model in §4.1, no untyped extension fields are accepted, and an unknown key at load time raises a validation error rather than being silently ignored.
+
+The economy templates are four Python factory functions in `epocha/apps/economy/template_loader.py`: `_pre_industrial_template()`, `_industrial_template()`, `_modern_template()`, and `_sci_fi_template()`. Each function returns a nested dictionary that the loader passes to `EconomyTemplate.objects.get_or_create()`, and the per-era differentiation is realized by varying a small set of inputs (currency table, goods elasticities, factor stocks, behavioral configuration) rather than by maintaining four independent JSON files. The behavioral block specifically is built once by `_behavioral_config()` (`template_loader.py:144-198`) and is identical across all four templates as of the pinned commit, on the grounds that the audited Plan 2 calibration evidence did not motivate per-era differentiation at spec time. Per-era differentiation of `λ_base`, the Becker modulation coefficients, `risk_premium`, `max_rollover`, and `default_loan_duration_ticks` is the explicit calibration debt assigned to Plan 4. The two systems use different counts (five for demography, four for economy) because the demography spec required separating the two pre-industrial confessional regimes to support the marriage-market and divorce-regime distinction, while the economy spec found no analogous structural distinction at the price-and-credit layer that would justify a fifth template.
+
+Beyond the per-template parameter values, the audited modules carry a small number of structural constants that are coded in the source rather than in the templates because they are properties of the model rather than calibration choices. The expectations bounds `_LAMBDA_MIN = 0.05` and `_LAMBDA_MAX = 0.95` (`expectations.py:38-39`) prevent degenerate forecasts and are documented in §4.2.1; the `CASCADE_LOSS_THRESHOLD = 0.5` of the Allen-Gale contagion pass and the matching listing-expiration window of `10` ticks are documented in §4.2.2 and §4.2.3 respectively. These are tunable heuristics in the sense that they admit revision under future calibration evidence, but they are not template fields and per-era differentiation is not a Plan 4 deliverable for them.
 
 ## 6.3 Fitting procedures
 
-<draft in Task 21>
+The mortality module ships with a working fitting helper, `fit_heligman_pollard()` in `epocha/apps/demography/mortality.py:103-158`, that wraps `scipy.optimize.curve_fit` against the eight-parameter HP functional form. The function takes a list of ages and the corresponding observed annual mortality probabilities `q(x)` and returns a dictionary keyed by the eight HP parameter names (`A`-`H`). Initial conditions default to the array `p0 = [0.005, 0.02, 0.1, 0.001, 10.0, 22.0, 0.00005, 1.1]` reported in the source, and parameter bounds are enforced via the `bounds=(lower, upper)` argument with `lower = [0.0, 0.0, 0.0, 0.0, 0.1, 1.0, 0.0, 1.0]` and `upper = [0.1, 0.5, 1.0, 0.05, 50.0, 50.0, 0.001, 1.5]`. The bounds match the admissible ranges reported inline in Table 4.1 and are the same bounds that gate the per-era values shipped in the five Plan 1 templates. A degenerate-input guard rejects mortality schedules that are uniformly zero before passing them to the optimizer, so the function fails fast with a descriptive `RuntimeError` rather than letting `curve_fit` silently minimize to a parameter-space boundary. The bounds themselves are the subject of audit debt B-5 of the demography spec: the current values are coherent with the actuarial literature on the HP model (Heligman and Pollard 1980; Tabeau, van den Berg Jeths, and Heathcote 2001) but the per-bound justification chain is reserved for Plan 4 calibration, alongside the first end-to-end fit of the helper against a real life table from the Human Mortality Database.
+
+The fertility module does not yet ship a counterpart fitting helper for the Hadwiger ASFR. The current implementation in `epocha/apps/demography/fertility.py` only evaluates the canonical formula at the agent's age against the per-era `H`, `R`, and `T` values loaded from the JSON templates: a `fit_hadwiger()` that would invert the formula against an observed ASFR profile is recorded as a Plan 4 deliverable. The reason for the asymmetry is that the Plan 1 fertility scope explicitly limited itself to the per-tick evaluation pass and to the Becker modulation that wraps it; the calibration loop that would consume historical ASFR profiles (parish records pre-industrial England via Wrigley and Schofield 1981; modern ASFR series via Eurostat or HMD) is the central deliverable of Plan 4 and will mirror the structure of `fit_heligman_pollard()` once implemented. The Becker modulation coefficients of Table 4.4 are likewise not currently fitted: they are seeded with the same five values across all five templates and the per-era calibration is the central deliverable of debt B2-07 in Plan 4. The credit, banking, and property-market parameters of Tables 4.8-4.9 are calibrated qualitatively against Homer and Sylla (2005) for the per-era interest-rate ranges and against the Basel III convention for the modern reserve ratio, but no automated fitting procedure is implemented for them: per-era differentiation of the uniform parameters of Table 4.9 and of the property-market base values is reserved for Plan 4 alongside the demography fits.
 
 ---
 
@@ -1003,27 +1079,60 @@ Equation (4.15) is implemented in `process_defaults()` at `epocha/apps/economy/c
 
 > Status: validation experiments specified, not yet executed. Execution is tracked as a separate follow-up (see project memory `project_validation_experiments_pending.md`).
 
-<draft in Task 22>
+Chapter 7 lays out the validation methodology for the audited modules of Chapter 4. The chapter describes which empirical or quasi-empirical targets each model is meant to reproduce, the metrics against which the comparison is run, the acceptance thresholds that decide whether a candidate parameter set passes, and the commands by which the validation suite will be reproducible from a clean checkout. The chapter is methodological rather than evidential: the experimental campaign that consumes the methodology is the central deliverable of Plan 4 and is explicitly outside the scope of the present whitepaper revision.
 
 ## 7.1 Target datasets per audited module
 
-<draft in Task 22>
+The five audited models of Chapter 4 are validated against the datasets of Table 7.1. Each dataset is paired with a citation already catalogued in §13 (or added to §13 by the present revision in the case of Mokyr 1985) and with the scope of the comparison the dataset enables. The Plan 4 calibration campaign will source the actual data series from the cited repositories and stage them under a future `data/` directory whose path is not yet fixed.
+
+Table 7.1 — Target datasets for the audited modules.
+
+| Module | Dataset | Citation in §13 | Source / DOI | Scope |
+|---|---|---|---|---|
+| Mortality (Heligman-Pollard fit) | England and Wales 1851-1900 life tables; Sweden 1751-1900 life tables | Human Mortality Database (HMD) (2024) | https://www.mortality.org | Inversion of the eight HP parameters from observed `q(x)` columns; per-era calibration of the `pre_industrial_*` and `industrial.json` mortality blocks of §6.2 |
+| Fertility (Hadwiger ASFR fit) | Reconstructed parish-records ASFR profiles for pre-industrial England | Wrigley and Schofield (1981) | ISBN 978-0-521-35688-6 | Inversion of `H`, `R`, `T` against an observed ASFR; per-era calibration of Table 4.3 |
+| Crisis mortality (excess-deaths benchmark) | Irish Famine 1845-1851 county-level death series | Mokyr (1985) | ISBN 978-0-04-941011-7 | Reproduction of the order of magnitude of an excess-mortality shock as a benchmark for the Heligman-Pollard "external_cause" component triggered by famine, war, or epidemic events |
+| Couple formation (European marriage pattern) | Singulate Mean Age at Marriage (SMAM) and never-married fraction series for early-modern Western Europe | Hajnal (1965) | https://doi.org/10.4324/9781315127019 | Validation of the Gale-Shapley + Goode 1963 implementation of §4.1.3 against the empirical marriage-pattern signature |
+| Economy (behavioral integration) | None as of the pinned commit | n/a | n/a | Calibration deferred to Plan 4: Cagan (1956) λ profiles will be sought against post-WWII inflationary episodes; Diamond-Dybvig (1983) bank-run thresholds will be sought against Reinhart and Rogoff (2009) banking-crisis catalogues; the property-market Gordon-Shiller comparison will be sought against Shiller's long-horizon housing series |
 
 ## 7.2 Comparison metrics
 
-<draft in Task 22>
+Three metrics are used jointly across the audited modules, with the choice of which to apply per-experiment driven by the shape of the target dataset.
+
+The root mean squared error (RMSE) on per-age rates is the primary metric for the mortality and fertility fits, computed against the observed schedule on the same age grid: `RMSE = sqrt(mean((q_fit(x) − q_obs(x))^2))` for mortality and the analogous expression on `f(x)` for fertility. RMSE on rates is preferred over RMSE on cumulative quantities because the per-age structure of both schedules is what carries the demographic information; a fit that matches the cumulative quantity but distorts the age structure is not a good fit. The Kolmogorov-Smirnov (KS) two-sample test on age-at-marriage and age-at-first-birth distributions is the primary metric for the couple-formation experiments, on the grounds that the Hajnal (1965) signature is a distributional claim rather than a moment-based one. The log-likelihood of the observed schedule under the fitted parameters is the primary diagnostic for the goodness-of-fit decision when the fit is performed via maximum likelihood rather than via least squares; for the `scipy.optimize.curve_fit` path of `fit_heligman_pollard()` the log-likelihood is computed post hoc as a secondary check.
 
 ## 7.3 Acceptance thresholds
 
-<draft in Task 22>
+The per-module acceptance thresholds of Table 7.2 are conservative: they encode "the fit captures the signature qualitatively and within an order of magnitude that the demographic literature treats as the same regime", not "the fit is statistically indistinguishable from the target". The latter would require sample-size assumptions that synthetic per-era seed populations of the order of `10^4` agents do not support.
+
+Table 7.2 — Acceptance thresholds per audited module.
+
+| Module | Threshold | Rationale |
+|---|---|---|
+| Mortality (HP fit) | RMSE on annual `q(x)` per single-year age class strictly less than `0.005`, and the fitted curve reproduces the three HP regimes (early-life decline, accident hump, senescent rise) qualitatively rather than collapsing to a Gompertz monotone | The threshold matches the order of magnitude of the residuals reported in Heligman and Pollard (1980) for their original Australian fits |
+| Fertility (Hadwiger fit) | Total Fertility Rate `TFR ∈ [4.5, 6.5]` for the pre-industrial era after fitting `H`, `R`, `T` against the Wrigley-Schofield ASFR profile | The interval brackets the historically attested TFR range for early-modern England (Wrigley and Schofield 1981) |
+| Crisis mortality (Irish Famine analog) | Excess mortality consistent with approximately `12%` cumulative over five years when the simulation is forced with a famine shock of comparable magnitude | The `12%` figure is the order of magnitude of the population loss reported by Mokyr (1985) for the 1846-1851 Irish Famine combining excess deaths and forced emigration |
+| Couple formation (European marriage pattern) | Singulate Mean Age at Marriage `SMAM ∈ [25, 28]` years and never-married fraction at age 50 in `[10%, 20%]` after running the founder-population builder and aging the cohort | The two intervals are the canonical signature of the European Marriage Pattern reported in Hajnal (1965) |
+| Economy (behavioral integration) | Acceptance criteria deferred to Plan 4 alongside the dataset selection of §7.1 | No empirical target dataset has been specified at the time of writing |
+
+A fit that fails its threshold does not invalidate the model; it triggers a debugging loop that examines first the seed values of the per-era template, then the bounds of the fitting helper, and only finally the model formulation itself. The order is the standard one for any calibration loop: the most likely failure mode is a poorly-seeded template, the next-most-likely is a too-tight or too-loose bound, and the least-likely is a structural defect of the model that has already passed adversarial scientific audit at the spec stage.
 
 ## 7.4 Reproducibility commands
 
-<draft in Task 22>
+The unit-test suite that exercises the audited modules at the algorithm level is reproducible today via the standard pytest invocations declared in the project quickstart:
+
+```bash
+pytest --cov=epocha -v                                  # full suite
+pytest epocha/apps/demography/ -v                       # demography only
+pytest epocha/apps/economy/ -v                          # economy only
+pytest epocha/apps/demography/tests/test_mortality.py   # one module
+```
+
+The validation suite proper — the campaign that consumes the datasets of §7.1, runs the metrics of §7.2, and decides against the thresholds of §7.3 — is not yet implemented. Plan 4 will introduce a `validation/` directory at the repository root with one Python script per audited module (`validation/validate_mortality.py`, `validation/validate_fertility.py`, `validation/validate_couple.py`, and so on); each script will load its dataset, run the fit or the simulation forward, compute the metrics, and emit a pass/fail report against the threshold. The scripts will be invocable individually for debugging and collectively via a Makefile target so that the full validation campaign reduces to a single command on a clean checkout. The exact script names and the Makefile target are deferred to the Plan 4 design phase and are not committed to in the present chapter.
 
 ## 7.5 Status
 
-<draft in Task 22>
+Validation experiments are specified, not yet executed. The full execution of the campaign described in this chapter — dataset acquisition, script implementation, metric computation, and threshold evaluation — is tracked as a follow-up under the memory note `project_validation_experiments_pending.md` and is the central deliverable of Plan 4.
 
 ---
 
@@ -1227,6 +1336,9 @@ Equation (4.15) is implemented in `process_defaults()` at `epocha/apps/economy/c
 - Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. A Twentieth
   Century Fund Report. Yale University Press, New Haven.
   ISBN 978-0-300-03386-1.
+- Mokyr, J. (1985). *Why Ireland Starved: A Quantitative and Analytical
+  History of the Irish Economy 1800-1850*, second edition. George Allen
+  and Unwin, London. ISBN 978-0-04-941011-7.
 - Muth, J. F. (1961). Rational expectations and the theory of price
   movements. *Econometrica*, 29(3), 315–335.
   https://doi.org/10.2307/1909635
