@@ -161,11 +161,80 @@ schema).
 
 ## 2.1 Agent-based modeling of societies
 
-<draft in Task 3>
+The lineage of social agent-based modeling (ABM) predates the term itself.
+Schelling demonstrated that mild individual preferences over neighborhood
+composition aggregate into sharp residential segregation, an early example
+of macroscopic social pattern emerging from local interaction rules
+(Schelling 1971). Axelrod's tournaments on the iterated Prisoner's Dilemma
+showed that cooperative strategies can be evolutionarily stable in
+populations of self-interested agents, establishing simulation as a
+legitimate instrument for social-theoretical inquiry alongside formal proof
+and empirical observation (Axelrod 1984). With Sugarscape, Epstein and
+Axtell argued for a generative methodology — "if you didn't grow it, you
+didn't explain it" — and produced the first widely cited demonstration that
+demography, trade, conflict, and cultural transmission could be studied
+inside a single artificial society (Epstein and Axtell 1996). Bonabeau later
+consolidated the methodology and identified the conditions under which ABM
+adds value over equation-based approaches: heterogeneous agents,
+non-linearity, and explicit spatial or network structure (Bonabeau 2002).
+
+The maturation of ABM as a discipline coincided with the appearance of
+general-purpose modeling platforms. NetLogo became a de facto standard for
+pedagogy and small-to-medium models thanks to its accessible language and
+extensive model library (Wilensky 1999). Mesa brought a comparable workflow
+to the Python scientific stack and is increasingly used where models must
+interoperate with statistical and machine-learning libraries (Masad and
+Kazil 2015). Repast HPC extended the Repast family to distributed-memory
+clusters, enabling populations large enough to approach demographic-scale
+questions (Collier and North 2013). These platforms, however, share an
+implicit assumption that agent decision-making is rule-based — a finite set
+of conditions and actions, possibly stochastic, but ultimately legible as
+code. Epocha is positioned as a long-horizon, multi-scale agent-based
+simulator that retains this rule-based scaffolding for demographic and
+economic dynamics and inserts an LLM-driven decision module where
+personality, narrative deliberation, and free-form reasoning are essential.
 
 ## 2.2 LLM-driven simulations and the role of personality
 
-<draft in Task 3>
+A second line of work, much more recent, uses large language models as the
+cognitive substrate of simulated agents. Park and colleagues introduced
+generative agents in the Smallville environment, in which 25 LLM-driven
+characters maintained memory streams, periodic reflections, and plans, and
+were observed to coordinate locally over short simulated horizons such as
+organizing a Valentine's Day party (Park et al. 2023). Argyle et al.
+proposed treating LLMs as a "silicon sample" of human respondents,
+showing that, when carefully conditioned on demographic backstories, GPT-3
+reproduces non-trivial response distributions from American National
+Election Studies surveys (Argyle et al. 2023). Aher, Arriaga, and Kalai
+generalized the approach with the notion of a Turing Experiment, an
+empirical protocol in which an LLM is asked to replicate the participant
+side of well-known psychological studies; their findings indicate that
+several classic effects (ultimatum-game offers, Milgram-style obedience
+patterns, Wisdom-of-Crowds aggregation) are recovered to a measurable
+extent (Aher et al. 2023). Across these studies the role of *personality* —
+conveyed via prompted persona, demographic backstory, or explicit
+psychometric trait vector — appears to be a primary lever on the diversity
+and plausibility of agent behavior. Big Five trait conditioning is the most
+widespread choice, both for its standardization in psychology and its
+compactness as a five-dimensional input.
+
+The same studies expose the limits of LLM-driven simulation. Cognition
+inherits the hallucination tendencies and prompt sensitivity of the
+underlying model; reasoning quality degrades with context length; cost
+scales with population size and simulated horizon, making century-long
+runs at population scale economically prohibitive without aggressive
+caching. Reproducibility is also fragile, since model versions evolve and
+sampling stochasticity is rarely fully controllable. Epocha mitigates these
+constraints with an architecture in which LLM calls are confined to the
+narrow decisions where free-form reasoning is genuinely required, while
+demographic transitions, economic accounting, and matching are handled by
+audited rule-based services described in Chapter 4. A reputation and memory
+cache (Castelfranchi-Conte-Paolucci) reduces context drift across ticks by
+giving agents a structured episodic substrate they can reference instead
+of re-deriving social information from scratch. Reproducibility is enforced
+at the simulation boundary through seeded pseudo-random number generation,
+era templates frozen at commit, and provider-level call logging documented
+in Chapter 3.
 
 ## 2.3 Demographic micro-simulation
 
@@ -410,6 +479,25 @@ schema).
 - Schelling, T. C. (1971). Dynamic models of segregation. *Journal of
   Mathematical Sociology*, 1(2), 143–186.
   https://doi.org/10.1080/0022250X.1971.9989794
+
+<!-- Entries added in Task 3 -->
+
+- Aher, G. V., Arriaga, R. I., and Kalai, A. T. (2023). Using large
+  language models to simulate multiple humans and replicate human
+  subject studies. In *Proceedings of the 40th International Conference
+  on Machine Learning (ICML 2023)*, PMLR, 202, 337–371.
+  https://proceedings.mlr.press/v202/aher23a.html
+- Axelrod, R. (1984). *The Evolution of Cooperation*. Basic Books, New
+  York. ISBN 978-0-465-02121-5.
+- Collier, N., and North, M. (2013). Parallel agent-based simulation with
+  Repast for High Performance Computing. *SIMULATION*, 89(10), 1215–1235.
+  https://doi.org/10.1177/0037549712462620
+- Masad, D., and Kazil, J. (2015). Mesa: an agent-based modeling framework.
+  In *Proceedings of the 14th Python in Science Conference (SciPy 2015)*,
+  51–58. https://doi.org/10.25080/Majora-7b98e3ed-009
+- Wilensky, U. (1999). NetLogo. Center for Connected Learning and
+  Computer-Based Modeling, Northwestern University, Evanston, IL.
+  http://ccl.northwestern.edu/netlogo/
 
 ---
 
