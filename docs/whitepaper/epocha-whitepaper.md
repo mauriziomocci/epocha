@@ -414,7 +414,7 @@ in Chapter 3.
 
 <draft in Task 23>
 
-## 8.5 Reputation (Castelfranchi-Conte-Paolucci 1998)
+## 8.5 Reputation (Castelfranchi et al. 1998)
 
 <draft in Task 23>
 
