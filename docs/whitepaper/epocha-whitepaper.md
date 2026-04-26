@@ -770,9 +770,11 @@ back the API.
   subject studies. In *Proceedings of the 40th International Conference
   on Machine Learning (ICML 2023)*, PMLR, 202, 337–371.
   https://proceedings.mlr.press/v202/aher23a.html
-<!-- VERIFICATION PENDING: ISBN of the 1947 Henry Holt & Co. first edition not verified against a primary source (Worldcat blocked, Crossref has no record for the monograph). Task 7 to reconcile. -->
 - Allport, G. W., and Postman, L. (1947). *The Psychology of Rumor*.
-  Henry Holt and Company, New York.
+  Henry Holt and Company, New York, xiv+247 pp. (Pre-ISBN
+  monograph; reviewed in Zeller 1948, *The Annals of the American
+  Academy of Political and Social Science*, 257(1), 145–146,
+  https://doi.org/10.1177/000271624825700169.)
 - Argyle, L. P., Busby, E. C., Fulda, N., Gubler, J. R., Rytting, C., and
   Wingate, D. (2023). Out of one, many: using language models to simulate
   human samples. *Political Analysis*, 31(3), 337–351.
@@ -781,20 +783,23 @@ back the API.
   Capital-labor substitution and economic efficiency. *The Review of
   Economics and Statistics*, 43(3), 225–250.
   https://doi.org/10.2307/1927286
-<!-- VERIFICATION PENDING: 1951 Gnome Press fix-up vs original 1942 Astounding Science Fiction story (May 1942 issue, "Foundation"). Task 7 to reconcile -->
-- Asimov, I. (1951). *Foundation*. Gnome Press, New York.
+- Asimov, I. (1951). *Foundation*. Gnome Press, New York. (Fix-up
+  novel collecting four short stories originally published in
+  *Astounding Science-Fiction* between May 1942 and January 1950,
+  preceded by a new introductory chapter, "The Psychohistorians",
+  written for the Gnome Press edition.)
 - Axelrod, R. (1984). *The Evolution of Cooperation*. Basic Books, New
   York. ISBN 978-0-465-02121-5.
-<!-- VERIFICATION PENDING: ISBN of the 1932 Cambridge University Press first edition not verified against a primary source (Worldcat blocked, Crossref has no record for the monograph). Task 7 to reconcile. -->
 - Bartlett, F. C. (1932). *Remembering: A Study in Experimental and
   Social Psychology*. Cambridge University Press, Cambridge.
+  (Pre-ISBN monograph; reissued by Cambridge University Press in
+  1995 with ISBN 978-0-521-48356-8.)
 - Bonabeau, E. (2002). Agent-based modeling: methods and techniques for
   simulating human systems. *Proceedings of the National Academy of
   Sciences*, 99(Suppl. 3), 7280–7287.
   https://doi.org/10.1073/pnas.082080899
 - Brown, R., and Kulik, J. (1977). Flashbulb memories. *Cognition*, 5(1),
   73–99. https://doi.org/10.1016/0010-0277(77)90018-X
-<!-- VERIFICATION PENDING: chapter pagination in the Friedman 1956 edited volume not verified (no DOI for the chapter). Task 7 to reconcile. -->
 - Cagan, P. (1956). The monetary dynamics of hyperinflation. In M.
   Friedman (ed.), *Studies in the Quantity Theory of Money*. University
   of Chicago Press, Chicago, 25–117.
@@ -809,9 +814,11 @@ back the API.
 - Collier, N., and North, M. J. (2013). Parallel agent-based simulation
   with Repast for High Performance Computing. *SIMULATION*, 89(10),
   1215–1235. https://doi.org/10.1177/0037549712462620
-<!-- VERIFICATION PENDING: ISBN of the 2002 Kluwer Academic Publishers edition not verified against a primary source (Springer/Worldcat lookup failed). Task 7 to reconcile. -->
 - Conte, R., and Paolucci, M. (2002). *Reputation in Artificial Societies:
-  Social Beliefs for Social Order*. Kluwer Academic Publishers, Boston.
+  Social Beliefs for Social Order*. Multiagent Systems, Artificial
+  Societies, and Simulated Organizations, vol. 6. Kluwer Academic
+  Publishers, Dordrecht. ISBN 978-1-4020-7186-7.
+  https://doi.org/10.1007/978-1-4615-1159-5
 - Deissenberg, C., van der Hoog, S., and Dawid, H. (2008). EURACE: a
   massively parallel agent-based model of the European economy.
   *Applied Mathematics and Computation*, 204(2), 541–552.
@@ -830,14 +837,15 @@ back the API.
   Tipping points in macroeconomic agent-based models. *Journal of
   Economic Dynamics and Control*, 50, 29–61.
   https://doi.org/10.1016/j.jedc.2014.08.003
-<!-- VERIFICATION PENDING: original German title and pagination in Skandinavisk Aktuarietidskrift 23 (1940) not verified against a primary source. Task 7 to reconcile. -->
 - Hadwiger, H. (1940). Eine analytische Reproduktionsfunktion für
-  biologische Gesamtheiten. *Skandinavisk Aktuarietidskrift*, 23,
-  101–113.
-<!-- VERIFICATION PENDING: chapter pagination in Glass and Eversley (eds.) Population in History (1965) not verified against a primary source. Task 7 to reconcile. -->
+  biologische Gesamtheiten. *Skandinavisk Aktuarietidskrift*, 1940
+  (issues 3–4), 101–113.
+  https://doi.org/10.1080/03461238.1940.10404802
 - Hajnal, J. (1965). European marriage patterns in perspective. In D. V.
   Glass and D. E. C. Eversley (eds.), *Population in History: Essays in
-  Historical Demography*. Edward Arnold, London, 101–143.
+  Historical Demography*. Edward Arnold, London, 101–143. (Co-edition
+  by Aldine Publishing Company, Chicago, 1965; reprint in *Population
+  in History*, Routledge, 2017, https://doi.org/10.4324/9781315127019.)
 - Hammel, E. A., McDaniel, C. K., and Wachter, K. W. (1979). Demographic
   consequences of incest tabus: a microsimulation analysis. *Science*,
   205(4410), 972–977. https://doi.org/10.1126/science.205.4410.972
@@ -851,14 +859,17 @@ back the API.
   model of personality across instruments and observers. *Journal of
   Personality and Social Psychology*, 52(1), 81–90.
   https://doi.org/10.1037/0022-3514.52.1.81
-<!-- VERIFICATION PENDING: ISBN of the 1986 Yale University Press first edition not verified against a primary source (Worldcat blocked). Task 7 to reconcile. -->
-- Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. Yale
-  University Press, New Haven.
+- Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. A Twentieth
+  Century Fund Report. Yale University Press, New Haven.
+  ISBN 978-0-300-03386-1.
 - Park, J. S., O'Brien, J. C., Cai, C. J., Morris, M. R., Liang, P., and
   Bernstein, M. S. (2023). Generative agents: interactive simulacra of
   human behavior. In *Proceedings of the 36th Annual ACM Symposium on
   User Interface Software and Technology (UIST '23)*. ACM.
   https://doi.org/10.1145/3586183.3606763
+- Scarf, H. (1960). Some examples of global instability of the
+  competitive equilibrium. *International Economic Review*, 1(3),
+  157–172. https://doi.org/10.2307/2556215
 - Schelling, T. C. (1971). Dynamic models of segregation. *Journal of
   Mathematical Sociology*, 1(2), 143–186.
   https://doi.org/10.1080/0022250X.1971.9989794
@@ -866,17 +877,32 @@ back the API.
   instability in an agent-based computational model with endogenous
   money. *Macroeconomic Dynamics*, 16(S2), 284–297.
   https://doi.org/10.1017/S1365100511000447
+- Shoven, J. B., and Whalley, J. (1992). *Applying General Equilibrium*.
+  Cambridge Surveys of Economic Literature. Cambridge University Press,
+  Cambridge. ISBN 978-0-521-31986-7.
 - Spielauer, M. (2011). What is social science microsimulation?
   *Social Science Computer Review*, 29(1), 9–20.
   https://doi.org/10.1177/0894439310370085
-<!-- VERIFICATION PENDING: Population: An English Selection vol/pages and JSTOR identifier not verified directly; the publication is confirmed (Population, vol. 53, HS1, 97–136, December 1998) but the canonical English-Selection variant pages should be reconciled in Task 7. -->
+- Stiglitz, J. E., and Weiss, A. (1981). Credit rationing in markets
+  with imperfect information. *American Economic Review*, 71(3),
+  393–410. https://www.jstor.org/stable/1802787
 - van Imhoff, E., and Post, W. (1998). Microsimulation methods for
-  population projection. *Population: An English Selection*, 10, 97–138.
-<!-- VERIFICATION PENDING: original 1874 Lausanne edition by L. Corbaz et Cie. and the canonical 1954 Allen and Unwin English translation by William Jaffé not directly verified against a primary source (Worldcat lookup blocked). Task 7 to reconcile. -->
+  population projection. *Population: An English Selection*, 10(1),
+  97–138. (English-language counterpart of the article in *Population*,
+  53(HS1), 97–136, December 1998.)
 - Walras, L. (1874). *Éléments d'économie politique pure, ou théorie de
-  la richesse sociale*. L. Corbaz et Cie., Lausanne. English translation
-  by W. Jaffé (1954), *Elements of Pure Economics, or the Theory of
-  Social Wealth*. Allen and Unwin, London.
+  la richesse sociale*. L. Corbaz et Cie., Lausanne (part I, 1874;
+  part II issued 1877). Definitive (fourth) edition published by
+  F. Pichon, Paris, 1900. English translation from the 1926 definitive
+  edition by W. Jaffé (1954), *Elements of Pure Economics, or the
+  Theory of Social Wealth*. George Allen and Unwin, London, for the
+  American Economic Association and the Royal Economic Society.
+- Wicksell, K. (1898). *Geldzins und Güterpreise: Eine Studie über
+  die den Tauschwert des Geldes bestimmenden Ursachen*. Gustav Fischer,
+  Jena. English translation by R. F. Kahn (1936), *Interest and Prices:
+  A Study of the Causes Regulating the Value of Money*, with an
+  introduction by Bertil Ohlin. Macmillan, London, for the Royal
+  Economic Society.
 - Wilensky, U. (1999). NetLogo. Center for Connected Learning and
   Computer-Based Modeling, Northwestern University, Evanston, IL.
   http://ccl.northwestern.edu/netlogo/
