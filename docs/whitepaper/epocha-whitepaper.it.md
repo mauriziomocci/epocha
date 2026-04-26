@@ -1339,10 +1339,647 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 
 # 13. Riferimenti
 
-<da tradurre nel Task 37 — mirror verbatim della §13 del whitepaper inglese>
+- Acemoglu, D., and Robinson, J. A. (2006). *Economic Origins of
+  Dictatorship and Democracy*. Cambridge University Press,
+  Cambridge. ISBN 978-0-521-85526-6.
+  https://doi.org/10.1017/CBO9780511510809
+- Aher, G. V., Arriaga, R. I., and Kalai, A. T. (2023). Using large
+  language models to simulate multiple humans and replicate human
+  subject studies. In *Proceedings of the 40th International Conference
+  on Machine Learning (ICML 2023)*, PMLR, 202, 337–371.
+  https://proceedings.mlr.press/v202/aher23a.html
+- Alesina, A., and Perotti, R. (1996). Income distribution, political
+  instability, and investment. *European Economic Review*, 40(6),
+  1203–1228. https://doi.org/10.1016/0014-2921(95)00030-5
+- Allen, F., and Gale, D. (2000). Financial contagion. *Journal of
+  Political Economy*, 108(1), 1–33. https://doi.org/10.1086/262109
+- Allport, G. W., and Postman, L. (1947). *The Psychology of Rumor*.
+  Henry Holt and Company, New York, xiv+247 pp. (Pre-ISBN
+  monograph; reviewed in Zeller 1948, *The Annals of the American
+  Academy of Political and Social Science*, 257(1), 145–146,
+  https://doi.org/10.1177/000271624825700169.)
+- Argyle, L. P., Busby, E. C., Fulda, N., Gubler, J. R., Rytting, C., and
+  Wingate, D. (2023). Out of one, many: using language models to simulate
+  human samples. *Political Analysis*, 31(3), 337–351.
+  https://doi.org/10.1017/pan.2023.2
+- Arrow, K. J., Chenery, H. B., Minhas, B. S., and Solow, R. M. (1961).
+  Capital-labor substitution and economic efficiency. *The Review of
+  Economics and Statistics*, 43(3), 225–250.
+  https://doi.org/10.2307/1927286
+- Ashraf, Q., and Galor, O. (2011). Dynamics and stagnation in the
+  Malthusian epoch. *American Economic Review*, 101(5), 2003–2041.
+  https://doi.org/10.1257/aer.101.5.2003
+- Asimov, I. (1951). *Foundation*. Gnome Press, New York. (Fix-up
+  novel collecting four short stories originally published in
+  *Astounding Science-Fiction* between May 1942 and January 1950,
+  preceded by a new introductory chapter, "The Psychohistorians",
+  written for the Gnome Press edition.)
+- Axelrod, R. (1984). *The Evolution of Cooperation*. Basic Books, New
+  York. ISBN 978-0-465-02121-5.
+- Bartlett, F. C. (1932). *Remembering: A Study in Experimental and
+  Social Psychology*. Cambridge University Press, Cambridge.
+  (Pre-ISBN monograph; reissued by Cambridge University Press in
+  1995 with ISBN 978-0-521-48356-8.)
+- Baumeister, R. F., Bratslavsky, E., Finkenauer, C., and Vohs, K. D.
+  (2001). Bad is stronger than good. *Review of General Psychology*,
+  5(4), 323–370. https://doi.org/10.1037/1089-2680.5.4.323
+- Becker, G. S. (1991). *A Treatise on the Family*, enlarged edition.
+  Harvard University Press, Cambridge, MA. ISBN 978-0-674-90698-3.
+- Bonabeau, E. (2002). Agent-based modeling: methods and techniques for
+  simulating human systems. *Proceedings of the National Academy of
+  Sciences*, 99(Suppl. 3), 7280–7287.
+  https://doi.org/10.1073/pnas.082080899
+- Braudel, F. (1979). *Civilisation matérielle, économie et capitalisme,
+  XVe-XVIIIe siècle*. Three volumes. Armand Colin, Paris. English
+  translation (1981–1984), *Civilization and Capitalism, 15th–18th
+  Century*, by Siân Reynolds. University of California Press, Berkeley.
+- Brown, R., and Kulik, J. (1977). Flashbulb memories. *Cognition*, 5(1),
+  73–99. https://doi.org/10.1016/0010-0277(77)90018-X
+- Cagan, P. (1956). The monetary dynamics of hyperinflation. In M.
+  Friedman (ed.), *Studies in the Quantity Theory of Money*. University
+  of Chicago Press, Chicago, 25–117.
+- Castelfranchi, C., Conte, R., and Paolucci, M. (1998). Normative
+  reputation and the costs of compliance. *Journal of Artificial
+  Societies and Social Simulation*, 1(3).
+  https://www.jasss.org/1/3/3.html
+- Chandler, D. G. (1966). *The Campaigns of Napoleon*. Weidenfeld and
+  Nicolson, London, xliii + 1172 pp. (Pre-ISBN trade edition; Macmillan
+  reprint 1973, ISBN 978-0-02-523660-8. Source for the per-mode sustained
+  travel rates of §8.3.)
+- Chandola, T., Coleman, D. A., and Hiorns, R. W. (1999). Recent European
+  fertility patterns: fitting curves to "distorted" distributions.
+  *Population Studies*, 53(3), 317–329.
+  https://doi.org/10.1080/00324720308089
+- Coale, A. J., and Trussell, T. J. (1974). Model fertility schedules:
+  variations in the age structure of childbearing in human populations.
+  *Population Index*, 40(2), 185–258.
+  https://doi.org/10.2307/2733910
+- Collier, N., and North, M. J. (2013). Parallel agent-based simulation
+  with Repast for High Performance Computing. *SIMULATION*, 89(10),
+  1215–1235. https://doi.org/10.1177/0037549712462620
+- Conte, R., and Paolucci, M. (2002). *Reputation in Artificial Societies:
+  Social Beliefs for Social Order*. Multiagent Systems, Artificial
+  Societies, and Simulated Organizations, vol. 6. Kluwer Academic
+  Publishers, Dordrecht. ISBN 978-1-4020-7186-7.
+  https://doi.org/10.1007/978-1-4615-1159-5
+- Costa, P. T., and McCrae, R. R. (1992). *Revised NEO Personality
+  Inventory (NEO PI-R) and NEO Five-Factor Inventory (NEO-FFI)
+  Professional Manual*. Psychological Assessment Resources, Odessa, FL.
+- Deissenberg, C., van der Hoog, S., and Dawid, H. (2008). EURACE: a
+  massively parallel agent-based model of the European economy.
+  *Applied Mathematics and Computation*, 204(2), 541–552.
+  https://doi.org/10.1016/j.amc.2008.05.116
+- Diamond, D. W., and Dybvig, P. H. (1983). Bank runs, deposit insurance,
+  and liquidity. *Journal of Political Economy*, 91(3), 401–419.
+  https://doi.org/10.1086/261155
+- Epstein, J. M., and Axtell, R. (1996). *Growing Artificial Societies:
+  Social Science from the Bottom Up*. Brookings Institution Press /
+  MIT Press, Washington, DC and Cambridge, MA. ISBN 978-0-262-55025-3.
+- Evans, G. W., and Honkapohja, S. (2001). *Learning and Expectations
+  in Macroeconomics*. Frontiers of Economic Research. Princeton
+  University Press, Princeton, NJ. ISBN 978-0-691-04921-2.
+- Gale, D., and Shapley, L. S. (1962). College admissions and the
+  stability of marriage. *The American Mathematical Monthly*, 69(1),
+  9-15. https://doi.org/10.2307/2312726
+- Gompertz, B. (1825). On the nature of the function expressive of the
+  law of human mortality, and on a new mode of determining the value of
+  life contingencies. *Philosophical Transactions of the Royal Society
+  of London*, 115, 513–583. https://doi.org/10.1098/rstl.1825.0026
+- Goode, W. J. (1963). *World Revolution and Family Patterns*. The Free
+  Press of Glencoe, New York. (Pre-ISBN monograph; Free Press / Macmillan
+  edition, xii+432 pp. Source for the arranged-marriage typology and the
+  parent-child asymmetry adopted in §4.1.3.)
+- Gordon, M. J. (1959). Dividends, earnings, and stock prices.
+  *The Review of Economics and Statistics*, 41(2), 99–105.
+  https://doi.org/10.2307/1927792
+- Granovetter, M. S. (1973). The strength of weak ties. *American
+  Journal of Sociology*, 78(6), 1360–1380.
+  https://doi.org/10.1086/225469
+- Gualdi, S., Tarzia, M., Zamponi, F., and Bouchaud, J.-P. (2015).
+  Tipping points in macroeconomic agent-based models. *Journal of
+  Economic Dynamics and Control*, 50, 29–61.
+  https://doi.org/10.1016/j.jedc.2014.08.003
+- Hadwiger, H. (1940). Eine analytische Reproduktionsfunktion für
+  biologische Gesamtheiten. *Skandinavisk Aktuarietidskrift*, 1940
+  (issues 3–4), 101–113.
+  https://doi.org/10.1080/03461238.1940.10404802
+- Hajnal, J. (1965). European marriage patterns in perspective. In D. V.
+  Glass and D. E. C. Eversley (eds.), *Population in History: Essays in
+  Historical Demography*. Edward Arnold, London, 101–143. (Co-edition
+  by Aldine Publishing Company, Chicago, 1965; reprint in *Population
+  in History*, Routledge, 2017, https://doi.org/10.4324/9781315127019.)
+- Hammel, E. A., McDaniel, C. K., and Wachter, K. W. (1979). Demographic
+  consequences of incest tabus: a microsimulation analysis. *Science*,
+  205(4410), 972–977. https://doi.org/10.1126/science.205.4410.972
+- Heligman, L., and Pollard, J. H. (1980). The age pattern of mortality.
+  *Journal of the Institute of Actuaries*, 107(1), 49–80.
+  https://doi.org/10.1017/S0020268100040257
+- Homer, S., and Sylla, R. (2005). *A History of Interest Rates*, fourth
+  edition. Wiley Finance. John Wiley and Sons, Hoboken, NJ.
+  ISBN 978-0-471-73283-9.
+- Human Mortality Database (HMD) (2024). University of California,
+  Berkeley (USA) and Max Planck Institute for Demographic Research
+  (Germany). https://www.mortality.org
+- Kalmijn, M. (1998). Intermarriage and homogamy: causes, patterns,
+  trends. *Annual Review of Sociology*, 24, 395-421.
+  https://doi.org/10.1146/annurev.soc.24.1.395
+- Lee, R. D., and Carter, L. R. (1992). Modeling and forecasting U.S.
+  mortality. *Journal of the American Statistical Association*, 87(419),
+  659–671. https://doi.org/10.1080/01621459.1992.10475265
+- Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal,
+  N., Küttler, H., Lewis, M., Yih, W., Rocktäschel, T., Riedel, S., and
+  Kiela, D. (2020). Retrieval-augmented generation for knowledge-intensive
+  NLP tasks. In *Advances in Neural Information Processing Systems
+  (NeurIPS 2020)*, 33, 9459–9474. Preprint: arXiv:2005.11401.
+  https://arxiv.org/abs/2005.11401
+- Marshall, M. G., and Gurr, T. R. (2020). *Polity 5: Political Regime
+  Characteristics and Transitions, 1800–2018. Dataset Users' Manual*.
+  Center for Systemic Peace, Vienna, VA.
+  https://www.systemicpeace.org/polityproject.html
+- Masad, D., and Kazil, J. (2015). Mesa: an agent-based modeling framework.
+  In *Proceedings of the 14th Python in Science Conference (SciPy 2015)*,
+  51–58. https://doi.org/10.25080/Majora-7b98e3ed-009
+- McCrae, R. R., and Costa, P. T. (1987). Validation of the five-factor
+  model of personality across instruments and observers. *Journal of
+  Personality and Social Psychology*, 52(1), 81–90.
+  https://doi.org/10.1037/0022-3514.52.1.81
+- Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. A Twentieth
+  Century Fund Report. Yale University Press, New Haven.
+  ISBN 978-0-300-03386-1.
+- Mokyr, J. (1985). *Why Ireland Starved: A Quantitative and Analytical
+  History of the Irish Economy 1800-1850*, second edition. George Allen
+  and Unwin, London. ISBN 978-0-04-941011-7.
+- Muth, J. F. (1961). Rational expectations and the theory of price
+  movements. *Econometrica*, 29(3), 315–335.
+  https://doi.org/10.2307/1909635
+- Nerlove, M. (1958). Adaptive expectations and cobweb phenomena.
+  *Quarterly Journal of Economics*, 72(2), 227–240.
+  https://doi.org/10.2307/1880597
+- Olson, M. (1965). *The Logic of Collective Action: Public Goods and the
+  Theory of Groups*. Harvard Economic Studies, vol. 124. Harvard
+  University Press, Cambridge, MA. (Pre-ISBN; revised edition with new
+  preface, 1971, ISBN 978-0-674-53751-4.)
+- Park, J. S., O'Brien, J. C., Cai, C. J., Morris, M. R., Liang, P., and
+  Bernstein, M. S. (2023). Generative agents: interactive simulacra of
+  human behavior. In *Proceedings of the 36th Annual ACM Symposium on
+  User Interface Software and Technology (UIST '23)*. ACM.
+  https://doi.org/10.1145/3586183.3606763
+- Powell, J. M., and Thyne, C. L. (2011). Global instances of coups from
+  1950 to 2010: a new dataset. *Journal of Peace Research*, 48(2),
+  249–259. https://doi.org/10.1177/0022343310397436
+- Reimers, N., and Gurevych, I. (2019). Sentence-BERT: sentence embeddings
+  using siamese BERT-networks. In *Proceedings of the 2019 Conference on
+  Empirical Methods in Natural Language Processing and the 9th International
+  Joint Conference on Natural Language Processing (EMNLP-IJCNLP)*, Hong Kong,
+  3980–3990. https://doi.org/10.18653/v1/D19-1410
+- Scarf, H. (1960). Some examples of global instability of the
+  competitive equilibrium. *International Economic Review*, 1(3),
+  157–172. https://doi.org/10.2307/2556215
+- Schelling, T. C. (1971). Dynamic models of segregation. *Journal of
+  Mathematical Sociology*, 1(2), 143–186.
+  https://doi.org/10.1080/0022250X.1971.9989794
+- Schmertmann, C. P. (2003). A system of model fertility schedules with
+  graphically intuitive parameters. *Demographic Research*, 9, 81–110.
+  https://doi.org/10.4054/DemRes.2003.9.5
+- Seppecher, P. (2012). Flexibility of wages and macroeconomic
+  instability in an agent-based computational model with endogenous
+  money. *Macroeconomic Dynamics*, 16(S2), 284–297.
+  https://doi.org/10.1017/S1365100511000447
+- Shiller, R. J. (2000). *Irrational Exuberance*. Princeton University
+  Press, Princeton, NJ. ISBN 978-0-691-05062-6.
+- Shoven, J. B., and Whalley, J. (1992). *Applying General Equilibrium*.
+  Cambridge Surveys of Economic Literature. Cambridge University Press,
+  Cambridge. ISBN 978-0-521-31986-7.
+- Spielauer, M. (2011). What is social science microsimulation?
+  *Social Science Computer Review*, 29(1), 9–20.
+  https://doi.org/10.1177/0894439310370085
+- Stiglitz, J. E., and Weiss, A. (1981). Credit rationing in markets
+  with imperfect information. *American Economic Review*, 71(3),
+  393–410. https://www.jstor.org/stable/1802787
+- Tabeau, E., van den Berg Jeths, A., and Heathcote, C. (eds.) (2001).
+  *Forecasting Mortality in Developed Countries: Insights from a
+  Statistical, Demographic and Epidemiological Perspective*. European
+  Studies of Population, vol. 9. Kluwer Academic Publishers, Dordrecht.
+  https://doi.org/10.1007/0-306-47562-6
+- van Imhoff, E., and Post, W. (1998). Microsimulation methods for
+  population projection. *Population: An English Selection*, 10(1),
+  97–138. (English-language counterpart of the article in *Population*,
+  53(HS1), 97–136, December 1998.)
+- Walras, L. (1874). *Éléments d'économie politique pure, ou théorie de
+  la richesse sociale*. L. Corbaz et Cie., Lausanne (part I, 1874;
+  part II issued 1877). Definitive (fourth) edition published by
+  F. Pichon, Paris, 1900. English translation from the 1926 definitive
+  edition by W. Jaffé (1954), *Elements of Pure Economics, or the
+  Theory of Social Wealth*. George Allen and Unwin, London, for the
+  American Economic Association and the Royal Economic Society.
+- Wicksell, K. (1898). *Geldzins und Güterpreise: Eine Studie über
+  die den Tauschwert des Geldes bestimmenden Ursachen*. Gustav Fischer,
+  Jena. English translation by R. F. Kahn (1936), *Interest and Prices:
+  A Study of the Causes Regulating the Value of Money*, with an
+  introduction by Bertil Ohlin. Macmillan, London, for the Royal
+  Economic Society.
+- Wilensky, U. (1999). NetLogo. Center for Connected Learning and
+  Computer-Based Modeling, Northwestern University, Evanston, IL.
+  http://ccl.northwestern.edu/netlogo/
+- Wrigley, E. A., and Schofield, R. S. (1981). *The Population History
+  of England, 1541-1871: A Reconstruction*. Edward Arnold, London.
+  Reissued by Cambridge University Press, 1989. ISBN 978-0-521-35688-6.
+- Zinn, S. (2013). The MicSim package of R: an entry-level toolkit for
+  continuous-time microsimulation. *International Journal of
+  Microsimulation*, 7(3), 3–32.
+  https://doi.org/10.34196/ijm.00105
 
 ---
 
 # 14. Appendici
 
-<da tradurre nel Task 37>
+## Appendice A — Tabelle complete dei parametri
+
+L'Appendice A è l'inventario consolidato canonico di ogni parametro
+consumato dai capitoli auditati di Methods di §4.1 (demografia) e §4.2
+(integrazione comportamentale dell'economia). Ogni riga registra il nome
+del parametro come dichiarato nel sorgente, il suo significato semantico,
+l'intervallo ammissibile, il valore o i valori per template di era, la
+citazione della fonte primaria già presente in §13 e lo stato di
+calibrazione — `verified` quando il valore è preso da una fonte primaria
+citata, `tunable` quando il valore è un'euristica di calibrazione
+rinviata al Plan 4, `heuristic` quando il valore codifica un vincolo
+strutturale codificato fuori dai template. Le tabelle inline di §4.x
+restano in posizione come riassunti introduttivi; questa appendice è il
+riferimento autoritativo per la vista consolidata.
+
+**A.1 — Mortalità di Heligman-Pollard (§4.1.1).** Gli otto parametri HP
+sono definiti per equazione (4.1). Gli intervalli ammissibili coincidono
+con i bound imposti da `fit_heligman_pollard()` in `mortality.py:148-149`
+e sono coerenti con la letteratura attuariale sul modello HP; i valori
+per era sono i valori seed spediti con i template del Plan 1 e sono
+provvisori in attesa della campagna di fitting del Plan 4 contro i
+target citati. Pre-industriale cristiano e pre-industriale islamico
+condividono blocchi di mortalità identici.
+
+| Parametro | Significato | Intervallo ammissibile | Pre-industriale (Cristiano/Islamico) | Industriale | Democrazia moderna | Sci-fi | Fonte | Stato |
+|---|---|---|---|---|---|---|---|---|
+| `A` | Livello di mortalità all'età 1 (componente infantile) | `[0, 0.1]` | 0.00491 | 0.00223 | 0.00054 | 0.00002 | Heligman and Pollard (1980) | tunable |
+| `B` | Mortalità all'età 0 relativa all'età 1 (intercetta neonatale) | `[0, 0.5]` | 0.017 | 0.022 | 0.017 | 0.017 | Heligman and Pollard (1980) | tunable |
+| `C` | Tasso di decadimento della mortalità infantile con l'età | `[0, 1.0]` | 0.102 | 0.115 | 0.125 | 0.125 | Heligman and Pollard (1980) | tunable |
+| `D` | Ampiezza di picco della gobba di incidenti del giovane adulto | `[0, 0.05]` | 0.00080 | 0.00057 | 0.00013 | 0.00001 | Heligman and Pollard (1980) | tunable |
+| `E` | Ampiezza inversa (acutezza) della gobba di incidenti | `[0.1, 50]` | 9.9 | 10.8 | 18.3 | 18.3 | Heligman and Pollard (1980) | tunable |
+| `F` | Età su cui è centrata la gobba di incidenti (anni) | `[1.0, 50]` | 22.4 | 25.1 | 19.6 | 19.6 | Heligman and Pollard (1980) | tunable |
+| `G` | Mortalità senescente all'età 0 (intercetta di Gompertz) | `[0, 0.001]` | 0.0000383 | 0.0000198 | 0.0000123 | 0.0000018 | Heligman and Pollard (1980); Gompertz (1825) | tunable |
+| `H` | Tasso di crescita esponenziale della mortalità senescente con l'età | `[1.0, 1.5]` | 1.101 | 1.104 | 1.101 | 1.089 | Heligman and Pollard (1980); Gompertz (1825) | tunable |
+
+Target di calibrazione per template: la coppia pre-industriale contro
+Wrigley e Schofield (1981) tabelle A3.1-A3.3 (Inghilterra 1700-1749);
+industriale contro le tavole di vita HMD pooled di Inghilterra e Galles
+1841-1900; democrazia moderna contro la tavola di vita HMD USA 2019
+(baseline pre-COVID); sci-fi come estrapolazione speculativa senza base
+empirica (`sci_fi.json`).
+
+**A.2 — Schedule di fertilità di Hadwiger e ceiling (§4.1.2).** I tre
+parametri di Hadwiger sono definiti per equazione (4.2); i parametri del
+soft ceiling malthusiano dell'equazione (4.4) portano la stessa
+specifica per template.
+
+| Parametro | Significato | Intervallo ammissibile | Pre-industriale (Cristiano/Islamico) | Industriale | Democrazia moderna | Sci-fi | Fonte | Stato |
+|---|---|---|---|---|---|---|---|---|
+| `H` | Total Fertility Rate target (integrale di `f_HW` sulla finestra fertile) | `[0, ~10]` | 5.0 | 4.0 | 1.8 | 2.1 | Hadwiger (1940); Wrigley and Schofield (1981) | tunable |
+| `R` | Parametro di forma della fertilità di picco | `[15, 40]` | 26 | 27 | 30 | 32 | Hadwiger (1940); Chandola, Coleman and Hiorns (1999) | tunable |
+| `T` | Dispersione della distribuzione di fertilità per età | `[1, 10]` | 3.5 | 3.8 | 4.2 | 4.0 | Hadwiger (1940); Chandola, Coleman and Hiorns (1999) | tunable |
+| `max_population` | Cap di popolazione per il ceiling malthusiano | strutturale | 500 | 500 | 500 | 500 | Vincolo ingegneristico (budget per tick); Ashraf and Galor (2011) | heuristic |
+| `malthusian_floor_ratio` (`ρ`) | Moltiplicatore del floor sulla probabilità di nascita per tick sopra il cap | `[0, 1]` | 0.10 | 0.05 | 0.01 | 0.00 | Euristica ingegneristica; Ashraf and Galor (2011) forma qualitativa | heuristic |
+
+**A.3 — Coefficienti di modulazione di Becker per la fertilità (§4.1.2,
+equazione 4.3).** I cinque coefficienti sono seedati con valori
+identici su tutti e cinque i template demografici in attesa della
+calibrazione del Plan 4; tracciati come debito di audit B2-07.
+
+| Coefficiente | Significato | Valore seed (tutti i template) | Intervallo ammissibile | Fonte | Stato |
+|---|---|---:|---|---|---|
+| `β₀` | Shift logaritmico di base sul fattore di modulazione | 0.0 | illimitato | Ispirato da Becker (1991); scelta implementativa di Epocha | tunable |
+| `β₁` | Elasticità al log-ricchezza relativa alla sussistenza | 0.10 | segno positivo | Ispirato da Becker (1991) | tunable |
+| `β₂` | Penalità per unità di istruzione genitoriale | −0.05 | segno negativo | Ispirato da Becker (1991) | tunable |
+| `β₃` | Penalità per unità di partecipazione femminile alla forza lavoro di zona | −0.10 | segno negativo | Ispirato da Becker (1991) | tunable |
+| `β₄` | Elasticità al segnale aggregato di outlook macro | 0.20 | segno positivo | Estensione Epocha; outlook calcolato in `context.compute_aggregate_outlook()` | tunable |
+| modulation clip | Bound di output su `m_BK` dopo l'esponenziazione | `[0.05, 3.0]` | strutturale | Guardia implementativa contro input degeneri | heuristic |
+
+**A.4 — Mortalità materna al parto (§4.1.2, joint resolver).** I due
+coefficienti consumati da `resolve_childbirth_event()` sono campi del
+template sotto `mortality.maternal_mortality_rate_per_birth` e
+`mortality.neonatal_survival_when_mother_dies`; i valori riflettono gli
+intervalli storici target discussi nella spec di demografia.
+
+| Parametro | Significato | Pre-industriale (Cristiano/Islamico) | Industriale | Democrazia moderna | Sci-fi | Fonte | Stato |
+|---|---|---:|---:|---:|---:|---|---|
+| `maternal_mortality_rate_per_birth` | Probabilità di morte materna per nato vivo | 0.012 | 0.005 | 0.0001 | 0.00001 | Spec di demografia (seed per template); calibrazione pendente al Plan 4 | tunable |
+| `neonatal_survival_when_mother_dies` | Probabilità che il neonato sopravviva quando la madre muore al parto | 0.30 | 0.50 | 0.95 | 0.99 | Spec di demografia (seed per template); calibrazione pendente al Plan 4 | tunable |
+
+**A.5 — Parametri di formazione delle coppie (§4.1.3).** Valori per
+template per il resolver runtime e per i pesi di omogamia di Kalmijn
+(1998) dell'equazione (4.6).
+
+| Parametro | Significato | Pre-industriale Cristiano | Pre-industriale Islamico | Industriale | Democrazia moderna | Sci-fi | Fonte | Stato |
+|---|---|---|---|---|---|---|---|---|
+| `marriage_market_type` | `autonomous` vs `arranged` (mediato dal genitore sotto Goode 1963 Pass B) | `autonomous` | `arranged` | `autonomous` | `autonomous` | `autonomous` | Goode (1963); spec di demografia | tunable |
+| `divorce_enabled` | Apre `resolve_separate_intents()` | false | true | true | true | true | Spec di demografia; indissolubilità del matrimonio cattolico per il template Cristiano | tunable |
+| `implicit_mutual_consent` | Una dichiarazione unilaterale è sufficiente quando true | true | true | true | true | true | Spec di demografia | tunable |
+| `min_age` (M / F) | Età minima per il check di eleggibilità (anni) | 16 / 14 | 16 / 14 | 18 / 16 | 18 / 18 | 18 / 18 | Spec di demografia; ordine di grandezza dell'attestazione storica | tunable |
+| `mourning_ticks` | Cooldown dopo la morte del partner (caricato ma non ancora consumato) | 365 | 365 | 180 | 90 | 30 | Spec di demografia | tunable |
+| `marriage_market_radius` | Estensione spaziale della pool di candidati | `same_zone` | `same_zone` | `adjacent_zones` | `world` | `world` | Spec di demografia; struttura spaziale ereditata da §3.6 | tunable |
+| `w_class` | Peso di similarità di classe nell'equazione (4.6) | 0.40 | 0.40 | 0.35 | 0.20 | 0.10 | Kalmijn (1998); calibrazione di salienza culturale per era | tunable |
+| `w_edu` | Peso di prossimità di istruzione | 0.25 | 0.25 | 0.30 | 0.40 | 0.30 | Kalmijn (1998) | tunable |
+| `w_age` | Peso di prossimità d'età | 0.20 | 0.20 | 0.20 | 0.20 | 0.20 | Kalmijn (1998) | tunable |
+| `w_rel` | Peso del sentimento relazionale esistente | 0.15 | 0.15 | 0.15 | 0.20 | 0.40 | Kalmijn (1998); estensione Epocha tramite `Relationship.sentiment` | tunable |
+| `age_tolerance_years` (`τ`) | Scala di decadimento del kernel esponenziale di età (argomento di funzione) | 10.0 | 10.0 | 10.0 | 10.0 | 10.0 | Ordine di grandezza della letteratura demografica; promozione a campo per template riservata al Plan 4 | heuristic |
+
+**A.6 — Parametri delle aspettative adattive (§4.2.1).** Il blocco di
+configurazione delle aspettative è popolato da `_behavioral_config()` in
+`template_loader.py:179-196` ed è identico in tutti e quattro i template
+di economia in attesa della calibrazione del Plan 4. I bound strutturali
+sono codificati come costanti di modulo in `expectations.py:38-39`.
+
+| Parametro | Significato | Valore seed (tutti i template di economia) | Intervallo ammissibile | Fonte | Stato |
+|---|---|---:|---|---|---|
+| `lambda_base` | Tasso di adattamento di base prima della modulazione di personalità | 0.30 | `(0, 1)` | Cagan (1956); Nerlove (1958) | tunable |
+| `neuroticism_mod` | Magnitudine del contributo positivo del Nevroticismo al `λ` per agente | 0.15 | `≥ 0` | Costa and McCrae (1992); estensione Epocha | tunable |
+| `openness_mod` | Magnitudine del contributo positivo dell'Apertura al `λ` per agente | 0.10 | `≥ 0` | Costa and McCrae (1992); estensione Epocha | tunable |
+| `conscientiousness_mod` | Magnitudine del contributo negativo della Coscienziosità al `λ` per agente | 0.10 | `≥ 0` | Costa and McCrae (1992); estensione Epocha | tunable |
+| `trend_threshold` | Deviazione frazionaria da `expected_price` richiesta per cambiare `trend_direction` | 0.05 | `(0, 1)` | Scelta di design Epocha; tunable | tunable |
+| `_LAMBDA_MIN` (strutturale) | Bound inferiore sul `λ` per agente dopo l'equazione (4.10) | 0.05 | strutturale | Guardia implementativa contro la previsione statica | heuristic |
+| `_LAMBDA_MAX` (strutturale) | Bound superiore sul `λ` per agente dopo l'equazione (4.10) | 0.95 | strutturale | Guardia implementativa contro l'aspettativa naïve | heuristic |
+| confidence step | Incremento/decremento per tick su `AgentExpectation.confidence` | ±0.05 | `(0, 1)` | Scelta di design Epocha; tunable | tunable |
+
+**A.7 — Credito e sistema bancario, per era (§4.2.2).** I quattro
+template di economia spediti con la app economy — pre-industriale,
+industriale, modern, sci-fi — portano blocchi `credit_config` e
+`banking_config` differenziati e calibrati qualitativamente contro
+Homer e Sylla (2005) e la convenzione del reserve ratio di Basel III.
+
+| Parametro | Significato | Pre-industriale | Industriale | Moderno | Sci-fi | Fonte | Stato |
+|---|---|---:|---:|---:|---:|---|---|
+| `loan_to_value` | Rapporto massimo prestito-valore-collaterale in (4.12) | 0.50 | 0.60 | 0.80 | 0.90 | Stiglitz and Weiss (1981); Homer and Sylla (2005) range qualitativi | tunable |
+| `base_interest_rate` | Tasso di base iniziale prima dell'aggiustamento Wickselliano | 0.08 | 0.06 | 0.03 | 0.02 | Homer and Sylla (2005); Wicksell (1898) per la legge di aggiustamento | tunable |
+| `initial_deposits` | Depositi seed del sistema bancario in unità di valuta primaria | 5 000 | 20 000 | 100 000 | 500 000 | Seed ingegneristico scalato per offerta monetaria di era | tunable |
+| `reserve_ratio` | Riserva obbligatoria (convenzione Basel III per il moderno) | 0.10 | 0.10 | 0.05 | 0.03 | Basel III; Diamond and Dybvig (1983) | tunable |
+
+**A.8 — Credito e sistema bancario, strutturali e uniformi (§4.2.2).**
+Parametri uniformi su tutti e quattro i template in attesa della
+calibrazione del Plan 4, oppure codificati come costanti a livello di
+modulo perché codificano la forma qualitativa della dinamica di bank run
+piuttosto che scelte di calibrazione.
+
+| Parametro | Significato | Valore | Dove codificato | Fonte | Stato |
+|---|---|---:|---|---|---|
+| `risk_premium` | Coefficiente sullo spread di leverage del debitore in (4.13) | 0.50 | `credit.py:189-194`; `credit_config.risk_premium` | Stiglitz and Weiss (1981) qualitativo; magnitudine è design Epocha | tunable |
+| `max_rollover` | Numero massimo di volte che un prestito a scadenza può essere rinnovato | 3 | `credit_config.max_rollover` | Minsky (1986) qualitativo; magnitudine è design Epocha | tunable |
+| `default_loan_duration_ticks` | Durata di default del prestito quando il chiamante non ne passa una | 20 | `credit_config.default_loan_duration_ticks` | Scelta di design Epocha | tunable |
+| `_CONCERN_CONFIDENCE_THRESHOLD` | Soglia di (4.11) sotto la quale le memorie di banking-concern sono trasmesse | 0.50 | `banking.py:319` | Diamond and Dybvig (1983) qualitativo; soglia è design Epocha | heuristic |
+| `_CONCERN_BROADCAST_RATIO` | Frazione della popolazione vivente che riceve il broadcast di concern per tick | 0.50 | `banking.py:319` | Scelta ingegneristica per il budget di scrittura memoria | heuristic |
+| `_CONCERN_DEDUP_TICKS` | Finestra di deduplicazione allineata al dedup memoria dell'agent engine | 3 | `banking.py:319` | Scelta ingegneristica; allineata con la costante `simulation/engine.py` | heuristic |
+| `CASCADE_LOSS_THRESHOLD` | Frazione della ricchezza del prestatore sopra la quale una perdita per default si propaga | 0.50 | `credit.py:50` | Allen and Gale (2000) qualitativo | heuristic |
+| cascade `max_depth` | Cap BFS sulla propagazione della cascata di default | 3 | argomento di `process_default_cascade()` | Allen and Gale (2000) diametro empirico di rete (3-5 link) | heuristic |
+| rollover repricing factor | Moltiplicatore del tasso di interesse per rollover | 1.10 | `credit.py:504` | Scelta di design Epocha; raffinamento rinviato sotto §4.2.2 | tunable |
+| solvency confidence step | Decremento di `confidence_index` per tick di insolvenza | −0.10 | `banking.py` `check_solvency()` | Design Epocha; osservazione di asimmetria di fiducia | heuristic |
+| solvency recovery step | Incremento di `confidence_index` per tick di recupero | +0.05 | `banking.py` `check_solvency()` | Design Epocha; osservazione di asimmetria di fiducia | heuristic |
+| base-rate clamp | Clamp inferiore e superiore su `base_interest_rate` dopo l'aggiustamento Wickselliano | `[0.005, 0.50]` | `banking.py:112-194` | Guardia implementativa | heuristic |
+
+**A.9 — Mercato immobiliare (§4.2.3).** Nessun blocco di configurazione
+di template per era stand-alone; i valori sono ereditati dai config di
+credito e aspettative e due parametri di design del mercato immobiliare
+sono codificati fuori dai template.
+
+| Parametro | Significato | Valore | Dove codificato | Fonte | Stato |
+|---|---|---:|---|---|---|
+| `trend_threshold` | Deviazione frazionaria che classifica il prezzo richiesto come crescente/calante/stabile | 0.05 | ereditato da `expectations_config.trend_threshold` | Audit fix C-5 della convergenza del 2026-04-15 | tunable |
+| `listing_expiration_ticks` | I listing stantii sono ritirati dopo questo numero di tick | 10 | `property_market.py:222` | Scelta di design Epocha; timescale di mercato multi-periodo | heuristic |
+| Gordon denominator floor | Floor su `(r − g)` in `V = R / (r − g)` per prevenire la divisione per zero | 0.01 | `property_market.py:114-121` | Guardia implementativa contro `r ≈ g` | heuristic |
+| Gordon valuation lower clip | Bound inferiore su `fundamental_value` come multiplo di `property.value` | 0.1× | `property_market.py:114-121` | Guardia implementativa contro collassi transitori dei canoni | heuristic |
+| Gordon valuation upper clip | Bound superiore su `fundamental_value` come multiplo di `property.value` | 10× | `property_market.py:114-121` | Guardia implementativa; vincolo binding sulla magnitudine della bolla per log di audit della spec | heuristic |
+
+## Appendice B — Riproducibilità
+
+L'Appendice B registra i passi operativi tramite i quali ogni risultato
+riportato in questo whitepaper può essere rigenerato da un checkout
+pulito. Il riferimento che pinna lo stato del codebase per la presente
+revisione è il valore del campo `frozen-at-commit` nel front matter,
+popolato al momento del merge sotto la fase 7 del workflow canonico;
+l'esecuzione su un commit diverso produrrà risultati che possono
+differire nel dettaglio numerico anche quando il comportamento
+qualitativo è preservato.
+
+**Repository.** Il sorgente canonico è
+https://github.com/mauriziomocci/epocha, mirrorato in nessun'altra
+locazione pubblica. Il branch `develop` porta l'integrazione del lavoro
+che ha superato tutti i gate del workflow canonico a sette fasi e la
+sincronizzazione periodica del backup di memoria descritta nel CLAUDE.md
+del progetto; il branch `main` è riservato alle release.
+
+**Commit pinnato.** Il valore del campo `frozen-at-commit` in cima a
+questo documento — attualmente `<filled-on-merge>` e risolto al merge
+nello SHA del commit di integrazione — è il riferimento canonico di
+riproduzione. Lo stesso placeholder appare su ciascun header `Status` in
+§4 ed è popolato atomicamente alla chiusura della fase 7.
+
+**Ambiente di runtime.** Python 3.12 con il set di dipendenze pinnato in
+`requirements/base.txt` (set transitivo di baseline produzione),
+`requirements/local.txt` (estensioni di sviluppo incluse pytest e
+strumenti di debug), e `requirements/production.txt` (override di
+produzione). PostgreSQL diretto con estensione PostGIS è richiesto per i
+campi spaziali abilitati in `world.0003_zone_postgis_geometry`; Redis è
+richiesto per il broker Celery e per il rate limiter LLM; il file Docker
+compose `docker-compose.local.yml` impacchetta Postgres+PostGIS, Redis,
+l'applicazione Django, il worker Celery e lo scheduler Celery beat con
+il wiring di servizio corretto.
+
+**Avvio dello stack da un checkout pulito.**
+
+```bash
+git clone https://github.com/mauriziomocci/epocha.git
+cd epocha
+git checkout <frozen-at-commit>
+docker compose -f docker-compose.local.yml up --build
+```
+
+La prima invocazione costruisce l'immagine dell'applicazione ed esegue
+la trail di migrazioni sotto `epocha/apps/<app>/migrations/`, applicate
+linearmente senza squashing per regola di progetto. La dashboard è
+esposta sulla porta host dichiarata nel file compose; le credenziali del
+provider LLM devono essere configurate tramite le impostazioni
+`EPOCHA_LLM_BASE_URL`, `EPOCHA_LLM_MODEL` ed `EPOCHA_LLM_API_KEY` di
+`config/settings/base.py` (e i paralleli `EPOCHA_CHAT_LLM_*` per il
+provider lato chat) prima che la pipeline di decisione degli agenti di
+§3.2 possa dispatchare un tick.
+
+**Invocazione dei test.**
+
+```bash
+docker compose -f docker-compose.local.yml exec web \
+    pytest --cov=epocha -v
+```
+
+La suite completa copre i moduli auditati di §4.1 e §4.2 a livello di
+algoritmo, i path di integrazione cross-modulo esercitati da
+`epocha/apps/economy/engine.py:process_economy_tick_new()` e il
+machinery a livello Django di model e serializer di ogni app sotto
+`epocha/apps/`. I sottoinsiemi per modulo sono indirizzabili per path
+di directory: `pytest epocha/apps/demography/ -v` per i moduli di §4.1,
+`pytest epocha/apps/economy/ -v` per i moduli di §4.2.
+
+**RNG seedato.** Per §3.4, ogni decisione stocastica nel sottosistema di
+demografia attinge da uno stream `random.Random` seedato per fase
+restituito da
+`epocha.apps.demography.rng.get_seeded_rng(simulation, tick, phase)`,
+dove `phase` è uno dell'insieme chiuso `mortality`, `fertility`,
+`couple`, `migration`, `inheritance`, `initialization`. Il seed è
+derivato come i primi otto byte di
+`sha256(f"{simulation.id}:{simulation.seed}:{tick}:{phase}")`, così che
+due esecuzioni con gli stessi `simulation.id`, `simulation.seed` e
+revisione di codice producano draw per tick identici per tutta la vita
+della simulazione. Riordinare o sopprimere un sottosistema in un
+refactor non sposta la sequenza casuale che gli altri vedono allo stesso
+tick, che è la proprietà che rende possibile la riproducibilità stabile
+sotto refactor. Il debito noto A-5 documentato in §3.4 — un fallback a
+`0` quando entrambi `simulation.seed` e `simulation.id` sono `None` — è
+raro in pratica ed è tracciato per il Plan 4.
+
+**Caricamento dei template di era.** Per Appendice C, i template di
+demografia sono cinque file JSON sotto
+`epocha/apps/demography/templates/` e i template di economia sono quattro
+funzioni factory Python in `epocha/apps/economy/template_loader.py`. Il
+loader di demografia (`template_loader.py`) valida ciascun file JSON
+contro lo schema implicito definito dai consumatori in §4.1 — ogni
+chiave è consumata da uno specifico modello e le chiavi sconosciute
+sollevano un errore di validazione invece di essere silenziosamente
+ignorate. Le factory di economia restituiscono un dizionario annidato
+che il loader passa a `EconomyTemplate.objects.get_or_create()`; il
+blocco comportamentale è costruito una sola volta da
+`_behavioral_config()` ed è identico in tutti e quattro i template in
+attesa della calibrazione del Plan 4. Per eseguire una simulazione sotto
+uno specifico template di era, impostare i campi `Simulation.config`
+corrispondenti (`demography_template`, `economy_template`) alla
+creazione della simulazione tramite la dashboard o l'API di management.
+
+**Esperimenti di validazione.** La metodologia del Capitolo 7 specifica
+i dataset target (§7.1), le metriche di confronto (§7.2) e le soglie di
+accettazione (§7.3); la campagna sperimentale che li consuma è
+tracciata sotto
+`docs/memory-backup/project_validation_experiments_pending.md` ed è
+legata al Plan 4 di demografia. Il deliverable del Plan 4 introdurrà una
+directory `validation/` alla radice del repository con uno script Python
+per ciascun modulo auditato e un target Makefile che esegue l'intera
+campagna sotto un singolo comando su un checkout pulito.
+
+## Appendice C — Schema JSON dei template di era e sorgente
+
+La simulazione supporta due sistemi di template paralleli la cui
+esistenza è documentata in §6.2. L'Appendice C descrive la forma
+on-disk di ciascun sistema senza gonfiare il documento col contenuto
+JSON completo; i payload autoritativi vivono nell'albero del sorgente
+ai path registrati sotto.
+
+**C.1 — Template di demografia (JSON, cinque file).** Ciascun file sotto
+`epocha/apps/demography/templates/` porta un dizionario flat con tre
+blocchi top-level (`mortality`, `fertility`, `couple`) consumati dai
+modelli auditati di §4.1. Lo schema implicito è stretto: ogni chiave è
+consumata da una specifica funzione in `mortality.py`, `fertility.py` o
+`couple.py`, e le chiavi sconosciute al load time sollevano un errore di
+validazione invece di essere silenziosamente ignorate.
+
+Il blocco `mortality` porta gli otto parametri di Heligman-Pollard
+definiti per equazione (4.1) più i coefficienti di mortalità materna
+consumati dal joint resolver di §4.1.2:
+
+- `A`, `B`, `C` — parametri del decadimento infantile dell'equazione (4.1)
+- `D`, `E`, `F` — parametri della gobba di incidenti
+- `G`, `H` — parametri della crescita senescente di Gompertz
+- `maternal_mortality_rate_per_birth` — probabilità di morte materna per
+  nato vivo
+- `neonatal_survival_when_mother_dies` — probabilità che il neonato
+  sopravviva quando la madre muore al parto
+
+Il blocco `fertility` porta i tre parametri di Hadwiger dell'equazione
+(4.2), i cinque coefficienti di modulazione di Becker dell'equazione
+(4.3) e i parametri del ceiling malthusiano dell'equazione (4.4):
+
+- `H`, `R`, `T` — schedule di Hadwiger dell'equazione (4.2)
+- `becker_beta_0` fino a `becker_beta_4` — coefficienti di Becker
+- `malthusian_floor_ratio` (`ρ`) — moltiplicatore del floor del soft
+  ceiling
+- `max_population` — cap del ceiling malthusiano
+
+Il blocco `couple` porta i campi del resolver runtime e i pesi di
+omogamia di Kalmijn dell'equazione (4.6):
+
+- `marriage_market_type` — `autonomous` o `arranged`
+- `divorce_enabled` — apre `resolve_separate_intents()`
+- `implicit_mutual_consent` — una dichiarazione unilaterale è
+  sufficiente quando true
+- `min_age_male`, `min_age_female` — minimi di eleggibilità in anni
+- `mourning_ticks` — cooldown dopo la morte del partner (caricato ma non
+  ancora consumato)
+- `marriage_market_radius` — `same_zone`, `adjacent_zones` o `world`
+- `homogamy_weights` — sub-blocco che porta `w_class`, `w_edu`, `w_age`,
+  `w_rel` la cui somma è uno
+- `allowed_types`, `default_type` — tipologia di coppia
+
+I cinque file spediti col Plan 1 sono riassunti nella Tabella C.1.
+
+Tabella C.1 — Template di demografia spediti col Plan 1.
+
+| Nome del template | Path del file | Scopo di era |
+|---|---|---|
+| `pre_industrial_christian` | `epocha/apps/demography/templates/pre_industrial_christian.json` | Cristianità occidentale pre-industriale; target di calibrazione Wrigley and Schofield (1981) Inghilterra 1700-1749; porta l'indissolubilità del matrimonio cattolico (`divorce_enabled: false`); blocchi di mortalità e fertilità identici a `pre_industrial_islamic`, differisce solo nel blocco couple |
+| `pre_industrial_islamic` | `epocha/apps/demography/templates/pre_industrial_islamic.json` | Mondo islamico pre-industriale; stesse schedule biologiche di `pre_industrial_christian`; porta il regime di matrimonio combinato (`marriage_market_type: arranged`) sotto la semantica del Pass B di Goode (1963) |
+| `industrial` | `epocha/apps/demography/templates/industrial.json` | Transizione industriale; target di calibrazione HMD Inghilterra e Galles pooled 1841-1900; raggio del mercato matrimoniale ampliato a `adjacent_zones` riflettendo l'urbanizzazione |
+| `modern_democracy` | `epocha/apps/demography/templates/modern_democracy.json` | Democrazia liberale moderna; target di calibrazione HMD USA 2019 (baseline pre-COVID); raggio del mercato matrimoniale `world` riflettendo la mobilità moderna |
+| `sci_fi` | `epocha/apps/demography/templates/sci_fi.json` | Template speculativo di lontano futuro; nessun target empirico di calibrazione; documentato inline nel sorgente come speculativo |
+
+**C.2 — Template di economia (factory Python, quattro funzioni).** Ogni
+factory sotto `epocha/apps/economy/template_loader.py` restituisce un
+dizionario annidato che il loader passa a
+`EconomyTemplate.objects.get_or_create()`. Il pattern factory è stato
+scelto rispetto a file JSON per template sulla base del fatto che la
+differenziazione per era si riduce a un piccolo insieme di input
+(tabella valuta, elasticità di beni, stock di fattori, configurazione
+comportamentale) e la factory Python espone questi input come argomenti
+denominati in modo più leggibile di quanto farebbero quattro file JSON
+paralleli. Il blocco comportamentale è costruito una sola volta da
+`_behavioral_config()` ed è identico in tutti e quattro i template in
+attesa della calibrazione del Plan 4.
+
+Tabella C.2 — Template di economia spediti con la app economy.
+
+| Nome del template | Funzione factory | Scopo |
+|---|---|---|
+| `pre_industrial` | `_pre_industrial_template()` (`epocha/apps/economy/template_loader.py`) | Economia agraria pre-industriale; porta la tipologia canonica di proprietà farmland-workshop-shop, basso loan-to-value di 0.50, tasso di interesse di base 0.08 calibrato contro Homer and Sylla (2005) per il range pre-moderno |
+| `industrial` | `_industrial_template()` | Transizione industriale; aggiunge il tipo di proprietà factory a base value 500; loan-to-value 0.60; tasso di interesse di base 0.06 |
+| `modern` | `_modern_template()` | Economia moderna ancorata alla banca centrale; aggiunge il tipo di proprietà office a base value 300; loan-to-value 0.80; tasso di interesse di base 0.03; reserve ratio 0.05 calibrato contro la convenzione Basel III |
+| `sci_fi` | `_sci_fi_template()` | Template speculativo di lontano futuro; aggiunge automated factory a base value 1 000 e research lab a base value 800; loan-to-value 0.90; tasso di interesse di base 0.02; reserve ratio 0.03 |
+
+Il blocco condiviso `_behavioral_config()` a `template_loader.py:144-198`
+popola i sub-blocchi `expectations_config`, `credit_config` e
+`banking_config` consumati dai moduli auditati di §4.2. La
+differenziazione per era di `λ_base`, dei coefficienti di modulazione di
+Becker, di `risk_premium`, `max_rollover` e
+`default_loan_duration_ticks` è il debito esplicito di calibrazione
+assegnato al Plan 4. La discrepanza nel conteggio fra cinque template di
+demografia e quattro template di economia è documentata in §6.2: la
+spec di demografia ha richiesto di separare i due regimi confessionali
+pre-industriali per supportare la distinzione di mercato matrimoniale e
+regime di divorzio, mentre la spec di economia non ha trovato analoga
+distinzione strutturale al layer di prezzo e credito.
+
+**C.3 — Caricamento e validazione.** Entrambi i sistemi di template sono
+caricati al tempo di creazione della simulazione attraverso i moduli
+`template_loader.py` nelle rispettive app. Il loader di demografia
+valida il JSON contro lo schema implicito tentando di costruire ciascun
+oggetto parametri del modello e rifiutando il caricamento con un
+`ValueError` descrittivo quando un campo richiesto è mancante o un
+valore cade fuori dall'intervallo ammissibile documentato in Appendice
+A. Il loader di economia svolge lo stesso ruolo per l'output della
+factory Python, con la differenza che la factory stessa controlla il
+dizionario prodotto e un output di factory malformato indica un bug
+nella factory piuttosto che un file JSON corrotto. La disciplina di
+validazione stretta è la proprietà che rende auditabile la
+differenziazione per era: un typo in un campo di template è catturato
+alla creazione della simulazione invece di produrre comportamento
+silenziosamente scorretto per tick a valle.
