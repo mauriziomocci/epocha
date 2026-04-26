@@ -282,6 +282,17 @@ After any code change, update documentation in the same commit:
 - **README.md** (English, primary) AND **README.it.md** (Italian, companion) — both must stay in sync. README-relevant changes: architecture, stack, project rules, roadmap, setup/operational instructions, scientific references, validation benchmarks, public integration surface. Plain bug fixes, internal refactors, test-only commits do NOT trigger README update.
 - **Scientific whitepapers**: **`docs/whitepaper/epocha-whitepaper.md`** (English) AND **`docs/whitepaper/epocha-whitepaper.it.md`** (Italian) — living documents. Scientific paper structure: numbered sections (Abstract, Introduction, Background, Methods, Implementation, Calibration, Validation, Discussion, Known Limitations, Conclusions, References, Appendices), numbered equations and figures, Author-Date citations, bibliography with DOI/URL, reproducibility notes. Every merge to develop touching scientific models, parameters, algorithms, calibration, or integration surface must update both whitepapers.
 
+**Whitepaper-code doc-sync rule**: PRs that modify code under
+`epocha/apps/demography/` or
+`epocha/apps/economy/{expectations,credit,banking,property_market}.py`
+must update the corresponding chapter of the bilingual whitepaper
+(`docs/whitepaper/epocha-whitepaper.md` and `.it.md`, chapters §4.1
+and §4.2 respectively) in the same commit, or explain in the PR
+description why the change does not affect the model. The mapping is
+maintained in the project memory `feedback_whitepaper_doc_sync.md` and
+will be expanded as modules in §8 are promoted to §4 after their
+Round 2 audits converge.
+
 ### Mandatory Code Review — Epocha Overrides
 
 The global 8-point code review (`~/.claude/CLAUDE.md`) applies with two Epocha-specific overrides:
