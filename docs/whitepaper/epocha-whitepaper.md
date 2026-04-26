@@ -653,7 +653,59 @@ Table 4.2 — Per-era HP parameter values (templates shipped in Plan 1).
 
 ### 4.1.2 Fertility model (Hadwiger ASFR + Becker modulation + Malthusian ceiling)
 
-<draft in Task 10>
+> Status: implemented as of commit `<filled-on-merge>`, spec audit CONVERGED 2026-04-18 round 4.
+
+**Background.** Fertility in Epocha is built as a three-layer composition rather than as a single closed-form schedule because the three forces it has to represent operate on incommensurable timescales and on distinct causal channels. The biological substrate — the bell-shaped curve of female age-specific fecundity over the fertile window, peaking in the mid-twenties and tailing off into the late forties — is well captured by an analytic schedule and changes only on evolutionary timescales. The economic and cultural modulation of completed fertility — the difference between five children per woman in a pre-industrial agrarian economy and one and a half in a modern democracy — operates at the timescale of generations and is driven by income, education, and the opportunity cost of childbearing rather than by biology. The aggregate ceiling — the soft cap that prevents the simulated population from running away under conditions where the analytic rates alone would generate exponential growth — is neither biological nor cultural but an engineering constraint that must nevertheless preserve the qualitative shape of the Malthusian preventive check. Two single-layer alternatives were considered and rejected. Coale and Trussell's 1974 model fertility schedules express age-specific fertility as the product of a natural-fertility schedule, an `M` parameter for the level, and an `m` parameter for spacing/stopping behavior, and have decades of empirical validation behind them. The Coale-Trussell formulation, however, embeds its socioeconomic content inside the `m` parameter, which conflates two effects (timing of stopping and intensity of contraception) that Epocha needs to vary independently for behavioral integration with the LLM-driven decision layer; calibrating `m` to a target completed fertility level loses the explicit handle on the economic mechanism. Hadwiger's 1940 three-parameter analytic form, by contrast, is a pure age-shape with a normalized total fertility rate `H` factored out of the integral, which lets us multiply by an external modulation function without breaking the integration property of the schedule. Becker's 1991 quantity-quality framework supplies the right vocabulary for that modulation function — the marginal value of an additional child as a function of household income, female labor force participation, and parental education — but does not itself prescribe a specific functional form on a per-tick probability, so the modulation layer is implemented as a log-linear scaling factor inspired by the Becker framework rather than as a literal Becker model. The Malthusian ceiling is added on top because Hadwiger × Becker on its own does not have a population-density feedback, and pre-industrial templates with `H = 5.0` would generate growth rates incompatible with the carrying capacity of the simulation grid; the ceiling is the Ashraf and Galor 2011 preventive-check intuition implemented as a piecewise scaling on the per-tick birth probability rather than as a continuous-time formalism on income per capita.
+
+**Model.** The per-tick probability that an eligible mother gives birth at the current tick is the product of three layers, each implemented as a separate function in `epocha/apps/demography/fertility.py` so the layers can be replaced or audited independently:
+
+```
+f_HW(a; H, R, T) = (H · T / (R · √π)) · (R / a)^1.5
+                 · exp(−T² · (R / a + a / R − 2))                    (4.2)
+
+m_BK(agent; β) = clip(exp(β₀ + β₁ · w + β₂ · e + β₃ · φ + β₄ · ω),
+                      0.05, 3.0)                                     (4.3)
+
+c_MT(p, n, n_max, ρ) = p                              if n < 0.8 · n_max
+                     = p · max(0, 1 − (n − 0.8·n_max) / (0.2·n_max))
+                                                       if n < n_max
+                     = p · ρ                           if n ≥ n_max  (4.4)
+
+P_tick(agent, env) = c_MT( f_HW(a; H, R, T) · m_BK(agent; β),
+                            n, n_max, ρ )  ·  Δt                     (4.5)
+```
+
+Equation (4.2) is the canonical Hadwiger age-specific fertility rate in the normalized form discussed in Chandola, Coleman and Hiorns (1999) and Schmertmann (2003), where `H` is the target total fertility rate (the integral of `f_HW` over the fertile window), `R` is a shape parameter related to the peak fertility age, and `T` controls the spread of the distribution; the implementation in `fertility.py:hadwiger_asfr()` (line 19) returns 0 outside the biologically fertile window `[12, 50]` and at non-positive ages. Equation (4.3) is the Becker modulation layer in `fertility.py:becker_modulation()` (line 85): `w = log(max(wealth / max(subsistence, 1e-6), 0.1))` is the log-wealth signal relative to the subsistence threshold, `e` is the agent's education level, `φ` is the female labor-force-participation proxy in the agent's zone (computed in `_female_role_employment_fraction()` from one-tick wage transactions to female recipients), and `ω` is the aggregate-outlook signal computed in `epocha.apps.demography.context.compute_aggregate_outlook()`; the result is exponentiated and clipped to `[0.05, 3.0]` to keep the modulation factor bounded under extreme inputs. Equation (4.4) is the Malthusian soft ceiling implemented in `fertility.py:malthusian_soft_ceiling()` (line 118): below 80% of the per-template `max_population` the multiplicative factor is one, between 80% and 100% it ramps linearly to zero, and above 100% it collapses to a floor `ρ` (`malthusian_floor_ratio` in the era template) so that populations never stop reproducing entirely. Equation (4.5) is the combined `tick_birth_probability(mother, params_era, current_pop, tick_duration_hours, demography_acceleration, current_tick)` in `fertility.py:152`, which composes the three layers, multiplies by `Δt = (tick_duration_hours / 8760) · demography_acceleration` to convert the annual rate to the tick interval, and returns 0 unconditionally when the era requires couple membership and the mother is not in an active couple, or when the `avoid_conception` flag was set at the previous tick (reading a flag set at tick `T−1` during tick `T` makes contraception a tick+1-settled action, consistent with the property-market semantics introduced in Chapter 4.2.3).
+
+**Parameters.** The three Hadwiger parameters carry the semantic roles `H` = target TFR, `R` = peak-fertility shape parameter, `T` = spread; per-era values are loaded from JSON templates under `epocha/apps/demography/templates/`. Table 4.3 lists the Hadwiger values shipped with each of the five Plan 1 templates. The `H` values track historically attested completed fertility levels — five children per woman for the pre-industrial templates, four for the industrial transition, slightly below replacement for the modern-democracy template, and around replacement for the speculative `sci_fi` template — while `R` and `T` shift the peak rightward and broaden the distribution as societies transition to later first births and tighter spacing.
+
+Table 4.3 — Per-era Hadwiger parameter values (templates shipped in Plan 1).
+
+| Era template                 | `H` (target TFR) | `R` (peak shape) | `T` (spread) | `max_population` | `malthusian_floor_ratio` (`ρ`) |
+|------------------------------|------------------|------------------|--------------|------------------|--------------------------------|
+| `pre_industrial_christian`   | 5.0              | 26               | 3.5          | 500              | 0.10                           |
+| `pre_industrial_islamic`     | 5.0              | 26               | 3.5          | 500              | 0.10                           |
+| `industrial`                 | 4.0              | 27               | 3.8          | 500              | 0.05                           |
+| `modern_democracy`           | 1.8              | 30               | 4.2          | 500              | 0.01                           |
+| `sci_fi`                     | 2.1              | 32               | 4.0          | 500              | 0.00                           |
+
+The five Becker coefficients carry the roles `β₀` = baseline (centred at the era's biological schedule), `β₁` = log-wealth elasticity (positive: higher relative wealth raises desired fertility at the agrarian end of the spectrum), `β₂` = education penalty (negative: opportunity cost of childbearing rises with parental education), `β₃` = female labor-force-participation penalty (negative: higher zone-level female employment depresses fertility), `β₄` = aggregate-outlook elasticity (positive: optimism about the future raises the modulation factor). As of the pinned commit, the five coefficients are seeded with the same values across all five templates — `β₀ = 0.0`, `β₁ = 0.1`, `β₂ = −0.05`, `β₃ = −0.1`, `β₄ = 0.2` — pending per-era calibration, and this homogeneity is tracked in the spec's audit-resolution log as debt B2-07 and assigned to Plan 4 (calibration against synthetic shock tests). Table 4.4 records the seed values explicitly so that the homogeneity is visible to the reader rather than buried in the per-era JSONs.
+
+Table 4.4 — Becker modulation coefficients (identical across all five templates pending Plan 4 calibration; tracked as debt B2-07 in the spec).
+
+| Coefficient | Seed value | Semantic role                                           |
+|-------------|-----------:|---------------------------------------------------------|
+| `β₀`        |       0.0  | Baseline log-shift on the modulation factor              |
+| `β₁`        |       0.1  | Elasticity to log-wealth relative to subsistence         |
+| `β₂`        |      −0.05 | Penalty per unit of parental education                   |
+| `β₃`        |      −0.1  | Penalty per unit of zone female labor-force participation |
+| `β₄`        |       0.2  | Elasticity to aggregate macro-outlook signal             |
+
+The five coefficients are described in `becker_modulation()` (fertility.py:85–111) as "provisional seed values" with calibration "deferred to Plan 4 using synthetic shock tests"; they are inspired by the Becker framework rather than estimated from a specific Becker-style household-economics regression, and the whitepaper records them as tunable parameters of the Epocha implementation rather than as Becker-derived constants. The Malthusian floor `ρ` is the `malthusian_floor_ratio` field on the per-template `fertility` block; when omitted, `tick_birth_probability` defaults to `0.1` (`fertility.py:204`), which is the value used in the spec text and in the two pre-industrial templates.
+
+**Algorithm.** For each living female agent in the fertile window `[12, 50]`, on every tick, the fertility module first checks the gating preconditions in `tick_birth_probability()` (lines 180–191): if the era template requires couple membership and the mother is not in an active couple (`is_in_active_couple()`), or if the `avoid_conception` flag on `AgentFertilityState` was set at tick `T−1` (`is_avoid_conception_active_this_tick()`, line 262), the function returns 0 and no birth can fire this tick. Otherwise the three layers are evaluated in sequence: `hadwiger_asfr()` is called at the agent's age in years (computed in `_effective_age_in_years()` from `birth_tick` and the authoritative `current_tick` to avoid the FK-cache staleness flagged in audit finding B2-04), the result is multiplied by `becker_modulation()` evaluated against the agent's wealth, education, zone, and outlook, the product is passed through `malthusian_soft_ceiling()` against the current population and `max_population`, and the resulting annual rate is multiplied by `Δt` to give the per-tick probability. The caller draws a uniform variate from a `random.Random` returned by `epocha.apps.demography.rng.get_seeded_rng(simulation, tick, phase="fertility")` — the same seeded-stream contract documented for mortality in §4.1.1, with `phase="fertility"` selected from the closed phase set so the fertility draw never shifts the random sequence the mortality draw at the same tick has consumed. When a birth fires and maternal mortality applies, the spec §1 C-1 fix requires the two events to be resolved jointly rather than sequentially: `resolve_childbirth_event(mother, params_era, tick, rng)` (`fertility.py:295`) draws against `mortality.maternal_mortality_rate_per_birth` for the maternal-death event and, conditional on the mother dying, against `mortality.neonatal_survival_when_mother_dies` for the newborn's survival; the helper is a pure probabilistic resolver and returns a dict `{mother_died, newborn_survived, death_cause}` with `death_cause = "childbirth"` when maternal death is selected, leaving persistence (mother's death record, newborn creation) to the caller. The joint resolution avoids the bias that would arise from resolving generic mortality first and childbirth mortality second on the same mother in the same tick. As of the pinned commit, this per-tick fertility evaluation is exercised by the demography unit-test suite (`epocha/apps/demography/tests/test_fertility.py`) but is not yet invoked from `epocha/apps/simulation/engine.py` or `tasks.py`; the only mention of `tick_birth_probability` outside `demography/` is a comment in `engine.py:276` describing the gating semantics of the `avoid_conception` flag. The integration into the live tick loop is tracked, alongside the equivalent mortality gap noted in §4.1.1, as a Plan 4 deliverable (Initialization, Engine integration, and Historical validation).
+
+**Simplifications.** The current implementation deliberately omits four refinements that the demographic literature treats as proper extensions rather than corrections of the baseline schedule. First, the Hadwiger age-specific schedule is evaluated deterministically at the agent's age, with no inter-individual heterogeneity in the underlying biological fecundity beyond the binary flags carried by `AgentFertilityState`; modeling lognormal heterogeneity in time-to-conception (the proximate-determinants literature reviewed in the demography spec) is deferred. Second, twin and higher-order multiple births are not modeled: each successful birth event creates exactly one newborn, regardless of historical multiple-birth rates that range from roughly 1% in pre-industrial Europe to over 3% in some modern populations. Third, the Becker modulation coefficients are homogeneous across all five era templates, as documented in Table 4.4 and tracked as audit debt B2-07; per-era calibration is the central deliverable of Plan 4 and will replace the seed values with era-specific estimates from synthetic shock tests against the Wrigley and Schofield (1981) baseline and the additional fertility-decline references catalogued in the demography spec. Fourth, the Malthusian soft ceiling is an engineering heuristic rather than a literal implementation of the Ashraf and Galor (2011) preventive-check formalism, which operates in continuous time on income per capita; the Epocha ceiling is a discrete tick-based scaling on the per-mother birth probability that preserves the qualitative shape of the preventive check (free below 80% of cap, ramp to zero between 80% and 100%, floor above the cap) without claiming to reproduce the Ashraf-Galor income dynamics. The choice is documented in the `malthusian_soft_ceiling()` docstring (`fertility.py:118–146`) and is consistent with the design intent of giving the simulation a population-density feedback that protects the per-tick computational budget while remaining interpretable in Malthusian terms.
 
 ### 4.1.3 Couple formation and dissolution (Gale-Shapley + Goode 1963)
 
@@ -825,6 +877,9 @@ Table 4.2 — Per-era HP parameter values (templates shipped in Plan 1).
   Capital-labor substitution and economic efficiency. *The Review of
   Economics and Statistics*, 43(3), 225–250.
   https://doi.org/10.2307/1927286
+- Ashraf, Q., and Galor, O. (2011). Dynamics and stagnation in the
+  Malthusian epoch. *American Economic Review*, 101(5), 2003–2041.
+  https://doi.org/10.1257/aer.101.5.2003
 - Asimov, I. (1951). *Foundation*. Gnome Press, New York. (Fix-up
   novel collecting four short stories originally published in
   *Astounding Science-Fiction* between May 1942 and January 1950,
@@ -836,6 +891,8 @@ Table 4.2 — Per-era HP parameter values (templates shipped in Plan 1).
   Social Psychology*. Cambridge University Press, Cambridge.
   (Pre-ISBN monograph; reissued by Cambridge University Press in
   1995 with ISBN 978-0-521-48356-8.)
+- Becker, G. S. (1991). *A Treatise on the Family*, enlarged edition.
+  Harvard University Press, Cambridge, MA. ISBN 978-0-674-90698-3.
 - Bonabeau, E. (2002). Agent-based modeling: methods and techniques for
   simulating human systems. *Proceedings of the National Academy of
   Sciences*, 99(Suppl. 3), 7280–7287.
@@ -849,6 +906,10 @@ Table 4.2 — Per-era HP parameter values (templates shipped in Plan 1).
   reputation and the costs of compliance. *Journal of Artificial
   Societies and Social Simulation*, 1(3).
   https://www.jasss.org/1/3/3.html
+- Chandola, T., Coleman, D. A., and Hiorns, R. W. (1999). Recent European
+  fertility patterns: fitting curves to "distorted" distributions.
+  *Population Studies*, 53(3), 317–329.
+  https://doi.org/10.1080/00324720308089
 - Coale, A. J., and Trussell, T. J. (1974). Model fertility schedules:
   variations in the age structure of childbearing in human populations.
   *Population Index*, 40(2), 185–258.
@@ -921,6 +982,9 @@ Table 4.2 — Per-era HP parameter values (templates shipped in Plan 1).
 - Schelling, T. C. (1971). Dynamic models of segregation. *Journal of
   Mathematical Sociology*, 1(2), 143–186.
   https://doi.org/10.1080/0022250X.1971.9989794
+- Schmertmann, C. P. (2003). A system of model fertility schedules with
+  graphically intuitive parameters. *Demographic Research*, 9, 81–110.
+  https://doi.org/10.4054/DemRes.2003.9.5
 - Seppecher, P. (2012). Flexibility of wages and macroeconomic
   instability in an agent-based computational model with endogenous
   money. *Macroeconomic Dynamics*, 16(S2), 284–297.
