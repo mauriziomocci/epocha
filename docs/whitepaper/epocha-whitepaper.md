@@ -229,7 +229,7 @@ constraints with an architecture in which LLM calls are confined to the
 narrow decisions where free-form reasoning is genuinely required, while
 demographic transitions, economic accounting, and matching are handled by
 audited rule-based services described in Chapter 4. A reputation and memory
-cache (Castelfranchi-Conte-Paolucci) reduces context drift across ticks by
+cache (Castelfranchi et al. 1998) reduces context drift across ticks by
 giving agents a structured episodic substrate they can reference instead
 of re-deriving social information from scratch. Reproducibility is enforced
 at the simulation boundary through seeded pseudo-random number generation,
@@ -454,23 +454,36 @@ in Chapter 3.
 
 # 13. References
 
-<draft in Task 7 (initial seed) and updated incrementally through W2 and W3>
-
-<!-- Entries added in Task 2 -->
-
+- Aher, G. V., Arriaga, R. I., and Kalai, A. T. (2023). Using large
+  language models to simulate multiple humans and replicate human
+  subject studies. In *Proceedings of the 40th International Conference
+  on Machine Learning (ICML 2023)*, PMLR, 202, 337–371.
+  https://proceedings.mlr.press/v202/aher23a.html
 - Argyle, L. P., Busby, E. C., Fulda, N., Gubler, J. R., Rytting, C., and
   Wingate, D. (2023). Out of one, many: using language models to simulate
   human samples. *Political Analysis*, 31(3), 337–351.
   https://doi.org/10.1017/pan.2023.2
 <!-- VERIFICATION PENDING: 1951 Gnome Press fix-up vs original 1942 Astounding Science Fiction story (May 1942 issue, "Foundation"). Task 7 to reconcile -->
 - Asimov, I. (1951). *Foundation*. Gnome Press, New York.
+- Axelrod, R. (1984). *The Evolution of Cooperation*. Basic Books, New
+  York. ISBN 978-0-465-02121-5.
 - Bonabeau, E. (2002). Agent-based modeling: methods and techniques for
   simulating human systems. *Proceedings of the National Academy of
   Sciences*, 99(Suppl. 3), 7280–7287.
   https://doi.org/10.1073/pnas.082080899
+- Castelfranchi, C., Conte, R., and Paolucci, M. (1998). Normative
+  reputation and the costs of compliance. *Journal of Artificial
+  Societies and Social Simulation*, 1(3).
+  https://www.jasss.org/1/3/3.html
+- Collier, N., and North, M. J. (2013). Parallel agent-based simulation
+  with Repast for High Performance Computing. *SIMULATION*, 89(10),
+  1215–1235. https://doi.org/10.1177/0037549712462620
 - Epstein, J. M., and Axtell, R. (1996). *Growing Artificial Societies:
   Social Science from the Bottom Up*. Brookings Institution Press /
   MIT Press, Washington, DC and Cambridge, MA. ISBN 978-0-262-55025-3.
+- Masad, D., and Kazil, J. (2015). Mesa: an agent-based modeling framework.
+  In *Proceedings of the 14th Python in Science Conference (SciPy 2015)*,
+  51–58. https://doi.org/10.25080/Majora-7b98e3ed-009
 - Park, J. S., O'Brien, J. C., Cai, C. J., Morris, M. R., Liang, P., and
   Bernstein, M. S. (2023). Generative agents: interactive simulacra of
   human behavior. In *Proceedings of the 36th Annual ACM Symposium on
@@ -479,22 +492,6 @@ in Chapter 3.
 - Schelling, T. C. (1971). Dynamic models of segregation. *Journal of
   Mathematical Sociology*, 1(2), 143–186.
   https://doi.org/10.1080/0022250X.1971.9989794
-
-<!-- Entries added in Task 3 -->
-
-- Aher, G. V., Arriaga, R. I., and Kalai, A. T. (2023). Using large
-  language models to simulate multiple humans and replicate human
-  subject studies. In *Proceedings of the 40th International Conference
-  on Machine Learning (ICML 2023)*, PMLR, 202, 337–371.
-  https://proceedings.mlr.press/v202/aher23a.html
-- Axelrod, R. (1984). *The Evolution of Cooperation*. Basic Books, New
-  York. ISBN 978-0-465-02121-5.
-- Collier, N., and North, M. (2013). Parallel agent-based simulation with
-  Repast for High Performance Computing. *SIMULATION*, 89(10), 1215–1235.
-  https://doi.org/10.1177/0037549712462620
-- Masad, D., and Kazil, J. (2015). Mesa: an agent-based modeling framework.
-  In *Proceedings of the 14th Python in Science Conference (SciPy 2015)*,
-  51–58. https://doi.org/10.25080/Majora-7b98e3ed-009
 - Wilensky, U. (1999). NetLogo. Center for Connected Learning and
   Computer-Based Modeling, Northwestern University, Evanston, IL.
   http://ccl.northwestern.edu/netlogo/
