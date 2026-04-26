@@ -603,11 +603,53 @@ back the API.
 
 > Status: implemented as of commit `<filled-on-merge>`, spec audit CONVERGED 2026-04-18 round 4.
 
-<draft in Tasks 8-13>
+The demography module covers the three life-course transitions for which Epocha currently runs an audited scientific model: mortality, fertility, and couple formation. The authoritative specification is `docs/superpowers/specs/2026-04-18-demography-design.md`, whose four rounds of adversarial review converged on 2026-04-18; the design choices and the explicit mapping of every parameter to a primary source live there, while this chapter restates the formulas, the calibration tables, and the per-tick algorithms in publication form. The implementation lives under `epocha/apps/demography/`, where the three subsystems are split into `mortality.py`, `fertility.py`, and `couple.py`, with shared concerns factored into `template_loader.py` (era JSON loading and validation), `rng.py` (seeded per-phase streams discussed in Chapter 3.4), `context.py` (integration helpers towards the economy), and `models.py` (the persisted demographic state). Within a tick the three subsystems run in the order mortality → fertility → couple formation, each drawing from its own seeded RNG stream so that the order can be reasoned about without coupling to the random sequence; maternal mortality at childbirth is the one inter-subsystem coupling and is resolved jointly between mortality and fertility before either records its outcome, as detailed in §4.1.2.
 
 ### 4.1.1 Mortality model (Heligman-Pollard)
 
-<draft in Task 8>
+> Status: implemented as of commit `<filled-on-merge>`, spec audit CONVERGED 2026-04-18 round 4.
+
+**Background.** Mortality in Epocha is an age-specific hazard schedule rather than a constant rate, because every downstream demographic indicator the validation suite of Chapter 7 targets — life expectancy at birth, infant-mortality ratio, the survival curve — depends on the shape of the schedule across age, not on its mean. Two simpler alternatives were considered and rejected. A pure Gompertz law (Gompertz 1825) captures only the senescent exponential and underestimates infant and young-adult mortality by orders of magnitude in pre-industrial regimes, where infant mortality drives most of the lost life expectancy. Lee-Carter (Lee and Carter 1992) is a forecasting model on cohort log-rates that operates on aggregate populations and a stationary historical baseline; it is not designed to deliver the per-agent age-conditional hazard a microsimulation tick needs, and applying it at agent scale would require an extra bridging step with no scientific gain over directly evaluating the analytic schedule. The Heligman-Pollard (1980) eight-parameter additive decomposition was retained because it expresses the three observed regimes — childhood decline, young-adult accident hump, senescent rise — in a single closed-form expression that can be evaluated for any agent age in constant time and that admits per-era recalibration by replacing eight numbers.
+
+**Model.** Heligman and Pollard (1980) parameterize the odds of dying at age `x` as the sum of three components:
+
+```
+q(x) / p(x) = A^((x + B)^C)                      (4.1)
+            + D · exp(-E · (ln(x/F))^2)
+            + G · H^x
+```
+
+where `q(x)` is the annual probability of death at exact age `x` and `p(x) = 1 − q(x)` is the corresponding survival probability. The first term, controlled by `A`, `B`, `C`, captures the rapid decline of childhood mortality with age. The second term, controlled by `D`, `E`, `F`, captures the so-called accident hump centered at age `F` with peak amplitude `D` and width set by `E`, and is interpreted historically as the excess mortality from accidents, violence, and (for women) maternal causes among young adults. The third term, controlled by `G` and `H`, is the Gompertz exponential law that dominates senescent mortality at older ages. Equation (4.1) is the canonical 1980 form (see Heligman and Pollard 1980, formula 5); the `(ln(x/F))² ≡ (ln x − ln F)²` algebraic equivalence is used in `epocha/apps/demography/mortality.py:_hp_components()` to keep the implementation a direct line-by-line transcription of the textbook expression. Since equation (4.1) returns the odds `q/p`, the implementation converts to a probability by `q = (q/p) / (1 + q/p)` in `annual_mortality_probability()` (mortality.py:45), and clamps the result at `0.999` to keep `(1 − q)` strictly positive for the geometric tick scaling described under Algorithm below.
+
+**Parameters.** The eight HP parameters carry the semantic roles summarized in Table 4.1.
+
+Table 4.1 — Heligman-Pollard parameters: semantics and admissible ranges.
+
+| Symbol | Component       | Semantic role                                                    | Admissible range used in calibration |
+|--------|-----------------|------------------------------------------------------------------|--------------------------------------|
+| `A`    | childhood       | level of mortality at age 1                                      | `[0, 0.1]`                            |
+| `B`    | childhood       | mortality at age 0 relative to age 1 (infancy intercept)         | `[0, 0.5]`                            |
+| `C`    | childhood       | rate of decline of childhood mortality with age                  | `[0, 1.0]`                            |
+| `D`    | accident hump   | peak amplitude of the young-adult excess mortality               | `[0, 0.05]`                           |
+| `E`    | accident hump   | inverse width (sharpness) of the accident hump                   | `[0.1, 50]`                           |
+| `F`    | accident hump   | age at which the accident hump is centered (years)               | `[1.0, 50]`                           |
+| `G`    | senescence      | level of senescent mortality at age 0 (Gompertz intercept)       | `[0, 0.001]`                          |
+| `H`    | senescence      | rate of exponential increase of senescent mortality with age     | `[1.0, 1.5]`                          |
+
+The admissible ranges are the bounds enforced by `fit_heligman_pollard()` in `mortality.py:148-149` when refitting the schedule against an external life table, and they are consistent with the parameter neighborhoods reported in the actuarial literature on the HP model (Heligman and Pollard 1980; subsequent surveys in Tabeau, van den Berg Jeths, and Heathcote 2001 are cited via the spec). Per-era values are loaded from JSON templates under `epocha/apps/demography/templates/`. Table 4.2 lists the values shipped with each of the five templates released in Plan 1 of the demography work; values for `pre_industrial_christian.json` and `pre_industrial_islamic.json` are identical (only non-mortality fields differ between the two pre-industrial variants). The MVP values are provisional seeds in the order of magnitude of their calibration targets; numerical fitting against the cited targets is scheduled for Plan 4 and is reflected in the source files as `calibration_status: "provisional seed values; fit deferred to Plan 4"`. The `sci_fi.json` template is documented in the source file as speculative and has no empirical target.
+
+Table 4.2 — Per-era HP parameter values (templates shipped in Plan 1).
+
+| Era template                                  | `A`      | `B`   | `C`   | `D`      | `E`   | `F`   | `G`        | `H`   | Calibration target                                                |
+|-----------------------------------------------|----------|-------|-------|----------|-------|-------|------------|-------|-------------------------------------------------------------------|
+| `pre_industrial_christian` / `pre_industrial_islamic` | 0.00491  | 0.017 | 0.102 | 0.00080  | 9.9   | 22.4  | 0.0000383  | 1.101 | Wrigley and Schofield (1981) tables A3.1–A3.3, England 1700–1749 |
+| `industrial`                                  | 0.00223  | 0.022 | 0.115 | 0.00057  | 10.8  | 25.1  | 0.0000198  | 1.104 | HMD England and Wales life tables, pooled 1841–1900               |
+| `modern_democracy`                            | 0.00054  | 0.017 | 0.125 | 0.00013  | 18.3  | 19.6  | 0.0000123  | 1.101 | HMD USA life table 2019 (pre-COVID baseline)                      |
+| `sci_fi`                                      | 0.00002  | 0.017 | 0.125 | 0.00001  | 18.3  | 19.6  | 0.0000018  | 1.089 | Speculative extrapolation; no empirical basis                     |
+
+**Algorithm.** For each living agent, on every tick, the mortality module evaluates equation (4.1) at the agent's current age, converts the resulting odds into the annual probability `q(age, params)`, scales it to the tick interval, and draws against a uniform variate from the seeded RNG stream. The tick scaling is implemented in `mortality.py:tick_mortality_probability()` (line 56) and is conditional on the size of `q`: when the annual probability is below 0.1 the linear approximation `q · dt` is used (its error against the exact geometric form is below 0.5% in this regime), and when `q` exceeds 0.1 — as it does for infants under the pre-industrial template — the exact geometric conversion `1 − (1 − q)^dt` is used, where `dt = (tick_duration_hours / 8760) · demography_acceleration` is the tick length expressed in years and rescaled by the per-template demographic clock factor. The uniform variate is drawn from a `random.Random` returned by `epocha.apps.demography.rng.get_seeded_rng(simulation, tick, phase="mortality")`; the helper signature is `(simulation, tick, phase)`, and the closed set of allowed phase labels — `mortality`, `fertility`, `couple`, `migration`, `inheritance`, `initialization` — guarantees that adding or removing a subsystem in a refactor does not shift the random sequence the others see at the same tick (Chapter 3.4 covers the design rationale). When a death fires, the cause is sampled by `mortality.py:sample_death_cause()` (line 77), which evaluates the three HP components at the age of death and selects one of the three labels `early_life_mortality`, `external_cause`, `natural_senescence` with probability proportional to the corresponding component magnitude; the labels are analytic conventions for dashboard reporting, not medical etiology, and they map one-to-one onto the three terms of equation (4.1).
+
+**Simplifications.** The current implementation deliberately omits three refinements that the demographic literature treats as proper extensions rather than corrections of the baseline schedule. First, no cohort effects are modeled: every agent is exposed to the era template active at the simulation tick rather than to the mortality regime in force at the agent's birth, so cohort-specific shocks (war, epidemic, famine) cannot persist as a residual cohort signature into later life. Second, `sample_death_cause()` selects a single coarse label from the three HP components rather than decomposing mortality into a full cause-of-death taxonomy; the three labels are sufficient for dashboard analytics but are not a medical classification, and any analysis that requires cause-specific mortality rates would need to extend the sampler. Third, no extrapolation beyond age 110 is provided: the HP schedule is evaluated at the agent's current age without an explicit tail model for super-centenarians, and the `0.999` cap on annual mortality probability ensures that the survival probability stays strictly positive for the geometric tick conversion, but this is a numerical guard rather than a substantive model of late-life mortality plateaus.
 
 ### 4.1.2 Fertility model (Hadwiger ASFR + Becker modulation + Malthusian ceiling)
 
@@ -852,6 +894,9 @@ back the API.
 - Heligman, L., and Pollard, J. H. (1980). The age pattern of mortality.
   *Journal of the Institute of Actuaries*, 107(1), 49–80.
   https://doi.org/10.1017/S0020268100040257
+- Lee, R. D., and Carter, L. R. (1992). Modeling and forecasting U.S.
+  mortality. *Journal of the American Statistical Association*, 87(419),
+  659–671. https://doi.org/10.1080/01621459.1992.10475265
 - Masad, D., and Kazil, J. (2015). Mesa: an agent-based modeling framework.
   In *Proceedings of the 14th Python in Science Conference (SciPy 2015)*,
   51–58. https://doi.org/10.25080/Majora-7b98e3ed-009
