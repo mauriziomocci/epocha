@@ -1,4 +1,4 @@
-- [SESSION RESUME 2026-04-26](project_session_resume_2026_04_26.md) -- READ FIRST: branch feature/readme-and-whitepaper-catchup in volo a F6 Task 43, 30 commit ahead of develop, pendente Task 43+44 audit + F7 closure
+- [SESSION RESUME 2026-04-26](project_session_resume_2026_04_26.md) -- READ FIRST: catchup README+whitepaper bilingue CLOSED, mergiato in develop (PR#4 commit 168d90b, frozen pin 591024c). Prossimo: Demography Plan 3 (Inheritance + Migration), opzionale preflight re-audit batch 2026-04-12
 - [SESSION RESUME 2026-04-20](project_session_resume_2026_04_20.md) -- READ FIRST se 2026-04-26 mancante: riepilogo sessione precedente + prossimi step obbligati (README + whitepaper prima di Plan 3)
 - [FULL CONTEXT](project_full_context.md) -- complete project state (parziale/obsoleto, priorita' al session resume)
 - [Italian language](feedback_italian_language.md) -- Comunicare in italiano, codice in inglese
