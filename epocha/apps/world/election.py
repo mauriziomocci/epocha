@@ -38,8 +38,6 @@ University Press.
 """
 from __future__ import annotations
 
-import math
-
 from django.db.models import Q
 
 from epocha.apps.agents.affinity import _personality_similarity
@@ -69,17 +67,6 @@ _WEALTH_SATURATION: float = 100.0
 # typically convert state resources into roughly 15-30% vote share advantage.
 # We use 0.3 as a conservative upper bound within the [0, 1] scoring space.
 _MANIPULATION_BONUS: float = 0.3
-
-# Keywords used to classify the valence of a voter's memory about a candidate.
-# Each match shifts the memory influence score by the keyword's weight.
-# Classified as: positive (helpful acts) or negative (harmful acts).
-_POSITIVE_KEYWORDS: frozenset[str] = frozenset({
-    "helped", "reformed", "saved", "protected", "improved", "founded", "built", "united",
-})
-_NEGATIVE_KEYWORDS: frozenset[str] = frozenset({
-    "betrayed", "stole", "corrupt", "attacked", "failed", "oppressed", "exploited", "destroyed",
-})
-
 
 def compute_vote_score(voter: Agent, candidate: Agent, tick: int) -> float:
     """Return a [0.0, 1.0] score representing how likely a voter is to vote for a candidate.
@@ -256,57 +243,3 @@ def _relationship_sentiment_score(voter: Agent, candidate: Agent) -> float:
     return (rel.sentiment + 1.0) / 2.0
 
 
-# DEPRECATED: this function is not called. Vote scoring uses reputation.get_combined_score
-# instead. Kept for reference; should be removed in a future cleanup.
-def _memory_influence_score(voter: Agent, candidate: Agent) -> float:
-    """Return a [0.0, 1.0] score from the voter's active memories about the candidate.
-
-    DEPRECATED: this function is no longer called by compute_vote_score, which now uses
-    the reputation-based score from get_combined_score instead. The function is retained
-    for reference only and should be removed in a future cleanup pass.
-
-    NOTE: the keyword set here (_POSITIVE_KEYWORDS, _NEGATIVE_KEYWORDS) differs from the
-    keyword set in reputation.py:extract_action_sentiment. This function is deprecated and
-    should be removed.
-
-    Scans the voter's active memories for mentions of the candidate's name.
-    For each matching memory:
-      - Positive keyword matches increase the score.
-      - Negative keyword matches decrease the score.
-    Each keyword match is weighted by the memory's emotional_weight.
-
-    The raw net score is mapped from [-total_weight, +total_weight] to [0.0, 1.0].
-    If no memories mention the candidate, returns 0.5 (neutral baseline).
-
-    Args:
-        voter: The voting agent.
-        candidate: The candidate agent.
-
-    Returns:
-        Float in [0.0, 1.0].
-    """
-    memories = Memory.objects.filter(
-        agent=voter,
-        is_active=True,
-        content__icontains=candidate.name,
-    )
-
-    net_score = 0.0
-    total_weight = 0.0
-
-    for memory in memories:
-        words = set(memory.content.lower().split())
-        positive_hits = len(words & _POSITIVE_KEYWORDS)
-        negative_hits = len(words & _NEGATIVE_KEYWORDS)
-        net_valence = positive_hits - negative_hits
-        if net_valence != 0:
-            net_score += net_valence * memory.emotional_weight
-            total_weight += memory.emotional_weight
-
-    if total_weight == 0.0:
-        return 0.5
-
-    # Normalise: net_score / total_weight is in range [-max_keywords, +max_keywords].
-    # We use tanh to squash this into (-1, 1) then map to (0, 1).
-    normalised = math.tanh(net_score / total_weight)
-    return (normalised + 1.0) / 2.0
