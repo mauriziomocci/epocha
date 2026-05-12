@@ -291,7 +291,7 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
         notable = ReputationScore.objects.filter(holder=agent).select_related("target").exclude(target=agent)
         rep_lines = []
         for rep in notable:
-            combined = rep.image * 0.6 + rep.reputation * 0.4
+            combined = rep.get_combined_score()
             if combined > 0.3:
                 word = "highly respected" if combined > 0.5 else "respected"
                 rep_lines.append(f"- {rep.target.name}: {word}")
