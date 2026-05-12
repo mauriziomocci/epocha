@@ -11,6 +11,21 @@ This module implements the image/reputation distinction introduced in:
   - Reputation: a holder's socially propagated assessment, updated by hearsay
     weighted by the reliability of the information source.
 
+The numerical scale [-1, 1] is an implementation decision typical of
+computational reputation systems (e.g. ReGreT -- Sabater & Sierra 2002)
+and not prescribed by Castelfranchi et al. (1998) which describes image
+and reputation as cognitive constructs without committing to a specific
+numerical encoding.
+
+Image and reputation are updated by additive deltas immediately clamped
+to [-1, 1]. This is a known simplification: in saturation regime (e.g.
+20 consecutive `help` observations), the image saturates after roughly
+1/delta observations and subsequent observations have zero effect.
+Alternative aggregation schemes -- running average, beta-distribution
+posterior (Beta Reputation System, Josang & Ismail 2002), Bayesian update --
+would avoid the saturation effect at the cost of additional state per
+observation. This trade-off is accepted for the current implementation.
+
 The negativity-bias asymmetry in the delta magnitudes (e.g. betray >> help)
 is inspired by:
 
@@ -26,21 +41,57 @@ discuss reputation maintenance through ongoing social communication).
 
 from __future__ import annotations
 
+import logging
+
+from django.db import transaction
+
 from epocha.apps.agents.models import Agent, ReputationScore
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Combined-score weights -- single source of truth
+# ---------------------------------------------------------------------------
+# Tunable design parameters; image weighted more heavily than reputation
+# to reflect the qualitative primacy of direct experience over hearsay
+# (Castelfranchi et al. 1998 conceptual distinction; specific 0.6/0.4
+# ratio is a design choice without empirical derivation).
+_WEIGHT_IMAGE: float = 0.6
+_WEIGHT_REPUTATION: float = 0.4
+
+# ---------------------------------------------------------------------------
+# Domain-specific sentiment magnitudes for non-keyword-extracted events
+# ---------------------------------------------------------------------------
+# Used by domain modules (e.g. credit.py) that bypass the keyword pipeline
+# and call update_reputation directly with a known sentiment magnitude.
+#
+# Loan default magnitudes inspired by the economic-sociology literature on
+# reputational sanctions for credit default (Diamond 1989; Greif 1993 on
+# Maghribi traders; Karlan 2005 on social-collateral microfinance) which
+# qualitatively support strong negative sentiment toward defaulters from
+# both observers and the lender, with the lender's sentiment more negative
+# than third-party observers'. Specific magnitudes are tunable.
+_LOAN_DEFAULT_OBSERVER_SENTIMENT: float = -0.7
+_LOAN_DEFAULT_LENDER_SENTIMENT: float = -0.9
 
 # ---------------------------------------------------------------------------
 # Image delta table
 # ---------------------------------------------------------------------------
-# Tunable parameters inspired by the negativity-bias principle (Baumeister
-# et al. 2001). The asymmetry between negative and positive deltas reflects
-# the empirical finding that "bad is stronger than good", but the specific
-# magnitudes are design choices, not derived from empirical data. The typical
-# negativity ratio in the literature is 2:1 to 3:1.
+# Tunable design parameters with no literature anchor for the specific
+# magnitudes. The asymmetry between negative and positive deltas is
+# inspired by the negativity-bias principle (Baumeister et al. 2001 --
+# "bad is stronger than good") which establishes the qualitative
+# direction but does NOT prescribe specific quantitative ratios. The
+# values below are free design parameters intended to make antisocial
+# observations more salient than prosocial ones; they should be
+# calibrated against simulated outcomes (e.g. couple/faction stability
+# under varying ratios) in a future calibration pass.
 # The unit represents a single observation increment on the [-1, 1] image scale.
 #
-# Positive deltas — prosocial actions
-# Negative deltas — antisocial actions (magnitudes deliberately larger)
+# Positive deltas -- prosocial actions
+# Negative deltas -- antisocial actions (magnitudes deliberately larger)
 _IMAGE_DELTAS: dict[str, float] = {
+    # Core prosocial / antisocial pairs
     "help": 0.15,
     "socialize": 0.10,
     "trade": 0.05,
@@ -49,6 +100,36 @@ _IMAGE_DELTAS: dict[str, float] = {
     "betray": -0.80,
     "avoid": -0.05,
     "crime": -0.60,
+    # Group / political vocabulary emitted by engine.py
+    # form_group: mild prosocial -- group creation signals cooperative intent.
+    # join_group: very mild prosocial -- joining an existing collective effort.
+    "form_group": 0.05,
+    "join_group": 0.03,
+    # protest: mild antisocial as observed by power-holders; the coarse
+    # aggregation here cannot distinguish observer political alignment.
+    "protest": -0.05,
+    # campaign: politically neutral observation at the dyadic level.
+    "campaign": 0.0,
+    # Economic vocabulary
+    # hoard: mild antisocial -- withholding from community.
+    "hoard": -0.10,
+    # borrow / sell_property / buy_property: transactional, sentiment is
+    # determined later by repayment outcome (see credit.py loan-default path).
+    "borrow": 0.0,
+    "sell_property": 0.0,
+    "buy_property": 0.0,
+    # Logistical / personal vocabulary -- deliberately neutral
+    "move_to": 0.0,
+    "explore": 0.0,
+    "rest": 0.0,
+    # Demography vocabulary (Plan 2)
+    # pair_bond: mild prosocial signal -- public commitment to a partner
+    # (whitepaper chapter 4.1.3 demography rationale).
+    # separate: mild antisocial signal -- breaks an existing public bond.
+    # avoid_conception: private decision, neutral observation.
+    "pair_bond": 0.05,
+    "separate": -0.05,
+    "avoid_conception": 0.0,
 }
 
 # ---------------------------------------------------------------------------
@@ -56,6 +137,13 @@ _IMAGE_DELTAS: dict[str, float] = {
 # ---------------------------------------------------------------------------
 # Used to derive a sentiment signal from free-text decision content when no
 # structured action_type is available (e.g. LLM narrative output).
+#
+# These tables are placeholder rule-based heuristics with values assigned by
+# inspection of typical narrative phrasing in early simulations. They are NOT
+# anchored to a published sentiment lexicon (VADER, AFINN, NRC) and they are
+# scheduled for replacement by an embedding-based or LLM-based sentiment
+# classifier in a future iteration. Treat the magnitudes as ordinal indicators
+# of strength rather than calibrated weights.
 
 _POSITIVE_KEYWORDS: dict[str, float] = {
     "helped": 1.0,
@@ -99,7 +187,14 @@ def update_image(holder: Agent, target: Agent, action_type: str, tick: int) -> R
     then clamped to [-1.0, 1.0].
 
     If the action_type is unknown the image is left unchanged and the record
-    is still created/retrieved so callers receive a valid object.
+    is still created/retrieved so callers receive a valid object. A WARNING
+    log is emitted to surface drift between the engine action vocabulary and
+    this table.
+
+    Concurrency: the read-modify-write on ReputationScore is wrapped in a
+    transaction.atomic() block with select_for_update() to avoid lost-update
+    races when two ticks attempt to update the same (holder, target) pair
+    concurrently (e.g. parallel Celery workers).
 
     Args:
         holder: The agent whose perception is updated.
@@ -110,12 +205,21 @@ def update_image(holder: Agent, target: Agent, action_type: str, tick: int) -> R
     Returns:
         The updated (or newly created) ReputationScore instance.
     """
-    score, _ = ReputationScore.objects.get_or_create(holder=holder, target=target)
-    delta = _IMAGE_DELTAS.get(action_type, 0.0)
-    score.image = _clamp(score.image + delta)
-    score.last_updated_tick = tick
-    score.save(update_fields=["image", "last_updated_tick"])
-    return score
+    with transaction.atomic():
+        score, _ = ReputationScore.objects.select_for_update().get_or_create(
+            holder=holder, target=target,
+        )
+        delta = _IMAGE_DELTAS.get(action_type, 0.0)
+        if delta == 0.0 and action_type not in _IMAGE_DELTAS:
+            logger.warning(
+                "update_image called with unknown action_type=%s; image unchanged. "
+                "Either add to _IMAGE_DELTAS or document as deliberately neutral.",
+                action_type,
+            )
+        score.image = _clamp(score.image + delta)
+        score.last_updated_tick = tick
+        score.save(update_fields=["image", "last_updated_tick"])
+        return score
 
 
 def update_reputation(
@@ -134,11 +238,16 @@ def update_reputation(
     delta = action_sentiment * reliability * 0.5
 
     Dampening factor 0.5 prevents a single hearsay event of maximum sentiment
-    (±1.0) from a perfectly reliable source (1.0) from moving reputation more
+    (+/-1.0) from a perfectly reliable source (1.0) from moving reputation more
     than 0.5. Tunable parameter, no empirical source.
 
     This function never modifies image; image is updated exclusively by
     direct observation via update_image.
+
+    Concurrency: the read-modify-write on ReputationScore is wrapped in a
+    transaction.atomic() block with select_for_update() to avoid lost-update
+    races when two ticks attempt to update the same (holder, target) pair
+    concurrently (e.g. parallel Celery workers).
 
     Args:
         holder: The agent whose perception is updated.
@@ -150,20 +259,23 @@ def update_reputation(
     Returns:
         The updated (or newly created) ReputationScore instance.
     """
-    score, _ = ReputationScore.objects.get_or_create(holder=holder, target=target)
-    delta = action_sentiment * reliability * 0.5
-    score.reputation = _clamp(score.reputation + delta)
-    score.last_updated_tick = tick
-    score.save(update_fields=["reputation", "last_updated_tick"])
-    return score
+    with transaction.atomic():
+        score, _ = ReputationScore.objects.select_for_update().get_or_create(
+            holder=holder, target=target,
+        )
+        delta = action_sentiment * reliability * 0.5
+        score.reputation = _clamp(score.reputation + delta)
+        score.last_updated_tick = tick
+        score.save(update_fields=["reputation", "last_updated_tick"])
+        return score
 
 
 def get_combined_score(holder: Agent, target: Agent) -> float:
     """Return a single trustworthiness score combining image and reputation.
 
     Weights:
-      - image (direct experience): 0.6
-      - reputation (social evaluation): 0.4
+      - image (direct experience): _WEIGHT_IMAGE (0.6)
+      - reputation (social evaluation): _WEIGHT_REPUTATION (0.4)
 
     Design choice: image weighted 60% over reputation 40%. The primacy of
     direct experience over hearsay is a well-established principle in social
@@ -184,20 +296,36 @@ def get_combined_score(holder: Agent, target: Agent) -> float:
         score = ReputationScore.objects.get(holder=holder, target=target)
     except ReputationScore.DoesNotExist:
         return 0.0
-    return score.image * 0.6 + score.reputation * 0.4
+    return score.image * _WEIGHT_IMAGE + score.reputation * _WEIGHT_REPUTATION
 
 
 def extract_action_sentiment(content: str) -> float:
     """Derive a sentiment signal from free-text action content.
 
     Scans the lowercased content for known positive and negative keywords and
-    returns the value of the strongest match found.  If multiple keywords
-    match, the one with the highest absolute value takes precedence.  Returns
+    returns the value of the strongest match found. If multiple keywords
+    match, the one with the highest absolute value takes precedence. Returns
     0.0 when no keyword is found.
 
-    This is intentionally a lightweight heuristic — it is used to translate
+    This is intentionally a lightweight heuristic -- it is used to translate
     LLM narrative output (which lacks structured action_type tags) into a
     numeric signal suitable for update_reputation.
+
+    Limitations:
+    - Loudest-keyword-wins: a sentence describing both prosocial and
+      antisocial behavior with comparable intensity returns only the
+      single highest-magnitude keyword. Example: "I helped but later
+      attacked them" returns -1.0 (the antisocial pole), ignoring the
+      prosocial qualifier. This systematically biases hearsay-derived
+      reputation toward whichever pole is most lexically intense in the
+      keyword tables.
+    - No negation handling: "I did not help" still scores +1.0 for "help".
+    - No sentence-level aggregation: a long narrative is reduced to one
+      keyword.
+
+    These limitations are accepted for the current placeholder
+    implementation and are documented under Future Work in the whitepaper
+    chapter 4 reputation Simplifications subsection.
 
     Args:
         content: Free-text description of an action or decision.

@@ -368,10 +368,11 @@ relating rumor intensity to the product of importance and ambiguity
 experiments showed that successive retellings of a narrative converge
 toward culturally familiar schemas rather than preserving source content
 (Bartlett 1932). Epocha's reputation module implements the
-Castelfranchi-Conte-Paolucci normative model and is treated as a
-deferred-Methods item pending Round 2 audit; it is documented in
-Chapter 8.5 alongside the rumor and information-flow clusters that draw
-on the Allport-Postman and Bartlett tradition.
+Castelfranchi-Conte-Paolucci normative model and is documented as audited
+Methods content in Chapter 4.3 following Round 2 audit convergence on
+2026-05-12; the rumor and information-flow clusters that draw on the
+Allport-Postman and Bartlett tradition remain in Chapter 8.1 pending
+their own Round 2 re-audit.
 
 ---
 
@@ -945,7 +946,7 @@ Table 4.9 — Credit-and-banking parameters that are uniform across all four era
 
 The structural constants `_CONCERN_CONFIDENCE_THRESHOLD`, `_CONCERN_BROADCAST_RATIO`, and `CASCADE_LOSS_THRESHOLD` are coded as module-level constants in `banking.py:319` and `credit.py:50` rather than as template fields, on the grounds that they encode the qualitative shape of the bank-run dynamic (a self-fulfilling prophecy needs a threshold below which fear becomes contagious) rather than calibration choices that vary by historical era. The `risk_premium` value of `0.5` is a design choice rather than an empirical measurement — Stiglitz and Weiss (1981) predict that the risk-pricing slope is positive and increasing in leverage but do not provide a numeric coefficient — and is documented inline as a tunable design parameter at `credit.py:189-194`.
 
-**Algorithm.** On every tick, the economy orchestrator invokes the credit-market step exactly once (gated by a `credit_processed` flag so it does not execute per-zone) at `epocha/apps/economy/engine.py:333-348`, with the following ordered sequence of calls. First, `default_dead_agent_loans(simulation)` (`credit.py:703-730`) defaults all active loans whose borrower has `is_alive = False`: this is audit fix M-3 from the 2026-04-15 convergence, which closes the silent-debt-amnesty gap whereby the pre-audit implementation left dead-borrower loans in `active` status indefinitely, allowing the borrower's heirs to inherit a property still encumbered by a debt the system would never collect. Second, `service_loans(simulation, tick)` (`credit.py:328-398`) collects per-tick interest on every active loan by deducting `remaining_balance · interest_rate` from the borrower's cash and crediting it to the lender (or to the banking system aggregate when `lender_type = "banking"`); borrowers who cannot pay interest are returned in a list for the maturity step to default. Third, `process_maturity(simulation, tick)` (`credit.py:401-536`) handles loans whose `due_at_tick` equals the current tick, with three outcomes per loan: full repayment when the borrower has enough cash to cover `remaining_balance`, a Minsky-style rollover when the borrower can pay the interest portion but not the principal and the `times_rolled_over` counter is below `max_rollover` (a new loan is created at `interest_rate · 1.10` reflecting the lender's risk adjustment, with `times_rolled_over += 1`), and default when neither condition is satisfied. Fourth, `process_defaults(simulation, tick)` (`credit.py:539-645`) seizes the collateral by transferring `Property.owner` to the lender (or to the government for banking-system loans), zeroes the loan's `remaining_balance`, and creates a negative reputation memory for the borrower with `action_sentiment = -0.7` (zone observers) and `-0.9` (the lender directly) via the reputation system of §4.x. Additionally, a self-aware memory is created for the borrower with `emotional_weight = 0.8` (`credit.py:665-673`) so that the borrower's own decision pipeline retains awareness of the default in subsequent ticks. Fifth, `process_default_cascade(simulation, tick, max_depth=3)` (`credit.py:754-858`) runs a breadth-first contagion pass over the debt graph: for each lender whose aggregate loss from this tick's defaults exceeds `CASCADE_LOSS_THRESHOLD = 0.5` of their wealth, the lender's own active loans are marked defaulted, and the contagion propagates to their lenders in turn until either no further threshold breach occurs or `max_depth = 3` is reached (the cap prevents infinite propagation and is calibrated against the typical empirical-network diameter of 3-5 links reported by Allen and Gale 2000). Sixth, `adjust_interest_rate(simulation, tick)` (`banking.py:112-194`) applies the Wicksellian adjustment `r_{t+1} = r_t · (1 + adj_rate · (demand − supply) / max(supply, 0.001))` to the base rate and clamps the result to `[0.005, 0.50]`. Seventh, `check_solvency(simulation)` (`banking.py:197-254`) evaluates `reserves = total_deposits − total_loans_outstanding` against `required = total_deposits · reserve_ratio` and updates `confidence_index` by `−0.1` per tick of insolvency or `+0.05` per tick of recovery (the asymmetry encodes the trust-asymmetry observation that confidence is easier to lose than to rebuild). Eighth and last, `broadcast_banking_concern(simulation, tick)` (`banking.py:322-398`) evaluates (4.11) and creates the concern memories. The eight-step sequence is deterministic given the simulation random seed (the `random.sample()` call in the broadcast step consumes the seeded `random` module), and the entire credit step writes a bounded number of database rows per tick — bounded by the live agent count for the broadcast and by the active-loan count for servicing and maturity — so the per-tick cost is `O(n_agents + n_active_loans)`.
+**Algorithm.** On every tick, the economy orchestrator invokes the credit-market step exactly once (gated by a `credit_processed` flag so it does not execute per-zone) at `epocha/apps/economy/engine.py:333-348`, with the following ordered sequence of calls. First, `default_dead_agent_loans(simulation)` (`credit.py:703-730`) defaults all active loans whose borrower has `is_alive = False`: this is audit fix M-3 from the 2026-04-15 convergence, which closes the silent-debt-amnesty gap whereby the pre-audit implementation left dead-borrower loans in `active` status indefinitely, allowing the borrower's heirs to inherit a property still encumbered by a debt the system would never collect. Second, `service_loans(simulation, tick)` (`credit.py:328-398`) collects per-tick interest on every active loan by deducting `remaining_balance · interest_rate` from the borrower's cash and crediting it to the lender (or to the banking system aggregate when `lender_type = "banking"`); borrowers who cannot pay interest are returned in a list for the maturity step to default. Third, `process_maturity(simulation, tick)` (`credit.py:401-536`) handles loans whose `due_at_tick` equals the current tick, with three outcomes per loan: full repayment when the borrower has enough cash to cover `remaining_balance`, a Minsky-style rollover when the borrower can pay the interest portion but not the principal and the `times_rolled_over` counter is below `max_rollover` (a new loan is created at `interest_rate · 1.10` reflecting the lender's risk adjustment, with `times_rolled_over += 1`), and default when neither condition is satisfied. Fourth, `process_defaults(simulation, tick)` (`credit.py:539-645`) seizes the collateral by transferring `Property.owner` to the lender (or to the government for banking-system loans), zeroes the loan's `remaining_balance`, and creates a negative reputation memory for the borrower with `action_sentiment = -0.7` (zone observers) and `-0.9` (the lender directly) via the reputation system of §4.3. Additionally, a self-aware memory is created for the borrower with `emotional_weight = 0.8` (`credit.py:665-673`) so that the borrower's own decision pipeline retains awareness of the default in subsequent ticks. Fifth, `process_default_cascade(simulation, tick, max_depth=3)` (`credit.py:754-858`) runs a breadth-first contagion pass over the debt graph: for each lender whose aggregate loss from this tick's defaults exceeds `CASCADE_LOSS_THRESHOLD = 0.5` of their wealth, the lender's own active loans are marked defaulted, and the contagion propagates to their lenders in turn until either no further threshold breach occurs or `max_depth = 3` is reached (the cap prevents infinite propagation and is calibrated against the typical empirical-network diameter of 3-5 links reported by Allen and Gale 2000). Sixth, `adjust_interest_rate(simulation, tick)` (`banking.py:112-194`) applies the Wicksellian adjustment `r_{t+1} = r_t · (1 + adj_rate · (demand − supply) / max(supply, 0.001))` to the base rate and clamps the result to `[0.005, 0.50]`. Seventh, `check_solvency(simulation)` (`banking.py:197-254`) evaluates `reserves = total_deposits − total_loans_outstanding` against `required = total_deposits · reserve_ratio` and updates `confidence_index` by `−0.1` per tick of insolvency or `+0.05` per tick of recovery (the asymmetry encodes the trust-asymmetry observation that confidence is easier to lose than to rebuild). Eighth and last, `broadcast_banking_concern(simulation, tick)` (`banking.py:322-398`) evaluates (4.11) and creates the concern memories. The eight-step sequence is deterministic given the simulation random seed (the `random.sample()` call in the broadcast step consumes the seeded `random` module), and the entire credit step writes a bounded number of database rows per tick — bounded by the live agent count for the broadcast and by the active-loan count for servicing and maturity — so the per-tick cost is `O(n_agents + n_active_loans)`.
 
 **Simplifications.** The current implementation deliberately omits four refinements that the credit-and-banking literature treats as proper extensions rather than corrections of the baseline mechanism. First, the banking sector is a single aggregate bank per simulation rather than a population of competing banks: the `BankingState` row is one-to-one with `Simulation`, and there is no inter-bank lending market, no inter-bank exposure graph, and no central-bank lender of last resort. The Allen-Gale (2000) contagion mechanism is therefore implemented only over the agent-to-agent debt graph (`process_default_cascade`), not over a banking-network graph; a multi-bank refinement is recorded in the spec as a deferred extension and would require introducing a `Bank` model with per-bank balance sheets and an inter-bank liability graph. Second, deposit insurance is abstract: the `BankingState.is_solvent` flag prevents new loan issuance while insolvent (via the precondition in (4.12)), but there is no explicit deposit-insurance fund that depositors can claim against, and depositors cannot "withdraw" their cash from the bank in the literal sense because the AgentInventory cash field already represents on-hand cash rather than a deposited balance — the model treats all agent cash as implicitly deposited (`recalculate_deposits()` at `banking.py:281-305`). A future refinement would split `AgentInventory.cash` into a deposited fraction and a hoarded fraction, allowing the bank-run dynamic to be expressed as withdrawal pressure rather than as confidence-mediated rumor. Third, loan negotiation is single-round take-it-or-leave-it: the borrower presents a `request_loan` action with a target amount and a candidate collateral, `evaluate_credit_request()` either approves at the Stiglitz-Weiss rate or rejects with a stated reason, and there is no second round in which the borrower could counter-propose a smaller amount, a different collateral, or a longer duration to bring the request inside the LTV envelope. Multi-round negotiation is recorded as a deferred refinement under the audit-resolution log of the 2026-04-15 design document, on the grounds that it would interact with the LLM context budget and the per-tick decision pipeline in ways that need a separate calibration pass. Fourth, the rollover interest-rate increment is fixed at `1.10` per rollover (`credit.py:504`) rather than being a function of the borrower's leverage at the rollover instant or of the macroeconomic stress signal carried by the banking confidence index; a more sophisticated rollover repricing rule that responds to systemic risk is the natural extension once the validation suite of Chapter 7 exercises the Minsky-stage classification (`classify_minsky_stage` at `credit.py:104-155`) against the canonical Minsky (1986) hedge-speculative-Ponzi taxonomy.
 
@@ -983,6 +984,96 @@ Equation (4.15) is implemented in `process_defaults()` at `epocha/apps/economy/c
 **Algorithm.** On every tick, the economy orchestrator invokes `process_property_listings(simulation, tick)` exactly once, gated by the same `credit_processed` flag that protects the credit step at `epocha/apps/economy/engine.py:333-348`, and with the explicit ordering note that the property market runs *before* the credit step so that property-sale cash credited to sellers can prevent loan defaults that would otherwise fire at the credit step within the same tick. The function executes five ordered passes. First, a single-query bulk update marks all listings older than `tick − 10` as `withdrawn`, replacing the per-listing iteration with a `.update()` call that is `O(1)` in the number of stale listings. Second, the function reads the previous tick's `DecisionLog` rows whose `output_decision` JSON contains the substring `"buy_property"` and parses each row with `json.loads()` to recover the `action` field; rows with malformed JSON are silently skipped, on the grounds that the LLM occasionally produces invalid JSON and a hard failure on parse would propagate an LLM failure into a tick-pipeline failure. Third, for each parsed buyer the function checks the four conjuncts of (4.14) in order and selects the cheapest qualifying listing via `order_by("asking_price").first()`; the zone-locality conjunct is enforced by the `property__zone_id=buyer.zone_id` filter, the self-purchase exclusion by `.exclude(property__owner=buyer)`, and the cash check by reading `AgentInventory.cash[currency_code]` against the listing's asking price. Fourth, when all conjuncts hold, the function executes the four-step settlement in a deterministic order: cash is deducted from the buyer's `AgentInventory.cash`, credited to the seller's `AgentInventory.cash` (creating an inventory row for the seller if missing), the property's `owner` and `owner_type` fields are reassigned to the buyer, and the listing's `status` is set to `"sold"`; the four writes are independent `save(update_fields=[...])` calls rather than a single transaction because the surrounding simulation tick is wrapped in a transaction at the simulation engine level (`epocha/apps/simulation/engine.py`), not the economy orchestrator. Fifth, an `EconomicLedger` row is created with `transaction_type="property_sale"` (added to `TRANSACTION_TYPES` by the same 2026-04-15 convergence) recording the cash flow from buyer to seller. The function returns a `{"matched": M, "expired": E, "failed": F}` dictionary that the orchestrator logs at `INFO` level for per-tick observability. The pass is `O(n_buyers · log n_listings)` per tick because the per-buyer query plan uses the `(zone, status, asking_price)` ordering rather than a full table scan, and the entire per-tick cost is bounded above by the live agent count for the buyer enumeration and by the active listing count for the per-buyer matching.
 
 **Simplifications.** The current implementation deliberately omits four refinements that the property-market literature treats as proper extensions rather than corrections of the baseline mechanism. First, listings are matched once per tick in a single round: a buyer who has the cash for a listing but loses to another buyer ordered earlier in the iteration receives no second chance within the same tick, and a buyer whose only viable listing in the current zone is just above its budget cannot counter-offer at a lower price. Multi-round negotiation with bid-ask convergence is recorded in the spec as a deferred refinement, on the grounds that it would interact with the LLM context budget of §3.5 in ways that need a separate calibration pass. Second, listings do not persist their original ordering across the listing-expiration window: a listing posted at tick `T` competes with a listing posted at tick `T+5` purely on price, so an early-posted listing receives no priority for being on the market longer; a time-priority refinement (FIFO across listings at the same price) is recorded as a deferred extension. Third, the buyer's intent is binary rather than parameterized: a `buy_property` action does not carry a target type or a maximum price, and the matching pass selects the cheapest listing in the buyer's zone regardless of fit between the property's `production_bonus` and the buyer's role; a target-typed intent that filters listings by property type or by production-bonus alignment is the natural extension once the LLM action grammar of §3.2 is broadened to support typed parameters. Fourth, the asking-price formation rule that produces the divergence between `asking_price` and `fundamental_value` is documented in the `sell_property` action at the LLM-decision layer of §3.2 rather than at the property-market layer, and consequently this subsection treats the asking price as an exogenous input to the matching condition (4.14); the speculative-anchoring and personality-modulation logic that produces the divergence is the subject of the seller-side decision pipeline and is documented in §3.2.
+
+## 4.3 Reputation
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-12 round 2.
+
+### Background
+
+Reputation in Epocha implements the image/reputation distinction introduced
+by Castelfranchi, Conte and Paolucci (1998). Image is the holder's
+first-hand assessment of a target, updated by direct observation. Reputation
+is the holder's socially propagated assessment, updated by hearsay from
+information-flow propagation (chapter 4.4) and weighted by source reliability.
+The asymmetry between negative and positive image-update magnitudes is
+qualitatively inspired by the negativity-bias principle (Baumeister et al.
+2001) without claiming any specific quantitative ratio from that meta-review.
+The numerical scale `[-1, 1]` is an implementation decision typical of
+computational reputation systems (e.g. ReGreT — Sabater and Sierra 2002) and
+not prescribed by Castelfranchi et al. (1998).
+
+### Model
+
+Two scalar fields are maintained per (holder, target) pair:
+- Image: bounded in [-1, 1], updated by direct observation only
+- Reputation: bounded in [-1, 1], updated by hearsay only with reliability dampening
+
+A combined trustworthiness score is exposed for downstream consumers (e.g. the
+agent decision pipeline at `agents/decision.py`) via a single source of truth
+in `agents/reputation.py`.
+
+### Equations
+
+Equation (4.16) — Image update on observed action of type a:
+
+  image_{t+1} = clip(image_t + Δ_image[a], -1, 1)
+
+where Δ_image[a] is a tunable per-action delta (positive for prosocial actions,
+negative for antisocial actions; magnitudes for negative actions deliberately
+larger than for positive actions to encode the negativity bias).
+
+Equation (4.17) — Reputation update on hearsay with sentiment s and reliability r:
+
+  reputation_{t+1} = clip(reputation_t + s · r · ζ, -1, 1)
+
+where ζ = 0.5 is a dampening factor that prevents a single hearsay event of
+maximum sentiment from a perfectly reliable source from moving reputation by
+more than 0.5 (tunable, no empirical source).
+
+Equation (4.18) — Combined trustworthiness score:
+
+  combined = w_I · image + w_R · reputation
+
+where w_I = 0.6 and w_R = 0.4 are tunable weights expressing the qualitative
+primacy of direct experience over hearsay (Castelfranchi et al. 1998 for the
+conceptual distinction; the specific 0.6/0.4 ratio is a design choice).
+
+### Parameters
+
+| Parameter | Symbol | Value | Source/Status |
+|---|---|---|---|
+| Image delta on `help` | Δ_image[help] | +0.15 | tunable design |
+| Image delta on `socialize` | Δ_image[socialize] | +0.10 | tunable design |
+| Image delta on `betray` | Δ_image[betray] | -0.80 | tunable design |
+| Image delta on `crime` | Δ_image[crime] | -0.60 | tunable design |
+| Image delta on `argue` | Δ_image[argue] | -0.20 | tunable design |
+| (other action types) | various | various | tunable design (full table at `agents/reputation.py:43-89` _IMAGE_DELTAS) |
+| Reputation dampening | ζ | 0.5 | tunable design (`agents/reputation.py:_DAMPENING_FACTOR`-equivalent inline) |
+| Combined image weight | w_I | 0.6 | tunable design (`agents/reputation.py:_WEIGHT_IMAGE`) |
+| Combined reputation weight | w_R | 0.4 | tunable design (`agents/reputation.py:_WEIGHT_REPUTATION`) |
+| Loan default observer sentiment | — | -0.7 | tunable design (`agents/reputation.py:_LOAN_DEFAULT_OBSERVER_SENTIMENT`); inspired by economic-sociology literature on reputational sanctions (Diamond 1989; Greif 1993; Karlan 2005) |
+| Loan default lender sentiment | — | -0.9 | tunable design (`agents/reputation.py:_LOAN_DEFAULT_LENDER_SENTIMENT`) |
+
+### Algorithm
+
+When an agent observes a target performing an action, `update_image(holder, target, action_type, tick)` is called (`agents/reputation.py:update_image`). The function uses `transaction.atomic()` with `select_for_update()` on the ReputationScore row to prevent lost-update races under concurrent Celery worker execution. If `action_type` is unknown to the `_IMAGE_DELTAS` table, a WARNING-level log is emitted and the image is left unchanged.
+
+When an agent receives hearsay about a target, `update_reputation(holder, target, action_sentiment, reliability, tick)` is called (`agents/reputation.py:update_reputation`) with the same concurrency protection. The hearsay sentiment is either extracted from free-text content via `extract_action_sentiment` (placeholder rule-based heuristic) or supplied directly by the calling domain module (e.g. `economy/credit.py` calls with `_LOAN_DEFAULT_OBSERVER_SENTIMENT` and `_LOAN_DEFAULT_LENDER_SENTIMENT` for loan default events).
+
+The `extract_action_sentiment` keyword extractor uses a loudest-keyword-wins heuristic with placeholder positive and negative keyword tables; it is documented as a known simplification pending replacement by an embedding-based or LLM-based sentiment classifier.
+
+### Simplifications
+
+1. **No temporal decay**: image and reputation accumulate indefinitely. Old observations from tick 1 carry the same weight as observations from tick 1000. Castelfranchi et al. (1998) discusses ongoing maintenance through social communication, which is not implemented; a recency-weighting mechanism is deferred to a future iteration.
+
+2. **Immediate clamp vs. cumulative aggregation**: image and reputation are clamped to [-1, 1] after every update. This causes saturation: roughly 1/Δ observations of the same action type fully saturate the field, after which subsequent observations have no effect. Alternative aggregation schemes (running average, beta-distribution posterior — Beta Reputation System, Jøsang and Ismail 2002 — Bayesian update) would avoid the saturation effect at the cost of additional state per observation. This trade-off is accepted for the current implementation.
+
+3. **Sentiment extraction limitations**: the `extract_action_sentiment` heuristic returns the keyword with the highest absolute value (loudest-keyword-wins). It does not handle negation ("did not help" still scores positively for "help"), does not aggregate across keyword matches (a sentence containing both prosocial and antisocial keywords returns only the strongest), and does not perform sentence-level sentiment analysis. These limitations bias hearsay-derived reputation toward whichever sentiment pole is most lexically intense in the keyword tables.
+
+4. **No contextual reputation**: a single global reputation score is maintained per (holder, target) pair. Roles (e.g. trader vs friend) are not differentiated.
+
+5. **Action vocabulary coverage**: `_IMAGE_DELTAS` covers 17 action types emitted by the simulation engine. Action types not in the table produce zero image change with a WARNING log; this is enforced by the unknown-action_type log to prevent silent drift between engine and reputation table.
 
 
 
@@ -1167,7 +1258,7 @@ Validation experiments are specified, not yet executed. The full execution of th
 
 # 8. Designed Subsystems (implemented, audit pending)
 
-Chapter 8 covers the seven Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; the resolution pass and the convergence re-audit are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
+Chapter 8 covers the six Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation has since converged on round 2 (2026-05-12) and was promoted to §4.3 of this whitepaper, leaving the remaining seven modules in this chapter pending. The resolution pass and the convergence re-audit on those seven are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
 
 ## 8.1 Cluster: Rumor propagation (Information Flow + Distortion + Belief Filter)
 
@@ -1193,19 +1284,13 @@ The factions module covers the three life-cycle phases of an Epocha faction: for
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-05-factions-leadership-design.md`.
 
-## 8.5 Reputation (Castelfranchi-Conte-Paolucci 1998)
-
-The reputation module implements the normative-reputation model of Castelfranchi et al. (1998) — already in §13 — extended with the negativity-bias asymmetry of Baumeister et al. (2001) on the relative weight of negative versus positive evaluations. The model distinguishes image (the evaluator's first-person belief about the target's character) from reputation (the evaluator's belief about what others believe), so that an agent can act on a high-reputation/low-image target differently from a low-reputation/high-image one and so that the propagation of reputation through gossip can be tracked separately from the propagation of direct experience. The implementation carries per-agent reputation rows keyed on the (evaluator, target) pair, updated by the action observer when the target performs an action whose `action_sentiment` is non-zero, with the negativity-bias asymmetry encoded as a larger absolute step on negative actions than on positive ones (the exact step magnitudes are the calibration debt the 2026-04-12 audit flagged: the values are inscribed in the module as constants and cited as "inspired by" (Baumeister et al. 2001) rather than derived from a specific empirical effect-size measurement, and the audit-resolution log records this as the central convergence item for the next pass). The `reputation.py` module also produces the gossip payload that the rumor-propagation cluster of §8.1 carries as a special memory subtype: a reputation update broadcast to a third-party observer is an information event whose distortion under §8.1 produces a derived reputation update at the receiver, which is the operational realisation of the Castelfranchi-Conte-Paolucci distinction between image and reputation in a multi-agent simulation. Code path: `epocha/apps/agents/reputation.py`.
-
-> Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-06-reputation-model-design.md`.
-
-## 8.6 Knowledge Graph
+## 8.5 Knowledge Graph
 
 The Knowledge Graph cluster implements the simulation's long-horizon memory: the per-simulation graph of entities, relations, and events that the LLM context builder of §3.5 queries to ground each agent's per-tick decision in the simulation's prior history rather than re-reading the entire raw event log. The cluster is split across nine modules under `epocha/apps/knowledge/`: `chunking.py` slices the raw event log into LLM-sized passages, `extraction.py` runs the LLM-driven entity-and-relation extractor over each chunk, `embedding.py` produces the dense vector representations of every chunk and every node (the multilingual-e5-large model is the current default per the spec), `merge.py` deduplicates extracted nodes against the existing graph, `normalizer.py` canonicalises entity surface forms to their preferred labels, `materialization.py` writes the consolidated graph back to the persistence layer, `ontology.py` declares the entity and relation type system, `prompts.py` collects the LLM prompts for extraction and merge, and `api.py` exposes the graph to the dashboard graph view. The literature pointers in the spec are the Retrieval-Augmented Generation framework of Lewis et al. (2020) for the broader retrieve-then-generate architecture, the sentence-embedding family of Reimers and Gurevych (2019) for the dense-vector representations (multilingual-e5-large is the current production choice for its 100+ language coverage and reproducibility properties), and the broader knowledge-graph reasoning literature for the entity-relation typology. The spec contrasts the Epocha approach with GraphRAG and with MiroFish in its FAQ section and records the choice to materialise the graph per-simulation rather than across simulations as a deliberate scope choice for the MVP. Code paths: `epocha/apps/knowledge/{ingestion,extraction,embedding,merge,normalizer,materialization,ontology,chunking,prompts,api}.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-11-knowledge-graph-design.md`.
 
-## 8.7 Economy base layer
+## 8.6 Economy base layer
 
 The economy base layer is the substrate that turns agent activity into production, prices, money, and per-tick income flows; it is described in narrative form under §3.6 of this whitepaper and the present subsection records only the audit status and the spec under which the audit will resume. The base layer covers `production.py` (the CES production function (Arrow et al. 1961)), `monetary.py` (the Fisher-identity diagnostic and the velocity counter), `market.py` (Walrasian tâtonnement (Walras 1874) with the iteration cap that addresses the non-convergence regime (Scarf 1960)), `distribution.py` (the simplified Ricardian rent decomposition and the per-tick wage and tax flow), and `initialization.py` (the per-template seeding of the base balance sheet). All five citations in this list are already present in §13. The behavioral integration that sits on top of this substrate (adaptive expectations, credit and banking, property market) has completed its Round 2 audit and is documented under §4.2 of this whitepaper; the substrate documented here has not, and the §3.6 narrative explicitly disclaims the Methods-grade status pending the audit pass. Code paths: `epocha/apps/economy/{production,monetary,market,distribution,initialization}.py`.
 
@@ -1215,14 +1300,14 @@ The economy base layer is the substrate that turns agent activity into productio
 
 # 9. Roadmap
 
-The roadmap is ordered by priority rather than by chronology: the audit re-pass on the eight modules surfaced by the 2026-04-12 batch is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
+The roadmap is ordered by priority rather than by chronology: the audit re-pass on the seven modules still pending from the 2026-04-12 batch (reputation already converged on round 2 in 2026-05-12 and was promoted to §4.3) is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
 
-- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The eight modules currently in §8 (rumor propagation cluster: information flow, distortion, belief filter; political cluster: government, institutions, stratification; movement; factions; reputation) carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings from the 2026-04-12 batch audit. Resolution and convergence re-audit are the gating item before any of these modules can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
+- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The seven modules currently in §8 (rumor propagation cluster: information flow, distortion, belief filter; political cluster: government, institutions, stratification; movement; factions) carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings from the 2026-04-12 batch audit; reputation, the eighth module of the original batch, has converged on round 2 (2026-05-12) and was promoted to §4.3. Resolution and convergence re-audit on the remaining seven are the gating item before any of these modules can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
 - **Demography Plan 3 (Inheritance + Migration).** The demography spec of §4.1 covers mortality, fertility, and couple formation; Plan 3 extends the same audit-first methodology to inheritance (transfer of property and debt to surviving kin on death of an agent) and to demographic migration (the long-horizon zone-to-zone migration that complements the per-tick movement of §8.3 with a generational-scale flow). Spec is `docs/superpowers/specs/2026-04-18-demography-design.md` Plan 3 section.
 - **Demography Plan 4 (Initialisation, Engine integration, Historical validation).** Plan 4 wires the demography modules of §4.1 — currently implemented and unit-tested in isolation — into the live tick loop of `epocha/apps/simulation/engine.py`, supplies the initialisation procedure that seeds a starting population from the era template, and runs the historical-validation campaign of §7 against the Wrigley-Schofield (1981) and Human Mortality Database targets. This is the central deliverable that closes the implementation-gap disclosure carried by §4.1 and resolves the validation-pending caveat carried by §7.5.
 - **Economy financial markets (Spec 3 to write).** The behavioral integration of §4.2 covers adaptive expectations, credit and banking, and the property market; the next economy spec extends to bond and equity markets, asset-price contagion across multiple banks, and the inter-bank lending channel deferred under the simplifications of §4.2.2. The spec is not yet drafted; the work item is recorded in the long-form roadmap memory.
 - **Validation experiments execution.** The campaign specified in Chapter 7 — dataset acquisition, script implementation, metric computation, and threshold evaluation — is the central deliverable tracked in `docs/memory-backup/project_validation_experiments_pending.md`. Execution is bound to Plan 4 of the demography roadmap above (which provides the live tick-loop integration the validation requires) and to the audit re-pass of the §8 batch (which extends the validation surface to the political and movement modules).
-- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.6 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
+- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.5 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
 - **Analytics psicostoriografia.** The analytics spec at `docs/superpowers/specs/2026-04-06-analytics-psicostoriografia-design.md` covers the post-hoc analysis layer that surfaces emergent patterns from a completed simulation: phase-space trajectories, zone-level cohort comparisons, event-cascade attribution, and the publication-grade plot exports needed for the scientific paper of the project's final deliverable. The spec is drafted; implementation is deferred behind the audit re-pass and Plan 4.
 - **Broader PostGIS adoption.** PostGIS is already enabled per §3.6 with zone geometries stored as WGS84 polygons; the broader-adoption work item extends the geospatial surface to agent trajectories (per-tick location history with spatial indices), routed-distance queries between zones (replacing the abstract zone-graph distance of §8.3 with shortest-path computation against the actual geometry), and per-zone catchment analysis for the economy and demography modules.
 - **Multi-level agents (organisations, states, coalitions).** The current Epocha population is a flat set of individual agents; the multi-level work item extends the agent ontology to corporate actors that have their own decision pipelines, their own memory, and their own action space, with the individual agents as members and with state and coalition layers above the organisation layer. The conceptual frame and the literature anchors are recorded in `docs/memory-backup/project_multilevel_agents.md`; the spec is not yet drafted.
@@ -1269,13 +1354,13 @@ are specified, but the experiments that consume them are tracked under
 deliverable.
 
 The scientific limits of the present work go beyond the simplifications
-inside the audited subset. Eight modules — the rumor-propagation cluster of
+inside the audited subset. Seven modules — the rumor-propagation cluster of
 §8.1, the political-institutions cluster of §8.2, movement (§8.3),
-factions (§8.4), reputation (§8.5), the Knowledge Graph (§8.6), and the
-economy base layer (§8.7) — are implemented in code and exercised by unit
-tests but have not yet completed the Round 2 adversarial audit that gates
-promotion to Chapter 4 status; the open INCORRECT, UNJUSTIFIED, INCONSISTENT,
-and MISSING findings from the 2026-04-12 batch audit are catalogued in
+factions (§8.4), the Knowledge Graph (§8.5), and the economy base layer
+(§8.6) — are implemented in code and exercised by unit tests but have not
+yet completed the Round 2 adversarial audit that gates promotion to Chapter
+4 status; the open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING
+findings from the 2026-04-12 batch audit are catalogued in
 `docs/scientific-audit-2026-04-12.md` and tracked under
 `project_audit_repass_batch_2026_04_12_pending.md`. Within the audited
 subset, several parameter values are seeded as calibration heuristics rather
@@ -1357,7 +1442,7 @@ deliberately short — the substantive context lives in the corresponding §4
 Simplifications paragraph or §8 status line — and exists here as a single
 authoritative inventory for the reader who needs the project-wide view in
 one place. Two cross-cutting follow-ups underlie most of the entries: the
-audit re-pass on the eight §8 modules tracked under
+audit re-pass on the seven §8 modules still pending tracked under
 `project_audit_repass_batch_2026_04_12_pending.md` and the validation
 campaign tracked under `project_validation_experiments_pending.md`.
 
@@ -1441,23 +1526,25 @@ campaign tracked under `project_validation_experiments_pending.md`.
   §3.2 rather than by the property market itself; this subsection treats
   the asking price as exogenous.
 
-**Designed subsystems pending Round 2 audit (§8).** Eight modules across
+**Designed subsystems pending Round 2 audit (§8).** Seven modules across
 five clusters carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING
 findings from the 2026-04-12 batch audit: rumor propagation (information
 flow, distortion, belief filter); political institutions (government,
-institutions, stratification); movement; factions; reputation; the
-Knowledge Graph; the economy base layer. Resolution and convergence
-re-audit are tracked under
-`project_audit_repass_batch_2026_04_12_pending.md` and gate the promotion
-of these modules from §8 to §4 status, the inclusion of their parameters
-in §6 calibration tables, and their entry into the §7 validation campaign.
+institutions, stratification); movement; factions; the Knowledge Graph;
+the economy base layer. Reputation, the eighth module of the original
+batch, has converged on round 2 (2026-05-12) and was promoted to §4.3.
+Resolution and convergence re-audit on the remaining seven are tracked
+under `project_audit_repass_batch_2026_04_12_pending.md` and gate the
+promotion of these modules from §8 to §4 status, the inclusion of their
+parameters in §6 calibration tables, and their entry into the §7
+validation campaign.
 
 **Validation experiments (Chapter 7).** The methodology — datasets,
 metrics, and acceptance thresholds — is specified across §7.1 to §7.3, but
 the experimental campaign that consumes the methodology is bound to Plan 4
 and is tracked under `project_validation_experiments_pending.md`.
 
-**Knowledge Graph (§8.6).** The graph is currently materialised in batch
+**Knowledge Graph (§8.5).** The graph is currently materialised in batch
 passes from the simulation log; live update from a running simulation,
 which is the prerequisite for graph-grounded LLM context at the per-tick
 decision step, is the dedicated work item of the roadmap of Chapter 9.
@@ -1629,6 +1716,9 @@ work item.
   massively parallel agent-based model of the European economy.
   *Applied Mathematics and Computation*, 204(2), 541–552.
   https://doi.org/10.1016/j.amc.2008.05.116
+- Diamond, D. W. (1989). Reputation acquisition in debt markets.
+  *Journal of Political Economy*, 97(4), 828–862.
+  https://doi.org/10.1086/261630
 - Diamond, D. W., and Dybvig, P. H. (1983). Bank runs, deposit insurance,
   and liquidity. *Journal of Political Economy*, 91(3), 401–419.
   https://doi.org/10.1086/261155
@@ -1655,6 +1745,9 @@ work item.
 - Granovetter, M. S. (1973). The strength of weak ties. *American
   Journal of Sociology*, 78(6), 1360–1380.
   https://doi.org/10.1086/225469
+- Greif, A. (1993). Contract enforceability and economic institutions in
+  early trade: the Maghribi traders' coalition. *American Economic
+  Review*, 83(3), 525–548. JSTOR 2117532.
 - Gualdi, S., Tarzia, M., Zamponi, F., and Bouchaud, J.-P. (2015).
   Tipping points in macroeconomic agent-based models. *Journal of
   Economic Dynamics and Control*, 50, 29–61.
@@ -1687,9 +1780,15 @@ work item.
   in the United States: 1826-1960. In *Frontiers of Family Economics*
   (Population Economics, vol. 1), 165-230. Emerald Group Publishing.
   https://doi.org/10.1016/S1574-0129(08)00005-7
+- Jøsang, A., and Ismail, R. (2002). The beta reputation system. In
+  *Proceedings of the 15th Bled Electronic Commerce Conference (Bled
+  2002)*, 41–55. https://aisel.aisnet.org/bled2002/41/
 - Kalmijn, M. (1998). Intermarriage and homogamy: causes, patterns,
   trends. *Annual Review of Sociology*, 24, 395-421.
   https://doi.org/10.1146/annurev.soc.24.1.395
+- Karlan, D. S. (2005). Using experimental economics to measure social
+  capital and predict financial decisions. *American Economic Review*,
+  95(5), 1688–1699. https://doi.org/10.1257/000282805775014407
 - Lee, R. D., and Carter, L. R. (1992). Modeling and forecasting U.S.
   mortality. *Journal of the American Statistical Association*, 87(419),
   659–671. https://doi.org/10.1080/01621459.1992.10475265
@@ -1742,6 +1841,10 @@ work item.
 - Reinhart, C. M., and Rogoff, K. S. (2009). *This Time Is Different:
   Eight Centuries of Financial Folly*. Princeton University Press,
   Princeton, NJ. ISBN 978-0-691-14216-6.
+- Sabater, J., and Sierra, C. (2002). REGRET: reputation in gregarious
+  societies. In *Proceedings of the 5th International Conference on
+  Autonomous Agents (AGENTS '01)*, 194–195. ACM.
+  https://doi.org/10.1145/375735.376110
 - Scarf, H. (1960). Some examples of global instability of the
   competitive equilibrium. *International Economic Review*, 1(3),
   157–172. https://doi.org/10.2307/2556215

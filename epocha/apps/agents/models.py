@@ -259,16 +259,18 @@ class ReputationScore(models.Model):
     def get_combined_score(self) -> float:
         """Return a single trustworthiness score combining image and reputation.
 
-        Weights: image (direct experience) 0.6, reputation (social evaluation) 0.4.
-
-        The primacy of direct experience over hearsay is a well-established principle
-        in social psychology (Castelfranchi et al. 1998 for the conceptual distinction),
-        but the specific 60/40 ratio is a tunable parameter without empirical derivation.
+        Delegates the weight constants to ``epocha.apps.agents.reputation`` so
+        that the ratio is defined in a single place (DRY). See that module's
+        ``_WEIGHT_IMAGE`` / ``_WEIGHT_REPUTATION`` docstrings for the design
+        rationale (primacy of direct experience over hearsay; tunable ratio
+        without empirical derivation).
 
         Returns:
             Combined score in [-1.0, 1.0].
         """
-        return self.image * 0.6 + self.reputation * 0.4
+        # Lazy import to avoid any potential circular import at module load.
+        from epocha.apps.agents import reputation as _rep
+        return self.image * _rep._WEIGHT_IMAGE + self.reputation * _rep._WEIGHT_REPUTATION
 
     def get_combined_score_normalized(self) -> float:
         """Return the combined reputation score normalized to [0, 1].
@@ -281,7 +283,8 @@ class ReputationScore(models.Model):
         Returns:
             Combined score in [0.0, 1.0]. Neutral (0.0) maps to 0.5.
         """
-        raw = self.image * 0.6 + self.reputation * 0.4
+        from epocha.apps.agents import reputation as _rep
+        raw = self.image * _rep._WEIGHT_IMAGE + self.reputation * _rep._WEIGHT_REPUTATION
         return (raw + 1.0) / 2.0
 
     def __str__(self):

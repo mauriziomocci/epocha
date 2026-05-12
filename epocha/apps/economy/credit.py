@@ -28,7 +28,11 @@ from collections import deque
 from django.db.models import Sum
 
 from epocha.apps.agents.models import Agent, Memory
-from epocha.apps.agents.reputation import update_reputation
+from epocha.apps.agents.reputation import (
+    _LOAN_DEFAULT_LENDER_SENTIMENT,
+    _LOAN_DEFAULT_OBSERVER_SENTIMENT,
+    update_reputation,
+)
 
 from .models import (
     AgentInventory,
@@ -657,9 +661,13 @@ def _create_default_reputation_damage(
     Creates a memory for nearby agents and updates reputation scores
     via the reputation system (Castelfranchi, Conte & Paolucci 1998).
 
-    The action sentiment of -0.7 represents a significant but not
-    maximally negative action (compared to violence at -1.0). Tunable
-    design parameter.
+    Two distinct sentiment magnitudes are applied: zone observers receive
+    `_LOAN_DEFAULT_OBSERVER_SENTIMENT` (default -0.7) and the directly
+    affected lender receives `_LOAN_DEFAULT_LENDER_SENTIMENT` (default
+    -0.9), reflecting that the lender bears the actual loss while
+    observers update reputation through hearsay. Both magnitudes are
+    tunable design parameters defined in `epocha.apps.agents.reputation`
+    with citation block referencing Diamond 1989, Greif 1993, Karlan 2005.
     """
     # Create memory for the borrower (self-awareness of default)
     Memory.objects.create(
@@ -684,7 +692,7 @@ def _create_default_reputation_damage(
             update_reputation(
                 holder=observer,
                 target=borrower,
-                action_sentiment=-0.7,
+                action_sentiment=_LOAN_DEFAULT_OBSERVER_SENTIMENT,
                 reliability=0.8,
                 tick=tick,
             )
@@ -694,7 +702,7 @@ def _create_default_reputation_damage(
         update_reputation(
             holder=lender,
             target=borrower,
-            action_sentiment=-0.9,
+            action_sentiment=_LOAN_DEFAULT_LENDER_SENTIMENT,
             reliability=1.0,
             tick=tick,
         )

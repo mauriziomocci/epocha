@@ -113,3 +113,23 @@ class TestExtractActionSentiment:
     def test_argued_is_mildly_negative(self):
         s = extract_action_sentiment("I decided to argue. angry")
         assert -1.0 < s < 0.0
+
+
+def test_negativity_bias_qualitative_direction():
+    """Negative deltas should be larger in magnitude than positive deltas
+    overall, reflecting the negativity-bias principle (Baumeister et al. 2001).
+    Specific ratios are tunable; this test checks only the qualitative
+    direction.
+    """
+    from epocha.apps.agents.reputation import _IMAGE_DELTAS
+    positives = [v for v in _IMAGE_DELTAS.values() if v > 0]
+    negatives = [v for v in _IMAGE_DELTAS.values() if v < 0]
+    assert positives, "expected at least one positive delta"
+    assert negatives, "expected at least one negative delta"
+    max_positive = max(positives)
+    max_negative_magnitude = max(abs(v) for v in negatives)
+    assert max_negative_magnitude > max_positive, (
+        f"expected at least one negative delta with magnitude greater than "
+        f"the largest positive delta (negativity-bias direction). "
+        f"max positive={max_positive}, max negative magnitude={max_negative_magnitude}"
+    )
