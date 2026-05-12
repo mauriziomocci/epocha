@@ -1,4 +1,5 @@
-- [SESSION RESUME 2026-04-26](project_session_resume_2026_04_26.md) -- READ FIRST: catchup README+whitepaper bilingue CLOSED, mergiato in develop (PR#4 commit 168d90b, frozen pin 591024c). Prossimo: Demography Plan 3 (Inheritance + Migration), opzionale preflight re-audit batch 2026-04-12
+- [SESSION RESUME 2026-05-12](project_session_resume_2026_05_12.md) -- READ FIRST: F-CAMPAIGN audit re-pass IN CORSO. Branch 1 Reputation CLOSED (PR#5 mergato c196281, pin b859ee5). Branch 2 rumor-cluster: branch creato, Round 2 audit fatto (16 findings NOT CONVERGED), nessun fix applicato. Riprendere da fix-implementer.
+- [SESSION RESUME 2026-04-26](project_session_resume_2026_04_26.md) -- catchup README+whitepaper CLOSED. Pre-campagna stato. Vedi 2026-05-12 per stato corrente.
 - [SESSION RESUME 2026-04-20](project_session_resume_2026_04_20.md) -- READ FIRST se 2026-04-26 mancante: riepilogo sessione precedente + prossimi step obbligati (README + whitepaper prima di Plan 3)
 - [FULL CONTEXT](project_full_context.md) -- complete project state (parziale/obsoleto, priorita' al session resume)
 - [Italian language](feedback_italian_language.md) -- Comunicare in italiano, codice in inglese
