@@ -86,7 +86,7 @@ docs/                  Specs, plans, whitepaper, memory backup
 | Demography (Plan 1+2): mortality, fertility, couple | yes | yes (CONVERGED 2026-04-18 round 4) |
 | Economy Behavioral (expectations, credit, property) | yes | yes (CONVERGED 2026-04-15) |
 | Economy base (production, monetary, market, distribution) | yes | spec audit pending |
-| Reputation (Castelfranchi-Conte-Paolucci 1998) | yes | Round 1 audit + remediation, Round 2 pending |
+| Reputation (Castelfranchi-Conte-Paolucci 1998) | yes | yes (CONVERGED 2026-05-12 round 2) |
 | Information Flow + Distortion + Belief Filter | yes | Round 1 audit + remediation, Round 2 pending |
 | Government + Institutions + Stratification | yes | Round 1 audit + remediation, Round 2 pending |
 | Movement, Factions | yes | Round 1 audit + remediation, Round 2 pending |
@@ -98,7 +98,7 @@ The audit re-pass on the 2026-04-12 batch (8 modules) is the highest priority fo
 
 ## Roadmap
 
-Highest priority: re-audit pass on the 2026-04-12 batch (Reputation, Information Flow, Distortion, Belief Filter, Government, Institutions, Stratification, Movement, Factions). Then Demography Plan 3 (Inheritance + Migration), Plan 4 (Init + Engine integration + Historical validation), Economy financial markets, validation experiments execution. Full list in whitepaper §9.
+Highest priority: re-audit pass on the remaining 2026-04-12 batch (Information Flow, Distortion, Belief Filter, Government, Institutions, Stratification, Movement, Factions); reputation already converged on round 2 (2026-05-12) and is documented in whitepaper §4.3. Then Demography Plan 3 (Inheritance + Migration), Plan 4 (Init + Engine integration + Historical validation), Economy financial markets, validation experiments execution. Full list in whitepaper §9.
 
 ## Contributing
 

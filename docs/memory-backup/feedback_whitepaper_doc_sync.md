@@ -14,6 +14,7 @@ Ogni PR che modifica codice di un modulo descritto nel cap. 4 del whitepaper bil
 |---|---|---|
 | `epocha/apps/demography/` | §4.1 (Mortality, Fertility, Couple) | §4.1 |
 | `epocha/apps/economy/expectations.py`, `credit.py`, `banking.py`, `property_market.py` | §4.2 (Expectations, Credit, Property) | §4.2 |
+| `epocha/apps/agents/reputation.py` | §4.3 (EN) | §4.3 (IT) |
 
 Quando un modulo del cap. 8 viene promosso a cap. 4 dopo re-audit CONVERGED, aggiungerlo a questa tabella.
 
