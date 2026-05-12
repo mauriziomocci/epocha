@@ -28,7 +28,11 @@ from collections import deque
 from django.db.models import Sum
 
 from epocha.apps.agents.models import Agent, Memory
-from epocha.apps.agents.reputation import update_reputation
+from epocha.apps.agents.reputation import (
+    _LOAN_DEFAULT_LENDER_SENTIMENT,
+    _LOAN_DEFAULT_OBSERVER_SENTIMENT,
+    update_reputation,
+)
 
 from .models import (
     AgentInventory,
@@ -684,7 +688,7 @@ def _create_default_reputation_damage(
             update_reputation(
                 holder=observer,
                 target=borrower,
-                action_sentiment=-0.7,
+                action_sentiment=_LOAN_DEFAULT_OBSERVER_SENTIMENT,
                 reliability=0.8,
                 tick=tick,
             )
@@ -694,7 +698,7 @@ def _create_default_reputation_damage(
         update_reputation(
             holder=lender,
             target=borrower,
-            action_sentiment=-0.9,
+            action_sentiment=_LOAN_DEFAULT_LENDER_SENTIMENT,
             reliability=1.0,
             tick=tick,
         )
