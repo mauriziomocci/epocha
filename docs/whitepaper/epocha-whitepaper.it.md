@@ -1022,7 +1022,7 @@ L'equazione (4.15) è implementata in `process_defaults()` a `epocha/apps/econom
 
 ## 4.3 Reputazione
 
-> Stato: implementato a partire dal commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-12 round 2.
+> Stato: implementato a partire dal commit `c196281d706f63d6a9270c9b26e5c9044067d785`, audit del codice CONVERGENTE 2026-05-12 round 2.
 
 ### Background
 

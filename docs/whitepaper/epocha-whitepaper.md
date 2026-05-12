@@ -987,7 +987,7 @@ Equation (4.15) is implemented in `process_defaults()` at `epocha/apps/economy/c
 
 ## 4.3 Reputation
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-12 round 2.
+> Status: implemented as of commit `c196281d706f63d6a9270c9b26e5c9044067d785`, code audit CONVERGED 2026-05-12 round 2.
 
 ### Background
 
