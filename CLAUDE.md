@@ -410,4 +410,6 @@ Constitution authoritative at `.specify/memory/constitution.md` — supersedes c
 **Composition with canonical 7-phase workflow**: Spec Kit is the authoring framework; the 7-phase workflow is the gating procedure (HEAVY GATE phases 2 + 6, LIGHT GATE phases 3 + 4). Adversarial scientific audit policy unchanged.
 
 See memory `feedback_speckit_mandatory.md` for the absolute rule.
+
+**Active feature plan**: `specs/20260516-105818-rumor-cluster-audit-repass/plan.md`
 <!-- SPECKIT END -->
