@@ -1286,7 +1286,7 @@ with w_P = 0.3, w_R = 0.3, w_C = 0.4. The relationship component is (strength + 
 
 ## 4.5 Political institutions
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, code audit CONVERGED 2026-05-16 round 2.
 
 The political institutions cluster covers regime dynamics, election scoring,
 institutional accumulation/decay, and stratification (social class + corruption).
@@ -1304,7 +1304,7 @@ plus the regime typology and voting literature surveyed in §13 References.
 
 ### 4.5.1 Government (regime + coup)
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, code audit CONVERGED 2026-05-16 round 2.
 
 #### Background
 
@@ -1420,7 +1420,7 @@ is documented inline at `government.py` as a deliberate selection bias.
 
 ### 4.5.2 Government types
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, code audit CONVERGED 2026-05-16 round 2.
 
 #### Background
 
@@ -1487,7 +1487,7 @@ data-only and carries no per-tick logic of its own.
 
 ### 4.5.3 Institutions
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, code audit CONVERGED 2026-05-16 round 2.
 
 #### Background
 
@@ -1555,7 +1555,7 @@ to institution count.
 
 ### 4.5.4 Stratification
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, code audit CONVERGED 2026-05-16 round 2.
 
 #### Background
 
@@ -1657,7 +1657,7 @@ finding N-3.
 
 ### 4.5.5 Election
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, code audit CONVERGED 2026-05-16 round 2.
 
 #### Background
 

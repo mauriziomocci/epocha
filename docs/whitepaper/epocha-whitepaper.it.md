@@ -1328,7 +1328,7 @@ con w_P = 0.3, w_R = 0.3, w_C = 0.4. La componente relazionale è (strength + ma
 
 ## 4.5 Istituzioni politiche
 
-> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato al commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 Il cluster delle istituzioni politiche copre le dinamiche di regime, lo
 scoring elettorale, l'accumulo e il decadimento istituzionale, e la
@@ -1347,7 +1347,7 @@ più la letteratura sulla tipologia di regime e sul voto censita in §13 Referen
 
 ### 4.5.1 Governo (regime + colpo di stato)
 
-> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato al commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 #### Background
 
@@ -1473,7 +1473,7 @@ con lo score più alto è quello che tenta. La scelta single-attempt-per-cycle
 
 ### 4.5.2 Tipi di governo
 
-> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato al commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 #### Background
 
@@ -1543,7 +1543,7 @@ data-only e non porta logica per-tick propria.
 
 ### 4.5.3 Istituzioni
 
-> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato al commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 #### Background
 
@@ -1614,7 +1614,7 @@ proporzionalmente al numero di istituzioni.
 
 ### 4.5.4 Stratificazione
 
-> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato al commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 #### Background
 
@@ -1719,7 +1719,7 @@ questo chiude il finding N-3 del Round 2.
 
 ### 4.5.5 Elezioni
 
-> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato al commit `dfeb709218727c1efbca8cbee5e0dc6e974923fe`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 #### Background
 
