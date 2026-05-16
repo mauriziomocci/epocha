@@ -14,6 +14,27 @@ Known limitation: future work could model leveling as progressive sentence
 truncation across propagation hops, and sharpening as keyword
 emphasis or repetition for contextually salient terms.
 
+Known Limitations (Round 2 audit closures):
+
+D-4 — High-openness pattern accumulation. The high-openness pattern
+(see _HIGH_OPENNESS_PATTERNS) inserts a speculative clause after every
+period-space boundary in the input. Across multiple propagation hops
+with high-openness retellers, "X happened. Y followed. Z resulted."
+accumulates speculative qualifiers into "X happened -- perhaps for a
+reason. Y followed -- perhaps for a reason. Z resulted -- perhaps for
+a reason." Multi-hop accumulation is pathological. Documented as known
+limitation; future work could restrict insertion to first/last sentence
+boundary or cap by transmitter count. No code change in current iteration.
+
+D-5 — Low-conscientiousness proper-noun anonymization. The low-
+conscientiousness pattern (see _LOW_CONSCIENTIOUSNESS_PATTERNS) replaces
+all mid-sentence capitalized words with "somebody"/"someone"/"this person".
+This destroys non-person proper nouns (city names, place names, titles)
+not just person names. Documented as known limitation; future work could
+ship a NER pre-pass or restrict the pattern to known person-name positions
+(e.g. only after relational verbs "with X", "to X"). No code change in
+current iteration.
+
 References:
   - Allport, G. W., & Postman, L. (1947). The Psychology of Rumor. Henry Holt and Co.
   - Costa, P. T., & McCrae, R. R. (1992). NEO PI-R professional manual. PAR.

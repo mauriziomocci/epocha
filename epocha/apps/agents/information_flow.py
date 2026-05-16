@@ -89,7 +89,17 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
             max_hops=max_hops,
         )
 
-    # Phase 2: hearsay from the previous tick -> rumor
+    # Phase 2: hearsay from the previous tick -> rumor.
+    # Phase 2 (hearsay -> rumor) does NOT enforce
+    # emotional_weight__gte=EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD like
+    # Phase 1 (direct memory -> rumor) does. This is intentional: the
+    # threshold gates entry into the rumor network at hop 1; once a memory
+    # has been deemed worth transmitting (by an upstream agent's salience
+    # threshold), downstream agents receive and may retransmit it regardless
+    # of their personal salience threshold. This models the gossip property:
+    # agents transmit what they have heard even when not personally invested.
+    # If this asymmetry is undesired, enforce the threshold consistently
+    # across phases. Closes Round 2 finding N-9.
     hearsay_memories = (
         Memory.objects.filter(
             agent__simulation=simulation,
@@ -306,17 +316,20 @@ def _propagate_memory(
             )
         else:
             # Weak rumor: agent does not personally believe this but may still
-            # pass it on through the social network.  Low emotional_weight (0.1)
-            # ensures the rumor does not influence decision-making; low
-            # reliability (original * 0.3) limits further downstream impact.
+            # pass it on through the social network. Low emotional_weight
+            # (settings.EPOCHA_INFO_FLOW_WEAK_RUMOR_WEIGHT, default 0.1) ensures
+            # the rumor does not influence decision-making; low reliability
+            # (original * settings.EPOCHA_INFO_FLOW_WEAK_RUMOR_DAMP, default 0.3)
+            # limits further downstream impact. Previous magic numbers replaced
+            # with settings constants per Round 2 finding N-6.
             # Ref: Castelfranchi-Conte-Paolucci insight that agents transmit
             # gossip they do not personally believe.
             Memory.objects.create(
                 agent=recipient,
                 content=distorted_content,
-                emotional_weight=0.1,
+                emotional_weight=settings.EPOCHA_INFO_FLOW_WEAK_RUMOR_WEIGHT,
                 source_type=Memory.SourceType.RUMOR,
-                reliability=new_reliability * 0.3,
+                reliability=new_reliability * settings.EPOCHA_INFO_FLOW_WEAK_RUMOR_DAMP,
                 tick_created=tick,
                 origin_agent=origin,
             )
@@ -335,6 +348,15 @@ def _estimate_hop(reliability: float, decay: float) -> int:
     1.0. If the source memory had lower reliability, the hop count is
     overestimated, causing premature propagation termination. A more robust
     approach would track hop_count explicitly on the Memory model.
+
+    Known Limitation (Round 2 finding IF-4): the estimator assumes initial
+    reliability=1.0 for the original observation. Memories inheriting
+    reliability < 1.0 (e.g. derived from a noisy public event with
+    severity < 1.0) will have an overestimated hop count, causing premature
+    propagation halt. This is acceptable for the current implementation and
+    is documented as a known simplification. A behavioral fix would require
+    adding a `hop_count` PositiveSmallIntegerField on the Memory model with
+    a backfill migration — scope-positive, deferred to a future iteration.
 
     Args:
         reliability: Current reliability value of the memory (0.0 to 1.0).
