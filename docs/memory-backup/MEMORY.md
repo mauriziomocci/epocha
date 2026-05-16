@@ -1,5 +1,6 @@
 - [Spec Kit mandatory absolute](feedback_speckit_mandatory.md) -- REGOLA PERMANENTE dal 2026-05-16: tutti i nuovi work item via Spec Kit, branch <timestamp>-<slug>, layout .specify/specs/<branch>/{spec,plan,tasks}.md. Niente nuovi file sotto docs/superpowers/. Legacy artifacts archiviati.
-- [SESSION RESUME 2026-05-16 political](project_session_resume_2026_05_16_political.md) -- READ FIRST: Branch 3 political-cluster CHIUSO (PR#7 merge dfeb709, pin 246a5e3, pytest 809, §4.5 promotion 5 sub-sections, 23 §13 entries). Prossimo: Branch 4 movement via Spec Kit.
+- [SESSION RESUME 2026-05-16 movement](project_session_resume_2026_05_16_movement.md) -- READ FIRST: Branch 4 movement CHIUSO (PR#8 merge c543c10, pin 5e0087f, §4.6 promotion, pytest 809). Prossimo: Branch 5 factions (876 LOC, expected significant R2 expansion).
+- [SESSION RESUME 2026-05-16 political](project_session_resume_2026_05_16_political.md) -- Branch 3 political-cluster CHIUSO. Vedi movement variant per stato corrente.
 - [SESSION RESUME 2026-05-16](project_session_resume_2026_05_16.md) -- Spec Kit adottato (19279a1) + Branch 2 rumor-cluster CHIUSO. Vedi political variant per stato corrente Branch 3.
 - [SESSION RESUME 2026-05-12](project_session_resume_2026_05_12.md) -- F-CAMPAIGN stato pre-speckit. 16 findings rumor-cluster Round 2 catalogati qui (da migrare in spec.md retrofittato).
 - [SESSION RESUME 2026-04-26](project_session_resume_2026_04_26.md) -- catchup README+whitepaper CLOSED. Pre-campagna stato. Vedi 2026-05-12 per stato corrente.
