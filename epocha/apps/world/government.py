@@ -496,11 +496,14 @@ def check_transitions(simulation) -> str | None:
 
     # Expropriation: redistribute property per new regime's policy.
     # Acemoglu & Robinson (2006). Safe when economy not initialized.
+    # ImportError guards the optional economy app; OperationalError / ProgrammingError
+    # guard the case where economy migrations have not been applied yet on this DB.
+    from django.db.utils import OperationalError, ProgrammingError
     try:
         from epocha.apps.economy.property_market import process_expropriation
         process_expropriation(simulation, previous_type, target_type, current_tick)
-    except Exception:
-        logger.debug("Expropriation skipped (economy not initialized)")
+    except (ImportError, OperationalError, ProgrammingError) as exc:
+        logger.debug("Expropriation skipped (economy not initialized): %s", exc)
 
     logger.info(
         "Regime transition: simulation=%d tick=%d %s -> %s",
@@ -636,11 +639,14 @@ def check_coups(simulation, tick: int) -> dict | None:
     ])
 
     # Expropriation: redistribute property per new regime's policy.
+    # ImportError guards the optional economy app; OperationalError / ProgrammingError
+    # guard the case where economy migrations have not been applied yet on this DB.
+    from django.db.utils import OperationalError, ProgrammingError
     try:
         from epocha.apps.economy.property_market import process_expropriation
         process_expropriation(simulation, previous_type, "autocracy", tick)
-    except Exception:
-        logger.debug("Expropriation skipped after coup (economy not initialized)")
+    except (ImportError, OperationalError, ProgrammingError) as exc:
+        logger.debug("Expropriation skipped after coup (economy not initialized): %s", exc)
 
     logger.info(
         "Coup succeeded: simulation=%d tick=%d faction=%r leader=%r",
