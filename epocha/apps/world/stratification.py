@@ -50,9 +50,12 @@ _CLASS_RANK: dict[str, int] = {
 
 # Corruption skimming rate per tick for agents in power.
 # Calibrated so that a fully corrupt head of state (conscientiousness=0) extracts
-# ~2% of their own wealth per tick, consistent with historical estimates of petty
-# corruption in extractive states.
-# Reference: Acemoglu & Robinson (2006), Chapter 2; Transparency International CPI data.
+# ~2% of their own wealth per tick. The order of magnitude is qualitatively
+# inspired by the predatory-state literature (Acemoglu & Robinson 2006, Chapter 2)
+# and by cross-country indicators such as Transparency International's CPI which
+# document the prevalence of petty corruption in extractive regimes; the specific
+# 2%/tick value is a tunable simulation design parameter, not a value reported by
+# either source.
 _CORRUPTION_SKIM_RATE = 0.02
 
 # Emotional weight assigned to class-change memories.

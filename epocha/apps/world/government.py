@@ -54,7 +54,9 @@ _TRUST_DECAY: float = 0.05
 
 # Rate at which repression_level drifts toward the government type's repression_tendency.
 # 10% per cycle: a totalitarian regime (tendency=0.9) starting at 0.1 reaches 0.9 in ~22 cycles.
-# Source: Freedom House annual repression trend data.
+# Qualitative inspiration: Freedom House annual reports document gradual repression drift
+# in transitioning regimes; the specific 0.10 rate is a tunable simulation design parameter,
+# not a value reported by Freedom House.
 _REPRESSION_DRIFT_RATE: float = 0.10
 
 # Contribution weights for popular_legitimacy calculation.
@@ -68,7 +70,10 @@ _LEGITIMACY_W_MEDIA: float = 0.30
 
 # Media independence threshold below which state propaganda inflates reported legitimacy.
 # When media independence < 0.3, we cannot trust media-reported legitimacy signals.
-# Source: Freedom House Press Freedom methodology.
+# Qualitative inspiration: Freedom House Press Freedom methodology distinguishes free,
+# partly free, and not free media regimes. The specific 0.3 cutoff and the +0.30 inflation
+# factor are tunable simulation design parameters, not numerical values published by Freedom
+# House.
 _MEDIA_INDEPENDENCE_THRESHOLD: float = 0.3
 # Propaganda inflation factor: biased media reports 30% higher than actual.
 _PROPAGANDA_FACTOR: float = 0.30
@@ -654,9 +659,11 @@ def _update_stability(simulation) -> None:
     Stability is a composite of economy, popular legitimacy, and military loyalty,
     weighted by the current government type's ``stability_weights`` configuration.
     Economy is read from ``World.stability_index``, which is updated by the
-    economic engine. The weighted formula follows Bueno de Mesquita et al. (2003):
-    regime stability derives from the satisfaction of the winning coalition
-    (modelled here as the weighted combination of key resource holders).
+    economic engine. The weighted composition draws qualitative inspiration from
+    Bueno de Mesquita et al. (2003) -- regime stability derives from the
+    satisfaction of the winning coalition -- but the specific weights and the
+    three-factor linear blend are simulation design parameters, not derived from
+    the selectorate-model equations.
 
     Reference: Bueno de Mesquita et al. (2003). "The Logic of Political Survival."
     MIT Press. Chapter 3: coalition satisfaction and regime durability.
