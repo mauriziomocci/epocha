@@ -54,27 +54,27 @@ Django backend single project. Source at `epocha/apps/agents/`, tests at `epocha
 
 ### IF-5 — Public event dedup includes content (behavioral)
 
-- [ ] T007 [US1] In `epocha/apps/agents/information_flow.py` Phase 4 (lines ~141-159), change the `Memory.objects.get_or_create` lookup to include `content` (or `event_id` if a structured field exists) so two distinct events same tick same agent produce two memories. Use `defaults={"emotional_weight": ..., "reliability": ...}` for non-lookup fields.
-- [ ] T008 [US1] Add test in `epocha/apps/agents/tests/test_information_flow.py`: `test_distinct_public_events_same_tick_produce_two_memories`. Setup: create simulation + 1 agent + 2 distinct events at same tick. Assert `Memory.objects.filter(agent=a, source_type=PUBLIC, tick_created=tick).count() == 2`.
-- [ ] T009 [US1] Run targeted test: `pytest epocha/apps/agents/tests/test_information_flow.py -v`. Verify all green.
+- [x] T007 [US1] In `epocha/apps/agents/information_flow.py` Phase 4 (lines ~141-159), change the `Memory.objects.get_or_create` lookup to include `content` (or `event_id` if a structured field exists) so two distinct events same tick same agent produce two memories. Use `defaults={"emotional_weight": ..., "reliability": ...}` for non-lookup fields.
+- [x] T008 [US1] Add test in `epocha/apps/agents/tests/test_information_flow.py`: `test_distinct_public_events_same_tick_produce_two_memories`. Setup: create simulation + 1 agent + 2 distinct events at same tick. Assert `Memory.objects.filter(agent=a, source_type=PUBLIC, tick_created=tick).count() == 2`.
+- [x] T009 [US1] Run targeted test: `pytest epocha/apps/agents/tests/test_information_flow.py -v`. Verify all green.
 
 ### N-1 — Cross-module vocabulary alignment (behavioral)
 
-- [ ] T010 [US1] In `epocha/apps/agents/reputation.py`, extend `_POSITIVE_KEYWORDS` and `_NEGATIVE_KEYWORDS` to cover the 14 missing action types from `_IMAGE_DELTAS`: `pair_bond`, `separate`, `borrow`, `form_group`, `protest`, `hoard`, `move_to`, `buy_property`, `sell_property`, `avoid_conception`, `explore`, `rest`, `campaign`, `join_group`. Sign per `_IMAGE_DELTAS[k]`. Magnitudes: use the same `0.5`/`1.0` convention as existing entries (`positive < 0.5`, `negative > 0.5` for high-magnitude). Document in docstring above the keyword tables as "alignment with _IMAGE_DELTAS for hearsay-path coverage of structured action types".
+- [x] T010 [US1] In `epocha/apps/agents/reputation.py`, extend `_POSITIVE_KEYWORDS` and `_NEGATIVE_KEYWORDS` to cover the 14 missing action types from `_IMAGE_DELTAS`: `pair_bond`, `separate`, `borrow`, `form_group`, `protest`, `hoard`, `move_to`, `buy_property`, `sell_property`, `avoid_conception`, `explore`, `rest`, `campaign`, `join_group`. Sign per `_IMAGE_DELTAS[k]`. Magnitudes: use the same `0.5`/`1.0` convention as existing entries (`positive < 0.5`, `negative > 0.5` for high-magnitude). Document in docstring above the keyword tables as "alignment with _IMAGE_DELTAS for hearsay-path coverage of structured action types".
 - [ ] T011 [US1] Alternative consideration (skip if T010 sufficient): rewrite `_propagate_memory` at `information_flow.py:236` to attempt structured `action_type` extraction first via regex `r"I decided to (\w+)\."` and fall back to `extract_action_sentiment(content)` only when no match. Marked optional — only if T010 fails to cover all cases.
-- [ ] T012 [US1] Add invariant test in NEW file `epocha/apps/agents/tests/test_rumor_invariants.py`: `test_vocabulary_alignment_image_deltas_and_sentiment_keywords`. For each non-zero key in `reputation._IMAGE_DELTAS`, assert `reputation.extract_action_sentiment(f"I decided to {key}. reason")` has the same sign.
-- [ ] T013 [US1] Run targeted: `pytest epocha/apps/agents/tests/test_rumor_invariants.py::test_vocabulary_alignment_image_deltas_and_sentiment_keywords -v`. Green.
+- [x] T012 [US1] Add invariant test in NEW file `epocha/apps/agents/tests/test_rumor_invariants.py`: `test_vocabulary_alignment_image_deltas_and_sentiment_keywords`. For each non-zero key in `reputation._IMAGE_DELTAS`, assert `reputation.extract_action_sentiment(f"I decided to {key}. reason")` has the same sign.
+- [x] T013 [US1] Run targeted: `pytest epocha/apps/agents/tests/test_rumor_invariants.py::test_vocabulary_alignment_image_deltas_and_sentiment_keywords -v`. Green.
 
 ### N-3 — Sentiment extracted from source content, not distorted (behavioral)
 
-- [ ] T014 [US1] In `epocha/apps/agents/information_flow.py:_propagate_memory`, MOVE the call `action_sentiment = extract_action_sentiment(...)` from line ~236 (post-distortion) to BEFORE the distortion pass at line ~232. Pass `memory.content` (the original) not `distorted_content`. Distorted content continues feeding downstream retransmission unchanged.
-- [ ] T015 [US1] Add invariant test in `test_rumor_invariants.py`: `test_reputation_delta_independent_of_transmitter_personality`. Setup: source memory "Marco argued with Elena", 2 propagation runs through transmitters with different personality (one high-neuroticism, one high-agreeableness), assert reputation delta on Elena is identical (both come from `extract_action_sentiment("argued")` not from distorted variants).
-- [ ] T016 [US1] Run targeted tests for information_flow + invariants + reputation: `pytest epocha/apps/agents/tests/test_information_flow.py epocha/apps/agents/tests/test_rumor_invariants.py epocha/apps/agents/tests/test_reputation.py -v`. Green.
+- [x] T014 [US1] In `epocha/apps/agents/information_flow.py:_propagate_memory`, MOVE the call `action_sentiment = extract_action_sentiment(...)` from line ~236 (post-distortion) to BEFORE the distortion pass at line ~232. Pass `memory.content` (the original) not `distorted_content`. Distorted content continues feeding downstream retransmission unchanged.
+- [x] T015 [US1] Add invariant test in `test_rumor_invariants.py`: `test_reputation_delta_independent_of_transmitter_personality`. Setup: source memory "Marco argued with Elena", 2 propagation runs through transmitters with different personality (one high-neuroticism, one high-agreeableness), assert reputation delta on Elena is identical (both come from `extract_action_sentiment("argued")` not from distorted variants).
+- [x] T016 [US1] Run targeted tests for information_flow + invariants + reputation: `pytest epocha/apps/agents/tests/test_information_flow.py epocha/apps/agents/tests/test_rumor_invariants.py epocha/apps/agents/tests/test_reputation.py -v`. Green.
 
 ### US1 checkpoint
 
-- [ ] T017 [US1] Full pytest gate: `pytest 2>&1 | tail -3`. Baseline 801 + ≥2 new invariant tests = ≥803 passed.
-- [ ] T018 [US1] Commit `fix(agents): close round 2 INCORRECT findings IF-5 N-1 N-3 in rumor cluster`. Stage only the touched files: `information_flow.py`, `reputation.py`, `tests/test_information_flow.py`, `tests/test_rumor_invariants.py`.
+- [x] T017 [US1] Full pytest gate: `pytest 2>&1 | tail -3`. Baseline 801 + ≥2 new invariant tests = ≥803 passed.
+- [x] T018 [US1] Commit `fix(agents): close round 2 INCORRECT findings IF-5 N-1 N-3 in rumor cluster`. Stage only the touched files: `information_flow.py`, `reputation.py`, `tests/test_information_flow.py`, `tests/test_rumor_invariants.py`.
 
 ---
 

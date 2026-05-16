@@ -42,6 +42,7 @@ discuss reputation maintenance through ongoing social communication).
 from __future__ import annotations
 
 import logging
+import re
 
 from django.db import transaction
 
@@ -378,8 +379,13 @@ def extract_action_sentiment(content: str) -> float:
     """
     lowered = content.lower()
     best: float = 0.0
+    # Word-boundary match prevents substring collisions (e.g. `avoid` keyword
+    # would otherwise spuriously match `avoid_conception` content because
+    # Python's \b treats `_` as a word character, so `\bavoid\b` correctly
+    # does NOT match inside `avoid_conception`). Closes Round 2 finding N-1
+    # follow-up regression discovered during US1 implementation.
     for keyword, value in _ALL_SENTIMENT_KEYWORDS.items():
-        if keyword in lowered and abs(value) > abs(best):
+        if re.search(rf"\b{re.escape(keyword)}\b", lowered) and abs(value) > abs(best):
             best = value
     return best
 
