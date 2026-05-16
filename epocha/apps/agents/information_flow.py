@@ -141,18 +141,19 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
     for event in public_events:
         content = f"{event.title}: {event.description}"
         for agent in living_agents:
-            # Known limitation: deduplication does not include content field.
-            # If multiple public events occur in the same tick, only the first
-            # is created per agent. Adding content to the lookup would fix this
-            # but risks creating duplicate memories for the same event with
-            # slightly different wording.
+            # Deduplication includes content so that two distinct public events
+            # firing in the same tick produce two memories per agent rather
+            # than silently dropping the second one. The previous lookup
+            # (agent, source_type=PUBLIC, tick_created, origin_agent=None)
+            # coalesced all same-tick public events into a single record per
+            # agent — see Round 2 audit finding IF-5 closure.
             Memory.objects.get_or_create(
                 agent=agent,
                 source_type=Memory.SourceType.PUBLIC,
                 tick_created=tick,
                 origin_agent=None,
+                content=content,
                 defaults={
-                    "content": content,
                     "emotional_weight": event.severity,
                     "reliability": 1.0,
                 },
@@ -229,11 +230,16 @@ def _propagate_memory(
     )
 
     new_reliability = memory.reliability * decay
-    distorted_content = distort_information(memory.content, transmitter.personality)
 
-    # Compute action sentiment once from the (possibly distorted) content.
-    # Placed before the loop because distorted_content is fixed for all recipients.
-    action_sentiment = extract_action_sentiment(distorted_content)
+    # Compute action sentiment once from the original source content (NOT the
+    # distorted content) to keep reputation updates independent of transmitter
+    # personality bias. Distorting first and then extracting would let a
+    # high-neuroticism transmitter inflate negative sentiment, and a
+    # high-agreeableness transmitter dampen it, biasing the recipient's
+    # reputation update on the third-party target. See Round 2 audit
+    # finding N-3 closure.
+    action_sentiment = extract_action_sentiment(memory.content)
+    distorted_content = distort_information(memory.content, transmitter.personality)
 
     recipients_created = 0
 
