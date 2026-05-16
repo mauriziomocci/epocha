@@ -1650,6 +1650,9 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   monograph; reviewed in Zeller 1948, *The Annals of the American
   Academy of Political and Social Science*, 257(1), 145–146,
   https://doi.org/10.1177/000271624825700169.)
+- Arendt, H. (1951). *The Origins of Totalitarianism*. Schocken Books,
+  New York. Reissued by Harcourt Brace, 1973.
+  ISBN 978-0-15-670153-2 (Harcourt 1973 paperback).
 - Argyle, L. P., Busby, E. C., Fulda, N., Gubler, J. R., Rytting, C., and
   Wingate, D. (2023). Out of one, many: using language models to simulate
   human samples. *Political Analysis*, 31(3), 337–351.
@@ -1672,11 +1675,16 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   Social Psychology*. Cambridge University Press, Cambridge.
   (Pre-ISBN monograph; reissued by Cambridge University Press in
   1995 with ISBN 978-0-521-48356-8.)
+- Bass, B. M. (1985). *Leadership and Performance Beyond Expectations*.
+  Free Press, New York. ISBN 978-0-02-901810-7.
 - Baumeister, R. F., Bratslavsky, E., Finkenauer, C., and Vohs, K. D.
   (2001). Bad is stronger than good. *Review of General Psychology*,
   5(4), 323–370. https://doi.org/10.1037/1089-2680.5.4.323
 - Becker, G. S. (1991). *A Treatise on the Family*, enlarged edition.
   Harvard University Press, Cambridge, MA. ISBN 978-0-674-90698-3.
+- Besley, T., and Persson, T. (2011). *Pillars of Prosperity: The
+  Political Economics of Development Clusters*. Princeton University
+  Press, Princeton, NJ. ISBN 978-0-691-15268-4.
 - Bonabeau, E. (2002). Agent-based modeling: methods and techniques for
   simulating human systems. *Proceedings of the National Academy of
   Sciences*, 99(Suppl. 3), 7280–7287.
@@ -1687,9 +1695,16 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   Century*, by Siân Reynolds. University of California Press, Berkeley.
 - Brown, R., and Kulik, J. (1977). Flashbulb memories. *Cognition*, 5(1),
   73–99. https://doi.org/10.1016/0010-0277(77)90018-X
+- Bueno de Mesquita, B., Smith, A., Siverson, R. M., and Morrow, J. D.
+  (2003). *The Logic of Political Survival*. MIT Press, Cambridge, MA.
+  ISBN 978-0-262-02546-1.
 - Cagan, P. (1956). The monetary dynamics of hyperinflation. In M.
   Friedman (ed.), *Studies in the Quantity Theory of Money*. University
   of Chicago Press, Chicago, 25–117.
+- Caprara, G. V., Schwartz, S., Capanna, C., Vecchione, M., and
+  Barbaranelli, C. (2006). Personality and politics: values, traits,
+  and political choice. *Political Psychology*, 27(1), 1–28.
+  https://doi.org/10.1111/j.1467-9221.2006.00447.x
 - Castelfranchi, C., Conte, R., and Paolucci, M. (1998). Normative
   reputation and the costs of compliance. *Journal of Artificial
   Societies and Social Simulation*, 1(3).
@@ -1721,6 +1736,9 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Costa, P. T., and McCrae, R. R. (1992). *Revised NEO Personality
   Inventory (NEO PI-R) and NEO Five-Factor Inventory (NEO-FFI)
   Professional Manual*. Psychological Assessment Resources, Odessa, FL.
+- Cronin, A. K. (2009). *How Terrorism Ends: Understanding the Decline
+  and Demise of Terrorist Campaigns*. Princeton University Press,
+  Princeton, NJ. ISBN 978-0-691-13948-7.
 - Deissenberg, C., van der Hoog, S., and Dawid, H. (2008). EURACE: a
   massively parallel agent-based model of the European economy.
   *Applied Mathematics and Computation*, 204(2), 541–552.
@@ -1737,9 +1755,23 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Evans, G. W., and Honkapohja, S. (2001). *Learning and Expectations
   in Macroeconomics*. Frontiers of Economic Research. Princeton
   University Press, Princeton, NJ. ISBN 978-0-691-04921-2.
+- Finer, S. E. (1962). *The Man on Horseback: The Role of the Military
+  in Politics*. Pall Mall Press, London.
+  ISBN 978-1-138-52538-7 (Routledge 2017 reissue).
+- Fish, M. S. (2002). Islam and authoritarianism. *World Politics*,
+  55(1), 4–37. https://doi.org/10.1353/wp.2003.0004
+- Freedom House (2024). *Freedom in the World*. Annual report series.
+  Freedom House, Washington, DC.
+  https://freedomhouse.org/report/freedom-world
 - Gale, D., and Shapley, L. S. (1962). College admissions and the
   stability of marriage. *The American Mathematical Monthly*, 69(1),
   9-15. https://doi.org/10.2307/2312726
+- Geddes, B. (1999). What do we know about democratization after twenty
+  years? *Annual Review of Political Science*, 2, 115–144.
+  https://doi.org/10.1146/annurev.polisci.2.1.115
+- Gilbert, D. (2011). *The American Class Structure in an Age of Growing
+  Inequality* (8th ed.). Pine Forge Press / SAGE, Thousand Oaks, CA.
+  ISBN 978-1-4129-7965-7.
 - Gompertz, B. (1825). On the nature of the function expressive of the
   law of human mortality, and on a new mode of determining the value of
   life contingencies. *Philosophical Transactions of the Royal Society
@@ -1779,9 +1811,16 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Heligman, L., and Pollard, J. H. (1980). The age pattern of mortality.
   *Journal of the Institute of Actuaries*, 107(1), 49–80.
   https://doi.org/10.1017/S0020268100040257
+- Hobbes, T. (1651/1996). *Leviathan* (R. Tuck, ed.). Cambridge Texts
+  in the History of Political Thought. Cambridge University Press,
+  Cambridge. ISBN 978-0-521-56797-8 (1996 critical edition of the 1651
+  original).
 - Homer, S., and Sylla, R. (2005). *A History of Interest Rates*, fourth
   edition. Wiley Finance. John Wiley and Sons, Hoboken, NJ.
   ISBN 978-0-471-73283-9.
+- Huckfeldt, R., and Sprague, J. (1987). Networks in context: the
+  social flow of political information. *American Political Science
+  Review*, 81(4), 1197–1216. https://doi.org/10.2307/1962585
 - Human Mortality Database (HMD) (2024). University of California,
   Berkeley (USA) and Max Planck Institute for Demographic Research
   (Germany). https://www.mortality.org
@@ -1798,18 +1837,33 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Kalmijn, M. (1998). Intermarriage and homogamy: causes, patterns,
   trends. *Annual Review of Sociology*, 24, 395-421.
   https://doi.org/10.1146/annurev.soc.24.1.395
+- Kalyvas, S. N. (2006). *The Logic of Violence in Civil War*. Cambridge
+  University Press, Cambridge. ISBN 978-0-521-67004-2.
+  https://doi.org/10.1017/CBO9780511818462
 - Karlan, D. S. (2005). Using experimental economics to measure social
   capital and predict financial decisions. *American Economic Review*,
   95(5), 1688–1699. https://doi.org/10.1257/000282805775014407
 - Lee, R. D., and Carter, L. R. (1992). Modeling and forecasting U.S.
   mortality. *Journal of the American Statistical Association*, 87(419),
   659–671. https://doi.org/10.1080/01621459.1992.10475265
+- Levitsky, S., and Way, L. A. (2010). *Competitive Authoritarianism:
+  Hybrid Regimes after the Cold War*. Cambridge University Press,
+  Cambridge. ISBN 978-0-521-70915-5.
 - Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal,
   N., Küttler, H., Lewis, M., Yih, W., Rocktäschel, T., Riedel, S., and
   Kiela, D. (2020). Retrieval-augmented generation for knowledge-intensive
   NLP tasks. In *Advances in Neural Information Processing Systems
   (NeurIPS 2020)*, 33, 9459–9474. Preprint: arXiv:2005.11401.
   https://arxiv.org/abs/2005.11401
+- Lewis-Beck, M. S., and Stegmaier, M. (2000). Economic determinants
+  of electoral outcomes. *Annual Review of Political Science*, 3,
+  183–219. https://doi.org/10.1146/annurev.polisci.3.1.183
+- Linz, J. J. (2000). *Totalitarian and Authoritarian Regimes*. Lynne
+  Rienner Publishers, Boulder, CO. ISBN 978-1-55587-890-0.
+- Lodge, M., Steenbergen, M. R., and Brau, S. (1995). The responsive
+  voter: campaign information and the dynamics of candidate evaluation.
+  *American Political Science Review*, 89(2), 309–326.
+  https://doi.org/10.2307/2082427
 - Marshall, M. G., and Gurr, T. R. (2020). *Polity 5: Political Regime
   Characteristics and Transitions, 1800–2018. Dataset Users' Manual*.
   Center for Systemic Peace, Vienna, VA.
@@ -1827,6 +1881,14 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - McCrae, R. R., and Costa, P. T. (2003). *Personality in Adulthood:
   A Five-Factor Theory Perspective* (2nd ed.). Guilford Press, New York.
   ISBN 978-1-57230-827-2.
+- Merolla, J. L., and Zechmeister, E. J. (2011). The nature, determinants,
+  and consequences of Chávez's charisma: evidence from a study of
+  Venezuelan public opinion. *Comparative Political Studies*, 44(1),
+  28–54. https://doi.org/10.1177/0010414010381076
+- Miller, J. D., and Lynam, D. (2001). Structural models of personality
+  and their relation to antisocial behavior: a meta-analytic review.
+  *Criminology*, 39(4), 765–798.
+  https://doi.org/10.1111/j.1745-9125.2001.tb00940.x
 - Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. A Twentieth
   Century Fund Report. Yale University Press, New Haven.
   ISBN 978-0-300-03386-1.
@@ -1859,6 +1921,11 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Reinhart, C. M., and Rogoff, K. S. (2009). *This Time Is Different:
   Eight Centuries of Financial Folly*. Princeton University Press,
   Princeton, NJ. ISBN 978-0-691-14216-6.
+- Riker, W. H. (1962). *The Theory of Political Coalitions*. Yale
+  University Press, New Haven. ISBN 978-0-300-00139-6.
+- Rose-Ackerman, S., and Palifka, B. J. (2016). *Corruption and
+  Government: Causes, Consequences, and Reform* (2nd ed.). Cambridge
+  University Press, Cambridge. ISBN 978-1-107-08120-7.
 - Sabater, J., and Sierra, C. (2002). REGRET: reputation in gregarious
   societies. In *Proceedings of the 5th International Conference on
   Autonomous Agents (AGENTS '01)*, 194–195. ACM.
@@ -1903,6 +1970,10 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   edition by W. Jaffé (1954), *Elements of Pure Economics, or the
   Theory of Social Wealth*. George Allen and Unwin, London, for the
   American Economic Association and the Royal Economic Society.
+- Weber, M. (1922/1978). *Economy and Society* (G. Roth and C. Wittich,
+  eds. and trans.). University of California Press, Berkeley.
+  ISBN 978-0-520-03500-3 (1978 English edition of the original German
+  1922 *Wirtschaft und Gesellschaft*).
 - Wicksell, K. (1898). *Geldzins und Güterpreise: Eine Studie über
   die den Tauschwert des Geldes bestimmenden Ursachen*. Gustav Fischer,
   Jena. English translation by R. F. Kahn (1936), *Interest and Prices:
@@ -1912,6 +1983,8 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Wilensky, U. (1999). NetLogo. Center for Connected Learning and
   Computer-Based Modeling, Northwestern University, Evanston, IL.
   http://ccl.northwestern.edu/netlogo/
+- Winters, J. A. (2011). *Oligarchy*. Cambridge University Press,
+  Cambridge. ISBN 978-1-107-00528-0.
 - Wrigley, E. A., and Schofield, R. S. (1981). *The Population History
   of England, 1541-1871: A Reconstruction*. Edward Arnold, London.
   Reissued by Cambridge University Press, 1989. ISBN 978-0-521-35688-6.
