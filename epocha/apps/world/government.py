@@ -24,6 +24,7 @@ import logging
 import random
 
 from django.conf import settings
+from django.db import transaction
 
 from epocha.apps.agents.models import Agent, Group, Memory
 from epocha.apps.world.government_types import GOVERNMENT_TYPES
@@ -697,6 +698,7 @@ def _update_stability(simulation) -> None:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def process_political_cycle(simulation, tick: int) -> None:
     """Run the full political cycle for one government interval.
 
@@ -714,11 +716,27 @@ def process_political_cycle(simulation, tick: int) -> None:
     7. Coup check (only when stability is below the coup threshold).
     8. Stability recomputation from updated indicators.
 
+    Concurrency: the cycle is wrapped in a single ``transaction.atomic`` block and
+    acquires a ``SELECT ... FOR UPDATE`` lock on the simulation's Government row at
+    entry. This serializes overlapping political ticks on the same simulation,
+    preventing lost updates on ``government.corruption`` and other indicators when
+    two Celery workers race on the same tick boundary. Documented per Round 2
+    finding N-6.
+
     Args:
         simulation: Simulation instance.
         tick: Current simulation tick.
     """
     logger.info("process_political_cycle: simulation=%d tick=%d", simulation.pk, tick)
+
+    # Concurrency guard: lock the Government row for the entire cycle. If no
+    # Government exists yet, fall through (downstream calls handle the absence
+    # gracefully). select_for_update is a no-op on backends without row locking
+    # (e.g. SQLite test runs) but enforced on PostgreSQL.
+    try:
+        Government.objects.select_for_update().get(simulation=simulation)
+    except Government.DoesNotExist:
+        pass
 
     # Step 1: institution health dynamics.
     update_institutions(simulation)
