@@ -1557,7 +1557,7 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   https://doi.org/10.1086/225469
 - Graziano, W. G., and Tobin, R. M. (2002). Agreeableness: dimension
   of personality or social desirability artifact? *Journal of
-  Personality*, 70(5), 695-727. https://doi.org/10.1111/1467-6494.05021
+  Personality*, 70(5), 695-728. https://doi.org/10.1111/1467-6494.05021
 - Greif, A. (1993). Contract enforceability and economic institutions in
   early trade: the Maghribi traders' coalition. *American Economic
   Review*, 83(3), 525–548. JSTOR 2117532.

@@ -203,8 +203,11 @@ def _propagate_memory(
       relationship between recipient and transmitter, and the transmitter's
       reputation as perceived by the recipient.
     - If accepted, creates a full Memory record with the original emotional_weight.
-    - If rejected, creates a weak rumor (emotional_weight=0.1, reduced reliability)
-      so that information can still propagate further without influencing decisions.
+    - If rejected, creates a weak rumor (emotional_weight defaults to
+      settings.EPOCHA_INFO_FLOW_WEAK_RUMOR_WEIGHT = 0.1; reliability
+      reduced by settings.EPOCHA_INFO_FLOW_WEAK_RUMOR_DAMP = 0.3
+      multiplier on top of per-hop decay) so information can still
+      propagate further without influencing decisions.
 
     The new reliability is decayed by the configured decay factor.
 
