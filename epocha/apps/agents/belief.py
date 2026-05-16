@@ -15,10 +15,10 @@ Scientific references:
 - Graziano & Tobin (2002). "Agreeableness: Dimension of Personality or Social
   Desirability Artifact?" Journal of Personality, 70(5), 695-728. Supports the
   role of agreeableness in cooperative information processing.
-- Castelfranchi, C., Falcone, R., & Tan, Y. H. (1998). "The Role of Trust and
-  Deception in Virtual Societies." Proceedings of the 31st Hawaii International
-  Conference on System Sciences. Supports using network-level reputation as a
-  credibility signal.
+- Castelfranchi, C., Falcone, R., & Tan, Y. H. (2001). "The Role of Trust and
+  Deception in Virtual Societies." Proceedings of the 34th Hawaii International
+  Conference on System Sciences (HICSS-34). Supports using network-level
+  reputation as a credibility signal.
 """
 from __future__ import annotations
 

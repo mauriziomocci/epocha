@@ -1689,6 +1689,10 @@ work item.
   reputation and the costs of compliance. *Journal of Artificial
   Societies and Social Simulation*, 1(3).
   https://www.jasss.org/1/3/3.html
+- Castelfranchi, C., Falcone, R., and Tan, Y.-H. (2001). The role of
+  trust and deception in virtual societies. In *Proceedings of the
+  34th Annual Hawaii International Conference on System Sciences
+  (HICSS-34)*. IEEE. https://doi.org/10.1109/hicss.2001.927042
 - Chandler, D. G. (1966). *The Campaigns of Napoleon*. Weidenfeld and
   Nicolson, London, xliii + 1172 pp. (Pre-ISBN trade edition; Macmillan
   reprint 1973, ISBN 978-0-02-523660-8. Source for the per-mode sustained
@@ -1745,6 +1749,9 @@ work item.
 - Granovetter, M. S. (1973). The strength of weak ties. *American
   Journal of Sociology*, 78(6), 1360–1380.
   https://doi.org/10.1086/225469
+- Graziano, W. G., and Tobin, R. M. (2002). Agreeableness: dimension
+  of personality or social desirability artifact? *Journal of
+  Personality*, 70(5), 695-727. https://doi.org/10.1111/1467-6494.05021
 - Greif, A. (1993). Contract enforceability and economic institutions in
   early trade: the Maghribi traders' coalition. *American Economic
   Review*, 83(3), 525–548. JSTOR 2117532.
@@ -1805,10 +1812,16 @@ work item.
 - Masad, D., and Kazil, J. (2015). Mesa: an agent-based modeling framework.
   In *Proceedings of the 14th Python in Science Conference (SciPy 2015)*,
   51–58. https://doi.org/10.25080/Majora-7b98e3ed-009
+- Mayer, R. C., Davis, J. H., and Schoorman, F. D. (1995). An
+  integrative model of organizational trust. *Academy of Management
+  Review*, 20(3), 709-734. https://doi.org/10.2307/258792
 - McCrae, R. R., and Costa, P. T. (1987). Validation of the five-factor
   model of personality across instruments and observers. *Journal of
   Personality and Social Psychology*, 52(1), 81–90.
   https://doi.org/10.1037/0022-3514.52.1.81
+- McCrae, R. R., and Costa, P. T. (2003). *Personality in Adulthood:
+  A Five-Factor Theory Perspective* (2nd ed.). Guilford Press, New York.
+  ISBN 978-1-57230-827-2.
 - Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. A Twentieth
   Century Fund Report. Yale University Press, New Haven.
   ISBN 978-0-300-03386-1.

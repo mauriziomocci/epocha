@@ -40,7 +40,7 @@ _MAX_ACTIVE_TRAITS: int = 2
 # The lists encode graduated intensity so distortion scales continuously with trait extremity.
 
 _HIGH_NEUROTICISM_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
-    # Allport & Postman: sharpening of negative affect in high-anxiety retellers
+    # Allport & Postman: assimilation toward negative-affect schema in high-anxiety retellers
     (re.compile(r"\bargued\b", re.IGNORECASE), ["quarreled", "fought bitterly", "attacked viciously"]),
     (re.compile(r"\bdisagreed\b", re.IGNORECASE), ["clashed", "argued fiercely", "erupted into conflict"]),
     (re.compile(r"\bcritici[sz]ed\b", re.IGNORECASE), ["attacked", "viciously mocked", "verbally assaulted"]),
@@ -94,7 +94,7 @@ _LOW_OPENNESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
 ]
 
 _HIGH_EXTRAVERSION_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
-    # High extraversion: reteller exaggerates social scope (Allport & Postman: sharpening of social salience)
+    # High extraversion: reteller exaggerates social scope (Allport & Postman: assimilation toward expansive-social schema)
     (re.compile(r"\bsomeone\b", re.IGNORECASE), ["several people", "many people", "everyone"]),
     (re.compile(r"\ba person\b", re.IGNORECASE), ["some people", "many people", "a crowd"]),
     (re.compile(r"\bone person\b", re.IGNORECASE), ["some people", "a group", "many people"]),
@@ -200,12 +200,25 @@ def _apply_patterns(
     strength_index: int,
 ) -> str:
     """
-    Apply a list of regex patterns to content, using the replacement at strength_index.
+    Apply the first matching pattern (source-order deliberate).
 
-    Each pattern is tried in order; only the first matching pattern is applied
-    (count=1 to avoid cascading substitutions within the same trait). This mirrors
-    the observation that a single dominant bias typically alters the most salient
-    element in a message, not every word simultaneously.
+    Patterns are evaluated in declaration order; the first matching pattern
+    wins (returned text replaces the entire match). This is a deliberate
+    source-order assumption: patterns are listed in order of intended
+    linguistic priority within each personality block (e.g. the
+    high-neuroticism block lists ``argued``, ``disagreed``, ``criticized``,
+    ``disappointed``, ``went wrong`` in priority order so ``argued``
+    substitutions take precedence over ``disagreed`` substitutions when
+    both could match the same input).
+
+    To change priority, reorder the patterns in the source. Closes Round 2
+    finding N-4 (documents the source-order assumption as deliberate
+    rather than refactoring to match-all-pick-strongest).
+
+    Only the first matching pattern is applied (count=1 to avoid cascading
+    substitutions within the same trait). This mirrors the observation
+    that a single dominant bias typically alters the most salient element
+    in a message, not every word simultaneously.
 
     Args:
         content:        the text to distort

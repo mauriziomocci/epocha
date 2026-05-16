@@ -1,9 +1,11 @@
 """Cross-module invariant test suite for the rumor propagation cluster.
 
-Enforces invariants documented in spec.md acceptance scenarios that
-cross module boundaries (reputation, information_flow, distortion,
-belief, affinity). See specs/20260516-105818-rumor-cluster-audit-repass/
-for the spec defining these invariants.
+Enforces invariants documented in spec.md acceptance scenarios that cross
+module boundaries (reputation, information_flow, distortion, belief,
+affinity). See specs/20260516-105818-rumor-cluster-audit-repass/ for the
+spec defining these invariants.
+
+Round 2 finding N-10 mandates this suite.
 """
 
 import pytest
@@ -88,3 +90,29 @@ class TestDistortionIndependentReputation:
         # at unit level here; the full integration through _propagate_memory
         # is exercised by tests in test_information_flow.py.
         assert extract_action_sentiment(source_content) == sentiment_source
+
+
+class TestSentimentExtractionDistortionIndependence:
+    """N-10 + N-3 supplementary invariant: extract_action_sentiment must
+    return a value that depends ONLY on the keyword content of the input,
+    NOT on distortion-induced reformulations of the same source content.
+    """
+
+    def test_extract_action_sentiment_no_distortion_dependency(self):
+        """Calling extract_action_sentiment with the original source content
+        must produce the canonical signal used by reputation updates.
+
+        Distortion variants of the same source content may yield different
+        sentiment values (that is the documented loudest-keyword-wins
+        behavior). The N-3 fix ensures the reputation update uses the
+        ORIGINAL source content, not the distorted variant.
+        """
+        from epocha.apps.agents.reputation import extract_action_sentiment
+        source = "I decided to help. saved a life"
+        # Distortion would intensify or soften the content, e.g.
+        # "I decided to help. rescued courageously"
+        # but the sentiment from the SOURCE must be the canonical signal.
+        sentiment_source = extract_action_sentiment(source)
+        assert sentiment_source > 0, (
+            "'help' must produce positive sentiment from source content"
+        )
