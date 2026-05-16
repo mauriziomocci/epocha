@@ -87,7 +87,10 @@ docs/                  Spec, piani, whitepaper, backup di memoria
 | Economia Comportamentale (aspettative, credito, proprietà) | sì | sì (CONVERGED 2026-04-15) |
 | Economia base (produzione, monetario, mercato, distribuzione) | sì | audit della spec in attesa |
 | Reputazione (Castelfranchi-Conte-Paolucci 1998) | sì | sì (CONVERGENTE 2026-05-12 round 2) |
-| Information Flow + Distortion + Belief Filter | sì | Round 1 audit + remediation, Round 2 in attesa |
+| Flusso di informazioni (Bartlett 1932; Granovetter 1973 citato non implementato) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
+| Distorsione (assimilazione Allport-Postman 1947) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
+| Filtro di credenza (Mayer 1995; Graziano-Tobin 2002; Castelfranchi-Falcone-Tan 2001) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
+| Affinità (McCrae-Costa 2003; Olson 1965; Axelrod 1984) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
 | Governo + Istituzioni + Stratificazione | sì | Round 1 audit + remediation, Round 2 in attesa |
 | Movimento, Fazioni | sì | Round 1 audit + remediation, Round 2 in attesa |
 | Knowledge Graph | sì | audit scientifico in attesa |

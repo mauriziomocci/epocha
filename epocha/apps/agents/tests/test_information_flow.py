@@ -197,6 +197,33 @@ class TestPropagateInformation:
             assert mem.reliability == 1.0
             assert "plague" in mem.content.lower()
 
+    def test_distinct_public_events_same_tick_produce_two_memories(self, simulation, world, marco):
+        """Two distinct public events firing at the same tick must each yield
+        a memory for every living agent. Closes Round 2 finding IF-5: prior
+        get_or_create lookup omitted content and silently dropped the second
+        event into the same memory slot.
+        """
+        Event.objects.create(
+            simulation=simulation, title="Plague outbreak",
+            description="A terrible plague has hit the city.",
+            tick=5, severity=0.9,
+        )
+        Event.objects.create(
+            simulation=simulation, title="Market crash",
+            description="Grain prices collapsed overnight.",
+            tick=5, severity=0.7,
+        )
+
+        propagate_information(simulation, tick=5)
+
+        public_memories = Memory.objects.filter(
+            agent=marco, source_type=Memory.SourceType.PUBLIC, tick_created=5,
+        )
+        assert public_memories.count() == 2
+        contents = {m.content for m in public_memories}
+        assert any("plague" in c.lower() for c in contents)
+        assert any("market crash" in c.lower() for c in contents)
+
     def test_belief_filter_rejects_unreliable_info(self, simulation, world, marco, elena):
         """A highly skeptical agent rejects information from a distrusted source.
 

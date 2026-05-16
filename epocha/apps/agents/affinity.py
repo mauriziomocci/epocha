@@ -97,9 +97,13 @@ def _personality_similarity(personality_a: dict, personality_b: dict) -> float:
     Similarity is 1 minus the normalized distance: two identical personalities
     yield 1.0; maximally opposite personalities yield 0.0.
 
-    Non-numeric or missing traits are replaced with the neutral midpoint 0.5,
-    which contributes zero to the distance for the missing dimension — an
-    uninformative assumption consistent with treating unknown traits as average.
+    Non-numeric or missing traits default to 0.5 for that agent. If BOTH
+    agents are missing the trait, that dimension contributes zero distance.
+    If only ONE agent has the trait missing, the present trait value is
+    compared against 0.5 — producing a non-zero distance proportional to
+    how far the present value is from neutral. This asymmetric behavior is
+    a known limitation of the default-to-midpoint imputation; closes
+    Round 2 finding N-7.
 
     Reference: McCrae & Costa (2003) "Personality in Adulthood", Guilford Press.
 
@@ -135,6 +139,14 @@ def _relationship_score(agent_a: Agent, agent_b: Agent) -> float:
       - Only positive sentiment boosts the score; negative sentiment
         (hatred, rivalry) does not reduce it below the strength baseline,
         because even hostile relationships involve high interdependence.
+
+    Rival relationships contribute to coalition affinity through repeated-
+    interaction reciprocity dynamics (Axelrod 1984 *The Evolution of
+    Cooperation*, already in whitepaper §13; alternative: Coleman 1990
+    *Foundations of Social Theory* on coalition stability under rivalry,
+    NOT in whitepaper §13). The ``order_by('-strength').first()`` tie-break
+    across relation_types is a tunable heuristic — current behavior favors
+    the strongest record regardless of type. Closes Round 2 finding N-8.
 
     Args:
         agent_a: First agent.

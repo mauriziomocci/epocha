@@ -391,10 +391,10 @@ Every new work item — feature, fix campaign, refactor, deprecation — MUST us
 Constitution authoritative at `.specify/memory/constitution.md` — supersedes code-quality portions of this file where they conflict; composes elsewhere.
 
 **Mandatory authoring path**:
-1. Start: `/speckit-specify "<description>"` → creates branch `<YYYYMMDD-HHMMSS>-<slug>` + `.specify/specs/<branch>/spec.md` scaffold
-2. Spec draft: edit `.specify/specs/<branch>/spec.md` per `.specify/templates/spec-template.md`
-3. `/speckit-plan` → `.specify/specs/<branch>/plan.md`
-4. `/speckit-tasks` → `.specify/specs/<branch>/tasks.md`
+1. Start: `/speckit-specify "<description>"` → creates branch `<YYYYMMDD-HHMMSS>-<slug>` + `specs/<branch>/spec.md` scaffold
+2. Spec draft: edit `specs/<branch>/spec.md` per `.specify/templates/spec-template.md`
+3. `/speckit-plan` → `specs/<branch>/plan.md`
+4. `/speckit-tasks` → `specs/<branch>/tasks.md`
 5. `/speckit-implement` (or subagent-driven-development with tasks.md as input)
 6. Heavy gate phase 2 + 6 adversarial audits via `critical-analyzer`
 7. Closure: merge, frozen-at-commit pin if whitepaper touched, memory sync
@@ -410,4 +410,6 @@ Constitution authoritative at `.specify/memory/constitution.md` — supersedes c
 **Composition with canonical 7-phase workflow**: Spec Kit is the authoring framework; the 7-phase workflow is the gating procedure (HEAVY GATE phases 2 + 6, LIGHT GATE phases 3 + 4). Adversarial scientific audit policy unchanged.
 
 See memory `feedback_speckit_mandatory.md` for the absolute rule.
+
+**Active feature plan**: `specs/20260516-105818-rumor-cluster-audit-repass/plan.md`
 <!-- SPECKIT END -->

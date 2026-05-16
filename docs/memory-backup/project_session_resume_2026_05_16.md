@@ -19,7 +19,7 @@ originSessionId: b165274d-a708-4e8c-abed-b28a018c163f
    - `.gitignore` aggiornato: allow `.claude/skills/speckit-*`, ignore `.claude/settings.local.json`
    - CLAUDE.md SPECKIT section populated con rule absolute
 
-2. **Regola permanente assoluta** in `feedback_speckit_mandatory.md`: tutti i nuovi work item via Spec Kit, branch `<timestamp>-<slug>`, layout `.specify/specs/<branch>/{spec,plan,tasks}.md`. Niente nuovi file sotto `docs/superpowers/`.
+2. **Regola permanente assoluta** in `feedback_speckit_mandatory.md`: tutti i nuovi work item via Spec Kit, branch `<timestamp>-<slug>`, layout `specs/<branch>/{spec,plan,tasks}.md`. Niente nuovi file sotto `docs/superpowers/`.
 
 3. **Commit Spec Kit adoption** `19279a1` su develop, pushato a origin.
 
@@ -30,7 +30,7 @@ originSessionId: b165274d-a708-4e8c-abed-b28a018c163f
 ### Retrofit rumor-cluster in formato Spec Kit
 
 1. Switch to develop, delete `audit-repass/rumor-cluster` local + remote (sicuro: zero commit)
-2. Run `.specify/scripts/bash/create-new-feature.sh --short-name "rumor-cluster-audit-repass" --json` → genera branch `<timestamp>-rumor-cluster-audit-repass` + `.specify/specs/<branch>/spec.md`
+2. Run `.specify/scripts/bash/create-new-feature.sh --short-name "rumor-cluster-audit-repass" --json` → genera branch `<timestamp>-rumor-cluster-audit-repass` + `specs/<branch>/spec.md`
 3. Migrate 16 findings Round 2 da `project_session_resume_2026_05_12.md` in spec.md come requirements/acceptance scenarios
 4. `/speckit-plan` → genera `plan.md`
 5. `/speckit-tasks` → genera `tasks.md`

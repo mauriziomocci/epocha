@@ -42,6 +42,7 @@ discuss reputation maintenance through ongoing social communication).
 from __future__ import annotations
 
 import logging
+import re
 
 from django.db import transaction
 
@@ -58,6 +59,27 @@ logger = logging.getLogger(__name__)
 # ratio is a design choice without empirical derivation).
 _WEIGHT_IMAGE: float = 0.6
 _WEIGHT_REPUTATION: float = 0.4
+
+
+def _normalize_reputation(raw: float) -> float:
+    """Normalize a combined reputation score from [-1, 1] to [0, 1].
+
+    Single source of truth for the [-1, 1] -> [0, 1] mapping used by
+    downstream modules that need a non-negative scale (belief filter,
+    election scoring, dashboards). Neutral 0.0 maps to 0.5.
+
+    Tunable design: the linear mapping `(raw + 1) / 2` is the simplest
+    invariant-preserving transform. Alternative would be a sigmoid for
+    stronger emphasis near the extremes.
+
+    Args:
+        raw: Combined reputation score in [-1.0, 1.0].
+
+    Returns:
+        Normalized score in [0.0, 1.0].
+    """
+    return (raw + 1.0) / 2.0
+
 
 # ---------------------------------------------------------------------------
 # Domain-specific sentiment magnitudes for non-keyword-extracted events
@@ -144,6 +166,16 @@ _IMAGE_DELTAS: dict[str, float] = {
 # scheduled for replacement by an embedding-based or LLM-based sentiment
 # classifier in a future iteration. Treat the magnitudes as ordinal indicators
 # of strength rather than calibrated weights.
+#
+# The action_type literals (e.g. "socialize", "form_group", "hoard") are
+# present alongside the natural-language forms so that the hearsay path in
+# information_flow._propagate_memory recognises the structured tokens emitted
+# by simulation/engine.py when it builds memory content via
+# f"I decided to {action_type}. {reason}". The set is aligned with the
+# non-zero entries of _IMAGE_DELTAS to guarantee that the direct-observation
+# (image) and hearsay (reputation) tracks of the Castelfranchi-Conte-Paolucci
+# model agree on which actions are prosocial vs antisocial. See Round 2
+# audit finding N-1 closure.
 
 _POSITIVE_KEYWORDS: dict[str, float] = {
     "helped": 1.0,
@@ -151,10 +183,17 @@ _POSITIVE_KEYWORDS: dict[str, float] = {
     "saved": 1.0,
     "protected": 1.0,
     "socialized": 0.5,
+    "socialize": 0.5,
     "traded": 0.5,
+    "trade": 0.5,
+    "work": 0.5,
     "founded": 0.3,
     "built": 0.3,
     "united": 0.3,
+    # Aligned with _IMAGE_DELTAS prosocial action types (N-1 closure)
+    "form_group": 0.5,
+    "join_group": 0.5,
+    "pair_bond": 0.5,
 }
 
 _NEGATIVE_KEYWORDS: dict[str, float] = {
@@ -169,6 +208,11 @@ _NEGATIVE_KEYWORDS: dict[str, float] = {
     "exploited": -0.8,
     "oppressed": -0.8,
     "destroyed": -1.0,
+    "avoid": -0.5,
+    # Aligned with _IMAGE_DELTAS antisocial action types (N-1 closure)
+    "protest": -0.5,
+    "hoard": -0.5,
+    "separate": -0.5,
 }
 
 _ALL_SENTIMENT_KEYWORDS: dict[str, float] = {**_POSITIVE_KEYWORDS, **_NEGATIVE_KEYWORDS}
@@ -335,8 +379,13 @@ def extract_action_sentiment(content: str) -> float:
     """
     lowered = content.lower()
     best: float = 0.0
+    # Word-boundary match prevents substring collisions (e.g. `avoid` keyword
+    # would otherwise spuriously match `avoid_conception` content because
+    # Python's \b treats `_` as a word character, so `\bavoid\b` correctly
+    # does NOT match inside `avoid_conception`). Closes Round 2 finding N-1
+    # follow-up regression discovered during US1 implementation.
     for keyword, value in _ALL_SENTIMENT_KEYWORDS.items():
-        if keyword in lowered and abs(value) > abs(best):
+        if re.search(rf"\b{re.escape(keyword)}\b", lowered) and abs(value) > abs(best):
             best = value
     return best
 

@@ -171,6 +171,17 @@ EPOCHA_INFO_FLOW_BELIEF_THRESHOLD = env.float("EPOCHA_INFO_FLOW_BELIEF_THRESHOLD
 # Maximum recipients per memory per tick (prevents unbounded fan-out).
 EPOCHA_INFO_FLOW_MAX_RECIPIENTS = env.int("EPOCHA_INFO_FLOW_MAX_RECIPIENTS", default=20)
 
+# Weak-rumor emotional_weight: tunable design parameter for the secondary
+# rumor channel where the transmitter does not personally believe the
+# information but transmits it as gossip (Castelfranchi-Conte-Paolucci 1998).
+# Default 0.1 ensures the rumor does not influence decision-making.
+EPOCHA_INFO_FLOW_WEAK_RUMOR_WEIGHT = env.float("EPOCHA_INFO_FLOW_WEAK_RUMOR_WEIGHT", default=0.1)
+
+# Weak-rumor reliability dampening multiplier on top of the per-hop
+# reliability decay. Tunable design parameter; default 0.3 limits further
+# downstream impact of weak-rumor retransmissions.
+EPOCHA_INFO_FLOW_WEAK_RUMOR_DAMP = env.float("EPOCHA_INFO_FLOW_WEAK_RUMOR_DAMP", default=0.3)
+
 # --- Faction Dynamics ---
 # How often faction dynamics run (every N ticks).
 EPOCHA_FACTION_DYNAMICS_INTERVAL = env.int("EPOCHA_FACTION_DYNAMICS_INTERVAL", default=5)
