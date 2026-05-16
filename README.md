@@ -87,7 +87,10 @@ docs/                  Specs, plans, whitepaper, memory backup
 | Economy Behavioral (expectations, credit, property) | yes | yes (CONVERGED 2026-04-15) |
 | Economy base (production, monetary, market, distribution) | yes | spec audit pending |
 | Reputation (Castelfranchi-Conte-Paolucci 1998) | yes | yes (CONVERGED 2026-05-12 round 2) |
-| Information Flow + Distortion + Belief Filter | yes | Round 1 audit + remediation, Round 2 pending |
+| Information Flow (Bartlett 1932; Granovetter 1973 cited not implemented) | yes | yes (CONVERGED 2026-05-16 round 2) |
+| Distortion (Allport-Postman 1947 assimilation) | yes | yes (CONVERGED 2026-05-16 round 2) |
+| Belief Filter (Mayer 1995; Graziano-Tobin 2002; Castelfranchi-Falcone-Tan 2001) | yes | yes (CONVERGED 2026-05-16 round 2) |
+| Affinity (McCrae-Costa 2003; Olson 1965; Axelrod 1984) | yes | yes (CONVERGED 2026-05-16 round 2) |
 | Government + Institutions + Stratification | yes | Round 1 audit + remediation, Round 2 pending |
 | Movement, Factions | yes | Round 1 audit + remediation, Round 2 pending |
 | Knowledge Graph | yes | scientific audit pending |

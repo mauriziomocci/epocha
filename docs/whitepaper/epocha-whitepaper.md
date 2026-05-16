@@ -1077,6 +1077,211 @@ The `extract_action_sentiment` keyword extractor uses a loudest-keyword-wins heu
 
 
 
+## 4.4 Rumor propagation
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+The rumor propagation cluster transcribes Bartlett (1932) on serial reproduction and Allport and Postman (1947) on assimilation (partial — only the assimilation mechanism is implemented; leveling and sharpening are documented Known Limitations) into a four-stage pipeline. The first stage, `agents/information_flow.py`, propagates memories along agent relationship graphs over up to three hops per tick. The second stage, `agents/distortion.py`, applies personality-modulated text transformations driven by the reteller's Big Five vector before the message reaches the next recipient. The third stage, `agents/belief.py`, filters acceptance via a weighted score that combines information reliability, relationship trust, receiver personality, and transmitter reputation. The fourth stage, `agents/affinity.py`, contributes the Big Five personality similarity score that the belief filter consumes through the relationship trust component and that downstream factions consume during coalition formation.
+
+Granovetter (1973) on the structural role of weak ties is cited in `information_flow.py` as the conceptual framing for cross-cluster bridging but is explicitly NOT implemented at the propagation layer: memories propagate equally regardless of tie strength, with no weak-tie weighting on propagation probability. The weak-tie weighting is documented as a Known Limitation and tracked for a future iteration; the cited reference is preserved as a citation-without-implementation per the Round 2 audit's IF-1 closure.
+
+### 4.4.1 Information flow
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+#### Background
+
+Information flow operationalises Bartlett (1932) on serial reproduction: a memory passed agent-to-agent loses fidelity at every hop. Bartlett documents the degradation qualitatively rather than as a specific geometric law; the geometric reliability decay adopted by the implementation is a tunable design parameter inscribed in the era template and is not claimed as a direct Bartlett result. Granovetter (1973) on the strength of weak ties is cited as the conceptual frame for the cross-cluster bridging role of low-strength relationships but is explicitly NOT implemented at the propagation layer (see chapter intro).
+
+#### Model
+
+Each tick, the propagator runs four phases against the simulation's memory store. Phase 1 selects direct memories created at the current tick whose `emotional_weight` exceeds the propagation threshold and transmits them to the agent's social neighbours as hearsay (hop 1). Phase 2 takes the hearsay created at the previous tick and forwards it as rumor (hop 2). Phase 3 takes the rumors created at the previous tick and forwards them as further rumors as long as the estimated hop count is below the cap. Phase 4 broadcasts the tick's public events to every living agent regardless of social distance. Belief filtering at each receiver decides whether the incoming memory becomes a full memory at the receiver's emotional weight or a weak rumor at a damped weight that still propagates downstream without influencing decisions.
+
+#### Equations
+
+Equation (4.19) — Reliability decay across propagation hops:
+
+  reliability_{h+1} = reliability_h · δ
+
+with δ = `EPOCHA_INFO_FLOW_RELIABILITY_DECAY` = 0.7 by default. The compounding form yields 0.7^3 ≈ 0.34 after three hops and 0.7^5 ≈ 0.17 after five hops.
+
+Equation (4.20) — Hop estimation by inverting the decay relation:
+
+  hop = round( log(reliability) / log(δ) )
+
+The estimator assumes initial reliability = 1.0; memories that originate with reliability < 1.0 are overestimated in hop count (Known Limitation IF-4).
+
+Equation (4.21) — Weak-rumor downstream parameters when the belief filter rejects:
+
+  emotional_weight_weak = w_weak
+  reliability_weak     = reliability_h · δ · d_weak
+
+with w_weak = `EPOCHA_INFO_FLOW_WEAK_RUMOR_WEIGHT` = 0.1 and d_weak = `EPOCHA_INFO_FLOW_WEAK_RUMOR_DAMP` = 0.3.
+
+#### Parameters
+
+| Parameter | Symbol | Value | Source/Status |
+|---|---|---|---|
+| Propagation threshold | — | 0.3 | tunable design (`EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD`); prevents trivial observations from flooding the network |
+| Per-hop reliability decay | δ | 0.7 | tunable design (`EPOCHA_INFO_FLOW_RELIABILITY_DECAY`); Bartlett (1932) documents degradation qualitatively without prescribing a rate |
+| Maximum propagation hops | — | 3 | tunable design (`EPOCHA_INFO_FLOW_MAX_HOPS`) |
+| Recipients per propagation step | — | 20 | tunable design (`EPOCHA_INFO_FLOW_MAX_RECIPIENTS`); caps fan-out per memory |
+| Weak-rumor emotional weight | w_weak | 0.1 | tunable design (`EPOCHA_INFO_FLOW_WEAK_RUMOR_WEIGHT`) |
+| Weak-rumor reliability damping | d_weak | 0.3 | tunable design (`EPOCHA_INFO_FLOW_WEAK_RUMOR_DAMP`) |
+
+#### Algorithm
+
+`propagate_information(simulation, tick)` at `agents/information_flow.py:39-181` runs the four-phase pass. Phase 1 (`information_flow.py:71-90`) reads direct memories from this tick above the threshold and calls `_propagate_memory()` with `target_source_type = HEARSAY`. Phase 2 (`information_flow.py:103-121`) reads hearsay from the previous tick and calls the same helper with `target_source_type = RUMOR`; the propagation threshold is deliberately NOT enforced at this phase, modelling the gossip property that downstream agents retransmit what they have already heard regardless of personal salience (Round 2 audit finding N-9 closure). Phase 3 (`information_flow.py:124-145`) reads rumors from the previous tick, estimates the current hop via equation (4.20), and propagates further only when below `max_hops`. Phase 4 (`information_flow.py:148-170`) broadcasts public events with `Memory.objects.get_or_create()` keyed on `(agent, source_type=PUBLIC, tick_created, origin_agent=None, content=content)` — the `content` field is part of the lookup so that two distinct public events firing on the same tick produce two memories per agent rather than coalescing (Round 2 audit finding IF-5 closure). The per-memory helper `_propagate_memory()` (`information_flow.py:184-341`) extracts sentiment from the undistorted source content (Round 2 finding N-3: distorting first would let high-neuroticism transmitters inflate negative sentiment), distorts the content for the recipient via `distort_information()`, always updates the recipient's reputation toward the origin agent, queries `get_combined_score()` for the transmitter reputation signal, and calls `should_believe()` to decide whether to create a full memory or a weak-rumor downstream.
+
+#### Simplifications
+
+1. **IF-1 — Granovetter weak-tie weighting not implemented**: propagation probability does not depend on tie strength. The cited reference is preserved as a conceptual frame; the operational implementation is deferred to a future iteration. Documented as Known Limitation.
+
+2. **IF-4 — Hop overestimation when initial reliability < 1.0**: equation (4.20) inverts `reliability = δ^hop` under the assumption of initial reliability 1.0. A memory originating from a public event with severity < 1.0 begins with reliability < 1.0 and is therefore counted as already having traversed phantom hops, causing premature propagation termination. The behavioral fix would require a `hop_count` `PositiveSmallIntegerField` on the Memory model with a backfill migration; deferred.
+
+3. **IF-5 — Public-event deduplication keys on content**: addressed in 2026-05-16 round 2 — the `get_or_create()` lookup at `information_flow.py:160-170` includes the `content` field so that two distinct public events firing on the same tick produce two memories per agent. The pre-audit form coalesced same-tick public events into a single record.
+
+4. **N-9 — Phase 2 threshold asymmetry**: Phase 2 (hearsay → rumor) deliberately does NOT enforce `emotional_weight >= EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD`. The threshold gates entry into the rumor network at hop 1; once a memory has been deemed worth transmitting upstream, downstream agents retransmit regardless of personal salience. This is the gossip property and is documented inline at `information_flow.py:93-102`. If this asymmetry is undesired, enforce the threshold consistently across phases.
+
+### 4.4.2 Distortion
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+#### Background
+
+Distortion implements the assimilation mechanism of Allport and Postman (1947), *The Psychology of Rumor*: the reteller's strong pre-existing attitudes act as a filter that bends the rumor toward those attitudes. Allport and Postman describe three mechanisms — leveling (progressive detail loss), sharpening (selective emphasis), and assimilation (reshaping toward the reteller's schema). Only assimilation is implemented in the current module; leveling and sharpening are documented as Known Limitations. The personality basis is the five-factor model of Costa and McCrae (1992), with Big Five trait extremity selecting which assimilation pattern fires.
+
+#### Model
+
+The distorter inspects the reteller's Big Five vector and selects up to `_MAX_ACTIVE_TRAITS = 2` traits whose value crosses the extreme thresholds. For each active trait, a graduated set of regex substitutions is applied at one of three strength bands (mild, moderate, strong) determined by the distance from the threshold. Each pattern's first match wins (source-order deliberate, Round 2 audit N-4 closure); subsequent patterns within the same trait do not fire, modelling the observation that a single dominant bias typically reshapes the most salient element of a message rather than every word simultaneously.
+
+#### Equations
+
+Equation (4.22) — Trait extremity threshold mapping:
+
+  active(t) = 1 if value(t) ≥ θ_high OR value(t) ≤ θ_low; else 0
+
+with θ_high = `_HIGH_THRESHOLD` = 0.7 and θ_low = `_LOW_THRESHOLD` = 0.3. The strength index 0/1/2 (mild/moderate/strong) is computed by partitioning the distance from the threshold into three equal bands; full derivation at `distortion.py:148-185`.
+
+#### Parameters
+
+| Parameter | Symbol | Value | Source/Status |
+|---|---|---|---|
+| High-extremity threshold | θ_high | 0.7 | tunable design (`distortion.py:_HIGH_THRESHOLD`); Allport and Postman (1947) do not prescribe a numeric cutoff |
+| Low-extremity threshold | θ_low | 0.3 | tunable design (`distortion.py:_LOW_THRESHOLD`); symmetric counterpart of θ_high |
+| Maximum concurrent active traits | — | 2 | tunable design (`distortion.py:_MAX_ACTIVE_TRAITS`); higher values produce text that diverges too rapidly across hops |
+
+#### Algorithm
+
+`distort_information(content, personality)` at `distortion.py:270-306` is a pure function: no I/O, no database access. `_select_active_traits()` (`distortion.py:188-215`) ranks Big Five traits by `abs(value - 0.5)` and returns the top two crossing the extremity thresholds. For each active trait, `_TRAIT_PATTERNS[trait]` yields a (high_patterns, low_patterns) tuple and the appropriate side is selected by trait direction. `_apply_patterns()` (`distortion.py:218-257`) iterates the pattern list in declaration order, applies the first match at the selected strength band via `pattern.sub(replacement, content, count=1)`, and stops. The two active traits are applied sequentially so the first trait's substitution may consume the token the second trait would have matched; this is correct behaviour for a dominant-reframe model. The high-neuroticism, low-neuroticism, high-agreeableness, low-agreeableness, high-openness, low-openness, high-extraversion, low-extraversion, high-conscientiousness, and low-conscientiousness pattern tables are inlined at `distortion.py:63-145`.
+
+#### Simplifications
+
+1. **D-1 — Sharpening and leveling not implemented**: Allport and Postman (1947) describe three serial-reproduction mechanisms (leveling, sharpening, assimilation); only assimilation is implemented. Leveling would be modeled as progressive sentence truncation across propagation hops; sharpening would be modeled as keyword emphasis or repetition for contextually salient terms. Deferred; documented as Known Limitation.
+
+2. **D-4 — High-openness multi-hop pattern accumulation**: the high-openness pattern (`_HIGH_OPENNESS_PATTERNS` at `distortion.py:99-107`) inserts a speculative clause (" -- perhaps for a reason. ") after every period-space boundary in the input. Across multiple propagation hops with high-openness retellers, three-sentence inputs accumulate three speculative qualifiers, then nine after another hop, then twenty-seven. The accumulation is pathological. Future work could restrict insertion to the first or last sentence boundary, or cap by transmitter count. Documented as Known Limitation; no code change in current iteration.
+
+3. **D-5 — Low-conscientiousness proper-noun anonymization is over-broad**: the low-conscientiousness pattern (`_LOW_CONSCIENTIOUSNESS_PATTERNS` at `distortion.py:137-145`) replaces all mid-sentence capitalized words with "somebody" / "someone" / "this person". This destroys non-person proper nouns (city names, place names, titles), not just person names. A NER pre-pass or a position-restricted pattern (e.g. only after relational verbs "with X", "to X") would fix it. Documented as Known Limitation; no code change in current iteration.
+
+4. **N-4 — Source-order first-match-wins is deliberate**: pattern lists are evaluated in declaration order and the first matching pattern wins. Patterns are listed in order of intended linguistic priority within each personality block (e.g. the high-neuroticism block lists `argued`, `disagreed`, `criticized`, `disappointed`, `went wrong` so that `argued` substitutions take precedence over `disagreed` substitutions when both could match the same input). Closes Round 2 finding N-4 by documenting the source-order assumption as deliberate rather than refactoring to a match-all-pick-strongest scheme.
+
+### 4.4.3 Belief filter
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+#### Background
+
+The belief filter decides whether the receiver accepts an incoming piece of information as a full memory or downgrades it to a weak rumor. The structure is loosely inspired by Mayer, Davis and Schoorman (1995), *An Integrative Model of Organizational Trust*, which decomposes trust into ability, benevolence, and integrity; the implementation does not claim to operationalise those constructs and adopts a four-component weighted score whose components are operational rather than psychometric. The personality contribution is grounded in Graziano and Tobin (2002), who link agreeableness to cooperative information processing; the openness contribution to the personality factor is an Epocha design choice without specific empirical support from that paper. The network-reputation contribution is supported by Castelfranchi, Falcone and Tan (2001), *The Role of Trust and Deception in Virtual Societies* (HICSS-34), which establishes the principle of using network-level reputation as a credibility signal in multi-agent systems.
+
+#### Model
+
+The acceptance score is a convex combination of four signals: information reliability (after per-hop decay), relationship trust between receiver and transmitter, receiver personality, and the transmitter's reputation as perceived by the wider network. The receiver accepts the memory when the acceptance score crosses the configured threshold; otherwise it generates the weak-rumor downstream of equation (4.21).
+
+#### Equations
+
+Equation (4.23) — Acceptance score:
+
+  acceptance = w_r · reliability + w_t · trust + w_p · personality + w_rep · reputation_norm
+
+with weights w_r = 0.3, w_t = 0.2, w_p = 0.2, w_rep = 0.3. The components are defined as follows. Trust = (relationship_strength + max(0, relationship_sentiment)) / 2. Personality = 0.6 · agreeableness + 0.4 · openness. reputation_norm normalises the combined image+reputation score from [-1, 1] to [0, 1] via the single source of truth at `reputation.py:_normalize_reputation()` (Round 2 finding N-5 closure). Acceptance is `acceptance ≥ τ_b` with τ_b = `EPOCHA_INFO_FLOW_BELIEF_THRESHOLD` = 0.4.
+
+#### Parameters
+
+| Parameter | Symbol | Value | Source/Status |
+|---|---|---|---|
+| Reliability weight | w_r | 0.3 | tunable design (`belief.py:89-94`) |
+| Relationship trust weight | w_t | 0.2 | tunable design (`belief.py:89-94`) |
+| Personality weight | w_p | 0.2 | tunable design (`belief.py:89-94`) |
+| Reputation weight | w_rep | 0.3 | tunable design (`belief.py:89-94`) |
+| Agreeableness contribution to personality | — | 0.6 | Graziano and Tobin (2002) link agreeableness to cooperative information processing |
+| Openness contribution to personality | — | 0.4 | tunable design (`belief.py:79`); not supported by the Graziano and Tobin (2002) paper |
+| Acceptance threshold | τ_b | 0.4 | tunable design (`EPOCHA_INFO_FLOW_BELIEF_THRESHOLD`); neutral 0.5 inputs yield acceptance, favouring information propagation over skepticism |
+
+#### Algorithm
+
+`should_believe(reliability, receiver_personality, relationship_strength, relationship_sentiment, transmitter_reputation)` at `belief.py:28-101` evaluates equation (4.23) and returns the boolean acceptance decision. Negative `relationship_sentiment` is clamped to zero in the trust component: distrust does not increase trust (`belief.py:68-69`). The reputation normalisation delegates to `reputation._normalize_reputation()` via lazy import to avoid the circular dependency between `belief.py` and `reputation.py` (Round 2 finding N-5 closure). The default `transmitter_reputation = 0.0` maps to a neutral reputation factor of 0.5, preserving backward compatibility for callers that do not yet supply the argument.
+
+#### Simplifications
+
+1. **Mayer (1995) loosely inspired, not strictly implemented**: the belief filter borrows the conceptual idea of decomposing trust into multiple components but does not implement the ability/benevolence/integrity constructs of the original framework or their measurement methods. The four-component score is operational rather than psychometric. Acknowledged inline in the module docstring.
+
+2. **Openness contribution to personality factor is a design choice**: Graziano and Tobin (2002) support the agreeableness contribution but do not extend to openness. The 0.4 weight on openness in the personality factor is justified by the qualitative argument that open individuals may be more receptive to novel information; it is documented as a design choice without specific empirical support and is exposed as a tunable parameter.
+
+3. **Acceptance threshold favours propagation over skepticism**: with all neutral inputs (0.5), the acceptance score is 0.5, which exceeds the 0.4 threshold — neutral agents accept information by default. This is an intentional design choice. Setting τ_b above 0.5 would invert the bias to favour skepticism.
+
+### 4.4.4 Affinity
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+#### Background
+
+Affinity is the pairwise score that quantifies how likely two agents are to form or join the same faction, and is consumed downstream by the factions module and by the relationship-trust component of the belief filter. Personality similarity is grounded in McCrae and Costa (2003), *Personality in Adulthood* (2nd ed., Guilford Press): the five-factor model is the standard framework for measuring inter-individual personality similarity. The circumstance component is inspired by Olson (1965), *The Logic of Collective Action*: groups form around shared material conditions, not just personality fit. The rivalry-as-affinity heuristic in the relationship score draws on Axelrod (1984), *The Evolution of Cooperation*, for the repeated-interaction reciprocity dynamics that make even hostile relationships coalitionally relevant (Round 2 finding N-8 closure).
+
+#### Model
+
+The affinity score is a weighted average of three orthogonal dimensions: personality similarity (Big Five Euclidean distance), relationship quality (strength plus positive sentiment), and circumstance alignment (class, mood, shared crisis memory, wealth quartile, occupational role). The weights (0.3 / 0.3 / 0.4) reflect the qualitative judgment that factions form primarily around shared material circumstances rather than personality match.
+
+#### Equations
+
+Equation (4.24) — Big Five personality similarity:
+
+  similarity = 1 − ( sqrt( Σ_t (a_t − b_t)² ) / sqrt(5) )
+
+where the sum runs over the five Big Five traits and the denominator sqrt(5) is the maximum Euclidean distance when each trait is in [0, 1]. Missing traits default to 0.5 (the midpoint of [0, 1] — a neutral uninformative prior); the asymmetric behaviour when only one agent is missing a trait is documented as N-7 simplification.
+
+Equation (4.25) — Composite affinity score:
+
+  affinity = w_P · similarity + w_R · relationship + w_C · circumstance
+
+with w_P = 0.3, w_R = 0.3, w_C = 0.4. The relationship component is (strength + max(0, sentiment)) / 2; the circumstance component sums additive factors capped at 1.0 (see Parameters table).
+
+#### Parameters
+
+| Parameter | Symbol | Value | Source/Status |
+|---|---|---|---|
+| Personality weight | w_P | 0.3 | tunable design (`affinity.py:_W_PERSONALITY`); McCrae and Costa (2003) for the Big Five basis |
+| Relationship weight | w_R | 0.3 | tunable design (`affinity.py:_W_RELATIONSHIP`) |
+| Circumstance weight | w_C | 0.4 | tunable design (`affinity.py:_W_CIRCUMSTANCE`); Olson (1965) for the primacy-of-circumstances framing |
+| Default missing trait value | — | 0.5 | tunable design (`affinity.py:_TRAIT_DEFAULT`); neutral uninformative prior |
+| Shared-memory recency window | — | 10 ticks | tunable design (`affinity.py:_SHARED_MEMORY_WINDOW`) |
+| Same social class additive bonus | — | +0.30 | tunable design |
+| Both mood < 0.4 additive bonus | — | +0.20 | tunable design |
+| Shared recent public memory bonus | — | +0.20 | tunable design |
+| Same wealth quartile bonus | — | +0.15 | tunable design (threshold: `abs(w_a - w_b) / max(w_a, w_b) < 0.25`) |
+| Same occupational role bonus | — | +0.15 | tunable design |
+
+#### Algorithm
+
+`compute_affinity(agent_a, agent_b, tick)` at `affinity.py:61-91` orchestrates the three components and returns a symmetric score clamped to [0.0, 1.0]. Personality similarity uses `_personality_similarity()` (`affinity.py:94-126`), which implements equation (4.24) with the default-to-midpoint trait imputation (Round 2 finding N-7 closure documents the asymmetric behaviour when only one agent is missing a trait). The relationship score uses `_relationship_score()` (`affinity.py:129-176`), which performs a bidirectional `Relationship.objects.get()` lookup and falls back to the strongest record on `MultipleObjectsReturned`; the rivalry-as-affinity heuristic (only positive sentiment boosts the score; negative sentiment does not reduce it below the strength baseline) is justified by Axelrod (1984) repeated-interaction reciprocity and the broader observation that even hostile relationships involve high interdependence (Round 2 finding N-8 closure). The circumstance score uses `_circumstance_score()` (`affinity.py:179-250`), which evaluates the five additive bonuses against PostgreSQL-backed memory and agent queries with the shared-memory window enforced via `tick_created__gte=tick - _SHARED_MEMORY_WINDOW`. The `max_wealth > 0.0` guard prevents division by zero when both agents have zero wealth (treated as same quartile by definition).
+
+#### Simplifications
+
+1. **N-7 — Asymmetric missing-trait imputation**: when both agents are missing a Big Five trait, the dimension contributes zero distance; when only one agent is missing the trait, the present value is compared against 0.5, producing a non-zero distance proportional to how far the present value is from neutral. This asymmetric behaviour is a known limitation of the default-to-midpoint imputation and is documented inline. A more principled approach (e.g. multiple imputation, or explicitly skipping the dimension on either-side missingness) is deferred.
+
+2. **N-8 — Rivalry-as-affinity heuristic**: the relationship score takes (strength + max(0, sentiment)) / 2 — negative sentiment does not subtract from the score below the strength baseline. The heuristic is justified by Axelrod (1984) repeated-interaction reciprocity and Coleman (1990) on coalition stability under rivalry (Coleman 1990 is referenced inline but NOT in whitepaper §13 References); rivalry concentrates social attention and produces a coalitional dynamic that pure liking cannot capture. The choice is documented; an alternative scheme that penalises rivalry is open for future calibration.
+
+3. **Wealth quartile threshold is relative**: the same-quartile bonus uses `abs(w_a - w_b) / max(w_a, w_b) < 0.25` rather than an absolute wealth difference. The relative form scales naturally across era templates with different absolute wealth distributions; the 0.25 threshold is a tunable design parameter.
+
 ---
 
 # 5. Implementation
@@ -1258,39 +1463,33 @@ Validation experiments are specified, not yet executed. The full execution of th
 
 # 8. Designed Subsystems (implemented, audit pending)
 
-Chapter 8 covers the six Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation has since converged on round 2 (2026-05-12) and was promoted to §4.3 of this whitepaper, leaving the remaining seven modules in this chapter pending. The resolution pass and the convergence re-audit on those seven are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
+Chapter 8 covers the five Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation converged on round 2 (2026-05-12) and was promoted to §4.3, and the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity per the audit's IF-1 fix) converged on round 2 (2026-05-16) and was promoted to §4.4, leaving the remaining six modules in this chapter pending. The resolution pass and the convergence re-audit on those six are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
 
-## 8.1 Cluster: Rumor propagation (Information Flow + Distortion + Belief Filter)
-
-The rumor-propagation cluster covers the three modules that move a rumor from a single agent's memory through the social network and into the receiving agent's belief state: `information_flow.py` selects which agents become exposed to the rumor at each propagation hop, `distortion.py` reshapes the rumor's content under the reteller's personality at each hop, and `belief.py` filters the incoming rumor through the receiver's prior beliefs and produces the updated belief that downstream decision modules read. The implementation transcribes two families of literature at the propagation layer: Allport and Postman (1947) on the levelling/sharpening/assimilation of serial reproduction, which `distortion.py` implements as personality-modulated deletion, exaggeration, and reshaping rules; and Bartlett (1932) on serial reproduction more broadly, whose distortion mechanisms `distortion.py` operationalises as the rationale for re-applying personality-driven reshaping at every hop rather than treating the rumor as a fixed payload that propagates unchanged. A third family — Granovetter (1973) on the structural role of weak ties in information diffusion — is cited in the `information_flow.py` docstring as the conceptual frame for cross-cluster bridging but is explicitly NOT implemented at the propagation layer: information currently propagates equally regardless of tie strength, with no weak-tie weighting on propagation probability. The 2026-04-12 audit batch flagged this gap as a citation-without-implementation; the weak-tie weighting is therefore documented as a known limitation rather than a transcribed model. Code paths: `epocha/apps/agents/information_flow.py`, `epocha/apps/agents/distortion.py`, `epocha/apps/agents/belief.py`.
-
-> Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-05-information-flow-design.md`.
-
-## 8.2 Cluster: Political institutions (Government + Institutions + Stratification)
+## 8.1 Cluster: Political institutions (Government + Institutions + Stratification)
 
 The political-institutions cluster covers the four modules that turn agent-level political action into regime-level dynamics: `government.py` implements the per-tick government step (legitimacy decay, election scheduling, succession on the death of an incumbent, and the coup-attempt resolution), `government_types.py` declares the seven regime archetypes (full democracy, semi-democracy, traditional monarchy, partial autocracy, totalitarian regime, theocracy, anarchy) with their per-archetype legitimacy-decay rates and election rules, `institutions.py` carries the longer-horizon institutional state (constitutional protections, party structure, succession crises) that cross-references the government step, and `stratification.py` computes per-zone Gini and the revolt-probability response that feeds back into government legitimacy. The literature pointers carried by the source are Acemoglu and Robinson (2006) on the inequality-instability link (already in §13) — the spec uses their Gini-thresholded revolt probability as the qualitative shape of the response of `stratification.py` — Powell and Thyne (2011) on the empirical base rate of coup outcomes (cited in `government.py` for the ~50% success rate of coup attempts), the Polity5 project (Marshall and Gurr 2020, cited in `government_types.py`) for the regime-typology calibration of legitimacy-decay rates and election rules per archetype, and Alesina and Perotti (1996) on the qualitative correlation between income distribution and political instability (cited in `political_feedback.py` of the economy app for the cross-module bridge from §3.6 economic state into government legitimacy). Code paths: `epocha/apps/world/government.py`, `epocha/apps/world/government_types.py`, `epocha/apps/world/institutions.py`, `epocha/apps/world/stratification.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-05-government-institutions-stratification-design.md`.
 
-## 8.3 Movement
+## 8.2 Movement
 
 The movement module governs the per-tick relocation of agents between zones under three intent classes: voluntary economic migration driven by the agent's `move_to_zone` action, voluntary social migration driven by relationship pull (a partner, a parent, or a faction leader in another zone), and involuntary movement driven by zone destruction or expulsion. The implementation carries a per-mode travel-rate table (foot 25 km/day, horse 60 km/day, carriage 60 km/day on good roads, river boat 50 km/day) calibrated from David Chandler (1966), *The Campaigns of Napoleon* — a military-history source for sustained civilian and cavalry march rates that include rest stops — and from Braudel (1979) for the qualitative shape of pre-industrial trade-route geography, with the road-quality multiplier left as a tunable design parameter inscribed in the era template rather than as an empirical fit to a specific historical road network. The 2026-04-12 audit batch flagged two calibration concerns against this module: the 25 km/day foot rate is at the high end of the empirical range for non-military civilian travel (a refugee, a trader on foot, or a peasant moving between villages typically averages 15-20 km/day per the same Chandler source when accounting for terrain and load), and the inter-zone graph that the movement step traverses is the abstract zone graph of `world/models.py` rather than a routed-distance computation against actual zone geometry (the geometry is already stored in PostGIS per §3.6 but the routing layer is deferred to the broader-PostGIS work item of the roadmap of Chapter 9). Code path: `epocha/apps/agents/movement.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-07-movement-system-design.md`.
 
-## 8.4 Factions
+## 8.3 Factions
 
 The factions module covers the three life-cycle phases of an Epocha faction: formation (an agent declares the intent to found a faction and other agents elect to join under shared-grievance and personality-affinity rules), maintenance (per-tick cohesion update, leadership succession on the death or defection of the founder, internal discipline against members whose actions diverge from the faction's stated platform), and dissolution (a faction whose cohesion falls below the threshold, or whose membership falls below the minimum, is dissolved and its members released). The implementation cites Olson (1965), *The Logic of Collective Action*, as the conceptual frame for faction formation: the spec emphasizes that shared grievances and shared circumstances (zone, occupation, exposure to the same event) drive group formation more reliably than personality similarity, and the formation rule in `factions.py` weights shared-grievance memories above personality affinity in the candidate-evaluation score. The negativity-bias asymmetry in the cohesion update (a divergent action costs −0.15 cohesion against a +0.10 reward for an aligned action) is attributed inline to Baumeister et al. (2001) "Bad is stronger than good." The Iannaccone (1992) club-goods literature on cult and commune cohesion through costly-signal sacrifice is *not* implemented in the current module — there is no costly-signal initiation rite, no exclusionary boundary marker beyond simple membership, and no free-rider-detection mechanism — and the spec records this as a deferred extension rather than a current citation. Code path: `epocha/apps/agents/factions.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-05-factions-leadership-design.md`.
 
-## 8.5 Knowledge Graph
+## 8.4 Knowledge Graph
 
 The Knowledge Graph cluster implements the simulation's long-horizon memory: the per-simulation graph of entities, relations, and events that the LLM context builder of §3.5 queries to ground each agent's per-tick decision in the simulation's prior history rather than re-reading the entire raw event log. The cluster is split across nine modules under `epocha/apps/knowledge/`: `chunking.py` slices the raw event log into LLM-sized passages, `extraction.py` runs the LLM-driven entity-and-relation extractor over each chunk, `embedding.py` produces the dense vector representations of every chunk and every node (the multilingual-e5-large model is the current default per the spec), `merge.py` deduplicates extracted nodes against the existing graph, `normalizer.py` canonicalises entity surface forms to their preferred labels, `materialization.py` writes the consolidated graph back to the persistence layer, `ontology.py` declares the entity and relation type system, `prompts.py` collects the LLM prompts for extraction and merge, and `api.py` exposes the graph to the dashboard graph view. The literature pointers in the spec are the Retrieval-Augmented Generation framework of Lewis et al. (2020) for the broader retrieve-then-generate architecture, the sentence-embedding family of Reimers and Gurevych (2019) for the dense-vector representations (multilingual-e5-large is the current production choice for its 100+ language coverage and reproducibility properties), and the broader knowledge-graph reasoning literature for the entity-relation typology. The spec contrasts the Epocha approach with GraphRAG and with MiroFish in its FAQ section and records the choice to materialise the graph per-simulation rather than across simulations as a deliberate scope choice for the MVP. Code paths: `epocha/apps/knowledge/{ingestion,extraction,embedding,merge,normalizer,materialization,ontology,chunking,prompts,api}.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-11-knowledge-graph-design.md`.
 
-## 8.6 Economy base layer
+## 8.5 Economy base layer
 
 The economy base layer is the substrate that turns agent activity into production, prices, money, and per-tick income flows; it is described in narrative form under §3.6 of this whitepaper and the present subsection records only the audit status and the spec under which the audit will resume. The base layer covers `production.py` (the CES production function (Arrow et al. 1961)), `monetary.py` (the Fisher-identity diagnostic and the velocity counter), `market.py` (Walrasian tâtonnement (Walras 1874) with the iteration cap that addresses the non-convergence regime (Scarf 1960)), `distribution.py` (the simplified Ricardian rent decomposition and the per-tick wage and tax flow), and `initialization.py` (the per-template seeding of the base balance sheet). All five citations in this list are already present in §13. The behavioral integration that sits on top of this substrate (adaptive expectations, credit and banking, property market) has completed its Round 2 audit and is documented under §4.2 of this whitepaper; the substrate documented here has not, and the §3.6 narrative explicitly disclaims the Methods-grade status pending the audit pass. Code paths: `epocha/apps/economy/{production,monetary,market,distribution,initialization}.py`.
 
@@ -1300,19 +1499,19 @@ The economy base layer is the substrate that turns agent activity into productio
 
 # 9. Roadmap
 
-The roadmap is ordered by priority rather than by chronology: the audit re-pass on the seven modules still pending from the 2026-04-12 batch (reputation already converged on round 2 in 2026-05-12 and was promoted to §4.3) is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
+The roadmap is ordered by priority rather than by chronology: the audit re-pass on the four modules still pending from the 2026-04-12 batch (reputation converged on round 2 in 2026-05-12 and was promoted to §4.3; the rumor-propagation cluster — information flow, distortion, belief filter, plus affinity — converged on round 2 in 2026-05-16 and was promoted to §4.4) is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
 
-- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The seven modules currently in §8 (rumor propagation cluster: information flow, distortion, belief filter; political cluster: government, institutions, stratification; movement; factions) carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings from the 2026-04-12 batch audit; reputation, the eighth module of the original batch, has converged on round 2 (2026-05-12) and was promoted to §4.3. Resolution and convergence re-audit on the remaining seven are the gating item before any of these modules can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
-- **Demography Plan 3 (Inheritance + Migration).** The demography spec of §4.1 covers mortality, fertility, and couple formation; Plan 3 extends the same audit-first methodology to inheritance (transfer of property and debt to surviving kin on death of an agent) and to demographic migration (the long-horizon zone-to-zone migration that complements the per-tick movement of §8.3 with a generational-scale flow). Spec is `docs/superpowers/specs/2026-04-18-demography-design.md` Plan 3 section.
+- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The four modules currently in §8 (political cluster: government, institutions, stratification; movement; factions) carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings from the 2026-04-12 batch audit; reputation has converged on round 2 (2026-05-12) and was promoted to §4.3, and the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity) has converged on round 2 (2026-05-16) and was promoted to §4.4. Resolution and convergence re-audit on the remaining four are the gating item before any of these modules can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
+- **Demography Plan 3 (Inheritance + Migration).** The demography spec of §4.1 covers mortality, fertility, and couple formation; Plan 3 extends the same audit-first methodology to inheritance (transfer of property and debt to surviving kin on death of an agent) and to demographic migration (the long-horizon zone-to-zone migration that complements the per-tick movement of §8.2 with a generational-scale flow). Spec is `docs/superpowers/specs/2026-04-18-demography-design.md` Plan 3 section.
 - **Demography Plan 4 (Initialisation, Engine integration, Historical validation).** Plan 4 wires the demography modules of §4.1 — currently implemented and unit-tested in isolation — into the live tick loop of `epocha/apps/simulation/engine.py`, supplies the initialisation procedure that seeds a starting population from the era template, and runs the historical-validation campaign of §7 against the Wrigley-Schofield (1981) and Human Mortality Database targets. This is the central deliverable that closes the implementation-gap disclosure carried by §4.1 and resolves the validation-pending caveat carried by §7.5.
 - **Economy financial markets (Spec 3 to write).** The behavioral integration of §4.2 covers adaptive expectations, credit and banking, and the property market; the next economy spec extends to bond and equity markets, asset-price contagion across multiple banks, and the inter-bank lending channel deferred under the simplifications of §4.2.2. The spec is not yet drafted; the work item is recorded in the long-form roadmap memory.
 - **Validation experiments execution.** The campaign specified in Chapter 7 — dataset acquisition, script implementation, metric computation, and threshold evaluation — is the central deliverable tracked in `docs/memory-backup/project_validation_experiments_pending.md`. Execution is bound to Plan 4 of the demography roadmap above (which provides the live tick-loop integration the validation requires) and to the audit re-pass of the §8 batch (which extends the validation surface to the political and movement modules).
-- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.5 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
+- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.4 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
 - **Analytics psicostoriografia.** The analytics spec at `docs/superpowers/specs/2026-04-06-analytics-psicostoriografia-design.md` covers the post-hoc analysis layer that surfaces emergent patterns from a completed simulation: phase-space trajectories, zone-level cohort comparisons, event-cascade attribution, and the publication-grade plot exports needed for the scientific paper of the project's final deliverable. The spec is drafted; implementation is deferred behind the audit re-pass and Plan 4.
-- **Broader PostGIS adoption.** PostGIS is already enabled per §3.6 with zone geometries stored as WGS84 polygons; the broader-adoption work item extends the geospatial surface to agent trajectories (per-tick location history with spatial indices), routed-distance queries between zones (replacing the abstract zone-graph distance of §8.3 with shortest-path computation against the actual geometry), and per-zone catchment analysis for the economy and demography modules.
+- **Broader PostGIS adoption.** PostGIS is already enabled per §3.6 with zone geometries stored as WGS84 polygons; the broader-adoption work item extends the geospatial surface to agent trajectories (per-tick location history with spatial indices), routed-distance queries between zones (replacing the abstract zone-graph distance of §8.2 with shortest-path computation against the actual geometry), and per-zone catchment analysis for the economy and demography modules.
 - **Multi-level agents (organisations, states, coalitions).** The current Epocha population is a flat set of individual agents; the multi-level work item extends the agent ontology to corporate actors that have their own decision pipelines, their own memory, and their own action space, with the individual agents as members and with state and coalition layers above the organisation layer. The conceptual frame and the literature anchors are recorded in `docs/memory-backup/project_multilevel_agents.md`; the spec is not yet drafted.
 - **Narrative generator.** The narrative-generator work item produces a long-form scientific-historical novel from the completed simulation — the per-zone, per-cohort, per-character arcs woven into a publication-grade narrative in the chosen output language with full citations to the underlying simulation events. The conceptual frame is recorded in `docs/memory-backup/project_narrative_generator.md`; the work item is bound to the analytics spec above (which produces the structured material the generator weaves) and to the Knowledge Graph evolution item (which provides the entity catalog the narrative references).
-- **Media layer (newspapers, social feed).** The media-layer work item materialises the in-simulation press: per-tick newspaper editions whose articles are generated from the simulation events through an LLM editorial pipeline, social-feed analogues for the modern-era templates, and the cross-pollination of media coverage back into the rumor-propagation cluster of §8.1 as a special information-event subtype. The conceptual frame is recorded in `docs/memory-backup/project_media_layer.md`; the work item is bound to the Knowledge Graph evolution item above.
+- **Media layer (newspapers, social feed).** The media-layer work item materialises the in-simulation press: per-tick newspaper editions whose articles are generated from the simulation events through an LLM editorial pipeline, social-feed analogues for the modern-era templates, and the cross-pollination of media coverage back into the rumor-propagation cluster of §4.4 as a special information-event subtype. The conceptual frame is recorded in `docs/memory-backup/project_media_layer.md`; the work item is bound to the Knowledge Graph evolution item above.
 
 ---
 
@@ -1354,13 +1553,13 @@ are specified, but the experiments that consume them are tracked under
 deliverable.
 
 The scientific limits of the present work go beyond the simplifications
-inside the audited subset. Seven modules — the rumor-propagation cluster of
-§8.1, the political-institutions cluster of §8.2, movement (§8.3),
-factions (§8.4), the Knowledge Graph (§8.5), and the economy base layer
-(§8.6) — are implemented in code and exercised by unit tests but have not
-yet completed the Round 2 adversarial audit that gates promotion to Chapter
-4 status; the open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING
-findings from the 2026-04-12 batch audit are catalogued in
+inside the audited subset. Five modules — the political-institutions
+cluster of §8.1, movement (§8.2), factions (§8.3), the Knowledge Graph
+(§8.4), and the economy base layer (§8.5) — are implemented in code and
+exercised by unit tests but have not yet completed the Round 2 adversarial
+audit that gates promotion to Chapter 4 status; the open INCORRECT,
+UNJUSTIFIED, INCONSISTENT, and MISSING findings from the 2026-04-12 batch
+audit are catalogued in
 `docs/scientific-audit-2026-04-12.md` and tracked under
 `project_audit_repass_batch_2026_04_12_pending.md`. Within the audited
 subset, several parameter values are seeded as calibration heuristics rather
@@ -1544,7 +1743,7 @@ metrics, and acceptance thresholds — is specified across §7.1 to §7.3, but
 the experimental campaign that consumes the methodology is bound to Plan 4
 and is tracked under `project_validation_experiments_pending.md`.
 
-**Knowledge Graph (§8.5).** The graph is currently materialised in batch
+**Knowledge Graph (§8.4).** The graph is currently materialised in batch
 passes from the simulation log; live update from a running simulation,
 which is the prerequisite for graph-grounded LLM context at the per-tick
 decision step, is the dedicated work item of the roadmap of Chapter 9.
@@ -1696,7 +1895,7 @@ work item.
 - Chandler, D. G. (1966). *The Campaigns of Napoleon*. Weidenfeld and
   Nicolson, London, xliii + 1172 pp. (Pre-ISBN trade edition; Macmillan
   reprint 1973, ISBN 978-0-02-523660-8. Source for the per-mode sustained
-  travel rates of §8.3.)
+  travel rates of §8.2.)
 - Chandola, T., Coleman, D. A., and Hiorns, R. W. (1999). Recent European
   fertility patterns: fitting curves to "distorted" distributions.
   *Population Studies*, 53(3), 317–329.
