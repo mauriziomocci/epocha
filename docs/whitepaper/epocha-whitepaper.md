@@ -1079,7 +1079,7 @@ The `extract_action_sentiment` keyword extractor uses a loudest-keyword-wins heu
 
 ## 4.4 Rumor propagation
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, code audit CONVERGED 2026-05-16 round 2.
 
 The rumor propagation cluster transcribes Bartlett (1932) on serial reproduction and Allport and Postman (1947) on assimilation (partial — only the assimilation mechanism is implemented; leveling and sharpening are documented Known Limitations) into a four-stage pipeline. The first stage, `agents/information_flow.py`, propagates memories along agent relationship graphs over up to three hops per tick. The second stage, `agents/distortion.py`, applies personality-modulated text transformations driven by the reteller's Big Five vector before the message reaches the next recipient. The third stage, `agents/belief.py`, filters acceptance via a weighted score that combines information reliability, relationship trust, receiver personality, and transmitter reputation. The fourth stage, `agents/affinity.py`, contributes the Big Five personality similarity score that the belief filter consumes through the relationship trust component and that downstream factions consume during coalition formation.
 
@@ -1087,7 +1087,7 @@ Granovetter (1973) on the structural role of weak ties is cited in `information_
 
 ### 4.4.1 Information flow
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, code audit CONVERGED 2026-05-16 round 2.
 
 #### Background
 
@@ -1145,7 +1145,7 @@ with w_weak = `EPOCHA_INFO_FLOW_WEAK_RUMOR_WEIGHT` = 0.1 and d_weak = `EPOCHA_IN
 
 ### 4.4.2 Distortion
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, code audit CONVERGED 2026-05-16 round 2.
 
 #### Background
 
@@ -1187,7 +1187,7 @@ with θ_high = `_HIGH_THRESHOLD` = 0.7 and θ_low = `_LOW_THRESHOLD` = 0.3. The 
 
 ### 4.4.3 Belief filter
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, code audit CONVERGED 2026-05-16 round 2.
 
 #### Background
 
@@ -1231,7 +1231,7 @@ with weights w_r = 0.3, w_t = 0.2, w_p = 0.2, w_rep = 0.3. The components are de
 
 ### 4.4.4 Affinity
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, code audit CONVERGED 2026-05-16 round 2.
 
 #### Background
 

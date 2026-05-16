@@ -1120,7 +1120,7 @@ L'estrattore a parole-chiave `extract_action_sentiment` usa un'euristica loudest
 
 ## 4.4 Propagazione del passaparola
 
-> Stato: implementato a partire dal commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato a partire dal commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 Il cluster di propagazione del passaparola trascrive Bartlett (1932) sulla riproduzione seriale e Allport e Postman (1947) sull'assimilazione (parziale — solo il meccanismo di assimilazione è implementato; leveling e sharpening sono documentati come Limitazioni note) in una pipeline a quattro stadi. Il primo stadio, `agents/information_flow.py`, propaga le memorie lungo i grafi di relazioni degli agenti fino a tre hop per tick. Il secondo stadio, `agents/distortion.py`, applica trasformazioni testuali modulate dalla personalità guidate dal vettore Big Five di chi ridice il messaggio prima che esso raggiunga il prossimo destinatario. Il terzo stadio, `agents/belief.py`, filtra l'accettazione attraverso uno score pesato che combina affidabilità dell'informazione, fiducia relazionale, personalità del ricevente e reputazione del trasmettitore. Il quarto stadio, `agents/affinity.py`, contribuisce lo score di similarità di personalità Big Five che il filtro di credenza consuma attraverso la componente di fiducia relazionale e che le fazioni a valle consumano durante la formazione di coalizioni.
 
@@ -1128,7 +1128,7 @@ Granovetter (1973) sul ruolo strutturale dei legami deboli è citato in `informa
 
 ### 4.4.1 Flusso di informazioni
 
-> Stato: implementato a partire dal commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato a partire dal commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 #### Background
 
@@ -1186,7 +1186,7 @@ con w_weak = `EPOCHA_INFO_FLOW_WEAK_RUMOR_WEIGHT` = 0.1 e d_weak = `EPOCHA_INFO_
 
 ### 4.4.2 Distorsione
 
-> Stato: implementato a partire dal commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato a partire dal commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 #### Background
 
@@ -1228,7 +1228,7 @@ con θ_high = `_HIGH_THRESHOLD` = 0.7 e θ_low = `_LOW_THRESHOLD` = 0.3. L'indic
 
 ### 4.4.3 Filtro di credenza
 
-> Stato: implementato a partire dal commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato a partire dal commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 #### Background
 
@@ -1272,7 +1272,7 @@ con pesi w_r = 0.3, w_t = 0.2, w_p = 0.2, w_rep = 0.3. I componenti sono definit
 
 ### 4.4.4 Affinità
 
-> Stato: implementato a partire dal commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato a partire dal commit `a0ea07556ce8b32cea89ad543660fcb81be06b6e`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 #### Background
 
