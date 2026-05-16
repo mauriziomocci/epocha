@@ -54,4 +54,7 @@ coverage.xml
 node_modules/
 .playwright-mcp/
 .superpowers/
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*/
+!.claude/skills/speckit-*/

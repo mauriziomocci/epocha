@@ -382,3 +382,17 @@ response = client.complete(prompt="...", system_prompt="...")
 This project intentionally follows **Two Scoops of Django** (fat models, thin views) rather than the HackSoftware Styleguide. This is a deliberate architectural choice documented in the project spec. Do **not** apply the HackSoftware services/selectors pattern here.
 
 **AI Attribution**: FORBIDDEN any reference to Claude/AI in commits, comments, docstrings, docs, logs. No emoji/emoticon anywhere.
+
+<!-- SPECKIT START -->
+**Spec-Driven Development (GitHub Spec Kit, adopted 2026-05-16)**
+
+Constitution authoritative at `.specify/memory/constitution.md` — supersedes code-quality portions of this file where they conflict; composes elsewhere.
+
+New work items use Spec Kit canonical layout: `.specify/specs/<YYYYMMDD-HHMMSS>-<feature-slug>/{spec,plan,tasks}.md` produced by the `/speckit-specify`, `/speckit-plan`, `/speckit-tasks` skills installed under `.claude/skills/`. Branch numbering: timestamp.
+
+Legacy artifacts under `docs/superpowers/specs/` and `docs/superpowers/plans/` are NOT retroactively migrated; they retain git history. Examples of legacy: Demography Plan 1+2, Economy base/behavioral, Reputation pre-promotion, Catch-up whitepaper, F-CAMPAIGN audit re-pass plan. Continue editing legacy artifacts in place when amending existing work.
+
+Optional Spec Kit skills available: `/speckit-clarify` (de-risk ambiguity before plan), `/speckit-analyze` (cross-artifact consistency after tasks), `/speckit-checklist` (quality checklists after plan), `/speckit-implement` (subagent-driven execution), `/speckit-constitution` (amend constitution).
+
+Existing canonical 7-phase workflow and adversarial audit policy remain in force. Spec Kit is the authoring framework; the 7-phase workflow is the gating procedure.
+<!-- SPECKIT END -->
