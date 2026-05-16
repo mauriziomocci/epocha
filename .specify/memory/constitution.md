@@ -86,7 +86,7 @@ Epocha follows the canonical 7-phase workflow inherited from `~/.claude/CLAUDE.m
 7. Closure: merge, sync memory, frozen-at-commit pin if whitepaper touched
 
 Spec-Driven Layout (Spec Kit adoption since 2026-05-16):
-- New feature artifacts live under `.specify/specs/<timestamp>-<feature-slug>/{spec,plan,tasks}.md` per Spec Kit canonical convention
+- New feature artifacts live under `specs/<timestamp>-<feature-slug>/{spec,plan,tasks}.md` per Spec Kit canonical convention
 - Existing artifacts under `docs/superpowers/specs/` and `docs/superpowers/plans/` retain their historical paths and git history; they are not migrated retroactively
 - Branch numbering: timestamp (YYYYMMDD-HHMMSS) to preserve continuity with the existing date-based naming convention
 - The Spec Kit templates (`/.specify/templates/`) and skills (`.claude/skills/speckit-*`) are the default authoring path for any work item that crosses the Phase 2 heavy gate

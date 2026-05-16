@@ -391,10 +391,10 @@ Every new work item — feature, fix campaign, refactor, deprecation — MUST us
 Constitution authoritative at `.specify/memory/constitution.md` — supersedes code-quality portions of this file where they conflict; composes elsewhere.
 
 **Mandatory authoring path**:
-1. Start: `/speckit-specify "<description>"` → creates branch `<YYYYMMDD-HHMMSS>-<slug>` + `.specify/specs/<branch>/spec.md` scaffold
-2. Spec draft: edit `.specify/specs/<branch>/spec.md` per `.specify/templates/spec-template.md`
-3. `/speckit-plan` → `.specify/specs/<branch>/plan.md`
-4. `/speckit-tasks` → `.specify/specs/<branch>/tasks.md`
+1. Start: `/speckit-specify "<description>"` → creates branch `<YYYYMMDD-HHMMSS>-<slug>` + `specs/<branch>/spec.md` scaffold
+2. Spec draft: edit `specs/<branch>/spec.md` per `.specify/templates/spec-template.md`
+3. `/speckit-plan` → `specs/<branch>/plan.md`
+4. `/speckit-tasks` → `specs/<branch>/tasks.md`
 5. `/speckit-implement` (or subagent-driven-development with tasks.md as input)
 6. Heavy gate phase 2 + 6 adversarial audits via `critical-analyzer`
 7. Closure: merge, frozen-at-commit pin if whitepaper touched, memory sync

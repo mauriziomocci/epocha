@@ -1,6 +1,6 @@
 ---
 name: speckit-mandatory-absolute
-description: REGOLA PERMANENTE ASSOLUTA dal 2026-05-16. Tutti i nuovi work item DEVONO usare GitHub Spec Kit precisamente e senza eccezioni. Niente piu' nuove spec o plan sotto docs/superpowers/ -- solo .specify/specs/<timestamp>-<slug>/{spec,plan,tasks}.md.
+description: REGOLA PERMANENTE ASSOLUTA dal 2026-05-16. Tutti i nuovi work item DEVONO usare GitHub Spec Kit precisamente e senza eccezioni. Niente piu' nuove spec o plan sotto docs/superpowers/ -- solo specs/<timestamp>-<slug>/{spec,plan,tasks}.md.
 type: feedback
 originSessionId: b165274d-a708-4e8c-abed-b28a018c163f
 ---
@@ -12,7 +12,7 @@ Dal 2026-05-16 ogni nuovo work item (feature, fix campaign, refactor, deprecatio
 
 1. **Branch naming**: timestamp + short-name produced by `.specify/scripts/bash/create-new-feature.sh` (formato `YYYYMMDD-HHMMSS-<slug>`). NIENTE branch ad-hoc tipo `audit-repass/rumor-cluster` o `feature/whatever`. Sempre via specify workflow.
 
-2. **Spec layout**: `.specify/specs/<branch-name>/spec.md` + `plan.md` + `tasks.md`. NIENTE nuovi file sotto `docs/superpowers/specs/` o `docs/superpowers/plans/` (quelli restano solo come archivio storico).
+2. **Spec layout**: `specs/<branch-name>/spec.md` + `plan.md` + `tasks.md`. NIENTE nuovi file sotto `docs/superpowers/specs/` o `docs/superpowers/plans/` (quelli restano solo come archivio storico).
 
 3. **Authoring path**: usare le skill `/speckit-specify`, `/speckit-plan`, `/speckit-tasks`, `/speckit-implement`, `/speckit-constitution`. Optional: `/speckit-clarify`, `/speckit-analyze`, `/speckit-checklist`.
 
@@ -36,7 +36,7 @@ Mantenere git history. Continuare ad editare in place se servono amendments. Ma 
 
 ## Retrofit eccezione (2026-05-16 transition)
 
-Branch in flight `audit-repass/rumor-cluster` aveva ZERO commit al momento dell'adozione Spec Kit. Retrofittato deletando + ricreando via `specify` workflow conforme. Le 16 findings Round 2 migrate dal session resume memory in `.specify/specs/<timestamp>-rumor-cluster-audit-repass/spec.md`.
+Branch in flight `audit-repass/rumor-cluster` aveva ZERO commit al momento dell'adozione Spec Kit. Retrofittato deletando + ricreando via `specify` workflow conforme. Le 16 findings Round 2 migrate dal session resume memory in `specs/<timestamp>-rumor-cluster-audit-repass/spec.md`.
 
 Future work-in-flight con commit non-banali: caso-per-caso. Default: completare sotto legacy e applicare Spec Kit alla feature successiva.
 
@@ -52,9 +52,9 @@ Decisione utente esplicita 2026-05-16. Spec Kit:
 ## How to apply
 
 - Inizio nuovo work item: `/speckit-specify "<descrizione breve>"` → crea branch + spec.md scaffold
-- Spec drafting: editare `.specify/specs/<branch>/spec.md` seguendo template
-- Plan: `/speckit-plan` → `.specify/specs/<branch>/plan.md`
-- Tasks: `/speckit-tasks` → `.specify/specs/<branch>/tasks.md`
+- Spec drafting: editare `specs/<branch>/spec.md` seguendo template
+- Plan: `/speckit-plan` → `specs/<branch>/plan.md`
+- Tasks: `/speckit-tasks` → `specs/<branch>/tasks.md`
 - Implementation: `/speckit-implement` o subagent-driven-development con tasks.md come input
 - Heavy gate phase 2: adversarial audit del spec.md (CONVERGED required)
 - Heavy gate phase 6: adversarial audit del codice (CONVERGED required) + final pytest
