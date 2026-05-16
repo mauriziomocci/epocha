@@ -3,20 +3,44 @@
 Speed depends on transport means (historical data), agent health, political
 repression, world stability, and destination terrain.
 
-Sources:
+Sources (per-mode mapping to military vs civilian category):
 - Chandler, D. (1966). "The Campaigns of Napoleon." Weidenfeld & Nicolson.
-  Chapter on logistics: sustained march rates of 20-35 km/day for infantry
-  (military campaigns), 60 km/day for cavalry, 60-80 km/day for horse-drawn
-  carriages on good roads with relay stations. Civilian speeds are lower.
+  Napoleonic-era sustained march rates: infantry 20-35 km/day (military
+  campaigns), cavalry 60 km/day (military), horse-drawn carriages 60-80
+  km/day (military/royal use with relay stations every 15-20 km).
 - Braudel, F. (1979). "Civilization and Capitalism, 15th-18th Century."
   Vol. 1: The Structures of Everyday Life. Harper & Row.
-  River/canal boat speeds averaged 50 km/day in pre-industrial Europe.
-  Medieval merchants on foot traveled approximately 25 km/day.
+  Pre-industrial civilian travel: medieval merchants on foot ~25 km/day,
+  river/canal boats ~50 km/day.
 
-Note: Zone/Agent coordinates use abstract grid units despite the PostGIS
-fields declaring srid=4326. The distance_scale field on World converts
-grid units to real-world meters. This is a known simplification for the
-MVP; future versions may use real geographic coordinates.
+Per-mode category mapping (TRAVEL_SPEEDS entries):
+  foot     = 25 km/day -- CIVILIAN (Braudel 1979 medieval merchant)
+  horse    = 60 km/day -- MILITARY cavalry (Chandler 1966)
+  carriage = 60 km/day -- CIVILIAN no-relay (lower end of Chandler 1966
+             range, deliberately excludes the 80 km/day royal-relay path)
+  boat     = 50 km/day -- CIVILIAN pre-industrial (Braudel 1979)
+
+Coordinate convention (R2 finding N-1 closure):
+Zone/Agent coordinates use ABSTRACT GRID UNITS despite the PostGIS fields
+declaring srid=4326. The World.distance_scale field converts grid units
+to real-world meters (default 133 m per grid unit). Three downstream
+consumers depend on this convention:
+  1. calculate_max_distance() at line ~135: Euclidean distance in grid
+     units, multiplied by distance_scale/1000 to convert to km for the
+     speed comparison.
+  2. execute_movement() partial-movement vector at lines ~228-231: linear
+     interpolation in grid units between current location and target.
+  3. Arrival scatter at lines ~209-214: random offset in grid units
+     applied around target Zone centroid.
+Quantitative impact if coordinates were ACTUALLY WGS84 (lat/lon degrees):
+one degree latitude ~= 111 km at the equator. A 0.1-degree separation
+treated as 0.1 grid units would compute as 0.1 * distance_scale / 1000 =
+13.3 meters with default distance_scale=133, instead of the true ~11.1 km
+-- an underestimate by a factor of ~835. This is why simulations must
+not seed coordinates from real WGS84 values; the grid-unit convention is
+enforced by the World.distance_scale calibration only. Behavioral fix
+(switch to projected coordinates with a proper SRID) is scope-positive
+and deferred to a future iteration.
 """
 from __future__ import annotations
 
