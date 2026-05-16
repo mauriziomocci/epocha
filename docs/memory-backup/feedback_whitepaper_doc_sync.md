@@ -19,6 +19,11 @@ Ogni PR che modifica codice di un modulo descritto nel cap. 4 del whitepaper bil
 | `epocha/apps/agents/distortion.py` | §4.4.2 (EN) | §4.4.2 (IT) |
 | `epocha/apps/agents/belief.py` | §4.4.3 (EN) | §4.4.3 (IT) |
 | `epocha/apps/agents/affinity.py` | §4.4.4 (EN) | §4.4.4 (IT) |
+| `epocha/apps/world/government.py` | §4.5.1 (EN) | §4.5.1 (IT) |
+| `epocha/apps/world/government_types.py` | §4.5.2 (EN) | §4.5.2 (IT) |
+| `epocha/apps/world/institutions.py` | §4.5.3 (EN) | §4.5.3 (IT) |
+| `epocha/apps/world/stratification.py` | §4.5.4 (EN) | §4.5.4 (IT) |
+| `epocha/apps/world/election.py` | §4.5.5 (EN) | §4.5.5 (IT) |
 
 Quando un modulo del cap. 8 viene promosso a cap. 4 dopo re-audit CONVERGED, aggiungerlo a questa tabella.
 

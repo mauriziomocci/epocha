@@ -27,10 +27,13 @@ decisione dell'agente, strategia RNG, adattatore di provider LLM, sostrato
 economico, modello di persistenza, dashboard e strato di chat), sei moduli
 scientifici auditati — mortalità di Heligman-Pollard, fertilità Hadwiger
 con Becker, formazione di coppia Gale-Shapley con Goode 1963, aspettative
-adattive Cagan-Nerlove, credito e banca Diamond-Dybvig e mercato
-immobiliare ancorato a Gordon — e otto sottosistemi implementati in codice
-ma in attesa dell'audit scientifico avversariale di Round 2 (propagazione
-delle voci, istituzioni politiche, movimento, fazioni, reputazione,
+adattive Cagan-Nerlove, credito e banca Diamond-Dybvig, mercato
+immobiliare ancorato a Gordon, reputazione Castelfranchi-Conte-Paolucci,
+propagazione del passaparola Bartlett-Allport-Postman (information flow,
+distortion, belief filter, affinity), e il cluster delle istituzioni
+politiche (government, government_types, institutions, stratification,
+election) — e quattro sottosistemi implementati in codice ma in attesa
+dell'audit scientifico avversariale di Round 2 (movimento, fazioni,
 knowledge graph, layer economico di base). Ogni formula, parametro e
 algoritmo nei capitoli auditati è citato a una fonte primaria; le tabelle
 di calibrazione sono presentate per template di era e consolidate
@@ -1323,6 +1326,483 @@ con w_P = 0.3, w_R = 0.3, w_C = 0.4. La componente relazionale è (strength + ma
 
 3. **La soglia di quartile di ricchezza è relativa**: il bonus stesso-quartile usa `abs(w_a - w_b) / max(w_a, w_b) < 0.25` piuttosto che una differenza assoluta di ricchezza. La forma relativa scala naturalmente attraverso template per epoca con distribuzioni di ricchezza assoluta diverse; la soglia 0.25 è un parametro di design regolabile.
 
+## 4.5 Istituzioni politiche
+
+> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+
+Il cluster delle istituzioni politiche copre le dinamiche di regime, lo
+scoring elettorale, l'accumulo e il decadimento istituzionale, e la
+stratificazione (classe sociale + corruzione). Cinque moduli sotto
+`epocha/apps/world/`:
+
+1. `government.py` — tipi di regime, transizioni, colpi di stato, legittimità, stabilità
+2. `government_types.py` — 12 template di regime con effetti istituzionali
+3. `institutions.py` — accumulo di salute per tipo di istituzione
+4. `stratification.py` — Gini, classi sociali, meccaniche di corruzione
+5. `election.py` — modello di voto con personalità, reputazione, economia, carisma
+
+Acemoglu e Robinson (2006); Bueno de Mesquita et al. (2003); Geddes (1999);
+Polity 5 (Marshall e Gurr 2020); Powell e Thyne (2011); Freedom House;
+più la letteratura sulla tipologia di regime e sul voto censita in §13 References.
+
+### 4.5.1 Governo (regime + colpo di stato)
+
+> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+
+#### Background
+
+`government.py` orchestra il ciclo politico per tick: transizioni di regime,
+risoluzione di colpo di stato, bookkeeping di legittimità e stabilità, e
+gli aggiornamenti di indicatori che alimentano lo scoring elettorale a
+valle e il feedback politico dell'economia. La tipologia di regime copre
+i 12 archetipi dichiarati in `government_types.py` ed attinge da Geddes
+(1999) per la forma empirica della sopravvivenza di regime, dal dataset
+Polity 5 (Marshall e Gurr 2020) per la spina dorsale della classificazione
+di regime, e dai report annuali di Freedom House per la traiettoria
+qualitativa dell'erosione istituzionale nelle democrazie in declino.
+
+#### Modello
+
+Le transizioni di regime seguono l'inquadramento di meccanismi endogeni
+di Acemoglu e Robinson (2006) e la struttura di hazard della sopravvivenza
+di regime di Geddes (1999): il motore valuta condizioni trigger per tipo
+di regime e passa al successore configurato quando il trigger scatta. La
+decisione di colpo di stato è stocastica — il coup-score calcolato è
+interpretato come probabilità di successo confrontata con un draw di
+`random.random()` — calibrata sul tasso empirico di successo del ~50% di
+tutti i tentativi riportato da Powell e Thyne (2011); la forma legacy a
+soglia deterministica è registrata come finding G-2 del Round 2 e
+chiusa esplicitamente. La stabilità è ricalcolata ogni ciclo come
+combinazione convessa di componenti di economia, legittimità e lealtà
+militare i cui pesi sono letti per-regime da `government_types.py`.
+
+#### Equazioni
+
+Equazione (4.26) — Score di probabilità di colpo di stato:
+
+  coup_probability = 0.4·cohesion + 0.3·leader_charisma + 0.3·(1 − military_loyalty)
+
+Lo score è consumato come probabilità di successo confrontata con
+`random.random() < coup_probability`. La forma a tripla ponderazione segue
+l'osservazione narrativa secondo cui i colpi di stato richiedono coesione
+interna organizzata, un leader focale e un militare non impegnato con
+l'incumbent; i pesi esatti sono parametri di design regolabili.
+
+Equazione (4.27) — Indice di stabilità:
+
+  stability = w_economy·economy + w_legitimacy·legitimacy + w_military·military_loyalty
+
+con pesi per-regime `(w_economy, w_legitimacy, w_military)` letti da
+`GOVERNMENT_TYPES[regime].stability_weights` (es. democrazia pesa
+fortemente economia e legittimità; regimi militari pesano fortemente la
+lealtà).
+
+#### Parametri
+
+| Parametro | Simbolo | Valore | Fonte/Stato |
+|---|---|---|---|
+| Decadimento di trust istituzionale per ciclo | — | 0.05 | design regolabile (`government.py:_TRUST_DECAY`); qualitativamente consistente con i report annuali di Freedom House |
+| Tasso di drift di repressione per ciclo | — | 0.10 | design regolabile (`government.py:_REPRESSION_DRIFT_RATE`) |
+| Peso di legittimità su salute | — | 0.20 | design regolabile (`government.py:_LEGITIMACY_W_HEALTH`) |
+| Peso di legittimità su istruzione | — | 0.15 | design regolabile (`government.py:_LEGITIMACY_W_EDUCATION`) |
+| Peso di legittimità su economia | — | 0.35 | design regolabile (`government.py:_LEGITIMACY_W_ECONOMY`) |
+| Peso di legittimità su media | — | 0.30 | design regolabile (`government.py:_LEGITIMACY_W_MEDIA`) |
+| Soglia di indipendenza dei media per inflazione di propaganda | — | 0.30 | design regolabile (`government.py:_MEDIA_INDEPENDENCE_THRESHOLD`) |
+| Fattore di inflazione di propaganda sulla legittimità riportata | — | +0.30 | design regolabile (`government.py:_PROPAGANDA_FACTOR`) |
+| Pesi di stabilità per-regime | — | per `GOVERNMENT_TYPES` | design regolabile (`government_types.py`) |
+| Target di tasso base di colpo di stato | — | ~0.50 | ancoraggio empirico Powell e Thyne (2011) |
+
+#### Algoritmo
+
+`process_political_cycle(world, tick)` in `government.py` è wrappato in
+`@transaction.atomic` e acquisisce `select_for_update()` sulla riga
+`Government` per prevenire la race di tick concorrenti che il finding N-6
+del Round 2 ha identificato tra la mutazione di corruzione in
+`stratification.py:process_corruption` (step 3 del ciclo politico) e
+l'aggiornamento di indicatori in `government.py:update_government_indicators`
+(step 4). La pipeline a 8 step è: (1) aggiornamento di salute delle
+istituzioni; (2) ricalcolo di Gini e classi sociali; (3) skim di corruzione
+(wealth-conserving, da `stratification.py`); (4) aggiornamento di
+indicatori (institutional_trust, popular_legitimacy, military_loyalty,
+repression_level, con inflazione di propaganda quando l'indipendenza dei
+media è bassa); (5) valutazione di transizione di regime; (6) scheduling
+elettorale; (7) risoluzione di colpo di stato (stocastica per equazione
+(4.26)); (8) snapshot di storia. Lo step 7 seleziona al più un colpo di
+stato per ciclo; quando più gruppi soddisfano la soglia trigger, il gruppo
+con lo score più alto è quello che tenta. La scelta single-attempt-per-cycle
+è registrata come finding N-13 del Round 2 ed è documentata inline in
+`government.py` come bias di selezione deliberato.
+
+#### Semplificazioni
+
+1. **G-1 — I pesi di legittimità sono parametri di design regolabili**: i
+   quattro pesi `(_LEGITIMACY_W_HEALTH, _LEGITIMACY_W_EDUCATION,
+   _LEGITIMACY_W_ECONOMY, _LEGITIMACY_W_MEDIA) = (0.20, 0.15, 0.35, 0.30)`
+   riflettono l'importanza relativa assunta dei domini istituzionali
+   piuttosto che un fit empirico. Chiusa nel Round 2 da documentazione
+   inline.
+
+2. **G-2 — La decisione di colpo di stato è stocastica, non
+   deterministica**: pre-Round 2 la decisione era una soglia deterministica
+   sullo score; l'implementazione corrente valuta
+   `random.random() < coup_probability`, consistente con il tasso base
+   empirico di successo dei colpi di stato di Powell e Thyne (2011). La
+   costante legacy `_COUP_SUCCESS_THRESHOLD` è deprecata.
+
+3. **G-3 — Il tasso di decadimento del trust istituzionale è regolabile**:
+   il decadimento 0.05/ciclo è una scelta di design ed è esposta per
+   calibrazione per epoca. I report di Freedom House documentano il
+   pattern qualitativo di erosione istituzionale nelle democrazie in
+   declino ma non pubblicano un tasso di decadimento per-periodo.
+
+4. **G-6 — `stability_index` è usato come proxy economia**: le funzioni
+   `_update_stability()` e `update_government_indicators()` consumano
+   `World.stability_index` come input "economia"; il campo è calcolato
+   dal modulo economy come segnale di umore medio piuttosto che come un
+   indicatore economico reale. La fix comportamentale instraderebbe la
+   funzione attraverso un indicatore economico dedicato quando uno
+   diventa disponibile; il comportamento corrente è documentato inline in
+   `government.py`.
+
+5. **N-13 — Bias di selezione del colpo di stato verso il gruppo con score
+   più alto**: al più un colpo di stato è risolto per ciclo; quando più
+   gruppi soddisfano la soglia trigger, viene selezionato quello con lo
+   score di colpo di stato più alto. Questo bias la simulazione verso il
+   contendente singolo più forte per ciclo piuttosto che modellare
+   tentativi simultanei; la scelta è documentata inline.
+
+### 4.5.2 Tipi di governo
+
+> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+
+#### Background
+
+`government_types.py` dichiara i 12 archetipi di regime che `government.py`
+consuma: democrazia, democrazia illiberale, autocrazia, monarchia,
+oligarchia, teocrazia, totalitarismo, regime terrorista, anarchia,
+federazione, cleptocrazia, giunta. Ciascun archetipo è un dizionario di
+quattro gruppi di attributi — `repression_tendency`, `corruption_resistance`,
+`institution_effects`, `stability_weights` — che guidano gli aggiornamenti
+di indicatori per ciclo di §4.5.1. La tipologia e la differenziazione di
+attributi per-regime sono ispirate alla classificazione di regime Polity 5
+(Marshall e Gurr 2020), alla metodologia di misurazione di Freedom House,
+e al framework della selectorate theory di Bueno de Mesquita et al. (2003).
+
+#### Modello
+
+Ciascun template di regime porta quattro gruppi di attributi.
+`repression_tendency` imposta l'asintoto verso cui `Government.repression_level`
+deriva ogni ciclo in §4.5.1. `corruption_resistance` modula la magnitudo
+dello skim di corruzione che `stratification.py:process_corruption` applica.
+`institution_effects` dichiara delta per-tipo-di-istituzione che aumentano
+o attenuano la salute istituzionale in §4.5.3. `stability_weights` è la
+tripla `(w_economy, w_legitimacy, w_military)` consumata dall'equazione
+(4.27).
+
+#### Equazioni
+
+Equazione (4.28) — Effetto di istituzione sotto un regime:
+
+  institution_effect = base_value + regime_effect · INSTITUTION_EFFECT_SCALE
+
+con `INSTITUTION_EFFECT_SCALE = 20.0` (da `institutions.py`, vedere
+§4.5.3 Parametri). `regime_effect` è l'entry per-(regime, tipo-istituzione)
+del template di regime; `base_value` è il delta di salute standalone
+dell'istituzione prima della modulazione di regime.
+
+#### Parametri
+
+Il set completo di parametri per-regime è abbastanza grande da appartenere
+all'Appendice A; la vista in-capitolo è quella strutturale — 12 regimi × 4
+gruppi di attributi (`repression_tendency` scalare,
+`corruption_resistance` scalare, `institution_effects` dict,
+`stability_weights` tripla). Gli ancoraggi di letteratura sono Polity 5
+(Marshall e Gurr 2020) per la spina dorsale della classificazione di
+regime, Freedom House per la metodologia che informa l'ordinamento
+per-regime, Bueno de Mesquita et al. (2003) per l'intuizione di
+selectorate dietro i pesi di stabilità per-regime, e Acemoglu e Robinson
+(2006) per la forma della transizione endogena.
+
+#### Algoritmo
+
+Un lookup per nome di regime restituisce il dizionario di configurazione
+che `government.py` consuma durante il ciclo politico. Il modulo è
+data-only e non porta logica per-tick propria.
+
+#### Semplificazioni
+
+1. **GT-1 — Tutti i valori sono parametri di design, non derivati dalle
+   fonti citate**: i quattro gruppi di attributi attraverso tutti i 12
+   regimi sono parametri di design regolabili ispirati alla letteratura
+   citata piuttosto che fit empirici. Polity 5 pubblica una
+   classificazione di regime ma non la quintupla per-regime
+   `(_TRUST_SCALE, repression_tendency, corruption_resistance,
+   institution_effects, stability_weights)` nella forma che Epocha
+   consuma. Il disclaimer a livello di modulo documenta questo
+   esplicitamente; chiusa dal Round 2.
+
+### 4.5.3 Istituzioni
+
+> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+
+#### Background
+
+`institutions.py` porta le dinamiche di salute per-istituzione che il
+ciclo politico consuma. Il modello è qualitativamente ispirato al
+framework di disuguaglianza delle istituzioni di Acemoglu e Robinson
+(2012), *Why Nations Fail*, e al trattamento della capacità statale di
+Besley e Persson (2011), *Pillars of Prosperity*. Ciascuna istituzione
+porta uno scalare `health ∈ [0, 1]` che decade a un tasso di entropia
+configurabile, è aumentato dai finanziamenti, ed è modulato dagli effetti
+istituzionali per-regime di §4.5.2.
+
+#### Modello
+
+Ogni ciclo, la salute di ciascuna istituzione è aggiornata da tre
+contributi additivi: finanziamento (proporzionale al `funding_level`
+dell'istituzione), modulazione di regime (l'entry `regime_effect` di
+§4.5.2 moltiplicato per il fattore di scala), ed entropia (una costante
+negativa). La nuova salute è clippata a [0, 1].
+
+#### Equazioni
+
+Equazione (4.29) — Aggiornamento di salute di istituzione per ciclo:
+
+  health_{t+1} = clip( health_t + funding_delta + regime_effect_delta + entropy , 0, 1 )
+
+con `funding_delta = funding_level · FUNDING_EFFECT_RATE`,
+`regime_effect_delta = regime_effect · INSTITUTION_EFFECT_SCALE`, ed
+`entropy = ENTROPY_PER_TICK`.
+
+#### Parametri
+
+| Parametro | Simbolo | Valore | Fonte/Stato |
+|---|---|---|---|
+| Scala di effetto istituzionale | — | 20.0 | design regolabile (`institutions.py:INSTITUTION_EFFECT_SCALE`); calibrato in modo che una forte modulazione di regime raggiunga il quasi-picco in ~33 cicli (~2-3 anni alla mappatura tick standard) |
+| Tasso di effetto del finanziamento per ciclo | — | 0.04 | design regolabile (`institutions.py:FUNDING_EFFECT_RATE`) |
+| Entropia per tick (decadimento lineare) | — | -0.005 | design regolabile (`institutions.py:ENTROPY_PER_TICK`); decadimento lineare che raggiunge il 50% dopo 100 tick di investimento zero — NON half-life esponenziale |
+
+#### Algoritmo
+
+`update_institutions(world, tick)` in `institutions.py` itera tutte le
+istituzioni del mondo e applica l'equazione (4.29). Dopo il finding N-12
+del Round 2, il `save()` per-riga è stato sostituito con `bulk_update()`
+sui valori di salute raccolti, riducendo i round-trip DB per ciclo
+proporzionalmente al numero di istituzioni.
+
+#### Semplificazioni
+
+1. **I-1 — La calibrazione della timescale è guidata dal design**:
+   l'`INSTITUTION_EFFECT_SCALE = 20.0` è impostata in modo che una forte
+   modulazione di regime raggiunga il quasi-picco in circa 33 cicli (~2-3
+   anni alla mappatura tick-anno standard). La mappatura stessa è
+   regolabile; la scala scelta è un'euristica piuttosto che un fit
+   empirico.
+
+2. **I-2 — Il tasso di finanziamento è regolabile**:
+   `FUNDING_EFFECT_RATE = 0.04` è una scelta di design che non traccia né
+   un dataset di finanza pubblica specifico né uno studio ROI per-dominio;
+   è esposto per calibrazione per epoca.
+
+3. **I-3 — Il decadimento è lineare, non esponenziale**: il termine di
+   entropia applica un costante `-0.005` per ciclo, producendo un
+   decadimento lineare che raggiunge il 50% dopo 100 tick di investimento
+   zero. Il docstring pre-Round 2 usava il linguaggio "half-life"; il
+   docstring corrente corregge in "decadimento lineare che raggiunge il
+   50% dopo 100 tick di investimento zero" (chiusura del finding I-3 del
+   Round 2).
+
+### 4.5.4 Stratificazione
+
+> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+
+#### Background
+
+`stratification.py` calcola il Gini per-mondo, assegna gli agenti a classi
+sociali dalla distribuzione di ricchezza, ed esegue lo skim di corruzione
+per ciclo che devia ricchezza dal pool comune del mondo al capo dello
+stato. Il coefficiente Gini segue Gini (1912); la semplificazione della
+struttura di classe a cinque classi è una coarse-graining dello schema a
+sei classi di Gilbert (2011); l'inquadramento della corruzione attinge a
+Acemoglu e Robinson (2006); i pesi asimmetrici di mobilità modulati dalla
+personalità sono ancorati al rapporto di loss-aversion di Kahneman e
+Tversky (1979).
+
+#### Modello
+
+Il Gini è calcolato dal vettore di ricchezza degli agenti; l'assegnazione
+di classe usa soglie di quintile di ricchezza fisse; lo skim di
+corruzione è wealth-conserving — l'ammontare rimosso da
+`world.global_wealth` è esattamente l'ammontare accreditato a
+`agent.wealth` del capo di stato corrotto. La logica di mobilità applica
+un rapporto di peso asimmetrico tra transizioni verso l'alto e verso il
+basso, riflettendo il principio di loss-aversion secondo cui i movimenti
+verso il basso sono percepiti più fortemente di equivalenti movimenti
+verso l'alto.
+
+#### Equazioni
+
+Equazione (4.30) — Coefficiente Gini (Gini 1912):
+
+  Gini = (1 / (n · μ)) · Σᵢ (2i − n − 1) · xᵢ
+
+con i valori di ricchezza degli agenti `xᵢ` ordinati ascendenti, `n` il
+conteggio degli agenti, e `μ` la ricchezza media.
+
+Equazione (4.31) — Assegnazione di classe da quintili di ricchezza:
+
+  class(agent) =
+    UPPER          if w(agent) ≥ q80
+    UPPER_MIDDLE   if q50 ≤ w(agent) < q80
+    MIDDLE         if q15 ≤ w(agent) < q50
+    WORKING        if q5 ≤ w(agent) < q15
+    LOWER          if w(agent) < q5
+
+con i cutpoint di percentile `q5, q15, q50, q80` calcolati dalla
+distribuzione di ricchezza degli agenti.
+
+Equazione (4.32) — Skim di corruzione wealth-conserving:
+
+  skim_amount  = corruption_susceptibility · _CORRUPTION_SKIM_RATE · world.global_wealth
+  world.global_wealth ← world.global_wealth − skim_amount
+  head_of_state.wealth ← head_of_state.wealth + skim_amount
+
+Lo skim è wrappato in `@transaction.atomic` in modo che le due scritture
+applichino entrambe o nessuna; questo è la chiusura del finding N-3 del
+Round 2 (pre-Round 2 le due scritture erano non protette e potevano
+produrre ricchezza libera sotto esecuzione concorrente).
+
+#### Parametri
+
+| Parametro | Simbolo | Valore | Fonte/Stato |
+|---|---|---|---|
+| Soglie di classe (quintili) | — | 5 / 15 / 50 / 80 | Gilbert (2011) ispira lo schema di classe; gli specifici cutpoint di percentile sono scelte di design regolabili |
+| Tasso di skim di corruzione | — | 0.02 | design regolabile (`stratification.py:_CORRUPTION_SKIM_RATE`); riferimento qualitativo a Transparency International CPI per l'ordinamento relativo attraverso i tipi di regime |
+| Soglia di conscientiousness per suscettibilità alla corruzione | — | 0.4 | design regolabile; Miller e Lynam (2001) ispirano il legame tra bassa conscientiousness e devianza dalle norme, ma il cutoff stesso è una scelta di design |
+| Rapporto di loss-aversion (peso mobilità verso il basso : verso l'alto) | — | 1.75 : 1 | design regolabile che approssima il rapporto ~2 : 1 di Kahneman e Tversky (1979) |
+
+#### Algoritmo
+
+`compute_gini(world)` valuta l'equazione (4.30) sul vettore di ricchezza
+per-agente. `update_social_classes(world)` valuta l'equazione (4.31) e
+scrive la classe assegnata su ciascun agente. `process_corruption(world,
+tick)` implementa l'equazione (4.32) sotto `@transaction.atomic` in modo
+che il decremento di `world.global_wealth` e l'incremento di
+`agent.wealth` siano atomici rispetto all'esecuzione concorrente di tick;
+questo chiude il finding N-3 del Round 2.
+
+#### Semplificazioni
+
+1. **S-1 — Cinque classi vs lo schema a sei classi di Gilbert (2011)**:
+   Epocha coarse-grain lo schema a sei classi di Gilbert (2011) a cinque
+   classi fondendo le classi "capitalist" e "upper" in una singola classe
+   UPPER. La semplificazione è documentata inline; le percentuali di
+   soglia di classe sono esposte per ricalibrazione per epoca.
+
+2. **S-2 — Conservazione della ricchezza imposta**: lo skim di corruzione
+   è wealth-conserving per costruzione (equazione (4.32)); il wrapping
+   `@transaction.atomic` previene artefatti di ricchezza libera sotto
+   esecuzione concorrente. Chiusura del finding N-3 del Round 2.
+
+3. **S-3 — La soglia di conscientiousness è una scelta di design
+   regolabile**: la soglia `conscientiousness < 0.4` è ispirata al legame
+   Miller e Lynam (2001) tra bassa conscientiousness e devianza dalle
+   norme, ma il cutoff stesso non è derivato da quel paper. La citazione
+   pre-Round 2 ad Acemoglu e Robinson (2006) è stata rimossa (Acemoglu e
+   Robinson discutono vincoli istituzionali, non cutoff di personalità).
+
+4. **S-4 — I pesi emozionali/di mobilità sono regolabili**: le magnitudo
+   di mobilità verso l'alto/basso (0.4 e 0.7) preservano il rapporto
+   ~2:1 di loss-aversion di Kahneman e Tversky (1979) ma le specifiche
+   magnitudo stesse sono scelte di design; l'ancoraggio principiato è il
+   rapporto, non i valori assoluti.
+
+### 4.5.5 Elezioni
+
+> Stato: implementato al commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+
+#### Background
+
+`election.py` implementa il modello di voto per-elezione che il ciclo
+politico usa per eleggere un nuovo capo di stato quando scatta un trigger
+elettorale. Lo score di voto è una combinazione convessa pesata di cinque
+componenti — relazione, personalità, economia, reputazione, carisma —
+ancorata alla letteratura di psicologia politica: Caprara et al. (2006)
+per la base di personalità, Huckfeldt e Sprague (1987) per la componente
+di rete-relazione, Lewis-Beck e Stegmaier (2000) per la componente di
+voto economico, Lodge, Steenbergen e Brau (1995) per l'operazionalizzazione
+della valutazione del candidato, e Bass (1985), Weber (1922) e Merolla e
+Zechmeister (2011) per la componente di carisma.
+
+#### Modello
+
+Per ciascun votante e candidato, lo score è calcolato come somma pesata
+delle cinque componenti; il candidato con lo score più alto vince la
+scheda del votante. Il bonus di manipolazione è poi applicato al conteggio
+cumulativo per-candidato (il bonus è un modificatore di
+corruzione-o-clientelismo per-candidato regolabile).
+
+#### Equazioni
+
+Equazione (4.33) — Score di voto per-votante:
+
+  vote_score = w_rel·relationship + w_pers·personality + w_econ·economic + w_rep·reputation + w_char·charisma
+
+con pesi `(w_rel, w_pers, w_econ, w_rep, w_char) = (0.25, 0.15, 0.20, 0.25, 0.15)`.
+
+Equazione (4.34) — Normalizzazione del fattore di reputazione:
+
+  reputation_factor = _normalize_reputation(reputation_raw)
+
+dove `_normalize_reputation()` è l'helper centralizzato importato da
+`agents/reputation.py` (chiusura del finding N-5 del Round 2 — pre-Round
+2 il modulo election portava una normalizzazione locale che divergeva
+dalla single source of truth `reputation.py` usata dal belief filter di
+§4.4.3).
+
+#### Parametri
+
+| Parametro | Simbolo | Valore | Fonte/Stato |
+|---|---|---|---|
+| Peso relazione | w_rel | 0.25 | design regolabile (`election.py`); Huckfeldt e Sprague (1987) per la base concettuale |
+| Peso personalità | w_pers | 0.15 | design regolabile; Caprara et al. (2006) per la base di personalità |
+| Peso economico | w_econ | 0.20 | design regolabile; Lewis-Beck e Stegmaier (2000) per la base di voto economico |
+| Peso reputazione | w_rep | 0.25 | design regolabile; fattore di reputazione normalizzato tramite l'helper centralizzato di `reputation.py` |
+| Peso carisma | w_char | 0.15 | design regolabile; Bass (1985), Weber (1922), Merolla e Zechmeister (2011) per la base di carisma |
+| Costante di saturazione di ricchezza | — | 100.0 | design regolabile (`election.py:_WEALTH_SATURATION`); legata al default `Agent.wealth = 50.0` in modo che la funzione saturante raggiunga half-max alla baseline della popolazione |
+
+#### Algoritmo
+
+La lista dei votanti è materializzata una sola volta in
+`voter_list = list(...)` e il conteggio dei votanti è catturato tramite
+`voter_count = len(voter_list)` per il loop del bonus di manipolazione
+(chiusura dei finding N-5 e E-5 del Round 2 — pre-Round 2 il loop
+rivalutava `voters.count()` o `len(list(voters))` su ciascuna iterazione).
+Il bonus di manipolazione è applicato al conteggio cumulativo di ciascun
+candidato; il candidato con il conteggio più alto vince l'elezione ed è
+riscritto come nuovo capo dello stato.
+
+#### Semplificazioni
+
+1. **E-3 — I pesi di voto sono scelte di design regolabili**: la
+   cinque-tupla `(0.25, 0.15, 0.20, 0.25, 0.15)` è il default corrente ed
+   è esposta per calibrazione per epoca; la letteratura citata supporta
+   la *presenza* di ciascuna componente piuttosto che la *magnitudo* del
+   suo peso.
+
+2. **E-4 — La saturazione di ricchezza è legata alla scala interna di
+   ricchezza**: `_WEALTH_SATURATION = 100.0` è legata al default
+   `Agent.wealth` di 50.0 in modo che la funzione saturante raggiunga
+   half-max alla baseline della popolazione; il valore assoluto è
+   significativo solo all'interno della scala interna di ricchezza di
+   Epocha.
+
+3. **E-5 — La valutazione della query è cacheata**: il QuerySet dei
+   votanti è materializzato una sola volta e la sua lunghezza catturata
+   in una locale prima del loop del bonus di manipolazione; la
+   ri-valutazione per-iterazione è rimossa. Chiusura del finding E-5 del
+   Round 2.
+
 ---
 
 # 5. Implementazione
@@ -1504,33 +1984,27 @@ Gli esperimenti di validazione sono specificati, non ancora eseguiti. L'esecuzio
 
 # 8. Sottosistemi progettati (implementati, audit pendente)
 
-Il Capitolo 8 copre i cinque cluster Epocha che sono implementati nel codice ed esercitati da unit test ma non hanno ancora completato l'audit scientifico avversariale di Round 2 che funge da gate alla promozione allo stato di Capitolo 4. L'audit batch del 2026-04-12 (`docs/scientific-audit-2026-04-12.md`) ha aperto una lista di finding INCORRECT, UNJUSTIFIED, INCONSISTENT e MISSING contro otto dei moduli sottostanti; la reputazione è convergente sul round 2 (2026-05-12) ed è stata promossa al §4.3, e il cluster di propagazione del passaparola (information flow, distortion, belief filter, più affinity per la fix IF-1 dell'audit) è convergente sul round 2 (2026-05-16) ed è stato promosso al §4.4, lasciando i restanti sei moduli in questo capitolo in attesa. Il passaggio di risoluzione e il rifacimento audit di convergenza su quei sei sono tracciati come l'item di priorità più alta della roadmap del Capitolo 9. Ciascuna sottosezione quindi riformula lo scope del cluster, i puntatori di letteratura portati dalla spec e dai docstring del modulo, e il code path, poi chiude con una riga di stato che nomina la spec sotto la quale l'audit riprenderà. I puntatori di letteratura in questo capitolo sono attribuzioni registrate dalla spec o dal sorgente piuttosto che citazioni Methods-grade verificate da fonte primaria del tipo del Capitolo 4.
+Il Capitolo 8 copre i quattro cluster Epocha che sono implementati nel codice ed esercitati da unit test ma non hanno ancora completato l'audit scientifico avversariale di Round 2 che funge da gate alla promozione allo stato di Capitolo 4. L'audit batch del 2026-04-12 (`docs/scientific-audit-2026-04-12.md`) ha aperto una lista di finding INCORRECT, UNJUSTIFIED, INCONSISTENT e MISSING contro otto dei moduli sottostanti; la reputazione è convergente sul round 2 (2026-05-12) ed è stata promossa al §4.3, il cluster di propagazione del passaparola (information flow, distortion, belief filter, più affinity per la fix IF-1 dell'audit) è convergente sul round 2 (2026-05-16) ed è stato promosso al §4.4, e il cluster delle istituzioni politiche (government, government_types, institutions, stratification, election) è convergente sul round 2 (2026-05-16) ed è stato promosso al §4.5, lasciando i restanti quattro moduli in questo capitolo in attesa. Il passaggio di risoluzione e il rifacimento audit di convergenza su quei quattro sono tracciati come l'item di priorità più alta della roadmap del Capitolo 9. Ciascuna sottosezione quindi riformula lo scope del cluster, i puntatori di letteratura portati dalla spec e dai docstring del modulo, e il code path, poi chiude con una riga di stato che nomina la spec sotto la quale l'audit riprenderà. I puntatori di letteratura in questo capitolo sono attribuzioni registrate dalla spec o dal sorgente piuttosto che citazioni Methods-grade verificate da fonte primaria del tipo del Capitolo 4.
 
-## 8.1 Cluster: Istituzioni politiche (Government + Institutions + Stratification)
-
-Il cluster delle istituzioni politiche copre i quattro moduli che trasformano l'azione politica a livello di agente in dinamiche a livello di regime: `government.py` implementa lo step di governo per tick (decadimento di legittimità, scheduling delle elezioni, successione alla morte di un titolare e risoluzione del tentativo di golpe), `government_types.py` dichiara i sette archetipi di regime (democrazia piena, semi-democrazia, monarchia tradizionale, autocrazia parziale, regime totalitario, teocrazia, anarchia) con i loro tassi di decadimento di legittimità per archetipo e le regole elettorali, `institutions.py` porta lo stato istituzionale di orizzonte più lungo (protezioni costituzionali, struttura partitica, crisi di successione) che incrocia lo step di governo, e `stratification.py` calcola il Gini per zona e la risposta di probabilità di rivolta che retroagisce nella legittimità del governo. I puntatori di letteratura portati dal sorgente sono Acemoglu e Robinson (2006) sul legame disuguaglianza-instabilità (già in §13) — la spec usa la loro probabilità di rivolta basata su soglia Gini come forma qualitativa della risposta di `stratification.py` — Powell e Thyne (2011) sul tasso base empirico degli esiti dei colpi di stato (citato in `government.py` per il tasso di successo del ~50% dei tentativi di golpe), il progetto Polity 5 (Marshall e Gurr 2020, citato in `government_types.py`) per la calibrazione della tipologia di regime dei tassi di decadimento di legittimità e delle regole elettorali per archetipo, e Alesina e Perotti (1996) sulla correlazione qualitativa tra distribuzione del reddito e instabilità politica (citato in `political_feedback.py` dell'app economy per il bridge cross-modulo dallo stato economico di §3.6 alla legittimità di governo). Code path: `epocha/apps/world/government.py`, `epocha/apps/world/government_types.py`, `epocha/apps/world/institutions.py`, `epocha/apps/world/stratification.py`.
-
-> Stato: implementato nel codice, audit Round 2 pendente. Vedere `docs/superpowers/specs/2026-04-05-government-institutions-stratification-design.md`.
-
-## 8.2 Movimento
+## 8.1 Movimento
 
 Il modulo di movimento governa la rilocazione per tick degli agenti tra zone sotto tre classi di intento: migrazione economica volontaria guidata dall'azione `move_to_zone` dell'agente, migrazione sociale volontaria guidata dall'attrazione relazionale (un partner, un genitore o un leader di fazione in un'altra zona), e movimento involontario guidato dalla distruzione o espulsione dalla zona. L'implementazione porta una tabella di velocità di viaggio per modalità (a piedi 25 km/giorno, a cavallo 60 km/giorno, in carrozza 60 km/giorno su buone strade, su barca fluviale 50 km/giorno) calibrata da David Chandler (1966), *The Campaigns of Napoleon* — una fonte di storia militare per i ritmi di marcia civili e di cavalleria sostenuti che includono le soste — e da Braudel (1979) per la forma qualitativa della geografia delle rotte commerciali pre-industriali, con il moltiplicatore di qualità della strada lasciato come parametro di design regolabile inscritto nel template per epoca piuttosto che come fit empirico a una specifica rete stradale storica. Il batch di audit del 2026-04-12 ha segnalato due preoccupazioni di calibrazione contro questo modulo: il ritmo di 25 km/giorno a piedi è all'estremo alto del range empirico per il viaggio civile non militare (un rifugiato, un commerciante a piedi o un contadino che si muove tra villaggi tipicamente fa una media di 15-20 km/giorno secondo la stessa fonte Chandler tenendo conto del terreno e del carico), e il grafo inter-zona che lo step di movimento attraversa è il grafo astratto delle zone di `world/models.py` piuttosto che un calcolo di distanza routata contro la geometria effettiva delle zone (la geometria è già memorizzata in PostGIS per §3.6 ma il layer di routing è rimandato all'item di lavoro PostGIS più ampio della roadmap del Capitolo 9). Code path: `epocha/apps/agents/movement.py`.
 
 > Stato: implementato nel codice, audit Round 2 pendente. Vedere `docs/superpowers/specs/2026-04-07-movement-system-design.md`.
 
-## 8.3 Fazioni
+## 8.2 Fazioni
 
 Il modulo delle fazioni copre le tre fasi del ciclo di vita di una fazione Epocha: formazione (un agente dichiara l'intento di fondare una fazione e altri agenti scelgono di unirsi sotto regole di lamentela condivisa e affinità di personalità), mantenimento (aggiornamento di coesione per tick, successione di leadership alla morte o defezione del fondatore, disciplina interna contro membri le cui azioni divergono dalla piattaforma dichiarata della fazione) e dissoluzione (una fazione la cui coesione scende sotto la soglia, o la cui membership scende sotto il minimo, viene dissolta e i suoi membri rilasciati). L'implementazione cita Olson (1965), *The Logic of Collective Action*, come frame concettuale per la formazione delle fazioni: la spec sottolinea che le lamentele condivise e le circostanze condivise (zona, occupazione, esposizione allo stesso evento) guidano la formazione del gruppo in modo più affidabile della similarità di personalità, e la regola di formazione in `factions.py` pesa le memorie di lamentela condivisa al di sopra dell'affinità di personalità nello score di valutazione del candidato. L'asimmetria del bias di negatività nell'aggiornamento di coesione (un'azione divergente costa −0.15 di coesione contro una ricompensa di +0.10 per un'azione allineata) è attribuita inline a Baumeister et al. (2001) "Bad is stronger than good." La letteratura Iannaccone (1992) sui beni di club sulla coesione di culti e comuni attraverso il sacrificio di segnale costoso *non* è implementata nel modulo attuale — non c'è alcun rito di iniziazione di segnale costoso, alcun marcatore di confine escludente oltre la semplice membership, e alcun meccanismo di rilevamento del free-rider — e la spec registra questo come un'estensione rimandata piuttosto che come una citazione attuale. Code path: `epocha/apps/agents/factions.py`.
 
 > Stato: implementato nel codice, audit Round 2 pendente. Vedere `docs/superpowers/specs/2026-04-05-factions-leadership-design.md`.
 
-## 8.4 Grafo della conoscenza
+## 8.3 Grafo della conoscenza
 
 Il cluster del Grafo della Conoscenza implementa la memoria di lungo orizzonte della simulazione: il grafo per simulazione di entità, relazioni ed eventi che il context builder LLM di §3.5 interroga per ancorare la decisione per tick di ciascun agente nella storia precedente della simulazione piuttosto che ri-leggere l'intero log eventi raw. Il cluster è suddiviso in nove moduli sotto `epocha/apps/knowledge/`: `chunking.py` affetta il log eventi raw in passaggi dimensionati per LLM, `extraction.py` esegue l'estrattore di entità e relazioni guidato da LLM su ciascun chunk, `embedding.py` produce le rappresentazioni vettoriali dense di ogni chunk e di ogni nodo (il modello multilingual-e5-large è il default attuale per spec), `merge.py` deduplica i nodi estratti contro il grafo esistente, `normalizer.py` canonicalizza le forme superficiali delle entità alle loro etichette preferite, `materialization.py` riscrive il grafo consolidato sul layer di persistenza, `ontology.py` dichiara il sistema di tipi di entità e relazione, `prompts.py` raccoglie i prompt LLM per estrazione e merge, e `api.py` espone il grafo alla vista grafo della dashboard. I puntatori di letteratura nella spec sono il framework Retrieval-Augmented Generation di Lewis et al. (2020) per l'architettura più ampia retrieve-then-generate, la famiglia di sentence-embedding di Reimers e Gurevych (2019) per le rappresentazioni dense (multilingual-e5-large è la scelta di produzione attuale per la sua copertura di 100+ lingue e per le proprietà di riproducibilità), e la più ampia letteratura di ragionamento su grafi di conoscenza per la tipologia entità-relazione. La spec contrasta l'approccio Epocha con GraphRAG e con MiroFish nella sua sezione FAQ e registra la scelta di materializzare il grafo per simulazione piuttosto che attraverso simulazioni come una scelta di scope deliberata per l'MVP. Code path: `epocha/apps/knowledge/{ingestion,extraction,embedding,merge,normalizer,materialization,ontology,chunking,prompts,api}.py`.
 
 > Stato: implementato nel codice, audit Round 2 pendente. Vedere `docs/superpowers/specs/2026-04-11-knowledge-graph-design.md`.
 
-## 8.5 Layer base dell'economia
+## 8.4 Layer base dell'economia
 
 Il layer base dell'economia è il substrato che trasforma l'attività degli agenti in produzione, prezzi, denaro e flussi di reddito per tick; è descritto in forma narrativa sotto §3.6 di questo whitepaper e la presente sottosezione registra solo lo stato di audit e la spec sotto la quale l'audit riprenderà. Il layer base copre `production.py` (la funzione di produzione CES (Arrow et al. 1961)), `monetary.py` (la diagnostica dell'identità di Fisher e il contatore di velocità), `market.py` (il tâtonnement walrasiano (Walras 1874) con il cap di iterazioni che affronta il regime di non convergenza (Scarf 1960)), `distribution.py` (la decomposizione semplificata della rendita ricardiana e il flusso di salari e tasse per tick) e `initialization.py` (il seeding per template del bilancio base). Tutte e cinque le citazioni in questa lista sono già presenti in §13. L'integrazione comportamentale che si poggia su questo substrato (aspettative adattive, credito e sistema bancario, mercato immobiliare) ha completato il suo audit Round 2 ed è documentata sotto §4.2 di questo whitepaper; il substrato qui documentato no, e la narrazione di §3.6 disclaima esplicitamente lo stato Methods-grade in attesa del passaggio di audit. Code path: `epocha/apps/economy/{production,monetary,market,distribution,initialization}.py`.
 
@@ -1542,14 +2016,14 @@ Il layer base dell'economia è il substrato che trasforma l'attività degli agen
 
 La roadmap è ordinata per priorità piuttosto che per cronologia: il rifacimento audit sui quattro moduli ancora pendenti dal batch del 2026-04-12 (la reputazione è convergente sul round 2 nel 2026-05-12 ed è stata promossa al §4.3; il cluster di propagazione del passaparola — information flow, distortion, belief filter, più affinity — è convergente sul round 2 nel 2026-05-16 ed è stato promosso al §4.4) è l'item gating perché ogni successivo sforzo di calibrazione e validazione dipende dal sottoinsieme auditato che venga chiuso prima. Gli item rimanenti sono elencati in un ordine grossolano di sforzo atteso e sono tracciati nel backup di memoria di lungo formato sotto `docs/memory-backup/`; i cross-reference alla nota di memoria rilevante sono inline dove esistono.
 
-- **PRIORITÀ ALTA — Rifacimento audit avversariale Round 2 sul batch del 2026-04-12.** I quattro moduli attualmente in §8 (cluster politico: government, institutions, stratification; movimento; fazioni) portano finding aperti INCORRECT, UNJUSTIFIED, INCONSISTENT e MISSING dal batch di audit del 2026-04-12; la reputazione è convergente sul round 2 (2026-05-12) ed è stata promossa al §4.3, e il cluster di propagazione del passaparola (information flow, distortion, belief filter, più affinity) è convergente sul round 2 (2026-05-16) ed è stato promosso al §4.4. Risoluzione e rifacimento audit di convergenza sui restanti quattro sono l'item gating prima che uno qualunque di questi moduli possa essere promosso da §8 allo stato §4, prima che i loro parametri possano essere aggiunti alle tabelle di parametri di §6, e prima che possano entrare nella campagna di validazione di §7.
-- **Demografia Plan 3 (Eredità + Migrazione).** La spec di demografia di §4.1 copre mortalità, fertilità e formazione delle coppie; il Plan 3 estende la stessa metodologia audit-first all'eredità (trasferimento di proprietà e debito ai parenti superstiti alla morte di un agente) e alla migrazione demografica (la migrazione zona-zona di lungo orizzonte che complementa il movimento per tick di §8.2 con un flusso a scala generazionale). La spec è la sezione Plan 3 di `docs/superpowers/specs/2026-04-18-demography-design.md`.
+- **PRIORITÀ ALTA — Rifacimento audit avversariale Round 2 sul batch del 2026-04-12.** I due moduli attualmente in §8 che portano ancora finding Round 1 aperti (movimento e fazioni) siedono accanto al Knowledge Graph e al layer base dell'economia, anch'essi pendenti del loro primo passaggio di audit scientifico. Tre cluster sono già convergenti e promossi: la reputazione sul round 2 (2026-05-12) al §4.3, il cluster di propagazione del passaparola (information flow, distortion, belief filter, più affinity) sul round 2 (2026-05-16) al §4.4, e il cluster delle istituzioni politiche (government, government_types, institutions, stratification, election) sul round 2 (2026-05-16) al §4.5. Risoluzione e rifacimento audit di convergenza sui restanti moduli sono l'item gating prima che uno qualunque di questi possa essere promosso da §8 allo stato §4, prima che i loro parametri possano essere aggiunti alle tabelle di parametri di §6, e prima che possano entrare nella campagna di validazione di §7.
+- **Demografia Plan 3 (Eredità + Migrazione).** La spec di demografia di §4.1 copre mortalità, fertilità e formazione delle coppie; il Plan 3 estende la stessa metodologia audit-first all'eredità (trasferimento di proprietà e debito ai parenti superstiti alla morte di un agente) e alla migrazione demografica (la migrazione zona-zona di lungo orizzonte che complementa il movimento per tick di §8.1 con un flusso a scala generazionale). La spec è la sezione Plan 3 di `docs/superpowers/specs/2026-04-18-demography-design.md`.
 - **Demografia Plan 4 (Inizializzazione, integrazione Engine, validazione storica).** Il Plan 4 collega i moduli di demografia di §4.1 — attualmente implementati e unit-testati in isolamento — al ciclo di tick live di `epocha/apps/simulation/engine.py`, fornisce la procedura di inizializzazione che seed-a una popolazione di partenza dal template per epoca, ed esegue la campagna di validazione storica di §7 contro i target Wrigley-Schofield (1981) e Human Mortality Database. Questo è il deliverable centrale che chiude la disclosure di gap di implementazione portata da §4.1 e risolve il caveat validation-pending portato da §7.5.
 - **Mercati finanziari dell'economia (Spec 3 da scrivere).** L'integrazione comportamentale di §4.2 copre aspettative adattive, credito e sistema bancario, e mercato immobiliare; la prossima spec di economia estende a mercati obbligazionari ed azionari, contagio dei prezzi degli asset attraverso più banche, e il canale di prestito interbancario rimandato sotto le semplificazioni di §4.2.2. La spec non è ancora redatta; l'item di lavoro è registrato nella memoria di roadmap di lungo formato.
 - **Esecuzione degli esperimenti di validazione.** La campagna specificata nel Capitolo 7 — acquisizione dei dataset, implementazione degli script, calcolo delle metriche e valutazione delle soglie — è il deliverable centrale tracciato in `docs/memory-backup/project_validation_experiments_pending.md`. L'esecuzione è legata al Plan 4 della roadmap di demografia sopra (che fornisce l'integrazione del ciclo di tick live richiesta dalla validazione) e al rifacimento audit del batch §8 (che estende la superficie di validazione ai moduli politico e di movimento).
-- **Evoluzione del Knowledge Graph (aggiornamenti live dalla simulazione).** Il cluster Knowledge Graph di §8.4 attualmente materializza il grafo dal log della simulazione in passaggi batch; l'item di lavoro di evoluzione sostituisce il passaggio batch con un aggiornamento live che estrae incrementalmente entità e relazioni da ciascun tick e le fonde nel grafo esistente senza una ri-estrazione completa. La modifica mantiene il grafo aggiornato entro un ritardo limitato dal tick live piuttosto che a granularità fine-corsa, che è il prerequisito per il contesto LLM ancorato al grafo nello step di decisione per tick di §3.2.
+- **Evoluzione del Knowledge Graph (aggiornamenti live dalla simulazione).** Il cluster Knowledge Graph di §8.3 attualmente materializza il grafo dal log della simulazione in passaggi batch; l'item di lavoro di evoluzione sostituisce il passaggio batch con un aggiornamento live che estrae incrementalmente entità e relazioni da ciascun tick e le fonde nel grafo esistente senza una ri-estrazione completa. La modifica mantiene il grafo aggiornato entro un ritardo limitato dal tick live piuttosto che a granularità fine-corsa, che è il prerequisito per il contesto LLM ancorato al grafo nello step di decisione per tick di §3.2.
 - **Analytics psicostoriografia.** La spec di analytics in `docs/superpowers/specs/2026-04-06-analytics-psicostoriografia-design.md` copre il layer di analisi post-hoc che fa emergere pattern emergenti da una simulazione completata: traiettorie nello spazio delle fasi, confronti di coorte a livello di zona, attribuzione delle cascate di eventi, ed export di plot publication-grade necessari per il paper scientifico del deliverable finale del progetto. La spec è redatta; l'implementazione è rimandata dietro il rifacimento audit e il Plan 4.
-- **Adozione PostGIS più ampia.** PostGIS è già abilitato per §3.6 con le geometrie delle zone memorizzate come poligoni WGS84; l'item di lavoro di adozione più ampia estende la superficie geospaziale alle traiettorie degli agenti (storia di posizione per tick con indici spaziali), query di distanza routata tra zone (sostituendo la distanza astratta del grafo zone di §8.2 con il calcolo di shortest-path contro la geometria effettiva), e analisi di catchment per zona per i moduli di economia e demografia.
+- **Adozione PostGIS più ampia.** PostGIS è già abilitato per §3.6 con le geometrie delle zone memorizzate come poligoni WGS84; l'item di lavoro di adozione più ampia estende la superficie geospaziale alle traiettorie degli agenti (storia di posizione per tick con indici spaziali), query di distanza routata tra zone (sostituendo la distanza astratta del grafo zone di §8.1 con il calcolo di shortest-path contro la geometria effettiva), e analisi di catchment per zona per i moduli di economia e demografia.
 - **Agenti multi-livello (organizzazioni, stati, coalizioni).** La popolazione Epocha attuale è un insieme piatto di agenti individuali; l'item di lavoro multi-livello estende l'ontologia degli agenti ad attori corporativi che hanno le proprie pipeline decisionali, le proprie memorie e i propri spazi di azione, con gli agenti individuali come membri e con i layer di stato e coalizione sopra il layer di organizzazione. Il frame concettuale e gli ancoraggi di letteratura sono registrati in `docs/memory-backup/project_multilevel_agents.md`; la spec non è ancora redatta.
 - **Generatore narrativo.** L'item di lavoro generatore narrativo produce un romanzo storico-scientifico di forma lunga dalla simulazione completata — gli archi per zona, per coorte, per personaggio intrecciati in una narrativa publication-grade nella lingua di output scelta con citazioni complete agli eventi sottostanti della simulazione. Il frame concettuale è registrato in `docs/memory-backup/project_narrative_generator.md`; l'item di lavoro è legato alla spec di analytics sopra (che produce il materiale strutturato che il generatore intreccia) e all'item di evoluzione del Knowledge Graph (che fornisce il catalogo di entità a cui la narrativa fa riferimento).
 - **Layer media (giornali, social feed).** L'item di lavoro layer media materializza la stampa in-simulazione: edizioni di giornale per tick i cui articoli sono generati dagli eventi della simulazione attraverso una pipeline editoriale LLM, analoghi di social feed per i template moderni, e l'incrocio della copertura mediatica indietro nel cluster di propagazione del passaparola di §4.4 come sottotipo speciale di evento informativo. Il frame concettuale è registrato in `docs/memory-backup/project_media_layer.md`; l'item di lavoro è legato all'item di evoluzione del Knowledge Graph sopra.
@@ -1560,7 +2034,7 @@ La roadmap è ordinata per priorità piuttosto che per cronologia: il rifaciment
 
 Ogni scelta documentata nei capitoli precedenti porta un compromesso che vale la pena dichiarare apertamente piuttosto che nascondere dietro il verdetto di convergenza dell'audit. Il più consequenziale è il costo della cognizione LLM relativo al realismo che compra: un tick che esercita la pipeline decisionale completa dell'agente di §3.2 porta un costo di token per agente che scala con i blocchi di personalità, memoria e contesto che il prompt deve includere, e l'envelope di budget per tick quindi limita la popolazione che il simulatore può portare su un dato tier hardware piuttosto che emergere da una proprietà strutturale del modello. I moduli auditati del Plan 1 e Plan 2 accettano diverse semplificazioni deliberate per mantenere il costo per tick limitato sotto questo envelope. La Hadwiger ASFR di §4.1.2 è valutata deterministicamente all'età dell'agente piuttosto che estratta da un modello stocastico per madre del tempo-al-concepimento; i coefficienti di modulazione Becker della Tabella 4.4 sono omogenei tra tutti e cinque i template di demografia in attesa della calibrazione del Plan 4; la macchineria di credito-e-sistema-bancario Diamond-Dybvig di §4.2.2 porta una singola banca aggregata piuttosto che una popolazione di banche concorrenti con un canale di prestito interbancario; la liquidazione del mercato immobiliare di §4.2.3 è single-round take-it-or-leave-it piuttosto che una convergenza multi-round bid-ask. Nessuna di queste semplificazioni è un difetto in senso auditato — ciascuna è documentata inline nel corrispondente paragrafo di Semplificazioni di §4.x e tracciata come deliverable di calibrazione del Plan 4 — ma il loro effetto cumulativo è che il layer scientifico auditato è più snello di quanto la letteratura censita in §2 supporterebbe in linea di principio. Un secondo compromesso visibile è il gap di integrazione con l'engine che §4.1 porta: mortalità, fertilità e formazione delle coppie sono implementate e unit-testate in isolamento, ma la loro orchestrazione nel ciclo di tick live in `epocha/apps/simulation/engine.py` è il deliverable centrale del Plan 4 e non è ancora attiva nel codice di produzione, in contrasto con i moduli di economia di §4.2 che sono genuinamente live nella pipeline per tick. Infine, la campagna di validazione del Capitolo 7 è metodologica piuttosto che evidenziale al commit pinnato: target, metriche e soglie di accettazione sono specificate, ma gli esperimenti che le consumano sono tracciati sotto `project_validation_experiments_pending.md` e legati allo stesso deliverable del Plan 4.
 
-I limiti scientifici del lavoro presente vanno oltre le semplificazioni dentro il sottoinsieme auditato. Cinque moduli — il cluster delle istituzioni politiche di §8.1, movimento (§8.2), fazioni (§8.3), il Knowledge Graph (§8.4) e il layer base dell'economia (§8.5) — sono implementati nel codice ed esercitati da unit test ma non hanno ancora completato l'audit avversariale Round 2 che funge da gate alla promozione allo stato di Capitolo 4; i finding aperti INCORRECT, UNJUSTIFIED, INCONSISTENT e MISSING dal batch di audit del 2026-04-12 sono catalogati in `docs/scientific-audit-2026-04-12.md` e tracciati sotto `project_audit_repass_batch_2026_04_12_pending.md`. Dentro il sottoinsieme auditato, diversi valori di parametro sono seedati come euristiche di calibrazione piuttosto che derivati da una misurazione di fonte primaria: i coefficienti di modulazione Becker `β₀..β₄` dell'equazione (4.3), i coefficienti di modulazione del tasso di adattamento per agente `n_mod`, `o_mod`, `c_mod` dell'equazione (4.10), il `risk_premium = 0.5` di Stiglitz-Weiss dell'equazione (4.13) e il `CASCADE_LOSS_THRESHOLD = 0.5` di Allen-Gale del passaggio di contagio sono tutti documentati inline come parametri di design regolabili con la differenziazione per epoca rimandata al Plan 4. Lo schema a tick discreti è di per sé una scelta di modellizzazione sostanziale: gli eventi che occorrono dentro lo stesso tick — morti multiple, nascite simultanee, una vendita di proprietà e un default di prestito sullo stesso agente — sono risolti sequenzialmente all'interno dell'orchestratore per tick piuttosto che trattati come genuinamente concorrenti, che è la granularità appropriata per l'envelope di costo per tick ma che sopprime ogni interazione intra-tick che la letteratura del tempo continuo esporrebbe. Il resolver congiunto di mortalità materna di §4.1.2 è l'unico posto dove l'accoppiamento intra-tick è trattato esplicitamente, ed è trattato così precisamente perché risolvere la mortalità generica per prima e la mortalità da parto in seconda sulla stessa madre nello stesso tick produrrebbe un bias misurabile.
+I limiti scientifici del lavoro presente vanno oltre le semplificazioni dentro il sottoinsieme auditato. Quattro moduli — movimento (§8.1), fazioni (§8.2), il Knowledge Graph (§8.3) e il layer base dell'economia (§8.4) — sono implementati nel codice ed esercitati da unit test ma non hanno ancora completato l'audit avversariale Round 2 che funge da gate alla promozione allo stato di Capitolo 4; i finding aperti INCORRECT, UNJUSTIFIED, INCONSISTENT e MISSING dal batch di audit del 2026-04-12 sono catalogati in `docs/scientific-audit-2026-04-12.md` e tracciati sotto `project_audit_repass_batch_2026_04_12_pending.md`. Dentro il sottoinsieme auditato, diversi valori di parametro sono seedati come euristiche di calibrazione piuttosto che derivati da una misurazione di fonte primaria: i coefficienti di modulazione Becker `β₀..β₄` dell'equazione (4.3), i coefficienti di modulazione del tasso di adattamento per agente `n_mod`, `o_mod`, `c_mod` dell'equazione (4.10), il `risk_premium = 0.5` di Stiglitz-Weiss dell'equazione (4.13) e il `CASCADE_LOSS_THRESHOLD = 0.5` di Allen-Gale del passaggio di contagio sono tutti documentati inline come parametri di design regolabili con la differenziazione per epoca rimandata al Plan 4. Lo schema a tick discreti è di per sé una scelta di modellizzazione sostanziale: gli eventi che occorrono dentro lo stesso tick — morti multiple, nascite simultanee, una vendita di proprietà e un default di prestito sullo stesso agente — sono risolti sequenzialmente all'interno dell'orchestratore per tick piuttosto che trattati come genuinamente concorrenti, che è la granularità appropriata per l'envelope di costo per tick ma che sopprime ogni interazione intra-tick che la letteratura del tempo continuo esporrebbe. Il resolver congiunto di mortalità materna di §4.1.2 è l'unico posto dove l'accoppiamento intra-tick è trattato esplicitamente, ed è trattato così precisamente perché risolvere la mortalità generica per prima e la mortalità da parto in seconda sulla stessa madre nello stesso tick produrrebbe un bias misurabile.
 
 Dove Epocha si colloca nel paesaggio più ampio si legge meglio rispetto a tre tradizioni vicine. Le piattaforme ABM puramente rule-based (NetLogo, Mesa, Repast HPC, EURACE) eccellono nella scalabilità a popolazioni di milioni di agenti sotto regole individuali pienamente specificate, sulla forza di decenni di lavoro di ottimizzazione e una toolchain matura; il costo di quella scala è che la cognizione del singolo agente è vincolata a tutto ciò che la grammatica delle regole può esprimere, e il comportamento emergente che richiederebbe ragionamento in linguaggio naturale, memoria narrativa o deliberazione modulata dalla personalità deve essere approssimato da euristiche tarate a mano. Le simulazioni di agenti puramente LLM (Park et al. 2023 e la famiglia di esperimenti di agenti generativi che ne sono seguiti) eccellono all'estremo opposto: dozzine di agenti in un ambiente stilizzato possono esibire dinamiche sociali credibili senza alcuna grammatica comportamentale tarata a mano, sulla forza della cognizione in linguaggio naturale dell'LLM; il costo è che i substrati demografici ed economici che questi esperimenti ereditano dall'ambiente circostante sono troppo sottili per portare orizzonti pluridecennali o statistiche a livello di popolazione che la letteratura delle scienze sociali riconoscerebbe come ben formate. Il contributo di Epocha è l'ibrido: un substrato rule-based (engine economico di §3.6, engine demografico di §4.1, integrazione comportamentale di §4.2) che porta le dinamiche di popolazione sui timescale su cui la letteratura demografica ed economica opera, con la cognizione LLM stratificata in cima al substrato allo step di decisione per agente (§3.2) dove personalità, memoria e deliberazione in linguaggio naturale portano il peso esplicativo. L'ibrido paga un costo in token LLM per tick che le piattaforme puramente rule-based non pagano, ed eredita un costo in disciplina di audit che le piattaforme puramente LLM storicamente non hanno sostenuto, ma in cambio rende esplicita l'aggregazione multi-scala (individuo, fazione, stato) e ammette esperimenti di lungo orizzonte che nessuno dei due vicini può eseguire con un ancoraggio scientifico comparabile.
 
@@ -1570,7 +2044,7 @@ La classe di domande di ricerca che Epocha è progettata per abilitare segue dir
 
 # 11. Limitazioni note
 
-Il seguente catalogo raggruppa le limitazioni aperte per modulo. Ogni voce è deliberatamente breve — il contesto sostanziale vive nel corrispondente paragrafo di Semplificazioni di §4 o nella riga di stato di §8 — ed esiste qui come singolo inventario autoritativo per il lettore che ha bisogno della vista a livello di progetto in un unico posto. Due follow-up trasversali sottendono la maggior parte delle voci: il rifacimento audit sui sette moduli rimasti in §8 tracciato sotto `project_audit_repass_batch_2026_04_12_pending.md` e la campagna di validazione tracciata sotto `project_validation_experiments_pending.md`.
+Il seguente catalogo raggruppa le limitazioni aperte per modulo. Ogni voce è deliberatamente breve — il contesto sostanziale vive nel corrispondente paragrafo di Semplificazioni di §4 o nella riga di stato di §8 — ed esiste qui come singolo inventario autoritativo per il lettore che ha bisogno della vista a livello di progetto in un unico posto. Due follow-up trasversali sottendono la maggior parte delle voci: il rifacimento audit sui quattro moduli rimasti in §8 tracciato sotto `project_audit_repass_batch_2026_04_12_pending.md` e la campagna di validazione tracciata sotto `project_validation_experiments_pending.md`.
 
 **Mortalità (§4.1.1).**
 - Nessun effetto di coorte: ogni agente è esposto al template per epoca attivo al tick di simulazione piuttosto che al regime di mortalità in vigore alla nascita dell'agente.
@@ -1609,11 +2083,11 @@ Il seguente catalogo raggruppa le limitazioni aperte per modulo. Ogni voce è de
 - L'intento dell'acquirente è binario: `buy_property` non porta un tipo target o un prezzo massimo, e il passaggio di matching seleziona l'annuncio più economico nella zona dell'acquirente indipendentemente dal fit tra il tipo di proprietà e il ruolo dell'acquirente.
 - La formazione del prezzo richiesto del venditore è di proprietà del layer di decisione LLM di §3.2 piuttosto che del mercato immobiliare stesso; questa sottosezione tratta il prezzo richiesto come esogeno.
 
-**Sottosistemi progettati in attesa di audit Round 2 (§8).** Sette moduli attraverso cinque cluster portano finding aperti INCORRECT, UNJUSTIFIED, INCONSISTENT e MISSING dal batch di audit del 2026-04-12: propagazione del passaparola (information flow, distortion, belief filter); istituzioni politiche (government, institutions, stratification); movimento; fazioni; il Knowledge Graph; il layer base dell'economia. La reputazione, ottavo modulo del batch originale, è convergente sul round 2 (2026-05-12) ed è stata promossa al §4.3. Risoluzione e rifacimento audit di convergenza sui restanti sette sono tracciati sotto `project_audit_repass_batch_2026_04_12_pending.md` e fungono da gate alla promozione di questi moduli da §8 allo stato §4, all'inclusione dei loro parametri nelle tabelle di calibrazione di §6 e al loro ingresso nella campagna di validazione di §7.
+**Sottosistemi progettati in attesa di audit Round 2 (§8).** Quattro moduli attraverso quattro cluster portano ancora finding aperti INCORRECT, UNJUSTIFIED, INCONSISTENT e MISSING dal batch di audit del 2026-04-12: movimento; fazioni; il Knowledge Graph; il layer base dell'economia. Tre cluster del batch originale sono già convergenti e promossi — la reputazione sul round 2 (2026-05-12) al §4.3, il cluster di propagazione del passaparola (information flow, distortion, belief filter, più affinity) sul round 2 (2026-05-16) al §4.4, e il cluster delle istituzioni politiche (government, government_types, institutions, stratification, election) sul round 2 (2026-05-16) al §4.5. Risoluzione e rifacimento audit di convergenza sui restanti moduli sono tracciati sotto `project_audit_repass_batch_2026_04_12_pending.md` e fungono da gate alla promozione di questi moduli da §8 allo stato §4, all'inclusione dei loro parametri nelle tabelle di calibrazione di §6 e al loro ingresso nella campagna di validazione di §7.
 
 **Esperimenti di validazione (Capitolo 7).** La metodologia — dataset, metriche e soglie di accettazione — è specificata attraverso §7.1 a §7.3, ma la campagna sperimentale che consuma la metodologia è legata al Plan 4 ed è tracciata sotto `project_validation_experiments_pending.md`.
 
-**Knowledge Graph (§8.4).** Il grafo è attualmente materializzato in passaggi batch dal log della simulazione; l'aggiornamento live da una simulazione in esecuzione, che è il prerequisito per il contesto LLM ancorato al grafo nello step di decisione per tick, è l'item di lavoro dedicato della roadmap del Capitolo 9.
+**Knowledge Graph (§8.3).** Il grafo è attualmente materializzato in passaggi batch dal log della simulazione; l'aggiornamento live da una simulazione in esecuzione, che è il prerequisito per il contesto LLM ancorato al grafo nello step di decisione per tick, è l'item di lavoro dedicato della roadmap del Capitolo 9.
 
 **Limitazioni trasversali.** Le dinamiche spaziali oltre il grafo astratto delle zone non sono esercitate: PostGIS è abilitato e le geometrie delle zone sono memorizzate come poligoni WGS84 per §3.6, ma le query di distanza routata tra zone, la memorizzazione per tick di traiettorie degli agenti con indici spaziali e l'analisi di catchment per zona per i moduli di economia e demografia sono rimandate all'item di lavoro PostGIS più ampio del Capitolo 9. Lo schema a tick discreti di §3.1 risolve gli eventi intra-tick sequenzialmente all'interno dell'orchestratore per tick piuttosto che trattarli come concorrenti, con il resolver congiunto di mortalità materna di §4.1.2 come unico posto dove l'accoppiamento intra-tick è trattato esplicitamente. La gestione di eventi in tempo reale tra tick non è supportata.
 
@@ -1621,7 +2095,7 @@ Il seguente catalogo raggruppa le limitazioni aperte per modulo. Ogni voce è de
 
 # 12. Conclusioni
 
-Epocha come documentato al commit pinnato spedisce un substrato demografico auditato che copre mortalità Heligman-Pollard, fertilità Hadwiger-con-Becker e formazione delle coppie Gale-Shapley con Goode 1963 (§4.1), un'economia comportamentale auditata che copre aspettative adattive Cagan-Nerlove, credito e sistema bancario Diamond-Dybvig e un mercato immobiliare ancorato a Gordon (§4.2), una pipeline decisionale di agenti guidata da LLM che consuma lo stato per tick del substrato e riscrive nel layer di persistenza (§3.2), e otto sottosistemi implementati-ma-pre-audit (§8) che coprono propagazione del passaparola, istituzioni politiche, movimento, fazioni, reputazione, il Knowledge Graph e il layer base dell'economia. L'infrastruttura runtime copre un tick engine con loop Celery auto-enqueuing, una strategia RNG seedata per fase che rende ogni esecuzione riproducibile attraverso macchine dall'hash di commit, dal seed e dallo stato iniziale del database (§3.4), un adapter di provider LLM che astrae su OpenAI vero e proprio, Groq, Gemini, OpenRouter, Together AI, Mistral, LM Studio e Ollama con rotazione delle chiavi e un limiter sliding-window backed da Redis (§3.5), e una dashboard più un layer di chat WebSocket che esponendo lo stato di simulazione live e la superficie di conversazione agente-per-agente all'operatore (§3.8).
+Epocha come documentato al commit pinnato spedisce un substrato demografico auditato che copre mortalità Heligman-Pollard, fertilità Hadwiger-con-Becker e formazione delle coppie Gale-Shapley con Goode 1963 (§4.1), un'economia comportamentale auditata che copre aspettative adattive Cagan-Nerlove, credito e sistema bancario Diamond-Dybvig e un mercato immobiliare ancorato a Gordon (§4.2), una pipeline decisionale di agenti guidata da LLM che consuma lo stato per tick del substrato e riscrive nel layer di persistenza (§3.2), e quattro sottosistemi implementati-ma-pre-audit (§8) che coprono movimento, fazioni, il Knowledge Graph e il layer base dell'economia. L'infrastruttura runtime copre un tick engine con loop Celery auto-enqueuing, una strategia RNG seedata per fase che rende ogni esecuzione riproducibile attraverso macchine dall'hash di commit, dal seed e dallo stato iniziale del database (§3.4), un adapter di provider LLM che astrae su OpenAI vero e proprio, Groq, Gemini, OpenRouter, Together AI, Mistral, LM Studio e Ollama con rotazione delle chiavi e un limiter sliding-window backed da Redis (§3.5), e una dashboard più un layer di chat WebSocket che esponendo lo stato di simulazione live e la superficie di conversazione agente-per-agente all'operatore (§3.8).
 
 Ciò che distingue questo codebase dal paesaggio circostante è meno i moduli individuali — la maggior parte ha antecedenti ben noti nella letteratura censita in §2 — e più la disciplina che li produce e li mantiene. Il whitepaper bilingue di §1 è un documento vivente congelato a ogni merge sul branch di sviluppo, con la companion italiana pubblicata accanto all'originale inglese; ogni formula, parametro e algoritmo nei capitoli auditati cita una fonte primaria, e le asserzioni non verificate sono segnalate inline piuttosto che presentate come fatto. Il workflow canonico a sette fasi che governa ogni sottosistema (ideazione, requisiti, plan, task breakdown, implementazione, test generale, chiusura) porta due gate pesanti e due leggeri con approvazione umana esplicita a ciascuno, e la policy di audit avversariale obbligatoria attiva il revisore `critical-analyzer` sia in fase di spec sia in fase di codice con un loop di convergenza che non chiude su "abbastanza vicino". La riproducibilità è incorporata piuttosto che retrofittata: i template per epoca portano i valori di parametro per epoca fuori dal codice sorgente e in artefatti auditabili, gli stream RNG seedati sono partizionati per simulazione, tick e fase in modo che un refactor non possa silenziosamente spostare la sequenza casuale che un sottosistema vede, e l'Appendice B registra i comandi esatti tramite i quali ogni risultato riportato può essere rigenerato da un checkout pulito pinnato all'hash di commit congelato.
 
@@ -1716,7 +2190,7 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Chandler, D. G. (1966). *The Campaigns of Napoleon*. Weidenfeld and
   Nicolson, London, xliii + 1172 pp. (Pre-ISBN trade edition; Macmillan
   reprint 1973, ISBN 978-0-02-523660-8. Source for the per-mode sustained
-  travel rates of §8.2.)
+  travel rates of §8.1.)
 - Chandola, T., Coleman, D. A., and Hiorns, R. W. (1999). Recent European
   fertility patterns: fitting curves to "distorted" distributions.
   *Population Studies*, 53(3), 317–329.
