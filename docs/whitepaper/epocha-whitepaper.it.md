@@ -1806,7 +1806,7 @@ riscritto come nuovo capo dello stato.
 
 ## 4.6 Movimento
 
-> Stato: implementato al commit `a92b61a`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato al commit `c543c102a4af9f44c35fd25988c471e0f97632cd`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 ### Background
 
@@ -1868,7 +1868,7 @@ con `_ARRIVAL_SCATTER_RANGE = 40.0` unità di griglia (assume confine di zona di
 
 ### Stato
 
-> Stato: implementato al commit `a92b61a`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato al commit `c543c102a4af9f44c35fd25988c471e0f97632cd`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 ---
 

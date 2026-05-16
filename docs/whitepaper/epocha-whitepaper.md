@@ -1738,7 +1738,7 @@ written back as the new head of state.
 
 ## 4.6 Movement
 
-> Status: implemented as of commit `a92b61a`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `c543c102a4af9f44c35fd25988c471e0f97632cd`, code audit CONVERGED 2026-05-16 round 2.
 
 ### Background
 
@@ -1800,7 +1800,7 @@ with `_ARRIVAL_SCATTER_RANGE = 40.0` grid units (assumes 100-unit zone boundary)
 
 ### Status
 
-> Status: implemented as of commit `a92b61a`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `c543c102a4af9f44c35fd25988c471e0f97632cd`, code audit CONVERGED 2026-05-16 round 2.
 
 ---
 
