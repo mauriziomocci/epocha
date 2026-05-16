@@ -285,7 +285,7 @@ class ReputationScore(models.Model):
         """
         from epocha.apps.agents import reputation as _rep
         raw = self.image * _rep._WEIGHT_IMAGE + self.reputation * _rep._WEIGHT_REPUTATION
-        return (raw + 1.0) / 2.0
+        return _rep._normalize_reputation(raw)
 
     def __str__(self):
         return f"{self.holder.name}'s view of {self.target.name}: img={self.image:.2f} rep={self.reputation:.2f}"

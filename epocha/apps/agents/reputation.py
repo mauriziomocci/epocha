@@ -59,6 +59,27 @@ logger = logging.getLogger(__name__)
 _WEIGHT_IMAGE: float = 0.6
 _WEIGHT_REPUTATION: float = 0.4
 
+
+def _normalize_reputation(raw: float) -> float:
+    """Normalize a combined reputation score from [-1, 1] to [0, 1].
+
+    Single source of truth for the [-1, 1] -> [0, 1] mapping used by
+    downstream modules that need a non-negative scale (belief filter,
+    election scoring, dashboards). Neutral 0.0 maps to 0.5.
+
+    Tunable design: the linear mapping `(raw + 1) / 2` is the simplest
+    invariant-preserving transform. Alternative would be a sigmoid for
+    stronger emphasis near the extremes.
+
+    Args:
+        raw: Combined reputation score in [-1.0, 1.0].
+
+    Returns:
+        Normalized score in [0.0, 1.0].
+    """
+    return (raw + 1.0) / 2.0
+
+
 # ---------------------------------------------------------------------------
 # Domain-specific sentiment magnitudes for non-keyword-extracted events
 # ---------------------------------------------------------------------------
