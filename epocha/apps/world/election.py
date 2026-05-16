@@ -93,11 +93,12 @@ def compute_vote_score(voter: Agent, candidate: Agent, tick: int) -> float:
     relationship_sentiment = _relationship_sentiment_score(voter, candidate)
     personality_alignment = _personality_similarity(voter.personality, candidate.personality)
     economic_satisfaction = (voter.mood + min(voter.wealth / _WEALTH_SATURATION, 1.0)) / 2.0
-    from epocha.apps.agents.reputation import get_combined_score
+    from epocha.apps.agents.reputation import _normalize_reputation, get_combined_score
     reputation_raw = get_combined_score(voter, candidate)
-    # Note: reputation normalization is also available via ReputationScore.get_combined_score_normalized().
-    # This inline normalization is kept for backward compatibility but should migrate to the centralized method.
-    reputation_factor = (reputation_raw + 1.0) / 2.0  # Normalize from [-1, 1] to [0, 1]
+    # Normalize from [-1, 1] to [0, 1] via the centralized helper -- single source of
+    # truth for the linear transform shared by belief filter, election scoring, and
+    # dashboards (per Round 2 finding N-5).
+    reputation_factor = _normalize_reputation(reputation_raw)
     charisma_effect = candidate.charisma
 
     score = (
