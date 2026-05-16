@@ -81,8 +81,6 @@ _LOYALTY_W_CHARISMA: float = 0.30
 # a probability in a random draw, not as a deterministic threshold. This reflects the
 # inherent uncertainty of coup outcomes (Powell & Thyne 2011 report ~50% success rate
 # across all attempts 1950-2010).
-# _COUP_SUCCESS_THRESHOLD is no longer used; retained as a reference calibration point.
-_COUP_SUCCESS_THRESHOLD: float = 0.50
 
 # ---------------------------------------------------------------------------
 # Transition condition thresholds

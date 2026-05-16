@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import logging
 
+from django.db import transaction
+
 from epocha.apps.agents.models import Agent, Memory
 from epocha.apps.world.models import Government, World
 
@@ -188,6 +190,7 @@ def update_social_classes(simulation) -> None:
     )
 
 
+@transaction.atomic
 def process_corruption(simulation, tick: int) -> None:
     """Model corruption as wealth extraction by agents in power with low conscientiousness.
 
@@ -212,6 +215,12 @@ def process_corruption(simulation, tick: int) -> None:
     simulation parameter, not empirically derived.
 
     When the head of state is the corrupt agent, the Government.corruption indicator rises.
+
+    Transactional guarantee: the function is wrapped in ``@transaction.atomic`` so
+    that the wealth conservation invariant (sum of agent wealth + world.global_wealth
+    constant before and after the call) holds atomically. A crash mid-loop rolls back
+    every partial transfer and corruption-index nudge, leaving the database in the
+    pre-call state. Per Round 2 finding N-3 / S-2.
 
     Args:
         simulation: Simulation instance.
