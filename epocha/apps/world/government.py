@@ -24,6 +24,7 @@ import logging
 import random
 
 from django.conf import settings
+from django.db import transaction
 
 from epocha.apps.agents.models import Agent, Group, Memory
 from epocha.apps.world.government_types import GOVERNMENT_TYPES
@@ -53,7 +54,9 @@ _TRUST_DECAY: float = 0.05
 
 # Rate at which repression_level drifts toward the government type's repression_tendency.
 # 10% per cycle: a totalitarian regime (tendency=0.9) starting at 0.1 reaches 0.9 in ~22 cycles.
-# Source: Freedom House annual repression trend data.
+# Qualitative inspiration: Freedom House annual reports document gradual repression drift
+# in transitioning regimes; the specific 0.10 rate is a tunable simulation design parameter,
+# not a value reported by Freedom House.
 _REPRESSION_DRIFT_RATE: float = 0.10
 
 # Contribution weights for popular_legitimacy calculation.
@@ -67,7 +70,10 @@ _LEGITIMACY_W_MEDIA: float = 0.30
 
 # Media independence threshold below which state propaganda inflates reported legitimacy.
 # When media independence < 0.3, we cannot trust media-reported legitimacy signals.
-# Source: Freedom House Press Freedom methodology.
+# Qualitative inspiration: Freedom House Press Freedom methodology distinguishes free,
+# partly free, and not free media regimes. The specific 0.3 cutoff and the +0.30 inflation
+# factor are tunable simulation design parameters, not numerical values published by Freedom
+# House.
 _MEDIA_INDEPENDENCE_THRESHOLD: float = 0.3
 # Propaganda inflation factor: biased media reports 30% higher than actual.
 _PROPAGANDA_FACTOR: float = 0.30
@@ -81,8 +87,6 @@ _LOYALTY_W_CHARISMA: float = 0.30
 # a probability in a random draw, not as a deterministic threshold. This reflects the
 # inherent uncertainty of coup outcomes (Powell & Thyne 2011 report ~50% success rate
 # across all attempts 1950-2010).
-# _COUP_SUCCESS_THRESHOLD is no longer used; retained as a reference calibration point.
-_COUP_SUCCESS_THRESHOLD: float = 0.50
 
 # ---------------------------------------------------------------------------
 # Transition condition thresholds
@@ -338,8 +342,10 @@ def update_government_indicators(simulation) -> None:
     # Source: Rose-Ackerman & Palifka (2016): oversight gap = 1 - avg(justice, media, bureaucracy).
     # Note: corruption was already adjusted by stratification.py:process_corruption earlier in this
     # political cycle (based on head-of-state personality). This step adds the institutional oversight
-    # effect. The stacking is intentional: personality of the head of state AND institutional health
-    # both independently influence the corruption index within the same cycle.
+    # effect on top. The composition is intentional and cumulative: personality of the head of state
+    # AND institutional health both independently push the corruption index within the same cycle.
+    # Both contributions are clamped to [0, 1]; saturation behavior when both forces push in the
+    # same direction is intentional and documented per Round 2 finding X-1.
     oversight = (justice.health + media.health * media.independence + bureaucracy.health) / 3.0
     corruption_pressure = (1.0 - oversight) * (1.0 - corruption_resistance) * 0.05
     # Slow decay when oversight is strong.
@@ -492,11 +498,14 @@ def check_transitions(simulation) -> str | None:
 
     # Expropriation: redistribute property per new regime's policy.
     # Acemoglu & Robinson (2006). Safe when economy not initialized.
+    # ImportError guards the optional economy app; OperationalError / ProgrammingError
+    # guard the case where economy migrations have not been applied yet on this DB.
+    from django.db.utils import OperationalError, ProgrammingError
     try:
         from epocha.apps.economy.property_market import process_expropriation
         process_expropriation(simulation, previous_type, target_type, current_tick)
-    except Exception:
-        logger.debug("Expropriation skipped (economy not initialized)")
+    except (ImportError, OperationalError, ProgrammingError) as exc:
+        logger.debug("Expropriation skipped (economy not initialized): %s", exc)
 
     logger.info(
         "Regime transition: simulation=%d tick=%d %s -> %s",
@@ -567,6 +576,13 @@ def check_coups(simulation, tick: int) -> dict | None:
 
     best_candidate: tuple[float, Group, Agent] | None = None
 
+    # Simplification: at most one coup per cycle. When multiple factions roll
+    # success (random.random() < success_probability), the candidate with the
+    # highest success_probability wins. This under-models concurrent coup
+    # attempts: Powell & Thyne (2011) document independent attempts that can
+    # overlap or cascade. Future work could allow multiple successful coups
+    # per cycle or pick uniformly among the successful rolls. Documented per
+    # Round 2 finding N-13.
     for faction in eligible_factions:
         leader = faction.leader
         if leader is None or not leader.is_alive:
@@ -632,11 +648,14 @@ def check_coups(simulation, tick: int) -> dict | None:
     ])
 
     # Expropriation: redistribute property per new regime's policy.
+    # ImportError guards the optional economy app; OperationalError / ProgrammingError
+    # guard the case where economy migrations have not been applied yet on this DB.
+    from django.db.utils import OperationalError, ProgrammingError
     try:
         from epocha.apps.economy.property_market import process_expropriation
         process_expropriation(simulation, previous_type, "autocracy", tick)
-    except Exception:
-        logger.debug("Expropriation skipped after coup (economy not initialized)")
+    except (ImportError, OperationalError, ProgrammingError) as exc:
+        logger.debug("Expropriation skipped after coup (economy not initialized): %s", exc)
 
     logger.info(
         "Coup succeeded: simulation=%d tick=%d faction=%r leader=%r",
@@ -655,9 +674,11 @@ def _update_stability(simulation) -> None:
     Stability is a composite of economy, popular legitimacy, and military loyalty,
     weighted by the current government type's ``stability_weights`` configuration.
     Economy is read from ``World.stability_index``, which is updated by the
-    economic engine. The weighted formula follows Bueno de Mesquita et al. (2003):
-    regime stability derives from the satisfaction of the winning coalition
-    (modelled here as the weighted combination of key resource holders).
+    economic engine. The weighted composition draws qualitative inspiration from
+    Bueno de Mesquita et al. (2003) -- regime stability derives from the
+    satisfaction of the winning coalition -- but the specific weights and the
+    three-factor linear blend are simulation design parameters, not derived from
+    the selectorate-model equations.
 
     Reference: Bueno de Mesquita et al. (2003). "The Logic of Political Survival."
     MIT Press. Chapter 3: coalition satisfaction and regime durability.
@@ -699,6 +720,7 @@ def _update_stability(simulation) -> None:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def process_political_cycle(simulation, tick: int) -> None:
     """Run the full political cycle for one government interval.
 
@@ -716,11 +738,27 @@ def process_political_cycle(simulation, tick: int) -> None:
     7. Coup check (only when stability is below the coup threshold).
     8. Stability recomputation from updated indicators.
 
+    Concurrency: the cycle is wrapped in a single ``transaction.atomic`` block and
+    acquires a ``SELECT ... FOR UPDATE`` lock on the simulation's Government row at
+    entry. This serializes overlapping political ticks on the same simulation,
+    preventing lost updates on ``government.corruption`` and other indicators when
+    two Celery workers race on the same tick boundary. Documented per Round 2
+    finding N-6.
+
     Args:
         simulation: Simulation instance.
         tick: Current simulation tick.
     """
     logger.info("process_political_cycle: simulation=%d tick=%d", simulation.pk, tick)
+
+    # Concurrency guard: lock the Government row for the entire cycle. If no
+    # Government exists yet, fall through (downstream calls handle the absence
+    # gracefully). select_for_update is a no-op on backends without row locking
+    # (e.g. SQLite test runs) but enforced on PostgreSQL.
+    try:
+        Government.objects.select_for_update().get(simulation=simulation)
+    except Government.DoesNotExist:
+        pass
 
     # Step 1: institution health dynamics.
     update_institutions(simulation)

@@ -23,14 +23,16 @@ endow agents with rich cognition but operate over small groups, short
 horizons, and stylised environments without an underlying demographic or
 economic substrate. The whitepaper documents the system architecture (tick
 engine, agent decision pipeline, RNG strategy, LLM provider adapter,
-economic substrate, persistence model, dashboard and chat layer), six
+economic substrate, persistence model, dashboard and chat layer), eleven
 audited scientific modules — Heligman-Pollard mortality, Hadwiger-with-Becker
 fertility, Gale-Shapley with Goode 1963 couple formation, Cagan-Nerlove
-adaptive expectations, Diamond-Dybvig credit and banking, and a
-Gordon-anchored property market — and eight subsystems implemented in code
-but awaiting Round 2 adversarial scientific audit (rumor propagation,
-political institutions, movement, factions, reputation, knowledge graph,
-economy base layer). Every formula, parameter, and algorithm in the audited
+adaptive expectations, Diamond-Dybvig credit and banking, a
+Gordon-anchored property market, Castelfranchi-Conte-Paolucci reputation,
+Bartlett-Allport-Postman rumor propagation (information flow, distortion,
+belief filter, affinity), and the political-institutions cluster
+(government, government_types, institutions, stratification, election) —
+and four subsystems implemented in code but awaiting Round 2 adversarial
+scientific audit (movement, factions, knowledge graph, economy base layer). Every formula, parameter, and algorithm in the audited
 chapters is cited to a primary source; calibration tables are presented per
 era template and consolidated in Appendix A; the validation methodology
 specifies datasets, metrics, and acceptance thresholds against which Plan 4
@@ -1282,6 +1284,458 @@ with w_P = 0.3, w_R = 0.3, w_C = 0.4. The relationship component is (strength + 
 
 3. **Wealth quartile threshold is relative**: the same-quartile bonus uses `abs(w_a - w_b) / max(w_a, w_b) < 0.25` rather than an absolute wealth difference. The relative form scales naturally across era templates with different absolute wealth distributions; the 0.25 threshold is a tunable design parameter.
 
+## 4.5 Political institutions
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+The political institutions cluster covers regime dynamics, election scoring,
+institutional accumulation/decay, and stratification (social class + corruption).
+Five modules under `epocha/apps/world/`:
+
+1. `government.py` — regime types, transitions, coups, legitimacy, stability
+2. `government_types.py` — 12 regime templates with institution effects
+3. `institutions.py` — health accumulation per institution type
+4. `stratification.py` — Gini, social classes, corruption mechanics
+5. `election.py` — voting model with personality, reputation, economy, charisma
+
+Acemoglu and Robinson (2006); Bueno de Mesquita et al. (2003); Geddes (1999);
+Polity 5 (Marshall and Gurr 2020); Powell and Thyne (2011); Freedom House;
+plus the regime typology and voting literature surveyed in §13 References.
+
+### 4.5.1 Government (regime + coup)
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+#### Background
+
+`government.py` orchestrates the per-tick political cycle: regime transitions,
+coup resolution, legitimacy and stability bookkeeping, and the indicator
+updates that feed downstream election scoring and economy political feedback.
+The regime typology covers the 12 archetypes declared in `government_types.py`
+and draws on Geddes (1999) for the empirical regime-survival shape, on the
+Polity 5 dataset (Marshall and Gurr 2020) for the regime-classification spine,
+and on Freedom House annual reports for the qualitative trajectory of
+institutional erosion in declining democracies.
+
+#### Model
+
+Regime transitions follow the endogenous-mechanism framing of
+Acemoglu and Robinson (2006) and the regime-survival hazard structure of
+Geddes (1999): the engine evaluates trigger conditions per regime type and
+flips to the configured successor when the trigger fires. The coup decision
+is stochastic — the computed coup-score is interpreted as a success
+probability against a `random.random()` draw — calibrated against the
+empirical ~50% all-attempts success rate reported by Powell and Thyne (2011);
+the legacy deterministic-threshold form is recorded as Round 2 finding G-2
+and explicitly closed. Stability is recomputed each cycle as a convex
+combination of economy, legitimacy and military-loyalty components whose
+weights are pulled per-regime from `government_types.py`.
+
+#### Equations
+
+Equation (4.26) — Coup probability score:
+
+  coup_probability = 0.4·cohesion + 0.3·leader_charisma + 0.3·(1 − military_loyalty)
+
+The score is consumed as a success probability against
+`random.random() < coup_probability`. The triple-weight form follows the
+narrative observation that coups require organised internal cohesion, a
+focal leader, and a military that is not committed to the incumbent; the
+exact weights are tunable design parameters.
+
+Equation (4.27) — Stability index:
+
+  stability = w_economy·economy + w_legitimacy·legitimacy + w_military·military_loyalty
+
+with per-regime weights `(w_economy, w_legitimacy, w_military)` read from
+`GOVERNMENT_TYPES[regime].stability_weights` (e.g. democracy weights economy
+and legitimacy heavily; military regimes weight loyalty heavily).
+
+#### Parameters
+
+| Parameter | Symbol | Value | Source/Status |
+|---|---|---|---|
+| Institutional trust decay per cycle | — | 0.05 | tunable design (`government.py:_TRUST_DECAY`); qualitatively consistent with Freedom House annual reports |
+| Repression drift rate per cycle | — | 0.10 | tunable design (`government.py:_REPRESSION_DRIFT_RATE`) |
+| Legitimacy weight on health | — | 0.20 | tunable design (`government.py:_LEGITIMACY_W_HEALTH`) |
+| Legitimacy weight on education | — | 0.15 | tunable design (`government.py:_LEGITIMACY_W_EDUCATION`) |
+| Legitimacy weight on economy | — | 0.35 | tunable design (`government.py:_LEGITIMACY_W_ECONOMY`) |
+| Legitimacy weight on media | — | 0.30 | tunable design (`government.py:_LEGITIMACY_W_MEDIA`) |
+| Media independence threshold for propaganda inflation | — | 0.30 | tunable design (`government.py:_MEDIA_INDEPENDENCE_THRESHOLD`) |
+| Propaganda inflation factor on reported legitimacy | — | +0.30 | tunable design (`government.py:_PROPAGANDA_FACTOR`) |
+| Per-regime stability weights | — | per `GOVERNMENT_TYPES` | tunable design (`government_types.py`) |
+| Coup base-rate target | — | ~0.50 | Powell and Thyne (2011) empirical anchor |
+
+#### Algorithm
+
+`process_political_cycle(world, tick)` at `government.py` is wrapped in
+`@transaction.atomic` and acquires `select_for_update()` on the `Government`
+row to prevent the concurrent-tick race that Round 2 audit finding N-6
+identified between corruption mutation in `stratification.py:process_corruption`
+(political-cycle step 3) and the indicator update in
+`government.py:update_government_indicators` (step 4). The 8-step pipeline
+is: (1) institution health update; (2) Gini and social-class recomputation;
+(3) corruption skim (wealth-conserving, per `stratification.py`); (4)
+indicator update (institutional_trust, popular_legitimacy, military_loyalty,
+repression_level, with propaganda inflation when media independence is low);
+(5) regime-transition evaluation; (6) election scheduling; (7) coup
+resolution (stochastic per equation (4.26)); (8) history snapshot. Step 7
+selects at most one coup per cycle; when multiple groups satisfy the trigger
+threshold, the highest-score group is the one that attempts. The
+single-attempt-per-cycle choice is recorded as Round 2 audit finding N-13 and
+is documented inline at `government.py` as a deliberate selection bias.
+
+#### Simplifications
+
+1. **G-1 — Legitimacy weights are tunable design parameters**: the four
+   weights `(_LEGITIMACY_W_HEALTH, _LEGITIMACY_W_EDUCATION,
+   _LEGITIMACY_W_ECONOMY, _LEGITIMACY_W_MEDIA) = (0.20, 0.15, 0.35, 0.30)`
+   reflect the assumed relative importance of institutional domains rather
+   than an empirical fit. Closed in Round 2 by inline documentation.
+
+2. **G-2 — Coup decision is stochastic, not deterministic**: pre-Round 2 the
+   coup decision was a deterministic threshold against the coup score; the
+   current implementation evaluates `random.random() < coup_probability`,
+   consistent with the Powell and Thyne (2011) empirical base rate of coup
+   success. The legacy `_COUP_SUCCESS_THRESHOLD` constant is deprecated.
+
+3. **G-3 — Institutional trust decay rate is tunable**: the 0.05/cycle decay
+   is a design choice and is exposed for per-era calibration. Freedom House
+   reports document the qualitative pattern of institutional erosion in
+   declining democracies but do not publish a per-period decay rate.
+
+4. **G-6 — `stability_index` is used as the economy proxy**: the
+   `_update_stability()` and `update_government_indicators()` functions
+   consume `World.stability_index` as their "economy" input; the field is
+   computed by the economy module as an average-mood signal rather than a
+   real economic indicator. The behavioural fix would route the function
+   through a dedicated economic indicator once one becomes available; the
+   current behaviour is documented inline at `government.py`.
+
+5. **N-13 — Coup selection bias toward highest-score group**: at most one
+   coup is resolved per cycle; when multiple groups satisfy the trigger
+   threshold, the one with the highest coup score is selected. This biases
+   the simulation toward the strongest single contender per cycle rather
+   than modelling simultaneous attempts; the choice is documented inline.
+
+### 4.5.2 Government types
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+#### Background
+
+`government_types.py` declares the 12 regime archetypes that `government.py`
+consumes: democracy, illiberal democracy, autocracy, monarchy, oligarchy,
+theocracy, totalitarian, terrorist regime, anarchy, federation, kleptocracy,
+junta. Each archetype is a dictionary of four attribute groups —
+`repression_tendency`, `corruption_resistance`, `institution_effects`,
+`stability_weights` — that drive the per-cycle indicator updates of §4.5.1.
+The typology and the per-regime attribute differentiation are inspired by
+the Polity 5 regime classification (Marshall and Gurr 2020), the Freedom
+House measurement methodology, and the selectorate framework of
+Bueno de Mesquita et al. (2003).
+
+#### Model
+
+Each regime template carries four attribute groups. `repression_tendency`
+sets the asymptote toward which `Government.repression_level` drifts each
+cycle in §4.5.1. `corruption_resistance` modulates the corruption-skim
+magnitude that `stratification.py:process_corruption` applies.
+`institution_effects` declares per-institution-type deltas that augment or
+attenuate institutional health in §4.5.3. `stability_weights` is the
+`(w_economy, w_legitimacy, w_military)` triple consumed by equation (4.27).
+
+#### Equations
+
+Equation (4.28) — Institution effect under a regime:
+
+  institution_effect = base_value + regime_effect · INSTITUTION_EFFECT_SCALE
+
+with `INSTITUTION_EFFECT_SCALE = 20.0` (from `institutions.py`, see §4.5.3
+Parameters). `regime_effect` is the per-(regime, institution-type) entry of
+the regime template; `base_value` is the institution's standalone health
+delta before regime modulation.
+
+#### Parameters
+
+The full per-regime parameter set is large enough to belong to the
+Appendix A parameter dump; the in-chapter view is the structural one — 12
+regimes × 4 attribute groups (`repression_tendency` scalar,
+`corruption_resistance` scalar, `institution_effects` dict, `stability_weights`
+triple). The literature anchors are Polity 5 (Marshall and Gurr 2020) for the
+regime classification spine, Freedom House for the methodology that informs
+the per-regime ordering, Bueno de Mesquita et al. (2003) for the selectorate
+intuition behind the per-regime stability weights, and Acemoglu and Robinson
+(2006) for the endogenous-transition shape.
+
+#### Algorithm
+
+A lookup by regime name returns the configuration dictionary that
+`government.py` consumes during the political cycle. The module is
+data-only and carries no per-tick logic of its own.
+
+#### Simplifications
+
+1. **GT-1 — All values are design parameters, not derived from cited
+   sources**: the four attribute groups across all 12 regimes are tunable
+   design parameters inspired by the cited literature rather than empirical
+   fits. Polity 5 publishes a regime classification but not the per-regime
+   `(_TRUST_SCALE, repression_tendency, corruption_resistance,
+   institution_effects, stability_weights)` quintuple in the form Epocha
+   consumes. The module-level disclaimer documents this explicitly; closed
+   by Round 2 audit.
+
+### 4.5.3 Institutions
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+#### Background
+
+`institutions.py` carries the per-institution health dynamics that the
+political cycle consumes. The model is qualitatively inspired by the
+inequality-of-institutions framework of Acemoglu and Robinson (2012),
+*Why Nations Fail*, and by the state-capacity treatment of Besley and
+Persson (2011), *Pillars of Prosperity*. Each institution carries a scalar
+`health ∈ [0, 1]` that decays at a configurable entropy rate, is augmented
+by funding, and is modulated by the per-regime institution effects of
+§4.5.2.
+
+#### Model
+
+Each cycle, every institution's health is updated by three additive
+contributions: funding (proportional to the institution's `funding_level`),
+regime modulation (the `regime_effect` entry of §4.5.2 multiplied by the
+scale factor), and entropy (a negative constant). The new health is clipped
+to [0, 1].
+
+#### Equations
+
+Equation (4.29) — Per-cycle institution health update:
+
+  health_{t+1} = clip( health_t + funding_delta + regime_effect_delta + entropy , 0, 1 )
+
+with `funding_delta = funding_level · FUNDING_EFFECT_RATE`,
+`regime_effect_delta = regime_effect · INSTITUTION_EFFECT_SCALE`, and
+`entropy = ENTROPY_PER_TICK`.
+
+#### Parameters
+
+| Parameter | Symbol | Value | Source/Status |
+|---|---|---|---|
+| Institution effect scale | — | 20.0 | tunable design (`institutions.py:INSTITUTION_EFFECT_SCALE`); calibrated so that a strong regime modulation reaches near-peak in ~33 cycles (~2-3 years at the standard tick mapping) |
+| Funding effect rate per cycle | — | 0.04 | tunable design (`institutions.py:FUNDING_EFFECT_RATE`) |
+| Entropy per tick (linear decay) | — | -0.005 | tunable design (`institutions.py:ENTROPY_PER_TICK`); linear decay reaching 50% after 100 ticks of zero investment — NOT exponential half-life |
+
+#### Algorithm
+
+`update_institutions(world, tick)` at `institutions.py` iterates all
+institutions of the world and applies equation (4.29). After Round 2 audit
+finding N-12, the per-row `save()` was replaced with `bulk_update()` on the
+collected health values, reducing per-cycle DB round-trips proportionally
+to institution count.
+
+#### Simplifications
+
+1. **I-1 — Timescale calibration is design-driven**: the
+   `INSTITUTION_EFFECT_SCALE = 20.0` is set so that strong regime modulation
+   reaches near-peak in roughly 33 cycles (~2-3 years at the standard
+   tick-to-year mapping). The mapping itself is tunable; the chosen scale
+   is a heuristic rather than an empirical fit.
+
+2. **I-2 — Funding rate is tunable**: `FUNDING_EFFECT_RATE = 0.04` is a
+   design choice tracking neither a specific public-finance dataset nor a
+   per-domain ROI study; it is exposed for per-era calibration.
+
+3. **I-3 — Decay is linear, not exponential**: the entropy term applies a
+   constant `-0.005` per cycle, producing a linear decay that reaches 50%
+   after 100 ticks of zero investment. The pre-Round 2 docstring used
+   "half-life" language; the current docstring corrects to "linear decay
+   reaching 50% after 100 ticks of zero investment" (Round 2 audit
+   finding I-3 closure).
+
+### 4.5.4 Stratification
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+#### Background
+
+`stratification.py` computes per-world Gini, assigns agents to social
+classes from the wealth distribution, and runs the per-cycle corruption
+skim that diverts wealth from the world common pool to the head of state.
+The Gini coefficient follows Gini (1912); the class-structure simplification
+to five classes is a coarsening of the six-class scheme of Gilbert (2011);
+the corruption framing draws on Acemoglu and Robinson (2006); the
+personality-modulated asymmetric mobility weights are anchored on the
+loss-aversion ratio of Kahneman and Tversky (1979).
+
+#### Model
+
+Gini is computed from the agent wealth vector; class assignment uses fixed
+wealth-quintile thresholds; the corruption skim is wealth-conserving — the
+amount removed from `world.global_wealth` is exactly the amount credited to
+`agent.wealth` of the corrupt head of state. The mobility logic applies an
+asymmetric weight ratio between upward and downward transitions, reflecting
+the loss-aversion principle that downward moves are perceived more strongly
+than equivalent upward moves.
+
+#### Equations
+
+Equation (4.30) — Gini coefficient (Gini 1912):
+
+  Gini = (1 / (n · μ)) · Σᵢ (2i − n − 1) · xᵢ
+
+with the agent wealth values `xᵢ` sorted ascending, `n` the agent count,
+and `μ` the mean wealth.
+
+Equation (4.31) — Class assignment from wealth quintiles:
+
+  class(agent) =
+    UPPER          if w(agent) ≥ q80
+    UPPER_MIDDLE   if q50 ≤ w(agent) < q80
+    MIDDLE         if q15 ≤ w(agent) < q50
+    WORKING        if q5 ≤ w(agent) < q15
+    LOWER          if w(agent) < q5
+
+with the percentile cutpoints `q5, q15, q50, q80` computed from the agent
+wealth distribution.
+
+Equation (4.32) — Wealth-conserving corruption skim:
+
+  skim_amount  = corruption_susceptibility · _CORRUPTION_SKIM_RATE · world.global_wealth
+  world.global_wealth ← world.global_wealth − skim_amount
+  head_of_state.wealth ← head_of_state.wealth + skim_amount
+
+The skim is wrapped in `@transaction.atomic` so that the two updates either
+both apply or neither does; this is Round 2 audit finding N-3 closure
+(pre-Round 2 the two writes were unprotected and could produce free wealth
+under concurrent execution).
+
+#### Parameters
+
+| Parameter | Symbol | Value | Source/Status |
+|---|---|---|---|
+| Class thresholds (quintiles) | — | 5 / 15 / 50 / 80 | Gilbert (2011) inspires the class scheme; the specific percentile cutpoints are tunable design choices |
+| Corruption skim rate | — | 0.02 | tunable design (`stratification.py:_CORRUPTION_SKIM_RATE`); qualitative reference to Transparency International CPI for the relative ordering across regime types |
+| Conscientiousness threshold for corruption susceptibility | — | 0.4 | tunable design; Miller and Lynam (2001) inspire the link between low conscientiousness and norm-deviance, but the cutoff itself is a design choice |
+| Loss-aversion ratio (downward : upward mobility weight) | — | 1.75 : 1 | tunable design approximating the ~2 : 1 ratio of Kahneman and Tversky (1979) |
+
+#### Algorithm
+
+`compute_gini(world)` evaluates equation (4.30) on the per-agent wealth
+vector. `update_social_classes(world)` evaluates equation (4.31) and writes
+the assigned class back to each agent. `process_corruption(world, tick)`
+implements equation (4.32) under `@transaction.atomic` so that the
+`world.global_wealth` decrement and the `agent.wealth` increment are atomic
+with respect to concurrent tick execution; this closes Round 2 audit
+finding N-3.
+
+#### Simplifications
+
+1. **S-1 — Five classes vs the six-class Gilbert (2011) scheme**: Epocha
+   coarsens the Gilbert (2011) six-class scheme to five classes by merging
+   the "capitalist" and "upper" classes into a single UPPER class. The
+   simplification is documented inline; the class threshold percentiles
+   are exposed for per-era recalibration.
+
+2. **S-2 — Wealth conservation enforced**: the corruption skim is
+   wealth-conserving by construction (equation (4.32)); the
+   `@transaction.atomic` wrapping prevents free-wealth artefacts under
+   concurrent execution. Round 2 audit finding N-3 closure.
+
+3. **S-3 — Conscientiousness threshold is a tunable design choice**:
+   the `conscientiousness < 0.4` threshold is inspired by the Miller and
+   Lynam (2001) link between low conscientiousness and norm-deviance, but
+   the cutoff itself is not derived from that paper. The pre-Round 2
+   citation to Acemoglu and Robinson (2006) was removed (Acemoglu and
+   Robinson discuss institutional constraints, not personality cutoffs).
+
+4. **S-4 — Emotional/mobility weights are tunable**: the upward/downward
+   mobility magnitudes (0.4 and 0.7) preserve the ~2:1 loss-aversion ratio
+   of Kahneman and Tversky (1979) but the specific magnitudes themselves
+   are design choices; the principled anchor is the ratio, not the
+   absolute values.
+
+### 4.5.5 Election
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+#### Background
+
+`election.py` implements the per-election vote model used by the political
+cycle to elect a new head of state when an election trigger fires. The
+vote-score is a weighted convex combination of five components — relationship,
+personality, economy, reputation, charisma — anchored to the political-
+psychology literature: Caprara et al. (2006) for the personality basis,
+Huckfeldt and Sprague (1987) for the network-relationship component,
+Lewis-Beck and Stegmaier (2000) for the economic-voting component,
+Lodge, Steenbergen and Brau (1995) for the candidate-evaluation
+operationalisation, and Bass (1985), Weber (1922) and Merolla and
+Zechmeister (2011) for the charisma component.
+
+#### Model
+
+For each voter and candidate, the score is computed as a weighted sum of
+the five components; the candidate with the highest score wins the voter's
+ballot. The manipulation bonus is then applied to the cumulative tally per
+candidate (the bonus is a tunable per-candidate corruption-or-clientelism
+modifier).
+
+#### Equations
+
+Equation (4.33) — Per-voter vote score:
+
+  vote_score = w_rel·relationship + w_pers·personality + w_econ·economic + w_rep·reputation + w_char·charisma
+
+with weights `(w_rel, w_pers, w_econ, w_rep, w_char) = (0.25, 0.15, 0.20, 0.25, 0.15)`.
+
+Equation (4.34) — Reputation factor normalisation:
+
+  reputation_factor = _normalize_reputation(reputation_raw)
+
+where `_normalize_reputation()` is the centralised helper imported from
+`agents/reputation.py` (Round 2 audit finding N-5 closure — pre-Round 2 the
+election module carried a local normalisation that diverged from the
+`reputation.py` single source of truth used by the belief filter of §4.4.3).
+
+#### Parameters
+
+| Parameter | Symbol | Value | Source/Status |
+|---|---|---|---|
+| Relationship weight | w_rel | 0.25 | tunable design (`election.py`); Huckfeldt and Sprague (1987) for the conceptual basis |
+| Personality weight | w_pers | 0.15 | tunable design; Caprara et al. (2006) for the personality basis |
+| Economic weight | w_econ | 0.20 | tunable design; Lewis-Beck and Stegmaier (2000) for the economic-voting basis |
+| Reputation weight | w_rep | 0.25 | tunable design; reputation factor normalised via the centralised helper of `reputation.py` |
+| Charisma weight | w_char | 0.15 | tunable design; Bass (1985), Weber (1922), Merolla and Zechmeister (2011) for the charisma basis |
+| Wealth saturation constant | — | 100.0 | tunable design (`election.py:_WEALTH_SATURATION`); tied to the `Agent.wealth` default of 50.0 so that the saturating function reaches half-max at the population baseline |
+
+#### Algorithm
+
+The voter list is materialised once into `voter_list = list(...)` and the
+voter count is captured via `voter_count = len(voter_list)` for the
+manipulation-bonus loop (Round 2 audit findings N-5 and E-5 closure —
+pre-Round 2 the loop re-evaluated `voters.count()` or `len(list(voters))`
+on each iteration). The manipulation bonus is applied to each candidate's
+cumulative tally; the highest-tally candidate wins the election and is
+written back as the new head of state.
+
+#### Simplifications
+
+1. **E-3 — Vote weights are tunable design choices**: the five-tuple
+   `(0.25, 0.15, 0.20, 0.25, 0.15)` is the current default and is exposed
+   for per-era calibration; the cited literature supports the
+   *presence* of each component rather than the *magnitude* of its weight.
+
+2. **E-4 — Wealth saturation is tied to the internal wealth scale**:
+   `_WEALTH_SATURATION = 100.0` is tied to the `Agent.wealth` default of
+   50.0 so that the saturating function reaches half-max at the population
+   baseline; the absolute value is meaningful only within Epocha's
+   internal wealth scale.
+
+3. **E-5 — Query evaluation is cached**: the voter QuerySet is materialised
+   once and its length captured into a local before the manipulation-bonus
+   loop; per-iteration re-evaluation is removed. Round 2 audit finding E-5
+   closure.
+
 ---
 
 # 5. Implementation
@@ -1463,33 +1917,27 @@ Validation experiments are specified, not yet executed. The full execution of th
 
 # 8. Designed Subsystems (implemented, audit pending)
 
-Chapter 8 covers the five Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation converged on round 2 (2026-05-12) and was promoted to §4.3, and the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity per the audit's IF-1 fix) converged on round 2 (2026-05-16) and was promoted to §4.4, leaving the remaining six modules in this chapter pending. The resolution pass and the convergence re-audit on those six are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
+Chapter 8 covers the four Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation converged on round 2 (2026-05-12) and was promoted to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity per the audit's IF-1 fix) converged on round 2 (2026-05-16) and was promoted to §4.4, and the political-institutions cluster (government, government_types, institutions, stratification, election) converged on round 2 (2026-05-16) and was promoted to §4.5, leaving the remaining four modules in this chapter pending. The resolution pass and the convergence re-audit on those four are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
 
-## 8.1 Cluster: Political institutions (Government + Institutions + Stratification)
-
-The political-institutions cluster covers the four modules that turn agent-level political action into regime-level dynamics: `government.py` implements the per-tick government step (legitimacy decay, election scheduling, succession on the death of an incumbent, and the coup-attempt resolution), `government_types.py` declares the seven regime archetypes (full democracy, semi-democracy, traditional monarchy, partial autocracy, totalitarian regime, theocracy, anarchy) with their per-archetype legitimacy-decay rates and election rules, `institutions.py` carries the longer-horizon institutional state (constitutional protections, party structure, succession crises) that cross-references the government step, and `stratification.py` computes per-zone Gini and the revolt-probability response that feeds back into government legitimacy. The literature pointers carried by the source are Acemoglu and Robinson (2006) on the inequality-instability link (already in §13) — the spec uses their Gini-thresholded revolt probability as the qualitative shape of the response of `stratification.py` — Powell and Thyne (2011) on the empirical base rate of coup outcomes (cited in `government.py` for the ~50% success rate of coup attempts), the Polity5 project (Marshall and Gurr 2020, cited in `government_types.py`) for the regime-typology calibration of legitimacy-decay rates and election rules per archetype, and Alesina and Perotti (1996) on the qualitative correlation between income distribution and political instability (cited in `political_feedback.py` of the economy app for the cross-module bridge from §3.6 economic state into government legitimacy). Code paths: `epocha/apps/world/government.py`, `epocha/apps/world/government_types.py`, `epocha/apps/world/institutions.py`, `epocha/apps/world/stratification.py`.
-
-> Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-05-government-institutions-stratification-design.md`.
-
-## 8.2 Movement
+## 8.1 Movement
 
 The movement module governs the per-tick relocation of agents between zones under three intent classes: voluntary economic migration driven by the agent's `move_to_zone` action, voluntary social migration driven by relationship pull (a partner, a parent, or a faction leader in another zone), and involuntary movement driven by zone destruction or expulsion. The implementation carries a per-mode travel-rate table (foot 25 km/day, horse 60 km/day, carriage 60 km/day on good roads, river boat 50 km/day) calibrated from David Chandler (1966), *The Campaigns of Napoleon* — a military-history source for sustained civilian and cavalry march rates that include rest stops — and from Braudel (1979) for the qualitative shape of pre-industrial trade-route geography, with the road-quality multiplier left as a tunable design parameter inscribed in the era template rather than as an empirical fit to a specific historical road network. The 2026-04-12 audit batch flagged two calibration concerns against this module: the 25 km/day foot rate is at the high end of the empirical range for non-military civilian travel (a refugee, a trader on foot, or a peasant moving between villages typically averages 15-20 km/day per the same Chandler source when accounting for terrain and load), and the inter-zone graph that the movement step traverses is the abstract zone graph of `world/models.py` rather than a routed-distance computation against actual zone geometry (the geometry is already stored in PostGIS per §3.6 but the routing layer is deferred to the broader-PostGIS work item of the roadmap of Chapter 9). Code path: `epocha/apps/agents/movement.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-07-movement-system-design.md`.
 
-## 8.3 Factions
+## 8.2 Factions
 
 The factions module covers the three life-cycle phases of an Epocha faction: formation (an agent declares the intent to found a faction and other agents elect to join under shared-grievance and personality-affinity rules), maintenance (per-tick cohesion update, leadership succession on the death or defection of the founder, internal discipline against members whose actions diverge from the faction's stated platform), and dissolution (a faction whose cohesion falls below the threshold, or whose membership falls below the minimum, is dissolved and its members released). The implementation cites Olson (1965), *The Logic of Collective Action*, as the conceptual frame for faction formation: the spec emphasizes that shared grievances and shared circumstances (zone, occupation, exposure to the same event) drive group formation more reliably than personality similarity, and the formation rule in `factions.py` weights shared-grievance memories above personality affinity in the candidate-evaluation score. The negativity-bias asymmetry in the cohesion update (a divergent action costs −0.15 cohesion against a +0.10 reward for an aligned action) is attributed inline to Baumeister et al. (2001) "Bad is stronger than good." The Iannaccone (1992) club-goods literature on cult and commune cohesion through costly-signal sacrifice is *not* implemented in the current module — there is no costly-signal initiation rite, no exclusionary boundary marker beyond simple membership, and no free-rider-detection mechanism — and the spec records this as a deferred extension rather than a current citation. Code path: `epocha/apps/agents/factions.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-05-factions-leadership-design.md`.
 
-## 8.4 Knowledge Graph
+## 8.3 Knowledge Graph
 
 The Knowledge Graph cluster implements the simulation's long-horizon memory: the per-simulation graph of entities, relations, and events that the LLM context builder of §3.5 queries to ground each agent's per-tick decision in the simulation's prior history rather than re-reading the entire raw event log. The cluster is split across nine modules under `epocha/apps/knowledge/`: `chunking.py` slices the raw event log into LLM-sized passages, `extraction.py` runs the LLM-driven entity-and-relation extractor over each chunk, `embedding.py` produces the dense vector representations of every chunk and every node (the multilingual-e5-large model is the current default per the spec), `merge.py` deduplicates extracted nodes against the existing graph, `normalizer.py` canonicalises entity surface forms to their preferred labels, `materialization.py` writes the consolidated graph back to the persistence layer, `ontology.py` declares the entity and relation type system, `prompts.py` collects the LLM prompts for extraction and merge, and `api.py` exposes the graph to the dashboard graph view. The literature pointers in the spec are the Retrieval-Augmented Generation framework of Lewis et al. (2020) for the broader retrieve-then-generate architecture, the sentence-embedding family of Reimers and Gurevych (2019) for the dense-vector representations (multilingual-e5-large is the current production choice for its 100+ language coverage and reproducibility properties), and the broader knowledge-graph reasoning literature for the entity-relation typology. The spec contrasts the Epocha approach with GraphRAG and with MiroFish in its FAQ section and records the choice to materialise the graph per-simulation rather than across simulations as a deliberate scope choice for the MVP. Code paths: `epocha/apps/knowledge/{ingestion,extraction,embedding,merge,normalizer,materialization,ontology,chunking,prompts,api}.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-11-knowledge-graph-design.md`.
 
-## 8.5 Economy base layer
+## 8.4 Economy base layer
 
 The economy base layer is the substrate that turns agent activity into production, prices, money, and per-tick income flows; it is described in narrative form under §3.6 of this whitepaper and the present subsection records only the audit status and the spec under which the audit will resume. The base layer covers `production.py` (the CES production function (Arrow et al. 1961)), `monetary.py` (the Fisher-identity diagnostic and the velocity counter), `market.py` (Walrasian tâtonnement (Walras 1874) with the iteration cap that addresses the non-convergence regime (Scarf 1960)), `distribution.py` (the simplified Ricardian rent decomposition and the per-tick wage and tax flow), and `initialization.py` (the per-template seeding of the base balance sheet). All five citations in this list are already present in §13. The behavioral integration that sits on top of this substrate (adaptive expectations, credit and banking, property market) has completed its Round 2 audit and is documented under §4.2 of this whitepaper; the substrate documented here has not, and the §3.6 narrative explicitly disclaims the Methods-grade status pending the audit pass. Code paths: `epocha/apps/economy/{production,monetary,market,distribution,initialization}.py`.
 
@@ -1501,14 +1949,14 @@ The economy base layer is the substrate that turns agent activity into productio
 
 The roadmap is ordered by priority rather than by chronology: the audit re-pass on the four modules still pending from the 2026-04-12 batch (reputation converged on round 2 in 2026-05-12 and was promoted to §4.3; the rumor-propagation cluster — information flow, distortion, belief filter, plus affinity — converged on round 2 in 2026-05-16 and was promoted to §4.4) is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
 
-- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The four modules currently in §8 (political cluster: government, institutions, stratification; movement; factions) carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings from the 2026-04-12 batch audit; reputation has converged on round 2 (2026-05-12) and was promoted to §4.3, and the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity) has converged on round 2 (2026-05-16) and was promoted to §4.4. Resolution and convergence re-audit on the remaining four are the gating item before any of these modules can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
-- **Demography Plan 3 (Inheritance + Migration).** The demography spec of §4.1 covers mortality, fertility, and couple formation; Plan 3 extends the same audit-first methodology to inheritance (transfer of property and debt to surviving kin on death of an agent) and to demographic migration (the long-horizon zone-to-zone migration that complements the per-tick movement of §8.2 with a generational-scale flow). Spec is `docs/superpowers/specs/2026-04-18-demography-design.md` Plan 3 section.
+- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The two modules currently in §8 that still carry open Round 1 findings (movement and factions) sit alongside the Knowledge Graph and the economy base layer, which are also pending their first scientific audit pass. Three clusters have already converged and been promoted: reputation on round 2 (2026-05-12) to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity) on round 2 (2026-05-16) to §4.4, and the political-institutions cluster (government, government_types, institutions, stratification, election) on round 2 (2026-05-16) to §4.5. Resolution and convergence re-audit on the remaining modules are the gating item before any of these can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
+- **Demography Plan 3 (Inheritance + Migration).** The demography spec of §4.1 covers mortality, fertility, and couple formation; Plan 3 extends the same audit-first methodology to inheritance (transfer of property and debt to surviving kin on death of an agent) and to demographic migration (the long-horizon zone-to-zone migration that complements the per-tick movement of §8.1 with a generational-scale flow). Spec is `docs/superpowers/specs/2026-04-18-demography-design.md` Plan 3 section.
 - **Demography Plan 4 (Initialisation, Engine integration, Historical validation).** Plan 4 wires the demography modules of §4.1 — currently implemented and unit-tested in isolation — into the live tick loop of `epocha/apps/simulation/engine.py`, supplies the initialisation procedure that seeds a starting population from the era template, and runs the historical-validation campaign of §7 against the Wrigley-Schofield (1981) and Human Mortality Database targets. This is the central deliverable that closes the implementation-gap disclosure carried by §4.1 and resolves the validation-pending caveat carried by §7.5.
 - **Economy financial markets (Spec 3 to write).** The behavioral integration of §4.2 covers adaptive expectations, credit and banking, and the property market; the next economy spec extends to bond and equity markets, asset-price contagion across multiple banks, and the inter-bank lending channel deferred under the simplifications of §4.2.2. The spec is not yet drafted; the work item is recorded in the long-form roadmap memory.
 - **Validation experiments execution.** The campaign specified in Chapter 7 — dataset acquisition, script implementation, metric computation, and threshold evaluation — is the central deliverable tracked in `docs/memory-backup/project_validation_experiments_pending.md`. Execution is bound to Plan 4 of the demography roadmap above (which provides the live tick-loop integration the validation requires) and to the audit re-pass of the §8 batch (which extends the validation surface to the political and movement modules).
-- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.4 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
+- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.3 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
 - **Analytics psicostoriografia.** The analytics spec at `docs/superpowers/specs/2026-04-06-analytics-psicostoriografia-design.md` covers the post-hoc analysis layer that surfaces emergent patterns from a completed simulation: phase-space trajectories, zone-level cohort comparisons, event-cascade attribution, and the publication-grade plot exports needed for the scientific paper of the project's final deliverable. The spec is drafted; implementation is deferred behind the audit re-pass and Plan 4.
-- **Broader PostGIS adoption.** PostGIS is already enabled per §3.6 with zone geometries stored as WGS84 polygons; the broader-adoption work item extends the geospatial surface to agent trajectories (per-tick location history with spatial indices), routed-distance queries between zones (replacing the abstract zone-graph distance of §8.2 with shortest-path computation against the actual geometry), and per-zone catchment analysis for the economy and demography modules.
+- **Broader PostGIS adoption.** PostGIS is already enabled per §3.6 with zone geometries stored as WGS84 polygons; the broader-adoption work item extends the geospatial surface to agent trajectories (per-tick location history with spatial indices), routed-distance queries between zones (replacing the abstract zone-graph distance of §8.1 with shortest-path computation against the actual geometry), and per-zone catchment analysis for the economy and demography modules.
 - **Multi-level agents (organisations, states, coalitions).** The current Epocha population is a flat set of individual agents; the multi-level work item extends the agent ontology to corporate actors that have their own decision pipelines, their own memory, and their own action space, with the individual agents as members and with state and coalition layers above the organisation layer. The conceptual frame and the literature anchors are recorded in `docs/memory-backup/project_multilevel_agents.md`; the spec is not yet drafted.
 - **Narrative generator.** The narrative-generator work item produces a long-form scientific-historical novel from the completed simulation — the per-zone, per-cohort, per-character arcs woven into a publication-grade narrative in the chosen output language with full citations to the underlying simulation events. The conceptual frame is recorded in `docs/memory-backup/project_narrative_generator.md`; the work item is bound to the analytics spec above (which produces the structured material the generator weaves) and to the Knowledge Graph evolution item (which provides the entity catalog the narrative references).
 - **Media layer (newspapers, social feed).** The media-layer work item materialises the in-simulation press: per-tick newspaper editions whose articles are generated from the simulation events through an LLM editorial pipeline, social-feed analogues for the modern-era templates, and the cross-pollination of media coverage back into the rumor-propagation cluster of §4.4 as a special information-event subtype. The conceptual frame is recorded in `docs/memory-backup/project_media_layer.md`; the work item is bound to the Knowledge Graph evolution item above.
@@ -1553,13 +2001,12 @@ are specified, but the experiments that consume them are tracked under
 deliverable.
 
 The scientific limits of the present work go beyond the simplifications
-inside the audited subset. Five modules — the political-institutions
-cluster of §8.1, movement (§8.2), factions (§8.3), the Knowledge Graph
-(§8.4), and the economy base layer (§8.5) — are implemented in code and
-exercised by unit tests but have not yet completed the Round 2 adversarial
-audit that gates promotion to Chapter 4 status; the open INCORRECT,
-UNJUSTIFIED, INCONSISTENT, and MISSING findings from the 2026-04-12 batch
-audit are catalogued in
+inside the audited subset. Four modules — movement (§8.1), factions (§8.2),
+the Knowledge Graph (§8.3), and the economy base layer (§8.4) — are
+implemented in code and exercised by unit tests but have not yet completed
+the Round 2 adversarial audit that gates promotion to Chapter 4 status;
+the open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings from
+the 2026-04-12 batch audit are catalogued in
 `docs/scientific-audit-2026-04-12.md` and tracked under
 `project_audit_repass_batch_2026_04_12_pending.md`. Within the audited
 subset, several parameter values are seeded as calibration heuristics rather
@@ -1641,7 +2088,7 @@ deliberately short — the substantive context lives in the corresponding §4
 Simplifications paragraph or §8 status line — and exists here as a single
 authoritative inventory for the reader who needs the project-wide view in
 one place. Two cross-cutting follow-ups underlie most of the entries: the
-audit re-pass on the seven §8 modules still pending tracked under
+audit re-pass on the four §8 modules still pending tracked under
 `project_audit_repass_batch_2026_04_12_pending.md` and the validation
 campaign tracked under `project_validation_experiments_pending.md`.
 
@@ -1725,14 +2172,16 @@ campaign tracked under `project_validation_experiments_pending.md`.
   §3.2 rather than by the property market itself; this subsection treats
   the asking price as exogenous.
 
-**Designed subsystems pending Round 2 audit (§8).** Seven modules across
-five clusters carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING
-findings from the 2026-04-12 batch audit: rumor propagation (information
-flow, distortion, belief filter); political institutions (government,
-institutions, stratification); movement; factions; the Knowledge Graph;
-the economy base layer. Reputation, the eighth module of the original
-batch, has converged on round 2 (2026-05-12) and was promoted to §4.3.
-Resolution and convergence re-audit on the remaining seven are tracked
+**Designed subsystems pending Round 2 audit (§8).** Four modules across
+four clusters still carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and
+MISSING findings from the 2026-04-12 batch audit: movement; factions; the
+Knowledge Graph; the economy base layer. Three clusters from the original
+batch have already converged and been promoted — reputation on round 2
+(2026-05-12) to §4.3, the rumor-propagation cluster (information flow,
+distortion, belief filter, plus affinity) on round 2 (2026-05-16) to §4.4,
+and the political-institutions cluster (government, government_types,
+institutions, stratification, election) on round 2 (2026-05-16) to §4.5.
+Resolution and convergence re-audit on the remaining modules are tracked
 under `project_audit_repass_batch_2026_04_12_pending.md` and gate the
 promotion of these modules from §8 to §4 status, the inclusion of their
 parameters in §6 calibration tables, and their entry into the §7
@@ -1743,7 +2192,7 @@ metrics, and acceptance thresholds — is specified across §7.1 to §7.3, but
 the experimental campaign that consumes the methodology is bound to Plan 4
 and is tracked under `project_validation_experiments_pending.md`.
 
-**Knowledge Graph (§8.4).** The graph is currently materialised in batch
+**Knowledge Graph (§8.3).** The graph is currently materialised in batch
 passes from the simulation log; live update from a running simulation,
 which is the prerequisite for graph-grounded LLM context at the per-tick
 decision step, is the dedicated work item of the roadmap of Chapter 9.
@@ -1771,9 +2220,8 @@ audited behavioral economy covering Cagan-Nerlove adaptive expectations,
 Diamond-Dybvig credit and banking, and a Gordon-anchored property market
 (§4.2), an LLM-driven agent decision pipeline that consumes the
 substrate's per-tick state and writes back into the persistence layer
-(§3.2), and eight implemented-but-pre-audit subsystems (§8) covering rumor
-propagation, political institutions, movement, factions, reputation, the
-Knowledge Graph, and the economy base layer. The runtime infrastructure
+(§3.2), and four implemented-but-pre-audit subsystems (§8) covering
+movement, factions, the Knowledge Graph, and the economy base layer. The runtime infrastructure
 covers a tick engine with self-enqueuing Celery loop, a per-phase seeded
 RNG strategy that makes every run reproducible across machines from the
 commit hash, the seed, and the initial database state (§3.4), an
@@ -1844,6 +2292,9 @@ work item.
   monograph; reviewed in Zeller 1948, *The Annals of the American
   Academy of Political and Social Science*, 257(1), 145–146,
   https://doi.org/10.1177/000271624825700169.)
+- Arendt, H. (1951). *The Origins of Totalitarianism*. Schocken Books,
+  New York. Reissued by Harcourt Brace, 1973.
+  ISBN 978-0-15-670153-2 (Harcourt 1973 paperback).
 - Argyle, L. P., Busby, E. C., Fulda, N., Gubler, J. R., Rytting, C., and
   Wingate, D. (2023). Out of one, many: using language models to simulate
   human samples. *Political Analysis*, 31(3), 337–351.
@@ -1866,11 +2317,16 @@ work item.
   Social Psychology*. Cambridge University Press, Cambridge.
   (Pre-ISBN monograph; reissued by Cambridge University Press in
   1995 with ISBN 978-0-521-48356-8.)
+- Bass, B. M. (1985). *Leadership and Performance Beyond Expectations*.
+  Free Press, New York. ISBN 978-0-02-901810-7.
 - Baumeister, R. F., Bratslavsky, E., Finkenauer, C., and Vohs, K. D.
   (2001). Bad is stronger than good. *Review of General Psychology*,
   5(4), 323–370. https://doi.org/10.1037/1089-2680.5.4.323
 - Becker, G. S. (1991). *A Treatise on the Family*, enlarged edition.
   Harvard University Press, Cambridge, MA. ISBN 978-0-674-90698-3.
+- Besley, T., and Persson, T. (2011). *Pillars of Prosperity: The
+  Political Economics of Development Clusters*. Princeton University
+  Press, Princeton, NJ. ISBN 978-0-691-15268-4.
 - Bonabeau, E. (2002). Agent-based modeling: methods and techniques for
   simulating human systems. *Proceedings of the National Academy of
   Sciences*, 99(Suppl. 3), 7280–7287.
@@ -1881,9 +2337,16 @@ work item.
   Century*, by Siân Reynolds. University of California Press, Berkeley.
 - Brown, R., and Kulik, J. (1977). Flashbulb memories. *Cognition*, 5(1),
   73–99. https://doi.org/10.1016/0010-0277(77)90018-X
+- Bueno de Mesquita, B., Smith, A., Siverson, R. M., and Morrow, J. D.
+  (2003). *The Logic of Political Survival*. MIT Press, Cambridge, MA.
+  ISBN 978-0-262-02546-1.
 - Cagan, P. (1956). The monetary dynamics of hyperinflation. In M.
   Friedman (ed.), *Studies in the Quantity Theory of Money*. University
   of Chicago Press, Chicago, 25–117.
+- Caprara, G. V., Schwartz, S., Capanna, C., Vecchione, M., and
+  Barbaranelli, C. (2006). Personality and politics: values, traits,
+  and political choice. *Political Psychology*, 27(1), 1–28.
+  https://doi.org/10.1111/j.1467-9221.2006.00447.x
 - Castelfranchi, C., Conte, R., and Paolucci, M. (1998). Normative
   reputation and the costs of compliance. *Journal of Artificial
   Societies and Social Simulation*, 1(3).
@@ -1895,7 +2358,7 @@ work item.
 - Chandler, D. G. (1966). *The Campaigns of Napoleon*. Weidenfeld and
   Nicolson, London, xliii + 1172 pp. (Pre-ISBN trade edition; Macmillan
   reprint 1973, ISBN 978-0-02-523660-8. Source for the per-mode sustained
-  travel rates of §8.2.)
+  travel rates of §8.1.)
 - Chandola, T., Coleman, D. A., and Hiorns, R. W. (1999). Recent European
   fertility patterns: fitting curves to "distorted" distributions.
   *Population Studies*, 53(3), 317–329.
@@ -1915,6 +2378,9 @@ work item.
 - Costa, P. T., and McCrae, R. R. (1992). *Revised NEO Personality
   Inventory (NEO PI-R) and NEO Five-Factor Inventory (NEO-FFI)
   Professional Manual*. Psychological Assessment Resources, Odessa, FL.
+- Cronin, A. K. (2009). *How Terrorism Ends: Understanding the Decline
+  and Demise of Terrorist Campaigns*. Princeton University Press,
+  Princeton, NJ. ISBN 978-0-691-13948-7.
 - Deissenberg, C., van der Hoog, S., and Dawid, H. (2008). EURACE: a
   massively parallel agent-based model of the European economy.
   *Applied Mathematics and Computation*, 204(2), 541–552.
@@ -1931,9 +2397,23 @@ work item.
 - Evans, G. W., and Honkapohja, S. (2001). *Learning and Expectations
   in Macroeconomics*. Frontiers of Economic Research. Princeton
   University Press, Princeton, NJ. ISBN 978-0-691-04921-2.
+- Finer, S. E. (1962). *The Man on Horseback: The Role of the Military
+  in Politics*. Pall Mall Press, London.
+  ISBN 978-1-138-52538-7 (Routledge 2017 reissue).
+- Fish, M. S. (2002). Islam and authoritarianism. *World Politics*,
+  55(1), 4–37. https://doi.org/10.1353/wp.2003.0004
+- Freedom House (2024). *Freedom in the World*. Annual report series.
+  Freedom House, Washington, DC.
+  https://freedomhouse.org/report/freedom-world
 - Gale, D., and Shapley, L. S. (1962). College admissions and the
   stability of marriage. *The American Mathematical Monthly*, 69(1),
   9-15. https://doi.org/10.2307/2312726
+- Geddes, B. (1999). What do we know about democratization after twenty
+  years? *Annual Review of Political Science*, 2, 115–144.
+  https://doi.org/10.1146/annurev.polisci.2.1.115
+- Gilbert, D. (2011). *The American Class Structure in an Age of Growing
+  Inequality* (8th ed.). Pine Forge Press / SAGE, Thousand Oaks, CA.
+  ISBN 978-1-4129-7965-7.
 - Gompertz, B. (1825). On the nature of the function expressive of the
   law of human mortality, and on a new mode of determining the value of
   life contingencies. *Philosophical Transactions of the Royal Society
@@ -1973,9 +2453,16 @@ work item.
 - Heligman, L., and Pollard, J. H. (1980). The age pattern of mortality.
   *Journal of the Institute of Actuaries*, 107(1), 49–80.
   https://doi.org/10.1017/S0020268100040257
+- Hobbes, T. (1651/1996). *Leviathan* (R. Tuck, ed.). Cambridge Texts
+  in the History of Political Thought. Cambridge University Press,
+  Cambridge. ISBN 978-0-521-56797-8 (1996 critical edition of the 1651
+  original).
 - Homer, S., and Sylla, R. (2005). *A History of Interest Rates*, fourth
   edition. Wiley Finance. John Wiley and Sons, Hoboken, NJ.
   ISBN 978-0-471-73283-9.
+- Huckfeldt, R., and Sprague, J. (1987). Networks in context: the
+  social flow of political information. *American Political Science
+  Review*, 81(4), 1197–1216. https://doi.org/10.2307/1962585
 - Human Mortality Database (HMD) (2024). University of California,
   Berkeley (USA) and Max Planck Institute for Demographic Research
   (Germany). https://www.mortality.org
@@ -1992,18 +2479,33 @@ work item.
 - Kalmijn, M. (1998). Intermarriage and homogamy: causes, patterns,
   trends. *Annual Review of Sociology*, 24, 395-421.
   https://doi.org/10.1146/annurev.soc.24.1.395
+- Kalyvas, S. N. (2006). *The Logic of Violence in Civil War*. Cambridge
+  University Press, Cambridge. ISBN 978-0-521-67004-2.
+  https://doi.org/10.1017/CBO9780511818462
 - Karlan, D. S. (2005). Using experimental economics to measure social
   capital and predict financial decisions. *American Economic Review*,
   95(5), 1688–1699. https://doi.org/10.1257/000282805775014407
 - Lee, R. D., and Carter, L. R. (1992). Modeling and forecasting U.S.
   mortality. *Journal of the American Statistical Association*, 87(419),
   659–671. https://doi.org/10.1080/01621459.1992.10475265
+- Levitsky, S., and Way, L. A. (2010). *Competitive Authoritarianism:
+  Hybrid Regimes after the Cold War*. Cambridge University Press,
+  Cambridge. ISBN 978-0-521-70915-5.
 - Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal,
   N., Küttler, H., Lewis, M., Yih, W., Rocktäschel, T., Riedel, S., and
   Kiela, D. (2020). Retrieval-augmented generation for knowledge-intensive
   NLP tasks. In *Advances in Neural Information Processing Systems
   (NeurIPS 2020)*, 33, 9459–9474. Preprint: arXiv:2005.11401.
   https://arxiv.org/abs/2005.11401
+- Lewis-Beck, M. S., and Stegmaier, M. (2000). Economic determinants
+  of electoral outcomes. *Annual Review of Political Science*, 3,
+  183–219. https://doi.org/10.1146/annurev.polisci.3.1.183
+- Linz, J. J. (2000). *Totalitarian and Authoritarian Regimes*. Lynne
+  Rienner Publishers, Boulder, CO. ISBN 978-1-55587-890-0.
+- Lodge, M., Steenbergen, M. R., and Brau, S. (1995). The responsive
+  voter: campaign information and the dynamics of candidate evaluation.
+  *American Political Science Review*, 89(2), 309–326.
+  https://doi.org/10.2307/2082427
 - Marshall, M. G., and Gurr, T. R. (2020). *Polity 5: Political Regime
   Characteristics and Transitions, 1800–2018. Dataset Users' Manual*.
   Center for Systemic Peace, Vienna, VA.
@@ -2021,6 +2523,14 @@ work item.
 - McCrae, R. R., and Costa, P. T. (2003). *Personality in Adulthood:
   A Five-Factor Theory Perspective* (2nd ed.). Guilford Press, New York.
   ISBN 978-1-57230-827-2.
+- Merolla, J. L., and Zechmeister, E. J. (2011). The nature, determinants,
+  and consequences of Chávez's charisma: evidence from a study of
+  Venezuelan public opinion. *Comparative Political Studies*, 44(1),
+  28–54. https://doi.org/10.1177/0010414010381076
+- Miller, J. D., and Lynam, D. (2001). Structural models of personality
+  and their relation to antisocial behavior: a meta-analytic review.
+  *Criminology*, 39(4), 765–798.
+  https://doi.org/10.1111/j.1745-9125.2001.tb00940.x
 - Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. A Twentieth
   Century Fund Report. Yale University Press, New Haven.
   ISBN 978-0-300-03386-1.
@@ -2053,6 +2563,11 @@ work item.
 - Reinhart, C. M., and Rogoff, K. S. (2009). *This Time Is Different:
   Eight Centuries of Financial Folly*. Princeton University Press,
   Princeton, NJ. ISBN 978-0-691-14216-6.
+- Riker, W. H. (1962). *The Theory of Political Coalitions*. Yale
+  University Press, New Haven. ISBN 978-0-300-00139-6.
+- Rose-Ackerman, S., and Palifka, B. J. (2016). *Corruption and
+  Government: Causes, Consequences, and Reform* (2nd ed.). Cambridge
+  University Press, Cambridge. ISBN 978-1-107-08120-7.
 - Sabater, J., and Sierra, C. (2002). REGRET: reputation in gregarious
   societies. In *Proceedings of the 5th International Conference on
   Autonomous Agents (AGENTS '01)*, 194–195. ACM.
@@ -2097,6 +2612,10 @@ work item.
   edition by W. Jaffé (1954), *Elements of Pure Economics, or the
   Theory of Social Wealth*. George Allen and Unwin, London, for the
   American Economic Association and the Royal Economic Society.
+- Weber, M. (1922/1978). *Economy and Society* (G. Roth and C. Wittich,
+  eds. and trans.). University of California Press, Berkeley.
+  ISBN 978-0-520-03500-3 (1978 English edition of the original German
+  1922 *Wirtschaft und Gesellschaft*).
 - Wicksell, K. (1898). *Geldzins und Güterpreise: Eine Studie über
   die den Tauschwert des Geldes bestimmenden Ursachen*. Gustav Fischer,
   Jena. English translation by R. F. Kahn (1936), *Interest and Prices:
@@ -2106,6 +2625,8 @@ work item.
 - Wilensky, U. (1999). NetLogo. Center for Connected Learning and
   Computer-Based Modeling, Northwestern University, Evanston, IL.
   http://ccl.northwestern.edu/netlogo/
+- Winters, J. A. (2011). *Oligarchy*. Cambridge University Press,
+  Cambridge. ISBN 978-1-107-00528-0.
 - Wrigley, E. A., and Schofield, R. S. (1981). *The Population History
   of England, 1541-1871: A Reconstruction*. Edward Arnold, London.
   Reissued by Cambridge University Press, 1989. ISBN 978-0-521-35688-6.

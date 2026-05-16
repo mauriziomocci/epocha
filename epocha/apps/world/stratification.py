@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import logging
 
+from django.db import transaction
+
 from epocha.apps.agents.models import Agent, Memory
 from epocha.apps.world.models import Government, World
 
@@ -48,9 +50,12 @@ _CLASS_RANK: dict[str, int] = {
 
 # Corruption skimming rate per tick for agents in power.
 # Calibrated so that a fully corrupt head of state (conscientiousness=0) extracts
-# ~2% of their own wealth per tick, consistent with historical estimates of petty
-# corruption in extractive states.
-# Reference: Acemoglu & Robinson (2006), Chapter 2; Transparency International CPI data.
+# ~2% of their own wealth per tick. The order of magnitude is qualitatively
+# inspired by the predatory-state literature (Acemoglu & Robinson 2006, Chapter 2)
+# and by cross-country indicators such as Transparency International's CPI which
+# document the prevalence of petty corruption in extractive regimes; the specific
+# 2%/tick value is a tunable simulation design parameter, not a value reported by
+# either source.
 _CORRUPTION_SKIM_RATE = 0.02
 
 # Emotional weight assigned to class-change memories.
@@ -188,6 +193,7 @@ def update_social_classes(simulation) -> None:
     )
 
 
+@transaction.atomic
 def process_corruption(simulation, tick: int) -> None:
     """Model corruption as wealth extraction by agents in power with low conscientiousness.
 
@@ -212,6 +218,20 @@ def process_corruption(simulation, tick: int) -> None:
     simulation parameter, not empirically derived.
 
     When the head of state is the corrupt agent, the Government.corruption indicator rises.
+
+    Transactional guarantee: the function is wrapped in ``@transaction.atomic`` so
+    that the wealth conservation invariant (sum of agent wealth + world.global_wealth
+    constant before and after the call) holds atomically. A crash mid-loop rolls back
+    every partial transfer and corruption-index nudge, leaving the database in the
+    pre-call state. Per Round 2 finding N-3 / S-2.
+
+    Cross-module layering: this function increments ``government.corruption`` based on
+    head-of-state personality. ``government.update_government_indicators`` later in the
+    same political cycle ALSO updates ``government.corruption`` based on institutional
+    oversight (justice + media + bureaucracy health). The two contributions stack
+    additively, are both clamped to [0, 1], and may saturate when both forces push
+    in the same direction. This cumulative layering is intentional and documented
+    per Round 2 finding X-1.
 
     Args:
         simulation: Simulation instance.
