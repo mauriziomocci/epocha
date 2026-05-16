@@ -373,8 +373,8 @@ toward culturally familiar schemas rather than preserving source content
 Castelfranchi-Conte-Paolucci normative model and is documented as audited
 Methods content in Chapter 4.3 following Round 2 audit convergence on
 2026-05-12; the rumor and information-flow clusters that draw on the
-Allport-Postman and Bartlett tradition remain in Chapter 8.1 pending
-their own Round 2 re-audit.
+Allport-Postman and Bartlett tradition are documented as audited Methods
+content in Chapter 4.4 following Round 2 audit convergence on 2026-05-16.
 
 ---
 
@@ -1736,6 +1736,72 @@ written back as the new head of state.
    loop; per-iteration re-evaluation is removed. Round 2 audit finding E-5
    closure.
 
+## 4.6 Movement
+
+> Status: implemented as of commit `a92b61a`, code audit CONVERGED 2026-05-16 round 2.
+
+### Background
+
+The movement module governs per-tick relocation of agents between zones under three intent classes: voluntary economic migration (`move_to_zone` action), voluntary social migration (relationship pull toward partner/parent/faction leader), and involuntary movement (zone destruction/expulsion). Travel speeds are calibrated against Chandler (1966) *The Campaigns of Napoleon* for military rates (infantry sustained 20-35 km/day; cavalry 60 km/day; carriage with relay 60-80 km/day) and Braudel (1979) *Civilization and Capitalism* for civilian pre-industrial rates (merchants on foot ~25 km/day; river/canal boats ~50 km/day). The implementation uses the civilian midpoint where possible: foot=25 (Braudel), horse=60 (Chandler military cavalry — borderline used as a default), carriage=60 (Chandler low-end no-relay), boat=50 (Braudel).
+
+### Model
+
+Travel distance per tick is a multiplicative function of: transport mode base speed, agent health (health factor with floor 0.1), road quality (per-terrain multiplier), political repression (1 - regime.repression_tendency for non-democratic regimes), and world stability (1 + (stability - 0.5)·0.2). The result is the maximum km the agent can cover in this tick; the actual movement is bounded by the straight-line grid-unit distance to target multiplied by `World.distance_scale` to convert grid units to km. Partial movement interpolates linearly toward the target in grid units; full movement places the agent at target zone centroid plus arrival-scatter offset.
+
+### Equations
+
+Equation (4.35) maximum distance per tick:
+
+  max_distance_km = TRAVEL_SPEEDS[mode] · health_factor · terrain_factor · repression_factor · stability_factor · tick_duration_days
+
+where `health_factor = max(0.1, health)`, `repression_factor = 1 - regime.repression_tendency` (clamped non-negative), `stability_factor = 1 + (world.stability - 0.5) · 0.2`.
+
+Equation (4.36) partial-movement vector:
+
+  new_location = current_location + (target_location - current_location) · (max_distance_km / required_km)
+
+where `required_km = euclidean_distance(current, target) · World.distance_scale / 1000`.
+
+Equation (4.37) arrival scatter (full-movement arm):
+
+  arrival_location = target_centroid + uniform(-ARRIVAL_SCATTER_RANGE, +ARRIVAL_SCATTER_RANGE)·2
+
+with `_ARRIVAL_SCATTER_RANGE = 40.0` grid units (assumes 100-unit zone boundary).
+
+### Parameters
+
+| Parameter | Value | Source | Status |
+|---|---|---|---|
+| foot speed | 25 km/day | Braudel 1979 (civilian merchant) | verified |
+| horse speed | 60 km/day | Chandler 1966 (military cavalry, used as default) | tunable |
+| carriage speed | 60 km/day | Chandler 1966 (no-relay civilian floor) | tunable |
+| boat speed | 50 km/day | Braudel 1979 (river/canal) | verified |
+| ROLE_TRANSPORT defaults | per-role dict | simulation scenario language | tunable |
+| terrain factors {urban, commercial, industrial, rural, wilderness} | {1.0, 1.0, 0.9, 0.7, 0.5} | qualitative ordering Braudel 1979 (road quality); magnitudes tunable | tunable |
+| _MOOD_COST_PER_MOVEMENT | small constant | tunable design parameter | tunable |
+| _HEALTH_COST_EXHAUSTING_TRAVEL | small constant | tunable design parameter | tunable |
+| _EXHAUSTION_THRESHOLD | 0.5 | tunable design parameter | tunable |
+| _ARRIVAL_SCATTER_RANGE | 40.0 grid units | assumes 100-unit zone boundary | tunable |
+
+### Algorithm
+
+1. `calculate_max_distance(agent, world)` returns the per-tick movement budget in km.
+2. `execute_movement(agent, target_zone, world)` either: (a) completes the trip if max_distance ≥ required_km, placing the agent at target_centroid + arrival_scatter, applying full mood/health cost; or (b) partial-moves the agent along the line toward target by max_distance/required_km, applying partial mood cost.
+3. Mood and health updates clamp to [0, 1].
+4. Logger records movement events for observability.
+
+### Simplifications
+
+- **Coordinate convention (N-1)**: agent/zone coordinates are abstract grid units despite PostGIS fields declaring SRID 4326. `World.distance_scale` (default 133 m/grid-unit) converts to real-world km. Documented in `movement.py` module docstring. Behavioral fix (projected coordinates) is scope-positive deferred.
+- **Inter-zone graph (R1 acknowledged)**: routing uses the abstract zone graph of `world/models.py` not actual zone geometry. PostGIS geometry available but routing layer deferred to broader-PostGIS roadmap.
+- **RNG reproducibility (N-8)**: `random.uniform` uses Python's global RNG, not the simulation-seeded `get_seeded_rng`. Two runs with identical seed produce different arrival-scatter offsets. Future work: thread simulation RNG into movement.
+- **Arrival scatter zone-size assumption (M-5)**: `_ARRIVAL_SCATTER_RANGE = 40.0` assumes 100-unit zone boundary not enforced. Future work: relative to actual zone bounding box.
+- **Bare except in caller (N-3)**: `simulation/engine.py:168` wraps `execute_movement` in `try/except Exception`. Cross-module concern; tracked for future simulation cluster audit.
+
+### Status
+
+> Status: implemented as of commit `a92b61a`, code audit CONVERGED 2026-05-16 round 2.
+
 ---
 
 # 5. Implementation
@@ -1917,27 +1983,21 @@ Validation experiments are specified, not yet executed. The full execution of th
 
 # 8. Designed Subsystems (implemented, audit pending)
 
-Chapter 8 covers the four Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation converged on round 2 (2026-05-12) and was promoted to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity per the audit's IF-1 fix) converged on round 2 (2026-05-16) and was promoted to §4.4, and the political-institutions cluster (government, government_types, institutions, stratification, election) converged on round 2 (2026-05-16) and was promoted to §4.5, leaving the remaining four modules in this chapter pending. The resolution pass and the convergence re-audit on those four are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
+Chapter 8 covers the three Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation converged on round 2 (2026-05-12) and was promoted to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity per the audit's IF-1 fix) converged on round 2 (2026-05-16) and was promoted to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) converged on round 2 (2026-05-16) and was promoted to §4.5, and movement converged on round 2 (2026-05-16) and was promoted to §4.6, leaving the remaining three modules in this chapter pending. The resolution pass and the convergence re-audit on those three are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
 
-## 8.1 Movement
-
-The movement module governs the per-tick relocation of agents between zones under three intent classes: voluntary economic migration driven by the agent's `move_to_zone` action, voluntary social migration driven by relationship pull (a partner, a parent, or a faction leader in another zone), and involuntary movement driven by zone destruction or expulsion. The implementation carries a per-mode travel-rate table (foot 25 km/day, horse 60 km/day, carriage 60 km/day on good roads, river boat 50 km/day) calibrated from David Chandler (1966), *The Campaigns of Napoleon* — a military-history source for sustained civilian and cavalry march rates that include rest stops — and from Braudel (1979) for the qualitative shape of pre-industrial trade-route geography, with the road-quality multiplier left as a tunable design parameter inscribed in the era template rather than as an empirical fit to a specific historical road network. The 2026-04-12 audit batch flagged two calibration concerns against this module: the 25 km/day foot rate is at the high end of the empirical range for non-military civilian travel (a refugee, a trader on foot, or a peasant moving between villages typically averages 15-20 km/day per the same Chandler source when accounting for terrain and load), and the inter-zone graph that the movement step traverses is the abstract zone graph of `world/models.py` rather than a routed-distance computation against actual zone geometry (the geometry is already stored in PostGIS per §3.6 but the routing layer is deferred to the broader-PostGIS work item of the roadmap of Chapter 9). Code path: `epocha/apps/agents/movement.py`.
-
-> Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-07-movement-system-design.md`.
-
-## 8.2 Factions
+## 8.1 Factions
 
 The factions module covers the three life-cycle phases of an Epocha faction: formation (an agent declares the intent to found a faction and other agents elect to join under shared-grievance and personality-affinity rules), maintenance (per-tick cohesion update, leadership succession on the death or defection of the founder, internal discipline against members whose actions diverge from the faction's stated platform), and dissolution (a faction whose cohesion falls below the threshold, or whose membership falls below the minimum, is dissolved and its members released). The implementation cites Olson (1965), *The Logic of Collective Action*, as the conceptual frame for faction formation: the spec emphasizes that shared grievances and shared circumstances (zone, occupation, exposure to the same event) drive group formation more reliably than personality similarity, and the formation rule in `factions.py` weights shared-grievance memories above personality affinity in the candidate-evaluation score. The negativity-bias asymmetry in the cohesion update (a divergent action costs −0.15 cohesion against a +0.10 reward for an aligned action) is attributed inline to Baumeister et al. (2001) "Bad is stronger than good." The Iannaccone (1992) club-goods literature on cult and commune cohesion through costly-signal sacrifice is *not* implemented in the current module — there is no costly-signal initiation rite, no exclusionary boundary marker beyond simple membership, and no free-rider-detection mechanism — and the spec records this as a deferred extension rather than a current citation. Code path: `epocha/apps/agents/factions.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-05-factions-leadership-design.md`.
 
-## 8.3 Knowledge Graph
+## 8.2 Knowledge Graph
 
 The Knowledge Graph cluster implements the simulation's long-horizon memory: the per-simulation graph of entities, relations, and events that the LLM context builder of §3.5 queries to ground each agent's per-tick decision in the simulation's prior history rather than re-reading the entire raw event log. The cluster is split across nine modules under `epocha/apps/knowledge/`: `chunking.py` slices the raw event log into LLM-sized passages, `extraction.py` runs the LLM-driven entity-and-relation extractor over each chunk, `embedding.py` produces the dense vector representations of every chunk and every node (the multilingual-e5-large model is the current default per the spec), `merge.py` deduplicates extracted nodes against the existing graph, `normalizer.py` canonicalises entity surface forms to their preferred labels, `materialization.py` writes the consolidated graph back to the persistence layer, `ontology.py` declares the entity and relation type system, `prompts.py` collects the LLM prompts for extraction and merge, and `api.py` exposes the graph to the dashboard graph view. The literature pointers in the spec are the Retrieval-Augmented Generation framework of Lewis et al. (2020) for the broader retrieve-then-generate architecture, the sentence-embedding family of Reimers and Gurevych (2019) for the dense-vector representations (multilingual-e5-large is the current production choice for its 100+ language coverage and reproducibility properties), and the broader knowledge-graph reasoning literature for the entity-relation typology. The spec contrasts the Epocha approach with GraphRAG and with MiroFish in its FAQ section and records the choice to materialise the graph per-simulation rather than across simulations as a deliberate scope choice for the MVP. Code paths: `epocha/apps/knowledge/{ingestion,extraction,embedding,merge,normalizer,materialization,ontology,chunking,prompts,api}.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-11-knowledge-graph-design.md`.
 
-## 8.4 Economy base layer
+## 8.3 Economy base layer
 
 The economy base layer is the substrate that turns agent activity into production, prices, money, and per-tick income flows; it is described in narrative form under §3.6 of this whitepaper and the present subsection records only the audit status and the spec under which the audit will resume. The base layer covers `production.py` (the CES production function (Arrow et al. 1961)), `monetary.py` (the Fisher-identity diagnostic and the velocity counter), `market.py` (Walrasian tâtonnement (Walras 1874) with the iteration cap that addresses the non-convergence regime (Scarf 1960)), `distribution.py` (the simplified Ricardian rent decomposition and the per-tick wage and tax flow), and `initialization.py` (the per-template seeding of the base balance sheet). All five citations in this list are already present in §13. The behavioral integration that sits on top of this substrate (adaptive expectations, credit and banking, property market) has completed its Round 2 audit and is documented under §4.2 of this whitepaper; the substrate documented here has not, and the §3.6 narrative explicitly disclaims the Methods-grade status pending the audit pass. Code paths: `epocha/apps/economy/{production,monetary,market,distribution,initialization}.py`.
 
@@ -1947,16 +2007,16 @@ The economy base layer is the substrate that turns agent activity into productio
 
 # 9. Roadmap
 
-The roadmap is ordered by priority rather than by chronology: the audit re-pass on the four modules still pending from the 2026-04-12 batch (reputation converged on round 2 in 2026-05-12 and was promoted to §4.3; the rumor-propagation cluster — information flow, distortion, belief filter, plus affinity — converged on round 2 in 2026-05-16 and was promoted to §4.4) is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
+The roadmap is ordered by priority rather than by chronology: the audit re-pass on the three modules still pending from the 2026-04-12 batch (reputation converged on round 2 in 2026-05-12 and was promoted to §4.3; the rumor-propagation cluster — information flow, distortion, belief filter, plus affinity — converged on round 2 in 2026-05-16 and was promoted to §4.4; the political-institutions cluster converged on round 2 in 2026-05-16 and was promoted to §4.5; movement converged on round 2 in 2026-05-16 and was promoted to §4.6) is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
 
-- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The two modules currently in §8 that still carry open Round 1 findings (movement and factions) sit alongside the Knowledge Graph and the economy base layer, which are also pending their first scientific audit pass. Three clusters have already converged and been promoted: reputation on round 2 (2026-05-12) to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity) on round 2 (2026-05-16) to §4.4, and the political-institutions cluster (government, government_types, institutions, stratification, election) on round 2 (2026-05-16) to §4.5. Resolution and convergence re-audit on the remaining modules are the gating item before any of these can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
-- **Demography Plan 3 (Inheritance + Migration).** The demography spec of §4.1 covers mortality, fertility, and couple formation; Plan 3 extends the same audit-first methodology to inheritance (transfer of property and debt to surviving kin on death of an agent) and to demographic migration (the long-horizon zone-to-zone migration that complements the per-tick movement of §8.1 with a generational-scale flow). Spec is `docs/superpowers/specs/2026-04-18-demography-design.md` Plan 3 section.
+- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The one module currently in §8 that still carries open Round 1 findings (factions) sits alongside the Knowledge Graph and the economy base layer, which are also pending their first scientific audit pass. Four clusters have already converged and been promoted: reputation on round 2 (2026-05-12) to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity) on round 2 (2026-05-16) to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) on round 2 (2026-05-16) to §4.5, and movement on round 2 (2026-05-16) to §4.6. Resolution and convergence re-audit on the remaining modules are the gating item before any of these can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
+- **Demography Plan 3 (Inheritance + Migration).** The demography spec of §4.1 covers mortality, fertility, and couple formation; Plan 3 extends the same audit-first methodology to inheritance (transfer of property and debt to surviving kin on death of an agent) and to demographic migration (the long-horizon zone-to-zone migration that complements the per-tick movement of §4.6 with a generational-scale flow). Spec is `docs/superpowers/specs/2026-04-18-demography-design.md` Plan 3 section.
 - **Demography Plan 4 (Initialisation, Engine integration, Historical validation).** Plan 4 wires the demography modules of §4.1 — currently implemented and unit-tested in isolation — into the live tick loop of `epocha/apps/simulation/engine.py`, supplies the initialisation procedure that seeds a starting population from the era template, and runs the historical-validation campaign of §7 against the Wrigley-Schofield (1981) and Human Mortality Database targets. This is the central deliverable that closes the implementation-gap disclosure carried by §4.1 and resolves the validation-pending caveat carried by §7.5.
 - **Economy financial markets (Spec 3 to write).** The behavioral integration of §4.2 covers adaptive expectations, credit and banking, and the property market; the next economy spec extends to bond and equity markets, asset-price contagion across multiple banks, and the inter-bank lending channel deferred under the simplifications of §4.2.2. The spec is not yet drafted; the work item is recorded in the long-form roadmap memory.
 - **Validation experiments execution.** The campaign specified in Chapter 7 — dataset acquisition, script implementation, metric computation, and threshold evaluation — is the central deliverable tracked in `docs/memory-backup/project_validation_experiments_pending.md`. Execution is bound to Plan 4 of the demography roadmap above (which provides the live tick-loop integration the validation requires) and to the audit re-pass of the §8 batch (which extends the validation surface to the political and movement modules).
-- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.3 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
+- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.2 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
 - **Analytics psicostoriografia.** The analytics spec at `docs/superpowers/specs/2026-04-06-analytics-psicostoriografia-design.md` covers the post-hoc analysis layer that surfaces emergent patterns from a completed simulation: phase-space trajectories, zone-level cohort comparisons, event-cascade attribution, and the publication-grade plot exports needed for the scientific paper of the project's final deliverable. The spec is drafted; implementation is deferred behind the audit re-pass and Plan 4.
-- **Broader PostGIS adoption.** PostGIS is already enabled per §3.6 with zone geometries stored as WGS84 polygons; the broader-adoption work item extends the geospatial surface to agent trajectories (per-tick location history with spatial indices), routed-distance queries between zones (replacing the abstract zone-graph distance of §8.1 with shortest-path computation against the actual geometry), and per-zone catchment analysis for the economy and demography modules.
+- **Broader PostGIS adoption.** PostGIS is already enabled per §3.6 with zone geometries stored as WGS84 polygons; the broader-adoption work item extends the geospatial surface to agent trajectories (per-tick location history with spatial indices), routed-distance queries between zones (replacing the abstract zone-graph distance of §4.6 with shortest-path computation against the actual geometry), and per-zone catchment analysis for the economy and demography modules.
 - **Multi-level agents (organisations, states, coalitions).** The current Epocha population is a flat set of individual agents; the multi-level work item extends the agent ontology to corporate actors that have their own decision pipelines, their own memory, and their own action space, with the individual agents as members and with state and coalition layers above the organisation layer. The conceptual frame and the literature anchors are recorded in `docs/memory-backup/project_multilevel_agents.md`; the spec is not yet drafted.
 - **Narrative generator.** The narrative-generator work item produces a long-form scientific-historical novel from the completed simulation — the per-zone, per-cohort, per-character arcs woven into a publication-grade narrative in the chosen output language with full citations to the underlying simulation events. The conceptual frame is recorded in `docs/memory-backup/project_narrative_generator.md`; the work item is bound to the analytics spec above (which produces the structured material the generator weaves) and to the Knowledge Graph evolution item (which provides the entity catalog the narrative references).
 - **Media layer (newspapers, social feed).** The media-layer work item materialises the in-simulation press: per-tick newspaper editions whose articles are generated from the simulation events through an LLM editorial pipeline, social-feed analogues for the modern-era templates, and the cross-pollination of media coverage back into the rumor-propagation cluster of §4.4 as a special information-event subtype. The conceptual frame is recorded in `docs/memory-backup/project_media_layer.md`; the work item is bound to the Knowledge Graph evolution item above.
@@ -2001,8 +2061,8 @@ are specified, but the experiments that consume them are tracked under
 deliverable.
 
 The scientific limits of the present work go beyond the simplifications
-inside the audited subset. Four modules — movement (§8.1), factions (§8.2),
-the Knowledge Graph (§8.3), and the economy base layer (§8.4) — are
+inside the audited subset. Three modules — factions (§8.1),
+the Knowledge Graph (§8.2), and the economy base layer (§8.3) — are
 implemented in code and exercised by unit tests but have not yet completed
 the Round 2 adversarial audit that gates promotion to Chapter 4 status;
 the open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings from
@@ -2172,27 +2232,27 @@ campaign tracked under `project_validation_experiments_pending.md`.
   §3.2 rather than by the property market itself; this subsection treats
   the asking price as exogenous.
 
-**Designed subsystems pending Round 2 audit (§8).** Four modules across
-four clusters still carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and
-MISSING findings from the 2026-04-12 batch audit: movement; factions; the
-Knowledge Graph; the economy base layer. Three clusters from the original
-batch have already converged and been promoted — reputation on round 2
-(2026-05-12) to §4.3, the rumor-propagation cluster (information flow,
-distortion, belief filter, plus affinity) on round 2 (2026-05-16) to §4.4,
-and the political-institutions cluster (government, government_types,
-institutions, stratification, election) on round 2 (2026-05-16) to §4.5.
-Resolution and convergence re-audit on the remaining modules are tracked
-under `project_audit_repass_batch_2026_04_12_pending.md` and gate the
-promotion of these modules from §8 to §4 status, the inclusion of their
-parameters in §6 calibration tables, and their entry into the §7
-validation campaign.
+**Designed subsystems pending Round 2 audit (§8).** Three modules across
+three clusters still carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and
+MISSING findings from the 2026-04-12 batch audit: factions; the Knowledge
+Graph; the economy base layer. Four clusters from the original batch have
+already converged and been promoted — reputation on round 2 (2026-05-12)
+to §4.3, the rumor-propagation cluster (information flow, distortion,
+belief filter, plus affinity) on round 2 (2026-05-16) to §4.4, the
+political-institutions cluster (government, government_types,
+institutions, stratification, election) on round 2 (2026-05-16) to §4.5,
+and movement on round 2 (2026-05-16) to §4.6. Resolution and convergence
+re-audit on the remaining modules are tracked under
+`project_audit_repass_batch_2026_04_12_pending.md` and gate the promotion
+of these modules from §8 to §4 status, the inclusion of their parameters
+in §6 calibration tables, and their entry into the §7 validation campaign.
 
 **Validation experiments (Chapter 7).** The methodology — datasets,
 metrics, and acceptance thresholds — is specified across §7.1 to §7.3, but
 the experimental campaign that consumes the methodology is bound to Plan 4
 and is tracked under `project_validation_experiments_pending.md`.
 
-**Knowledge Graph (§8.3).** The graph is currently materialised in batch
+**Knowledge Graph (§8.2).** The graph is currently materialised in batch
 passes from the simulation log; live update from a running simulation,
 which is the prerequisite for graph-grounded LLM context at the per-tick
 decision step, is the dedicated work item of the roadmap of Chapter 9.
@@ -2220,8 +2280,8 @@ audited behavioral economy covering Cagan-Nerlove adaptive expectations,
 Diamond-Dybvig credit and banking, and a Gordon-anchored property market
 (§4.2), an LLM-driven agent decision pipeline that consumes the
 substrate's per-tick state and writes back into the persistence layer
-(§3.2), and four implemented-but-pre-audit subsystems (§8) covering
-movement, factions, the Knowledge Graph, and the economy base layer. The runtime infrastructure
+(§3.2), and three implemented-but-pre-audit subsystems (§8) covering
+factions, the Knowledge Graph, and the economy base layer. The runtime infrastructure
 covers a tick engine with self-enqueuing Celery loop, a per-phase seeded
 RNG strategy that makes every run reproducible across machines from the
 commit hash, the seed, and the initial database state (§3.4), an
@@ -2358,7 +2418,7 @@ work item.
 - Chandler, D. G. (1966). *The Campaigns of Napoleon*. Weidenfeld and
   Nicolson, London, xliii + 1172 pp. (Pre-ISBN trade edition; Macmillan
   reprint 1973, ISBN 978-0-02-523660-8. Source for the per-mode sustained
-  travel rates of §8.1.)
+  travel rates of §4.6.)
 - Chandola, T., Coleman, D. A., and Hiorns, R. W. (1999). Recent European
   fertility patterns: fitting curves to "distorted" distributions.
   *Population Studies*, 53(3), 317–329.
