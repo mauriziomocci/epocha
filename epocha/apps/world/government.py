@@ -342,8 +342,10 @@ def update_government_indicators(simulation) -> None:
     # Source: Rose-Ackerman & Palifka (2016): oversight gap = 1 - avg(justice, media, bureaucracy).
     # Note: corruption was already adjusted by stratification.py:process_corruption earlier in this
     # political cycle (based on head-of-state personality). This step adds the institutional oversight
-    # effect. The stacking is intentional: personality of the head of state AND institutional health
-    # both independently influence the corruption index within the same cycle.
+    # effect on top. The composition is intentional and cumulative: personality of the head of state
+    # AND institutional health both independently push the corruption index within the same cycle.
+    # Both contributions are clamped to [0, 1]; saturation behavior when both forces push in the
+    # same direction is intentional and documented per Round 2 finding X-1.
     oversight = (justice.health + media.health * media.independence + bureaucracy.health) / 3.0
     corruption_pressure = (1.0 - oversight) * (1.0 - corruption_resistance) * 0.05
     # Slow decay when oversight is strong.
@@ -574,6 +576,13 @@ def check_coups(simulation, tick: int) -> dict | None:
 
     best_candidate: tuple[float, Group, Agent] | None = None
 
+    # Simplification: at most one coup per cycle. When multiple factions roll
+    # success (random.random() < success_probability), the candidate with the
+    # highest success_probability wins. This under-models concurrent coup
+    # attempts: Powell & Thyne (2011) document independent attempts that can
+    # overlap or cascade. Future work could allow multiple successful coups
+    # per cycle or pick uniformly among the successful rolls. Documented per
+    # Round 2 finding N-13.
     for faction in eligible_factions:
         leader = faction.leader
         if leader is None or not leader.is_alive:

@@ -225,6 +225,14 @@ def process_corruption(simulation, tick: int) -> None:
     every partial transfer and corruption-index nudge, leaving the database in the
     pre-call state. Per Round 2 finding N-3 / S-2.
 
+    Cross-module layering: this function increments ``government.corruption`` based on
+    head-of-state personality. ``government.update_government_indicators`` later in the
+    same political cycle ALSO updates ``government.corruption`` based on institutional
+    oversight (justice + media + bureaucracy health). The two contributions stack
+    additively, are both clamped to [0, 1], and may saturate when both forces push
+    in the same direction. This cumulative layering is intentional and documented
+    per Round 2 finding X-1.
+
     Args:
         simulation: Simulation instance.
         tick: Current simulation tick (used for Memory records).
