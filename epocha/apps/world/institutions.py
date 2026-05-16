@@ -91,21 +91,25 @@ def update_institutions(simulation) -> None:
         return
 
     effects = type_config["institution_effects"]
-    institutions = Institution.objects.filter(simulation=simulation)
+    # Materialize the queryset once so we can mutate in place and bulk-update at the end.
+    institutions = list(Institution.objects.filter(simulation=simulation))
 
-    updated_count = 0
     for institution in institutions:
         raw_effect = effects.get(institution.institution_type, 0.0)
         government_effect = raw_effect / INSTITUTION_EFFECT_SCALE
         funding_effect = (institution.funding - 0.5) * FUNDING_EFFECT_RATE
         delta = government_effect + funding_effect + ENTROPY_PER_TICK
         institution.health = max(0.0, min(1.0, institution.health + delta))
-        institution.save(update_fields=["health"])
-        updated_count += 1
+
+    # Single round-trip update for the whole batch (per Round 2 finding N-12) --
+    # replaces an N-row per-tick save loop that scaled poorly with the institution
+    # count.
+    if institutions:
+        Institution.objects.bulk_update(institutions, ["health"])
 
     logger.debug(
         "Updated %d institutions for simulation %s (government_type=%r).",
-        updated_count,
+        len(institutions),
         simulation.pk,
         government.government_type,
     )
