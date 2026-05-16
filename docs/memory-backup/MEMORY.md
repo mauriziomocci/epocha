@@ -1,4 +1,6 @@
-- [SESSION RESUME 2026-05-12](project_session_resume_2026_05_12.md) -- READ FIRST: F-CAMPAIGN audit re-pass IN CORSO. Branch 1 Reputation CLOSED (PR#5 mergato c196281, pin b859ee5). Branch 2 rumor-cluster: branch creato, Round 2 audit fatto (16 findings NOT CONVERGED), nessun fix applicato. Riprendere da fix-implementer.
+- [Spec Kit mandatory absolute](feedback_speckit_mandatory.md) -- REGOLA PERMANENTE dal 2026-05-16: tutti i nuovi work item via Spec Kit, branch <timestamp>-<slug>, layout .specify/specs/<branch>/{spec,plan,tasks}.md. Niente nuovi file sotto docs/superpowers/. Legacy artifacts archiviati.
+- [SESSION RESUME 2026-05-16](project_session_resume_2026_05_16.md) -- READ FIRST: Spec Kit adottato (commit 19279a1), branch audit-repass/rumor-cluster da retrofittare in formato Spec Kit. Riprendere da specify workflow + migrare 16 findings in spec.md.
+- [SESSION RESUME 2026-05-12](project_session_resume_2026_05_12.md) -- F-CAMPAIGN stato pre-speckit. 16 findings rumor-cluster Round 2 catalogati qui (da migrare in spec.md retrofittato).
 - [SESSION RESUME 2026-04-26](project_session_resume_2026_04_26.md) -- catchup README+whitepaper CLOSED. Pre-campagna stato. Vedi 2026-05-12 per stato corrente.
 - [SESSION RESUME 2026-04-20](project_session_resume_2026_04_20.md) -- READ FIRST se 2026-04-26 mancante: riepilogo sessione precedente + prossimi step obbligati (README + whitepaper prima di Plan 3)
 - [FULL CONTEXT](project_full_context.md) -- complete project state (parziale/obsoleto, priorita' al session resume)

@@ -384,15 +384,30 @@ This project intentionally follows **Two Scoops of Django** (fat models, thin vi
 **AI Attribution**: FORBIDDEN any reference to Claude/AI in commits, comments, docstrings, docs, logs. No emoji/emoticon anywhere.
 
 <!-- SPECKIT START -->
-**Spec-Driven Development (GitHub Spec Kit, adopted 2026-05-16)**
+**Spec-Driven Development MANDATORY (GitHub Spec Kit, absolute from 2026-05-16)**
+
+Every new work item — feature, fix campaign, refactor, deprecation — MUST use GitHub Spec Kit precisely and without exceptions. No ad-hoc spec/plan files outside Spec Kit.
 
 Constitution authoritative at `.specify/memory/constitution.md` — supersedes code-quality portions of this file where they conflict; composes elsewhere.
 
-New work items use Spec Kit canonical layout: `.specify/specs/<YYYYMMDD-HHMMSS>-<feature-slug>/{spec,plan,tasks}.md` produced by the `/speckit-specify`, `/speckit-plan`, `/speckit-tasks` skills installed under `.claude/skills/`. Branch numbering: timestamp.
+**Mandatory authoring path**:
+1. Start: `/speckit-specify "<description>"` → creates branch `<YYYYMMDD-HHMMSS>-<slug>` + `.specify/specs/<branch>/spec.md` scaffold
+2. Spec draft: edit `.specify/specs/<branch>/spec.md` per `.specify/templates/spec-template.md`
+3. `/speckit-plan` → `.specify/specs/<branch>/plan.md`
+4. `/speckit-tasks` → `.specify/specs/<branch>/tasks.md`
+5. `/speckit-implement` (or subagent-driven-development with tasks.md as input)
+6. Heavy gate phase 2 + 6 adversarial audits via `critical-analyzer`
+7. Closure: merge, frozen-at-commit pin if whitepaper touched, memory sync
 
-Legacy artifacts under `docs/superpowers/specs/` and `docs/superpowers/plans/` are NOT retroactively migrated; they retain git history. Examples of legacy: Demography Plan 1+2, Economy base/behavioral, Reputation pre-promotion, Catch-up whitepaper, F-CAMPAIGN audit re-pass plan. Continue editing legacy artifacts in place when amending existing work.
+**Optional Spec Kit skills**: `/speckit-clarify` (de-risk before plan), `/speckit-analyze` (cross-artifact consistency after tasks), `/speckit-checklist` (quality checklists after plan), `/speckit-constitution` (amend constitution).
 
-Optional Spec Kit skills available: `/speckit-clarify` (de-risk ambiguity before plan), `/speckit-analyze` (cross-artifact consistency after tasks), `/speckit-checklist` (quality checklists after plan), `/speckit-implement` (subagent-driven execution), `/speckit-constitution` (amend constitution).
+**Branch naming**: ALWAYS timestamp `<YYYYMMDD-HHMMSS>-<slug>` produced by `.specify/scripts/bash/create-new-feature.sh`. Never ad-hoc branches like `feature/whatever` or `audit-repass/whatever`.
 
-Existing canonical 7-phase workflow and adversarial audit policy remain in force. Spec Kit is the authoring framework; the 7-phase workflow is the gating procedure.
+**Forbidden**: new files under `docs/superpowers/specs/` or `docs/superpowers/plans/`. These directories are READ-ONLY archival history of pre-2026-05-16 work. Continue editing legacy artifacts in place only when amending existing pre-2026-05-16 work.
+
+**Legacy artifacts** (pre-2026-05-16, retain git history, no retroactive migration): Demography Plan 1+2, Economy base/behavioral, Reputation pre-promotion, Catch-up whitepaper, F-CAMPAIGN audit re-pass campaign plan.
+
+**Composition with canonical 7-phase workflow**: Spec Kit is the authoring framework; the 7-phase workflow is the gating procedure (HEAVY GATE phases 2 + 6, LIGHT GATE phases 3 + 4). Adversarial scientific audit policy unchanged.
+
+See memory `feedback_speckit_mandatory.md` for the absolute rule.
 <!-- SPECKIT END -->
