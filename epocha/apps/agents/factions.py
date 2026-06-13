@@ -81,6 +81,14 @@ Known Limitations:
       0.3 moderate, 0.4 significant) applied to faction-event memories. All are
       part of the simulation's calibration budget tied to tick frequency and the
       desired group-formation timescale.
+  (f) Deferred behavioral hardening (tracked for a future "factions Round 3
+      hardening" work item, out of scope for this doc-only audit re-pass):
+      member-sampling bias from default primary-key ordering in
+      _check_join_existing_groups; missing @transaction.atomic around the
+      multi-row writes in _check_schism and _create_faction; inconsistent agent
+      migration discipline (.update(group=None) does not fire signals while
+      per-agent .save() does); and N+1 query patterns in the
+      _check_join_existing_groups affinity loop and in compute_legitimacy.
 """
 from __future__ import annotations
 
@@ -554,7 +562,8 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
     def _get_sentiment(a_id: int, b_id: int) -> float:
         return sentiment_map.get((a_id, b_id), sentiment_map.get((b_id, a_id), 0.0))
 
-    # Schism detection seeds from the first agent in the queryset (order-dependent). See module docstring "Known Limitations" (d).
+    # Schism detection seeds from the first agent in the queryset
+    # (order-dependent). See module docstring "Known Limitations" (d).
     for seed in members:
         allies = [seed]
         for other in members:
@@ -671,7 +680,9 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
     clusters: list[list[Agent]] = []
     visited: set[int] = set()
 
-    # Cluster detection seeds from the first agent in the queryset (order-dependent), same limitation as _check_schism. See module docstring "Known Limitations" (d).
+    # Cluster detection seeds from the first agent in the queryset
+    # (order-dependent), same limitation as _check_schism. See module
+    # docstring "Known Limitations" (d).
     for i, agent_a in enumerate(ungrouped):
         if agent_a.id in visited:
             continue
