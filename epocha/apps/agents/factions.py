@@ -9,16 +9,86 @@ Faction dynamics operate on a slower timescale than individual decisions because
 political change emerges from accumulated interactions, not single events.
 
 Scientific basis:
-  - Leadership emergence: The trait-based approach is broadly consistent with
-    leadership research (Stogdill 1948 identified intelligence, dependability,
-    social participation as correlates; Judge et al. 2002 provide meta-analytic
-    effect sizes for Big Five traits). The specific formula and weights used here
-    are design parameters, not derived from any specific empirical model.
+  - Leadership emergence: the trait-based scoring approach is grounded in Judge,
+    Bono, Ilies, and Gerhardt (2002), "Personality and leadership: A
+    qualitative and quantitative review", Journal of Applied Psychology
+    87(4):765-780, DOI 10.1037/0021-9010.87.4.765, which provides meta-analytic
+    effect sizes for the Big Five trait-leadership relationship: Extraversion is
+    the strongest correlate of leadership emergence (rho ~ 0.31),
+    Conscientiousness (~ 0.28), Openness (~ 0.24), Neuroticism (~ -0.24).
+    Stogdill (1948), "Personal factors associated with leadership: A survey of
+    the literature", Journal of Psychology 25(1):35-71,
+    DOI 10.1080/00223980.1948.9917362, supports the broader principle that
+    personal traits correlate with leadership emergence but does NOT propose a
+    weighted-sum formula. Charisma is a Weberian sociological concept
+    (Weber 1922) rather than a Stogdill trait correlate; its modern
+    operationalization draws on Antonakis, Bastardoz, Jacquart, and Shamir
+    (2016), "Charisma: An ill-defined and ill-measured gift", Annual Review of
+    Organizational Psychology and Organizational Behavior 3:293-319,
+    DOI 10.1146/annurev-orgpsych-041015-062305. The specific weights in
+    compute_leadership_score (0.30/0.20/0.15/0.20/0.15) are tunable design
+    parameters consistent with the direction of Judge 2002 effect sizes but not
+    derived from them; see Known Limitations (a).
   - Group cohesion: Festinger et al. (1950), "Social Pressures in Informal
     Groups." Cohesion is maintained through cooperative interaction and
     undermined by internal conflict.
+  - Group cohesion size penalty: coordination cost above a small-group
+    threshold is a generic principle in organizational psychology (see
+    Hackman 2002, "Leading Teams: Setting the Stage for Great Performances",
+    Harvard Business School Press, ISBN 978-1-57851-333-1, for the argument
+    that teams of 4-6 are typically the upper bound for fully-cohesive
+    collaborative units before coordination overhead dominates). The specific
+    threshold value of 5 in update_group_cohesion is a tunable design
+    parameter; NOT derived from Dunbar 1992 (Dunbar's number is approximately
+    150 and addresses the cognitive limit on stable social relationships) nor
+    from the nested-group hierarchy of Zhou, Sornette, Hill, and Dunbar (2005),
+    "Discrete hierarchical organization of social group sizes", Proc R Soc B
+    272(1561):439-444, DOI 10.1098/rspb.2004.2970, in which the "5" is the
+    innermost intimate-clique stratum (closest emotional ties) rather than a
+    coordination cost boundary. See Known Limitations (b).
   - Faction dissolution: Olson (1965), "The Logic of Collective Action."
     Below a critical collective-action threshold, groups disintegrate.
+
+Known Limitations:
+  (a) Leadership weights (0.30/0.20/0.15/0.20/0.15) in compute_leadership_score
+      are tunable design parameters consistent with Judge 2002 effect-size
+      direction, not derived from them. See compute_leadership_score docstring.
+  (b) Size-penalty threshold of 5 in update_group_cohesion is a tunable design
+      parameter; NOT derived from Dunbar 1992 (Dunbar's number is approximately
+      150; the 5 in Zhou et al. 2005 is the intimate-clique stratum, NOT a
+      coordination cost boundary). See update_group_cohesion docstring.
+  (c) Cohesion delta coefficients (0.10 cooperation, 0.15 conflict, 0.02 size
+      penalty, 0.05 leader effectiveness) are tunable design parameters;
+      Baumeister 2001 grounds the qualitative DIRECTION of the
+      conflict-over-cooperation asymmetry (negativity bias), NOT the specific
+      1.5:1 ratio.
+  (d) Multiple greedy seed-first iterations in this module (schism detection
+      in _check_schism, the ally-grouping inner loop within it, and cluster
+      detection in _detect_and_propose_factions) seed the candidate splinter /
+      cluster from the first agent in the queryset, making the result
+      order-dependent.
+      Overlapping potential schisms/clusters may exist; which one is detected
+      depends on iteration order. A robust resolution would use graph-based
+      connected-components or hierarchical clustering on the sentiment matrix --
+      bound to a future "robust faction clustering" work item.
+  (e) Several scalar calibration parameters in this module are tunable design
+      choices, not empirically derived: the no-relationship sentiment fallback
+      (0.3 normalized = raw -0.4) in compute_leadership_score and
+      compute_legitimacy; the symmetric schism/ally sentiment thresholds
+      (+/-0.2); the splinter-vs-new-faction seed cohesion differential
+      (0.5 vs 0.6); the dissolution / legitimacy / affinity settings defaults
+      (0.2 / 0.3 / 0.5); and the Memory.emotional_weight grading (0.2 minor,
+      0.3 moderate, 0.4 significant) applied to faction-event memories. All are
+      part of the simulation's calibration budget tied to tick frequency and the
+      desired group-formation timescale.
+  (f) Deferred behavioral hardening (tracked for a future "factions Round 3
+      hardening" work item, out of scope for this doc-only audit re-pass):
+      member-sampling bias from default primary-key ordering in
+      _check_join_existing_groups; missing @transaction.atomic around the
+      multi-row writes in _check_schism and _create_faction; inconsistent agent
+      migration discipline (.update(group=None) does not fire signals while
+      per-agent .save() does); and N+1 query patterns in the
+      _check_join_existing_groups affinity loop and in compute_legitimacy.
 """
 from __future__ import annotations
 
@@ -40,21 +110,27 @@ logger = logging.getLogger(__name__)
 _COOPERATIVE_ACTIONS: frozenset[str] = frozenset({"help", "socialize"})
 
 # Actions considered conflictual (decrease cohesion).
-# Conflict has a stronger negative effect than cooperation has a positive
-# one (asymmetry of -0.15 vs +0.10), consistent with Baumeister et al.
-# (2001) "Bad is stronger than good", Review of General Psychology.
-# Cohesion change coefficients are tunable design parameters. The asymmetry
-# between conflict (0.15) and cooperation (0.10) reflects the negativity
-# bias principle (Baumeister et al. 2001: negative events have stronger
-# impact), but the specific values are not empirically derived.
+# Cohesion delta coefficients in update_group_cohesion (0.10 cooperation,
+# 0.15 conflict, 0.02 size penalty, 0.05 leader effectiveness) are tunable
+# design parameters. Baumeister, Bratslavski, Finkenauer, and Vohs (2001),
+# "Bad is stronger than good", Review of General Psychology 5(4):323-370,
+# DOI 10.1037/1089-2680.5.4.323, grounds the qualitative DIRECTION of the
+# conflict-over-cooperation asymmetry (negative events have stronger
+# psychological impact than positive events of equivalent magnitude). The
+# specific 1.5:1 ratio between conflict and cooperation magnitudes, and the
+# absolute values of all four coefficients, are NOT derived from Baumeister
+# 2001 or any specific empirical fit; they are part of the simulation's
+# calibration budget tied to tick frequency and the desired group-formation
+# timescale. See module Known Limitations (c).
 _CONFLICT_ACTIONS: frozenset[str] = frozenset({"argue", "betray"})
 
-# Threshold below which the average sentiment toward non-allies triggers schism.
-# A negative sentiment below -0.2 indicates genuine hostility, not mere
-# indifference.
+# Sentiment thresholds for schism / alliance detection. Both magnitudes are
+# tunable design parameters; the symmetric +/-0.2 value is a calibration choice,
+# not empirically derived. A negative outward sentiment below -0.2 is treated as
+# genuine hostility (not mere indifference) and triggers schism; a mutual
+# sentiment above +0.2 qualifies two agents as allies. See module Known
+# Limitations (e).
 _SCHISM_OUTWARD_SENTIMENT_THRESHOLD: float = -0.2
-
-# Minimum sentiment between two agents for one to be considered an ally.
 _ALLY_SENTIMENT_THRESHOLD: float = 0.2
 
 
@@ -108,12 +184,18 @@ def compute_leadership_score(agent: Agent, group: Group, tick: int) -> float:
         other members, where [-1, 1] is mapped to [0, 1]
       - seniority: (tick - join_tick) / group_age, capped at 1.0
 
-    Leadership emergence score. The trait-based approach is broadly consistent
-    with leadership research (Stogdill 1948 identified intelligence, dependability,
-    social participation as correlates; Judge et al. 2002 provide meta-analytic
-    effect sizes for Big Five traits). However, the specific formula and weights
-    (0.30/0.20/0.15/0.20/0.15) are design parameters, not derived from any
-    specific empirical model.
+    Leadership emergence score. The trait-based scoring approach is grounded in
+    Judge et al. (2002) meta-analytic effect sizes for the Big Five
+    trait-leadership relationship (see module docstring "Scientific basis").
+    The five-component weighted formula (charisma 0.30, intelligence 0.20,
+    wealth_rank 0.15, internal_sentiment 0.20, seniority 0.15) is consistent
+    with the DIRECTION of those effect sizes (Extraversion strongest, then
+    Conscientiousness, Openness, inverse Neuroticism) but the specific weights
+    are tunable design parameters, not derived from the meta-analytic
+    correlations. Stogdill (1948) is the original survey establishing the
+    trait-correlate principle but did NOT propose a weighted-sum formula;
+    charisma in particular is a Weberian concept (Weber 1922), not a Stogdill
+    trait. See module Known Limitations (a).
 
     Args:
         agent: The agent to score.
@@ -147,7 +229,10 @@ def compute_leadership_score(agent: Agent, group: Group, tick: int) -> float:
         raw_sentiment = total_sentiment / relationships.count()
         internal_sentiment = (raw_sentiment + 1.0) / 2.0
     else:
-        # No established relationships: slightly below neutral.
+        # No established relationships: default to a below-neutral internal
+        # sentiment (0.3 normalized = raw sentiment -0.4). Conservative tunable
+        # design parameter: an agent with no in-group ties is not presumed
+        # well-integrated. See module Known Limitations (e).
         internal_sentiment = 0.3
 
     # Seniority: fraction of group lifetime the agent has been present.
@@ -215,6 +300,9 @@ def compute_legitimacy(leader: Agent, group: Group, tick: int) -> float:
         raw = sum(r.sentiment for r in relationships) / relationships.count()
         leader_sentiment = (raw + 1.0) / 2.0
     else:
+        # No established relationships: below-neutral fallback (0.3 normalized =
+        # raw sentiment -0.4), same tunable convention as compute_leadership_score.
+        # See module Known Limitations (e).
         leader_sentiment = 0.3
 
     # Score rank: how the leader compares to all members.
@@ -243,16 +331,24 @@ def update_group_cohesion(group: Group, simulation, tick: int) -> None:
               + leader_effectiveness * 0.05
 
     where:
-      - size_penalty = max(0, member_count - 5): coordination cost above 5 members.
-        Coordination cost threshold. Groups larger than 5 members incur
-        increasing coordination penalties. The threshold is a design parameter;
-        while Dunbar (1992) identifies a hierarchy of group sizes (5, 15, 50,
-        150), the use of 5 here as a coordination cost boundary is a simulation
-        design choice, not a direct application of Dunbar's model.
+      - size_penalty = max(0, member_count - 5): coordination cost above a
+        small-group threshold. The threshold value 5 is a tunable design parameter
+        consistent with Hackman 2002 "Leading Teams" (teams of 4-6 as the upper
+        bound for fully-cohesive collaborative units before coordination overhead
+        dominates) but NOT derived from Dunbar 1992 (cognitive limit on stable
+        social relationships is approximately 150) nor from the Zhou et al. 2005
+        nested-hierarchy "5" stratum (intimate cliques, not coordination cost).
+        See module Known Limitations (b).
       - leader_effectiveness = legitimacy - 0.5: positive if leader is well-liked.
 
-    The asymmetry (conflict has 1.5x the effect of cooperation) reflects
-    Baumeister et al. (2001), "Bad is stronger than good."
+    The asymmetry (conflict has 1.5x the effect of cooperation) is consistent
+    with the qualitative DIRECTION documented by Baumeister et al. (2001),
+    "Bad is stronger than good", which shows that negative events have stronger
+    psychological impact than positive events of equivalent magnitude. The
+    specific 1.5:1 ratio and the absolute coefficient values
+    (0.10, 0.15, 0.02, 0.05) are tunable design parameters per the simulation's
+    calibration budget, NOT derived from Baumeister or any specific empirical
+    fit. See module Known Limitations (c).
 
     Args:
         group: The group to update.
@@ -337,6 +433,8 @@ def update_group_leadership(group: Group, tick: int) -> None:
         group: The group to check.
         tick: Current tick.
     """
+    # Default 0.3 is a tunable design parameter (calibration budget), not
+    # empirically derived. See module Known Limitations (e).
     threshold = getattr(settings, "EPOCHA_FACTION_LEGITIMACY_THRESHOLD", 0.3)
     leader = group.leader
 
@@ -406,6 +504,8 @@ def _check_dissolution(group: Group, tick: int) -> None:
         group: The group to check.
         tick: Current tick.
     """
+    # Default 0.2 is a tunable design parameter (calibration budget), not
+    # empirically derived. See module Known Limitations (e).
     threshold = getattr(settings, "EPOCHA_FACTION_DISSOLUTION_THRESHOLD", 0.2)
     if group.cohesion >= threshold:
         return
@@ -462,10 +562,8 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
     def _get_sentiment(a_id: int, b_id: int) -> float:
         return sentiment_map.get((a_id, b_id), sentiment_map.get((b_id, a_id), 0.0))
 
-    # Known limitation: schism detection seeds from the first agent in the
-    # queryset, making the result order-dependent. Overlapping potential
-    # schisms may exist; which one is detected depends on iteration order.
-    # A more robust approach would use clustering algorithms.
+    # Schism detection seeds from the first agent in the queryset
+    # (order-dependent). See module docstring "Known Limitations" (d).
     for seed in members:
         allies = [seed]
         for other in members:
@@ -505,6 +603,10 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
             simulation=simulation,
             name=name,
             objective=objective,
+            # Splinter seed cohesion 0.5: a breakaway group starts less cohesive
+            # than a freshly self-organized faction (0.6 in _create_faction)
+            # because it carries unresolved conflict from the parent. The 0.1
+            # differential is a tunable design parameter. See Known Limitations (e).
             cohesion=0.5,
             formed_at_tick=tick,
             parent_group=group,
@@ -563,6 +665,8 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
         simulation: The Simulation instance.
         tick: Current tick.
     """
+    # Default 0.5 is a tunable design parameter (calibration budget), not
+    # empirically derived. See module Known Limitations (e).
     threshold = getattr(settings, "EPOCHA_FACTION_AFFINITY_THRESHOLD", 0.5)
     min_members = getattr(settings, "EPOCHA_FACTION_MIN_MEMBERS", 3)
     max_members = getattr(settings, "EPOCHA_FACTION_MAX_INITIAL_MEMBERS", 8)
@@ -576,6 +680,9 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
     clusters: list[list[Agent]] = []
     visited: set[int] = set()
 
+    # Cluster detection seeds from the first agent in the queryset
+    # (order-dependent), same limitation as _check_schism. See module
+    # docstring "Known Limitations" (d).
     for i, agent_a in enumerate(ungrouped):
         if agent_a.id in visited:
             continue
@@ -779,6 +886,9 @@ def _create_faction(simulation, founders: list[Agent], tick: int) -> None:
         simulation=simulation,
         name=name,
         objective=objective,
+        # New-faction seed cohesion 0.6: self-organized factions start more
+        # cohesive than schism splinters (0.5). Tunable design parameter.
+        # See Known Limitations (e).
         cohesion=0.6,
         formed_at_tick=tick,
     )
@@ -843,23 +953,26 @@ def _generate_faction_identity(
     Returns:
         Tuple of (name, objective).
     """
+    # Lazy imports: kept function-scoped to avoid circular imports at module
+    # load time. Moved outside the try so ImportError surfaces instead of being
+    # silently swallowed by the broad except below.
+    from epocha.apps.llm_adapter.client import get_llm_client
+    from epocha.common.utils import clean_llm_json
+
+    classes = {a.social_class for a in founders}
+    roles = {a.role for a in founders if a.role}
+    founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
+
+    client = get_llm_client()
+    prompt = (
+        f"A group of people have {context}. "
+        f"Members: {founder_desc}. "
+        f"Social classes: {', '.join(classes)}. "
+        f"Occupations: {', '.join(roles) if roles else 'various'}. "
+        "Generate a faction name and one-sentence objective. "
+        'Respond ONLY with JSON: {"name": "...", "objective": "..."}'
+    )
     try:
-        from epocha.apps.llm_adapter.client import get_llm_client
-        from epocha.common.utils import clean_llm_json
-
-        classes = {a.social_class for a in founders}
-        roles = {a.role for a in founders if a.role}
-        founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
-
-        client = get_llm_client()
-        prompt = (
-            f"A group of people have {context}. "
-            f"Members: {founder_desc}. "
-            f"Social classes: {', '.join(classes)}. "
-            f"Occupations: {', '.join(roles) if roles else 'various'}. "
-            "Generate a faction name and one-sentence objective. "
-            'Respond ONLY with JSON: {"name": "...", "objective": "..."}'
-        )
         raw = client.complete(
             prompt=prompt,
             system_prompt="You name factions. Respond only with JSON.",
@@ -869,8 +982,15 @@ def _generate_faction_identity(
         name = data.get("name") or fallback_name
         objective = data.get("objective") or fallback_objective
         return name, objective
-    except Exception:
+    # Broad catch is deliberate: get_llm_client().complete() re-raises raw,
+    # un-normalized provider/network exceptions (openai.* errors are not
+    # wrapped in LLMError), and faction creation must never be blocked by LLM
+    # unavailability (see docstring). Narrowing would require provider-level
+    # exception normalization, deferred to a future hardening work item.
+    except Exception as exc:
         logger.warning(
-            "Failed to generate faction identity via LLM, using fallback '%s'", fallback_name
+            "Failed to generate faction identity via LLM, using fallback '%s': %s",
+            fallback_name,
+            exc,
         )
         return fallback_name, fallback_objective
