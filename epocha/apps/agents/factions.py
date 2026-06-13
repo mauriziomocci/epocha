@@ -9,16 +9,66 @@ Faction dynamics operate on a slower timescale than individual decisions because
 political change emerges from accumulated interactions, not single events.
 
 Scientific basis:
-  - Leadership emergence: The trait-based approach is broadly consistent with
-    leadership research (Stogdill 1948 identified intelligence, dependability,
-    social participation as correlates; Judge et al. 2002 provide meta-analytic
-    effect sizes for Big Five traits). The specific formula and weights used here
-    are design parameters, not derived from any specific empirical model.
+  - Leadership emergence: the trait-based scoring approach is grounded in Judge,
+    Bono, Ilies, and Gerhardt (2002), "Personality and leadership: A
+    qualitative and quantitative review", Journal of Applied Psychology
+    87(4):765-780, DOI 10.1037/0021-9010.87.4.765, which provides meta-analytic
+    effect sizes for the Big Five trait-leadership relationship: Extraversion is
+    the strongest correlate of leadership emergence (rho ~ 0.31),
+    Conscientiousness (~ 0.28), Openness (~ 0.24), Neuroticism (~ -0.24).
+    Stogdill (1948), "Personal factors associated with leadership: A survey of
+    the literature", Journal of Psychology 25(1):35-71,
+    DOI 10.1080/00223980.1948.9917362, supports the broader principle that
+    personal traits correlate with leadership emergence but does NOT propose a
+    weighted-sum formula. Charisma is a Weberian sociological concept
+    (Weber 1922) rather than a Stogdill trait correlate; its modern
+    operationalization draws on Antonakis, Bastardoz, Jacquart, and Shamir
+    (2016), "Charisma: An ill-defined and ill-measured gift", Annual Review of
+    Organizational Psychology and Organizational Behavior 3:293-319,
+    DOI 10.1146/annurev-orgpsych-041015-062305. The specific weights in
+    compute_leadership_score (0.30/0.20/0.15/0.20/0.15) are tunable design
+    parameters consistent with the direction of Judge 2002 effect sizes but not
+    derived from them; see Known Limitations (a).
   - Group cohesion: Festinger et al. (1950), "Social Pressures in Informal
     Groups." Cohesion is maintained through cooperative interaction and
     undermined by internal conflict.
+  - Group cohesion size penalty: coordination cost above a small-group
+    threshold is a generic principle in organizational psychology (see
+    Hackman 2002, "Leading Teams: Setting the Stage for Great Performances",
+    Harvard Business School Press, ISBN 978-1-57851-333-1, for the argument
+    that teams of 4-6 are typically the upper bound for fully-cohesive
+    collaborative units before coordination overhead dominates). The specific
+    threshold value of 5 in update_group_cohesion is a tunable design
+    parameter; NOT derived from Dunbar 1992 (Dunbar's number is approximately
+    150 and addresses the cognitive limit on stable social relationships) nor
+    from the nested-group hierarchy of Zhou, Sornette, Hill, and Dunbar (2005),
+    "Discrete hierarchical organization of social group sizes", Proc R Soc B
+    272(1561):439-444, DOI 10.1098/rspb.2004.2970, in which the "5" is the
+    innermost intimate-clique stratum (closest emotional ties) rather than a
+    coordination cost boundary. See Known Limitations (b).
   - Faction dissolution: Olson (1965), "The Logic of Collective Action."
     Below a critical collective-action threshold, groups disintegrate.
+
+Known Limitations:
+  (a) Leadership weights (0.30/0.20/0.15/0.20/0.15) in compute_leadership_score
+      are tunable design parameters consistent with Judge 2002 effect-size
+      direction, not derived from them. See compute_leadership_score docstring.
+  (b) Size-penalty threshold of 5 in update_group_cohesion is a tunable design
+      parameter; NOT derived from Dunbar 1992 (Dunbar's number is approximately
+      150; the 5 in Zhou et al. 2005 is the intimate-clique stratum, NOT a
+      coordination cost boundary). See update_group_cohesion docstring.
+  (c) Cohesion delta coefficients (0.10 cooperation, 0.15 conflict, 0.02 size
+      penalty, 0.05 leader effectiveness) are tunable design parameters;
+      Baumeister 2001 grounds the qualitative DIRECTION of the
+      conflict-over-cooperation asymmetry (negativity bias), NOT the specific
+      1.5:1 ratio.
+  (d) Schism detection in _check_schism and cluster detection in
+      _detect_and_propose_factions seed candidate splinter / cluster from the
+      first agent in the queryset, making the result order-dependent.
+      Overlapping potential schisms/clusters may exist; which one is detected
+      depends on iteration order. A robust resolution would use graph-based
+      connected-components or hierarchical clustering on the sentiment matrix --
+      bound to a future "robust faction clustering" work item.
 """
 from __future__ import annotations
 
@@ -108,12 +158,18 @@ def compute_leadership_score(agent: Agent, group: Group, tick: int) -> float:
         other members, where [-1, 1] is mapped to [0, 1]
       - seniority: (tick - join_tick) / group_age, capped at 1.0
 
-    Leadership emergence score. The trait-based approach is broadly consistent
-    with leadership research (Stogdill 1948 identified intelligence, dependability,
-    social participation as correlates; Judge et al. 2002 provide meta-analytic
-    effect sizes for Big Five traits). However, the specific formula and weights
-    (0.30/0.20/0.15/0.20/0.15) are design parameters, not derived from any
-    specific empirical model.
+    Leadership emergence score. The trait-based scoring approach is grounded in
+    Judge et al. (2002) meta-analytic effect sizes for the Big Five
+    trait-leadership relationship (see module docstring "Scientific basis").
+    The five-component weighted formula (charisma 0.30, intelligence 0.20,
+    wealth_rank 0.15, internal_sentiment 0.20, seniority 0.15) is consistent
+    with the DIRECTION of those effect sizes (Extraversion strongest, then
+    Conscientiousness, Openness, inverse Neuroticism) but the specific weights
+    are tunable design parameters, not derived from the meta-analytic
+    correlations. Stogdill (1948) is the original survey establishing the
+    trait-correlate principle but did NOT propose a weighted-sum formula;
+    charisma in particular is a Weberian concept (Weber 1922), not a Stogdill
+    trait. See module Known Limitations (a).
 
     Args:
         agent: The agent to score.
@@ -243,12 +299,14 @@ def update_group_cohesion(group: Group, simulation, tick: int) -> None:
               + leader_effectiveness * 0.05
 
     where:
-      - size_penalty = max(0, member_count - 5): coordination cost above 5 members.
-        Coordination cost threshold. Groups larger than 5 members incur
-        increasing coordination penalties. The threshold is a design parameter;
-        while Dunbar (1992) identifies a hierarchy of group sizes (5, 15, 50,
-        150), the use of 5 here as a coordination cost boundary is a simulation
-        design choice, not a direct application of Dunbar's model.
+      - size_penalty = max(0, member_count - 5): coordination cost above a
+        small-group threshold. The threshold value 5 is a tunable design parameter
+        consistent with Hackman 2002 "Leading Teams" (teams of 4-6 as the upper
+        bound for fully-cohesive collaborative units before coordination overhead
+        dominates) but NOT derived from Dunbar 1992 (cognitive limit on stable
+        social relationships is approximately 150) nor from the Zhou et al. 2005
+        nested-hierarchy "5" stratum (intimate cliques, not coordination cost).
+        See module Known Limitations (b).
       - leader_effectiveness = legitimacy - 0.5: positive if leader is well-liked.
 
     The asymmetry (conflict has 1.5x the effect of cooperation) reflects
