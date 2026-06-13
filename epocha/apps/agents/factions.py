@@ -62,13 +62,25 @@ Known Limitations:
       Baumeister 2001 grounds the qualitative DIRECTION of the
       conflict-over-cooperation asymmetry (negativity bias), NOT the specific
       1.5:1 ratio.
-  (d) Schism detection in _check_schism and cluster detection in
-      _detect_and_propose_factions seed candidate splinter / cluster from the
-      first agent in the queryset, making the result order-dependent.
+  (d) Multiple greedy seed-first iterations in this module (schism detection
+      in _check_schism, the ally-grouping inner loop within it, and cluster
+      detection in _detect_and_propose_factions) seed the candidate splinter /
+      cluster from the first agent in the queryset, making the result
+      order-dependent.
       Overlapping potential schisms/clusters may exist; which one is detected
       depends on iteration order. A robust resolution would use graph-based
       connected-components or hierarchical clustering on the sentiment matrix --
       bound to a future "robust faction clustering" work item.
+  (e) Several scalar calibration parameters in this module are tunable design
+      choices, not empirically derived: the no-relationship sentiment fallback
+      (0.3 normalized = raw -0.4) in compute_leadership_score and
+      compute_legitimacy; the symmetric schism/ally sentiment thresholds
+      (+/-0.2); the splinter-vs-new-faction seed cohesion differential
+      (0.5 vs 0.6); the dissolution / legitimacy / affinity settings defaults
+      (0.2 / 0.3 / 0.5); and the Memory.emotional_weight grading (0.2 minor,
+      0.3 moderate, 0.4 significant) applied to faction-event memories. All are
+      part of the simulation's calibration budget tied to tick frequency and the
+      desired group-formation timescale.
 """
 from __future__ import annotations
 
@@ -104,12 +116,13 @@ _COOPERATIVE_ACTIONS: frozenset[str] = frozenset({"help", "socialize"})
 # timescale. See module Known Limitations (c).
 _CONFLICT_ACTIONS: frozenset[str] = frozenset({"argue", "betray"})
 
-# Threshold below which the average sentiment toward non-allies triggers schism.
-# A negative sentiment below -0.2 indicates genuine hostility, not mere
-# indifference.
+# Sentiment thresholds for schism / alliance detection. Both magnitudes are
+# tunable design parameters; the symmetric +/-0.2 value is a calibration choice,
+# not empirically derived. A negative outward sentiment below -0.2 is treated as
+# genuine hostility (not mere indifference) and triggers schism; a mutual
+# sentiment above +0.2 qualifies two agents as allies. See module Known
+# Limitations (e).
 _SCHISM_OUTWARD_SENTIMENT_THRESHOLD: float = -0.2
-
-# Minimum sentiment between two agents for one to be considered an ally.
 _ALLY_SENTIMENT_THRESHOLD: float = 0.2
 
 
@@ -208,7 +221,10 @@ def compute_leadership_score(agent: Agent, group: Group, tick: int) -> float:
         raw_sentiment = total_sentiment / relationships.count()
         internal_sentiment = (raw_sentiment + 1.0) / 2.0
     else:
-        # No established relationships: slightly below neutral.
+        # No established relationships: default to a below-neutral internal
+        # sentiment (0.3 normalized = raw sentiment -0.4). Conservative tunable
+        # design parameter: an agent with no in-group ties is not presumed
+        # well-integrated. See module Known Limitations (e).
         internal_sentiment = 0.3
 
     # Seniority: fraction of group lifetime the agent has been present.
@@ -276,6 +292,9 @@ def compute_legitimacy(leader: Agent, group: Group, tick: int) -> float:
         raw = sum(r.sentiment for r in relationships) / relationships.count()
         leader_sentiment = (raw + 1.0) / 2.0
     else:
+        # No established relationships: below-neutral fallback (0.3 normalized =
+        # raw sentiment -0.4), same tunable convention as compute_leadership_score.
+        # See module Known Limitations (e).
         leader_sentiment = 0.3
 
     # Score rank: how the leader compares to all members.
@@ -406,6 +425,8 @@ def update_group_leadership(group: Group, tick: int) -> None:
         group: The group to check.
         tick: Current tick.
     """
+    # Default 0.3 is a tunable design parameter (calibration budget), not
+    # empirically derived. See module Known Limitations (e).
     threshold = getattr(settings, "EPOCHA_FACTION_LEGITIMACY_THRESHOLD", 0.3)
     leader = group.leader
 
@@ -475,6 +496,8 @@ def _check_dissolution(group: Group, tick: int) -> None:
         group: The group to check.
         tick: Current tick.
     """
+    # Default 0.2 is a tunable design parameter (calibration budget), not
+    # empirically derived. See module Known Limitations (e).
     threshold = getattr(settings, "EPOCHA_FACTION_DISSOLUTION_THRESHOLD", 0.2)
     if group.cohesion >= threshold:
         return
@@ -571,6 +594,10 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
             simulation=simulation,
             name=name,
             objective=objective,
+            # Splinter seed cohesion 0.5: a breakaway group starts less cohesive
+            # than a freshly self-organized faction (0.6 in _create_faction)
+            # because it carries unresolved conflict from the parent. The 0.1
+            # differential is a tunable design parameter. See Known Limitations (e).
             cohesion=0.5,
             formed_at_tick=tick,
             parent_group=group,
@@ -629,6 +656,8 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
         simulation: The Simulation instance.
         tick: Current tick.
     """
+    # Default 0.5 is a tunable design parameter (calibration budget), not
+    # empirically derived. See module Known Limitations (e).
     threshold = getattr(settings, "EPOCHA_FACTION_AFFINITY_THRESHOLD", 0.5)
     min_members = getattr(settings, "EPOCHA_FACTION_MIN_MEMBERS", 3)
     max_members = getattr(settings, "EPOCHA_FACTION_MAX_INITIAL_MEMBERS", 8)
@@ -846,6 +875,9 @@ def _create_faction(simulation, founders: list[Agent], tick: int) -> None:
         simulation=simulation,
         name=name,
         objective=objective,
+        # New-faction seed cohesion 0.6: self-organized factions start more
+        # cohesive than schism splinters (0.5). Tunable design parameter.
+        # See Known Limitations (e).
         cohesion=0.6,
         formed_at_tick=tick,
     )
@@ -910,23 +942,26 @@ def _generate_faction_identity(
     Returns:
         Tuple of (name, objective).
     """
+    # Lazy imports: kept function-scoped to avoid circular imports at module
+    # load time. Moved outside the try so ImportError surfaces instead of being
+    # silently swallowed by the broad except below.
+    from epocha.apps.llm_adapter.client import get_llm_client
+    from epocha.common.utils import clean_llm_json
+
+    classes = {a.social_class for a in founders}
+    roles = {a.role for a in founders if a.role}
+    founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
+
+    client = get_llm_client()
+    prompt = (
+        f"A group of people have {context}. "
+        f"Members: {founder_desc}. "
+        f"Social classes: {', '.join(classes)}. "
+        f"Occupations: {', '.join(roles) if roles else 'various'}. "
+        "Generate a faction name and one-sentence objective. "
+        'Respond ONLY with JSON: {"name": "...", "objective": "..."}'
+    )
     try:
-        from epocha.apps.llm_adapter.client import get_llm_client
-        from epocha.common.utils import clean_llm_json
-
-        classes = {a.social_class for a in founders}
-        roles = {a.role for a in founders if a.role}
-        founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
-
-        client = get_llm_client()
-        prompt = (
-            f"A group of people have {context}. "
-            f"Members: {founder_desc}. "
-            f"Social classes: {', '.join(classes)}. "
-            f"Occupations: {', '.join(roles) if roles else 'various'}. "
-            "Generate a faction name and one-sentence objective. "
-            'Respond ONLY with JSON: {"name": "...", "objective": "..."}'
-        )
         raw = client.complete(
             prompt=prompt,
             system_prompt="You name factions. Respond only with JSON.",
@@ -936,8 +971,15 @@ def _generate_faction_identity(
         name = data.get("name") or fallback_name
         objective = data.get("objective") or fallback_objective
         return name, objective
-    except Exception:
+    # Broad catch is deliberate: get_llm_client().complete() re-raises raw,
+    # un-normalized provider/network exceptions (openai.* errors are not
+    # wrapped in LLMError), and faction creation must never be blocked by LLM
+    # unavailability (see docstring). Narrowing would require provider-level
+    # exception normalization, deferred to a future hardening work item.
+    except Exception as exc:
         logger.warning(
-            "Failed to generate faction identity via LLM, using fallback '%s'", fallback_name
+            "Failed to generate faction identity via LLM, using fallback '%s': %s",
+            fallback_name,
+            exc,
         )
         return fallback_name, fallback_objective
