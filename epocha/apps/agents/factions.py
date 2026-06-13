@@ -90,13 +90,18 @@ logger = logging.getLogger(__name__)
 _COOPERATIVE_ACTIONS: frozenset[str] = frozenset({"help", "socialize"})
 
 # Actions considered conflictual (decrease cohesion).
-# Conflict has a stronger negative effect than cooperation has a positive
-# one (asymmetry of -0.15 vs +0.10), consistent with Baumeister et al.
-# (2001) "Bad is stronger than good", Review of General Psychology.
-# Cohesion change coefficients are tunable design parameters. The asymmetry
-# between conflict (0.15) and cooperation (0.10) reflects the negativity
-# bias principle (Baumeister et al. 2001: negative events have stronger
-# impact), but the specific values are not empirically derived.
+# Cohesion delta coefficients in update_group_cohesion (0.10 cooperation,
+# 0.15 conflict, 0.02 size penalty, 0.05 leader effectiveness) are tunable
+# design parameters. Baumeister, Bratslavski, Finkenauer, and Vohs (2001),
+# "Bad is stronger than good", Review of General Psychology 5(4):323-370,
+# DOI 10.1037/1089-2680.5.4.323, grounds the qualitative DIRECTION of the
+# conflict-over-cooperation asymmetry (negative events have stronger
+# psychological impact than positive events of equivalent magnitude). The
+# specific 1.5:1 ratio between conflict and cooperation magnitudes, and the
+# absolute values of all four coefficients, are NOT derived from Baumeister
+# 2001 or any specific empirical fit; they are part of the simulation's
+# calibration budget tied to tick frequency and the desired group-formation
+# timescale. See module Known Limitations (c).
 _CONFLICT_ACTIONS: frozenset[str] = frozenset({"argue", "betray"})
 
 # Threshold below which the average sentiment toward non-allies triggers schism.
@@ -309,8 +314,14 @@ def update_group_cohesion(group: Group, simulation, tick: int) -> None:
         See module Known Limitations (b).
       - leader_effectiveness = legitimacy - 0.5: positive if leader is well-liked.
 
-    The asymmetry (conflict has 1.5x the effect of cooperation) reflects
-    Baumeister et al. (2001), "Bad is stronger than good."
+    The asymmetry (conflict has 1.5x the effect of cooperation) is consistent
+    with the qualitative DIRECTION documented by Baumeister et al. (2001),
+    "Bad is stronger than good", which shows that negative events have stronger
+    psychological impact than positive events of equivalent magnitude. The
+    specific 1.5:1 ratio and the absolute coefficient values
+    (0.10, 0.15, 0.02, 0.05) are tunable design parameters per the simulation's
+    calibration budget, NOT derived from Baumeister or any specific empirical
+    fit. See module Known Limitations (c).
 
     Args:
         group: The group to update.
@@ -520,10 +531,7 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
     def _get_sentiment(a_id: int, b_id: int) -> float:
         return sentiment_map.get((a_id, b_id), sentiment_map.get((b_id, a_id), 0.0))
 
-    # Known limitation: schism detection seeds from the first agent in the
-    # queryset, making the result order-dependent. Overlapping potential
-    # schisms may exist; which one is detected depends on iteration order.
-    # A more robust approach would use clustering algorithms.
+    # Schism detection seeds from the first agent in the queryset (order-dependent). See module docstring "Known Limitations" (d).
     for seed in members:
         allies = [seed]
         for other in members:
@@ -634,6 +642,7 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
     clusters: list[list[Agent]] = []
     visited: set[int] = set()
 
+    # Cluster detection seeds from the first agent in the queryset (order-dependent), same limitation as _check_schism. See module docstring "Known Limitations" (d).
     for i, agent_a in enumerate(ungrouped):
         if agent_a.id in visited:
             continue
