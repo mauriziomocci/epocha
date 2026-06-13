@@ -97,16 +97,16 @@ docs/                  Spec, piani, whitepaper, backup di memoria
 | Stratificazione (Gini 1912; Gilbert 2011; Kahneman-Tversky 1979; Miller-Lynam 2001) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
 | Elezioni (Caprara 2006; Huckfeldt-Sprague 1987; Lewis-Beck-Stegmaier 2000; Lodge-Steenbergen-Brau 1995; Bass 1985; Weber 1922; Merolla-Zechmeister 2011) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
 | Movimento (Chandler 1966; Braudel 1979) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
-| Fazioni | sì | Round 1 audit + remediation, Round 2 in attesa |
+| Fazioni (Olson 1965; Festinger 1950; Judge 2002; Baumeister 2001; Hackman 2002) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
 | Knowledge Graph | sì | audit scientifico in attesa |
 | Demografia Plan 3+4 (Eredità + Migrazione + Integrazione Engine + Esecuzione validazione) | non ancora | n/a |
 | Mercati finanziari Economia (Spec 3) | non ancora | n/a |
 
-Il re-pass di audit sul batch del 2026-04-12 è il follow-up a priorità più alta; 3 moduli (fazioni, knowledge graph, layer base dell'economia) ancora in attesa dopo la convergenza dei cluster reputazione, passaparola, politico e movimento. Vedi whitepaper §9 Roadmap.
+Il re-pass di audit sul batch del 2026-04-12 è il follow-up a priorità più alta; 2 moduli (knowledge graph, layer base dell'economia) ancora in attesa dopo la convergenza dei cluster reputazione, passaparola, politico, movimento e fazioni. Vedi whitepaper §9 Roadmap.
 
 ## Roadmap
 
-Priorità più alta: re-audit pass sui restanti moduli del batch del 2026-04-12 (Fazioni, Knowledge Graph, Layer base dell'economia); la reputazione è convergente sul round 2 (2026-05-12) ed è documentata nel whitepaper §4.3, il cluster del passaparola (Information Flow, Distortion, Belief Filter, Affinity) è convergente sul round 2 (2026-05-16) ed è documentato in §4.4, il cluster politico (Governo, Tipi di Governo, Istituzioni, Stratificazione, Elezioni) è convergente sul round 2 (2026-05-16) ed è documentato in §4.5, e il Movimento è convergente sul round 2 (2026-05-16) ed è documentato in §4.6. Poi Demografia Plan 3 (Eredità + Migrazione), Plan 4 (Init + Integrazione Engine + Validazione storica), mercati finanziari Economia, esecuzione esperimenti di validazione. Lista completa nel whitepaper §9.
+Priorità più alta: re-audit pass sui restanti moduli del batch del 2026-04-12 (Knowledge Graph, Layer base dell'economia); la reputazione è convergente sul round 2 (2026-05-12) ed è documentata nel whitepaper §4.3, il cluster del passaparola (Information Flow, Distortion, Belief Filter, Affinity) è convergente sul round 2 (2026-05-16) ed è documentato in §4.4, il cluster politico (Governo, Tipi di Governo, Istituzioni, Stratificazione, Elezioni) è convergente sul round 2 (2026-05-16) ed è documentato in §4.5, il Movimento è convergente sul round 2 (2026-05-16) ed è documentato in §4.6, e le Fazioni sono convergenti sul round 2 (2026-05-16) e documentate in §4.7. Poi Demografia Plan 3 (Eredità + Migrazione), Plan 4 (Init + Integrazione Engine + Validazione storica), mercati finanziari Economia, esecuzione esperimenti di validazione. Lista completa nel whitepaper §9.
 
 ## Contribuire
 

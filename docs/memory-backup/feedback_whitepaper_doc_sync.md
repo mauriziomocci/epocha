@@ -25,6 +25,7 @@ Ogni PR che modifica codice di un modulo descritto nel cap. 4 del whitepaper bil
 | `epocha/apps/world/stratification.py` | §4.5.4 (EN) | §4.5.4 (IT) |
 | `epocha/apps/world/election.py` | §4.5.5 (EN) | §4.5.5 (IT) |
 | `epocha/apps/agents/movement.py` | §4.6 (EN) | §4.6 (IT) |
+| `epocha/apps/agents/factions.py` | §4.7 (EN) | §4.7 (IT) |
 
 Quando un modulo del cap. 8 viene promosso a cap. 4 dopo re-audit CONVERGED, aggiungerlo a questa tabella.
 

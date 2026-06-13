@@ -97,16 +97,16 @@ docs/                  Specs, plans, whitepaper, memory backup
 | Stratification (Gini 1912; Gilbert 2011; Kahneman-Tversky 1979; Miller-Lynam 2001) | yes | yes (CONVERGED 2026-05-16 round 2) |
 | Election (Caprara 2006; Huckfeldt-Sprague 1987; Lewis-Beck-Stegmaier 2000; Lodge-Steenbergen-Brau 1995; Bass 1985; Weber 1922; Merolla-Zechmeister 2011) | yes | yes (CONVERGED 2026-05-16 round 2) |
 | Movement (Chandler 1966; Braudel 1979) | yes | yes (CONVERGED 2026-05-16 round 2) |
-| Factions | yes | Round 1 audit + remediation, Round 2 pending |
+| Factions (Olson 1965; Festinger 1950; Judge 2002; Baumeister 2001; Hackman 2002) | yes | yes (CONVERGED 2026-05-16 round 2) |
 | Knowledge Graph | yes | scientific audit pending |
 | Demography Plan 3+4 (Inheritance + Migration + Engine integration + Validation execution) | not yet | n/a |
 | Economy financial markets (Spec 3) | not yet | n/a |
 
-The audit re-pass on the 2026-04-12 batch is the highest priority follow-up; 3 modules (factions, knowledge graph, economy base layer) still pending after the reputation, rumor, political and movement clusters converged. See whitepaper §9 Roadmap.
+The audit re-pass on the 2026-04-12 batch is the highest priority follow-up; 2 modules (knowledge graph, economy base layer) still pending after the reputation, rumor, political, movement and factions clusters converged. See whitepaper §9 Roadmap.
 
 ## Roadmap
 
-Highest priority: re-audit pass on the remaining 2026-04-12 batch modules (Factions, Knowledge Graph, Economy base layer); reputation converged on round 2 (2026-05-12) and is documented in whitepaper §4.3, the rumor cluster (Information Flow, Distortion, Belief Filter, Affinity) converged on round 2 (2026-05-16) and is documented in §4.4, the political cluster (Government, Government Types, Institutions, Stratification, Election) converged on round 2 (2026-05-16) and is documented in §4.5, and Movement converged on round 2 (2026-05-16) and is documented in §4.6. Then Demography Plan 3 (Inheritance + Migration), Plan 4 (Init + Engine integration + Historical validation), Economy financial markets, validation experiments execution. Full list in whitepaper §9.
+Highest priority: re-audit pass on the remaining 2026-04-12 batch modules (Knowledge Graph, Economy base layer); reputation converged on round 2 (2026-05-12) and is documented in whitepaper §4.3, the rumor cluster (Information Flow, Distortion, Belief Filter, Affinity) converged on round 2 (2026-05-16) and is documented in §4.4, the political cluster (Government, Government Types, Institutions, Stratification, Election) converged on round 2 (2026-05-16) and is documented in §4.5, Movement converged on round 2 (2026-05-16) and is documented in §4.6, and Factions converged on round 2 (2026-05-16) and is documented in §4.7. Then Demography Plan 3 (Inheritance + Migration), Plan 4 (Init + Engine integration + Historical validation), Economy financial markets, validation experiments execution. Full list in whitepaper §9.
 
 ## Contributing
 

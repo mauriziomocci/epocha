@@ -1804,6 +1804,83 @@ with `_ARRIVAL_SCATTER_RANGE = 40.0` grid units (assumes 100-unit zone boundary)
 
 ---
 
+## 4.7 Factions
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+### Background
+
+The factions module governs the intra-faction dynamics of agent groups across their life cycle: per-tick cohesion update, leadership emergence scoring, leadership legitimacy and succession, dissolution below a viability floor, schism of a hostile sub-clique into a splinter group, and bottom-up formation of new factions from unaffiliated agents. The conceptual frame is Olson (1965), *The Logic of Collective Action*, for the collective-action viability threshold below which a group disintegrates, and Festinger et al. (1950), *Social Pressures in Informal Groups*, for the treatment of cohesion as a quantity maintained by cooperative interaction and eroded by internal conflict. Leadership emergence is grounded in the trait-leadership meta-analysis of Judge et al. (2002); the negativity-bias direction of the cohesion asymmetry follows Baumeister et al. (2001). The Iannaccone (1992) club-goods mechanism (cohesion through costly-signal sacrifice, exclusionary boundary markers, free-rider detection) is explicitly NOT implemented and is recorded as a deferred extension.
+
+### Model
+
+Group cohesion evolves each interval by a delta that rewards cooperative member actions, penalises conflictual ones with a stronger weight (negativity bias), subtracts a coordination-cost penalty that grows with membership above a small-group threshold, and adds a leader-effectiveness term keyed to the leader's legitimacy. Leadership emergence is a five-component weighted sum of an agent's charisma, intelligence, relative wealth rank, average in-group sentiment, and seniority. Leadership legitimacy is a three-component weighted sum of group cohesion, the leader's average sentiment from members, and the leader's leadership-score rank; legitimacy below a threshold triggers succession. Schism partitions a group when a sub-clique's average sentiment toward the rest falls below a hostility threshold, seeding a splinter group at reduced initial cohesion. All scalar weights, thresholds, and coefficients are tunable design parameters, sourced to the qualitative direction of the cited literature but not derived from it.
+
+### Equations
+
+Equation (4.38) cohesion delta per interval:
+
+  cohesion_delta = cooperation_ratio · 0.10 − conflict_ratio · 0.15 − size_penalty · 0.02 + leader_effectiveness · 0.05
+
+where `cooperation_ratio` and `conflict_ratio` are the fractions of cooperative (help, socialize) and conflictual (argue, betray) member actions over the interval, `size_penalty = max(0, member_count − 5)`, and `leader_effectiveness = legitimacy − 0.5`.
+
+Equation (4.39) leadership emergence score:
+
+  leadership_score = charisma · 0.30 + intelligence · 0.20 + wealth_rank · 0.15 + internal_sentiment · 0.20 + seniority · 0.15
+
+where `internal_sentiment` is the agent's average relationship sentiment with other members mapped from [−1, 1] to [0, 1], `wealth_rank` is the agent's relative economic standing within the group, and `seniority = min((tick − join_tick) / group_age, 1.0)`.
+
+Equation (4.40) leadership legitimacy:
+
+  legitimacy = group_cohesion · 0.40 + leader_sentiment · 0.40 + score_rank · 0.20
+
+where `leader_sentiment` is the leader's average sentiment from members mapped to [0, 1] and `score_rank ∈ [0, 1]` ranks the leader's leadership_score against all members.
+
+Equation (4.41) schism trigger: a candidate sub-clique (built greedily from a seed agent, adding members whose mutual sentiment exceeds `_ALLY_SENTIMENT_THRESHOLD = 0.2`) splits off when its average sentiment toward the non-clique remainder falls below `_SCHISM_OUTWARD_SENTIMENT_THRESHOLD = −0.2`.
+
+### Parameters
+
+| Parameter | Value | Source | Status |
+|---|---|---|---|
+| cooperation coefficient | 0.10 | calibration budget; Baumeister 2001 grounds asymmetry direction only | tunable |
+| conflict coefficient | 0.15 | calibration budget; 1.5:1 vs cooperation is negativity-bias direction (Baumeister 2001), not the ratio | tunable |
+| size-penalty coefficient | 0.02 | calibration budget | tunable |
+| leader-effectiveness coefficient | 0.05 | calibration budget | tunable |
+| size-penalty threshold | 5 | tunable; Hackman 2002 generic small-group principle; NOT Dunbar 1992 (~150) nor Zhou et al. 2005 (intimate-clique stratum) | tunable |
+| leadership weights {charisma, intelligence, wealth_rank, internal_sentiment, seniority} | {0.30, 0.20, 0.15, 0.20, 0.15} | tunable; consistent with Judge 2002 effect-size direction, not derived; charisma per Weber 1922 + Antonakis et al. 2016 | tunable |
+| legitimacy weights {cohesion, leader_sentiment, score_rank} | {0.40, 0.40, 0.20} | calibration budget | tunable |
+| ally sentiment threshold | +0.2 | calibration budget (symmetric) | tunable |
+| schism outward sentiment threshold | −0.2 | calibration budget (symmetric) | tunable |
+| no-relationship sentiment fallback | 0.3 (normalized = raw −0.4) | conservative tunable default | tunable |
+| splinter seed cohesion | 0.5 | tunable; below new-faction 0.6 (carries parent conflict) | tunable |
+| new-faction seed cohesion | 0.6 | tunable | tunable |
+| dissolution / legitimacy / affinity thresholds | 0.2 / 0.3 / 0.5 | settings defaults, calibration budget | tunable |
+| Memory.emotional_weight grading | 0.2 / 0.3 / 0.4 | minor / moderate / significant, tunable | tunable |
+
+### Algorithm
+
+1. `process_faction_dynamics(simulation, tick)` runs every `EPOCHA_FACTION_DYNAMICS_INTERVAL` ticks and orchestrates the pipeline.
+2. For each active group: `update_group_cohesion` applies equation (4.38); `update_group_leadership` recomputes `compute_leadership_score` (4.39) and `compute_legitimacy` (4.40), replacing the leader on a legitimacy shortfall; `_check_dissolution` releases members when cohesion or membership falls below the viability floor; `_check_schism` applies equation (4.41) and spawns a splinter.
+3. `_detect_and_propose_factions` greedily clusters unaffiliated agents by pairwise affinity and proposes new factions; `_check_join_existing_groups` suggests joins; `_process_formation_decisions` realises agent formation intents.
+4. `_generate_faction_identity` requests an LLM name/objective with a deterministic fallback that never blocks faction creation.
+
+### Simplifications
+
+- **Leadership weights as design choices (F-1)**: the (0.30/0.20/0.15/0.20/0.15) tuple is consistent with the direction of Judge et al. (2002) effect sizes (Extraversion strongest, then Conscientiousness, Openness, inverse Neuroticism) but is not derived from the meta-analytic correlations; Stogdill (1948) supports the trait-correlate principle but proposed no weighted-sum formula; charisma is Weberian (Weber 1922, Antonakis et al. 2016), not a Stogdill trait.
+- **Size-penalty threshold as design choice (F-2)**: the value 5 is a tunable parameter anchored to the generic small-group coordination-cost principle (Hackman 2002), explicitly NOT to Dunbar 1992 (cognitive limit ~150) nor to the intimate-clique "5" stratum of Zhou et al. (2005).
+- **Cohesion coefficients as calibration budget (F-3)**: the four coefficients and the 1.5:1 conflict-to-cooperation ratio are tunable; Baumeister et al. (2001) grounds only the qualitative negativity-bias direction, not the magnitudes.
+- **Order-dependent greedy clustering (F-4)**: schism and cluster detection seed from the first agent in the queryset, making the partition order-dependent; a graph-based connected-components / hierarchical-clustering resolution is deferred to a future "robust faction clustering" work item.
+- **Club-goods not implemented**: the Iannaccone (1992) costly-signal cohesion mechanism is absent and deferred.
+- **Faction-to-faction relations not modeled**: inter-faction alliance/rivalry dynamics are out of scope for the current module.
+- **LLM identity generation**: name/objective generation via the LLM adapter is covered by the separate llm-adapter audit; faction creation is never blocked by LLM unavailability.
+- **Deferred behavioral hardening**: member-sampling bias from default primary-key ordering, missing `@transaction.atomic` around multi-row writes, inconsistent agent-migration signal discipline, and N+1 query patterns are tracked for a future "factions Round 3 hardening" work item.
+
+### Status
+
+> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+
+---
+
 # 5. Implementation
 
 Chapter 5 documents how the abstract architecture of Chapter 3 and the audited models of Chapter 4 are laid down on disk. The intent is that a reader who has internalized the previous chapters can navigate the codebase without first reverse-engineering the directory tree, and that the mapping between each implemented module and its design spec is explicit rather than implicit. The chapter is deliberately compact: it points at the source of truth rather than re-narrating what the source already states.
@@ -1983,21 +2060,15 @@ Validation experiments are specified, not yet executed. The full execution of th
 
 # 8. Designed Subsystems (implemented, audit pending)
 
-Chapter 8 covers the three Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation converged on round 2 (2026-05-12) and was promoted to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity per the audit's IF-1 fix) converged on round 2 (2026-05-16) and was promoted to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) converged on round 2 (2026-05-16) and was promoted to §4.5, and movement converged on round 2 (2026-05-16) and was promoted to §4.6, leaving the remaining three modules in this chapter pending. The resolution pass and the convergence re-audit on those three are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
+Chapter 8 covers the three Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation converged on round 2 (2026-05-12) and was promoted to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity per the audit's IF-1 fix) converged on round 2 (2026-05-16) and was promoted to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) converged on round 2 (2026-05-16) and was promoted to §4.5, and movement converged on round 2 (2026-05-16) and was promoted to §4.6, and factions converged on round 2 (2026-05-16) and was promoted to §4.7, leaving the remaining two modules in this chapter pending. The resolution pass and the convergence re-audit on those three are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
 
-## 8.1 Factions
-
-The factions module covers the three life-cycle phases of an Epocha faction: formation (an agent declares the intent to found a faction and other agents elect to join under shared-grievance and personality-affinity rules), maintenance (per-tick cohesion update, leadership succession on the death or defection of the founder, internal discipline against members whose actions diverge from the faction's stated platform), and dissolution (a faction whose cohesion falls below the threshold, or whose membership falls below the minimum, is dissolved and its members released). The implementation cites Olson (1965), *The Logic of Collective Action*, as the conceptual frame for faction formation: the spec emphasizes that shared grievances and shared circumstances (zone, occupation, exposure to the same event) drive group formation more reliably than personality similarity, and the formation rule in `factions.py` weights shared-grievance memories above personality affinity in the candidate-evaluation score. The negativity-bias asymmetry in the cohesion update (a divergent action costs −0.15 cohesion against a +0.10 reward for an aligned action) is attributed inline to Baumeister et al. (2001) "Bad is stronger than good." The Iannaccone (1992) club-goods literature on cult and commune cohesion through costly-signal sacrifice is *not* implemented in the current module — there is no costly-signal initiation rite, no exclusionary boundary marker beyond simple membership, and no free-rider-detection mechanism — and the spec records this as a deferred extension rather than a current citation. Code path: `epocha/apps/agents/factions.py`.
-
-> Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-05-factions-leadership-design.md`.
-
-## 8.2 Knowledge Graph
+## 8.1 Knowledge Graph
 
 The Knowledge Graph cluster implements the simulation's long-horizon memory: the per-simulation graph of entities, relations, and events that the LLM context builder of §3.5 queries to ground each agent's per-tick decision in the simulation's prior history rather than re-reading the entire raw event log. The cluster is split across nine modules under `epocha/apps/knowledge/`: `chunking.py` slices the raw event log into LLM-sized passages, `extraction.py` runs the LLM-driven entity-and-relation extractor over each chunk, `embedding.py` produces the dense vector representations of every chunk and every node (the multilingual-e5-large model is the current default per the spec), `merge.py` deduplicates extracted nodes against the existing graph, `normalizer.py` canonicalises entity surface forms to their preferred labels, `materialization.py` writes the consolidated graph back to the persistence layer, `ontology.py` declares the entity and relation type system, `prompts.py` collects the LLM prompts for extraction and merge, and `api.py` exposes the graph to the dashboard graph view. The literature pointers in the spec are the Retrieval-Augmented Generation framework of Lewis et al. (2020) for the broader retrieve-then-generate architecture, the sentence-embedding family of Reimers and Gurevych (2019) for the dense-vector representations (multilingual-e5-large is the current production choice for its 100+ language coverage and reproducibility properties), and the broader knowledge-graph reasoning literature for the entity-relation typology. The spec contrasts the Epocha approach with GraphRAG and with MiroFish in its FAQ section and records the choice to materialise the graph per-simulation rather than across simulations as a deliberate scope choice for the MVP. Code paths: `epocha/apps/knowledge/{ingestion,extraction,embedding,merge,normalizer,materialization,ontology,chunking,prompts,api}.py`.
 
 > Status: implemented in code, Round 2 audit pending. See `docs/superpowers/specs/2026-04-11-knowledge-graph-design.md`.
 
-## 8.3 Economy base layer
+## 8.2 Economy base layer
 
 The economy base layer is the substrate that turns agent activity into production, prices, money, and per-tick income flows; it is described in narrative form under §3.6 of this whitepaper and the present subsection records only the audit status and the spec under which the audit will resume. The base layer covers `production.py` (the CES production function (Arrow et al. 1961)), `monetary.py` (the Fisher-identity diagnostic and the velocity counter), `market.py` (Walrasian tâtonnement (Walras 1874) with the iteration cap that addresses the non-convergence regime (Scarf 1960)), `distribution.py` (the simplified Ricardian rent decomposition and the per-tick wage and tax flow), and `initialization.py` (the per-template seeding of the base balance sheet). All five citations in this list are already present in §13. The behavioral integration that sits on top of this substrate (adaptive expectations, credit and banking, property market) has completed its Round 2 audit and is documented under §4.2 of this whitepaper; the substrate documented here has not, and the §3.6 narrative explicitly disclaims the Methods-grade status pending the audit pass. Code paths: `epocha/apps/economy/{production,monetary,market,distribution,initialization}.py`.
 
@@ -2009,12 +2080,12 @@ The economy base layer is the substrate that turns agent activity into productio
 
 The roadmap is ordered by priority rather than by chronology: the audit re-pass on the three modules still pending from the 2026-04-12 batch (reputation converged on round 2 in 2026-05-12 and was promoted to §4.3; the rumor-propagation cluster — information flow, distortion, belief filter, plus affinity — converged on round 2 in 2026-05-16 and was promoted to §4.4; the political-institutions cluster converged on round 2 in 2026-05-16 and was promoted to §4.5; movement converged on round 2 in 2026-05-16 and was promoted to §4.6) is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
 
-- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The one module currently in §8 that still carries open Round 1 findings (factions) sits alongside the Knowledge Graph and the economy base layer, which are also pending their first scientific audit pass. Four clusters have already converged and been promoted: reputation on round 2 (2026-05-12) to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity) on round 2 (2026-05-16) to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) on round 2 (2026-05-16) to §4.5, and movement on round 2 (2026-05-16) to §4.6. Resolution and convergence re-audit on the remaining modules are the gating item before any of these can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
+- **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The Knowledge Graph and the economy base layer remain in §8 pending their first scientific audit pass. Five clusters have already converged and been promoted: reputation on round 2 (2026-05-12) to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity) on round 2 (2026-05-16) to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) on round 2 (2026-05-16) to §4.5, movement on round 2 (2026-05-16) to §4.6, and factions on round 2 (2026-05-16) to §4.7. Resolution and convergence re-audit on the remaining modules are the gating item before any of these can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
 - **Demography Plan 3 (Inheritance + Migration).** The demography spec of §4.1 covers mortality, fertility, and couple formation; Plan 3 extends the same audit-first methodology to inheritance (transfer of property and debt to surviving kin on death of an agent) and to demographic migration (the long-horizon zone-to-zone migration that complements the per-tick movement of §4.6 with a generational-scale flow). Spec is `docs/superpowers/specs/2026-04-18-demography-design.md` Plan 3 section.
 - **Demography Plan 4 (Initialisation, Engine integration, Historical validation).** Plan 4 wires the demography modules of §4.1 — currently implemented and unit-tested in isolation — into the live tick loop of `epocha/apps/simulation/engine.py`, supplies the initialisation procedure that seeds a starting population from the era template, and runs the historical-validation campaign of §7 against the Wrigley-Schofield (1981) and Human Mortality Database targets. This is the central deliverable that closes the implementation-gap disclosure carried by §4.1 and resolves the validation-pending caveat carried by §7.5.
 - **Economy financial markets (Spec 3 to write).** The behavioral integration of §4.2 covers adaptive expectations, credit and banking, and the property market; the next economy spec extends to bond and equity markets, asset-price contagion across multiple banks, and the inter-bank lending channel deferred under the simplifications of §4.2.2. The spec is not yet drafted; the work item is recorded in the long-form roadmap memory.
 - **Validation experiments execution.** The campaign specified in Chapter 7 — dataset acquisition, script implementation, metric computation, and threshold evaluation — is the central deliverable tracked in `docs/memory-backup/project_validation_experiments_pending.md`. Execution is bound to Plan 4 of the demography roadmap above (which provides the live tick-loop integration the validation requires) and to the audit re-pass of the §8 batch (which extends the validation surface to the political and movement modules).
-- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.2 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
+- **Knowledge Graph evolution (live updates from simulation).** The Knowledge Graph cluster of §8.1 currently materialises the graph from the simulation log in batch passes; the evolution work item replaces the batch pass with a live update that incrementally extracts entities and relations from each tick and merges them into the existing graph without a full re-extraction. The change keeps the graph current within a bounded delay of the live tick rather than at end-of-run granularity, which is the prerequisite for graph-grounded LLM context at the per-tick decision step of §3.2.
 - **Analytics psicostoriografia.** The analytics spec at `docs/superpowers/specs/2026-04-06-analytics-psicostoriografia-design.md` covers the post-hoc analysis layer that surfaces emergent patterns from a completed simulation: phase-space trajectories, zone-level cohort comparisons, event-cascade attribution, and the publication-grade plot exports needed for the scientific paper of the project's final deliverable. The spec is drafted; implementation is deferred behind the audit re-pass and Plan 4.
 - **Broader PostGIS adoption.** PostGIS is already enabled per §3.6 with zone geometries stored as WGS84 polygons; the broader-adoption work item extends the geospatial surface to agent trajectories (per-tick location history with spatial indices), routed-distance queries between zones (replacing the abstract zone-graph distance of §4.6 with shortest-path computation against the actual geometry), and per-zone catchment analysis for the economy and demography modules.
 - **Multi-level agents (organisations, states, coalitions).** The current Epocha population is a flat set of individual agents; the multi-level work item extends the agent ontology to corporate actors that have their own decision pipelines, their own memory, and their own action space, with the individual agents as members and with state and coalition layers above the organisation layer. The conceptual frame and the literature anchors are recorded in `docs/memory-backup/project_multilevel_agents.md`; the spec is not yet drafted.
@@ -2061,8 +2132,7 @@ are specified, but the experiments that consume them are tracked under
 deliverable.
 
 The scientific limits of the present work go beyond the simplifications
-inside the audited subset. Three modules — factions (§8.1),
-the Knowledge Graph (§8.2), and the economy base layer (§8.3) — are
+inside the audited subset. Two modules — the Knowledge Graph (§8.1) and the economy base layer (§8.2) — are
 implemented in code and exercised by unit tests but have not yet completed
 the Round 2 adversarial audit that gates promotion to Chapter 4 status;
 the open INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings from
@@ -2252,7 +2322,7 @@ metrics, and acceptance thresholds — is specified across §7.1 to §7.3, but
 the experimental campaign that consumes the methodology is bound to Plan 4
 and is tracked under `project_validation_experiments_pending.md`.
 
-**Knowledge Graph (§8.2).** The graph is currently materialised in batch
+**Knowledge Graph (§8.1).** The graph is currently materialised in batch
 passes from the simulation log; live update from a running simulation,
 which is the prerequisite for graph-grounded LLM context at the per-tick
 decision step, is the dedicated work item of the roadmap of Chapter 9.
@@ -2352,6 +2422,7 @@ work item.
   monograph; reviewed in Zeller 1948, *The Annals of the American
   Academy of Political and Social Science*, 257(1), 145–146,
   https://doi.org/10.1177/000271624825700169.)
+- Antonakis, J., Bastardoz, N., Jacquart, P., and Shamir, B. (2016). Charisma: an ill-defined and ill-measured gift. *Annual Review of Organizational Psychology and Organizational Behavior*, 3, 293–319. https://doi.org/10.1146/annurev-orgpsych-041015-062305
 - Arendt, H. (1951). *The Origins of Totalitarianism*. Schocken Books,
   New York. Reissued by Harcourt Brace, 1973.
   ISBN 978-0-15-670153-2 (Harcourt 1973 paperback).
@@ -2451,12 +2522,14 @@ work item.
 - Diamond, D. W., and Dybvig, P. H. (1983). Bank runs, deposit insurance,
   and liquidity. *Journal of Political Economy*, 91(3), 401–419.
   https://doi.org/10.1086/261155
+- Dunbar, R. I. M. (1992). Neocortex size as a constraint on group size in primates. *Journal of Human Evolution*, 22(6), 469–493. https://doi.org/10.1016/0047-2484(92)90081-J
 - Epstein, J. M., and Axtell, R. (1996). *Growing Artificial Societies:
   Social Science from the Bottom Up*. Brookings Institution Press /
   MIT Press, Washington, DC and Cambridge, MA. ISBN 978-0-262-55025-3.
 - Evans, G. W., and Honkapohja, S. (2001). *Learning and Expectations
   in Macroeconomics*. Frontiers of Economic Research. Princeton
   University Press, Princeton, NJ. ISBN 978-0-691-04921-2.
+- Festinger, L., Schachter, S., and Back, K. (1950). *Social Pressures in Informal Groups: A Study of Human Factors in Housing*. Harper and Brothers, New York.
 - Finer, S. E. (1962). *The Man on Horseback: The Role of the Military
   in Politics*. Pall Mall Press, London.
   ISBN 978-1-138-52538-7 (Routledge 2017 reissue).
@@ -2498,6 +2571,7 @@ work item.
   Tipping points in macroeconomic agent-based models. *Journal of
   Economic Dynamics and Control*, 50, 29–61.
   https://doi.org/10.1016/j.jedc.2014.08.003
+- Hackman, J. R. (2002). *Leading Teams: Setting the Stage for Great Performances*. Harvard Business School Press, Boston. ISBN 978-1-57851-333-1.
 - Hadwiger, H. (1940). Eine analytische Reproduktionsfunktion für
   biologische Gesamtheiten. *Skandinavisk Aktuarietidskrift*, 1940
   (issues 3–4), 101–113.
@@ -2536,6 +2610,7 @@ work item.
 - Jøsang, A., and Ismail, R. (2002). The beta reputation system. In
   *Proceedings of the 15th Bled Electronic Commerce Conference (Bled
   2002)*, 41–55. https://aisel.aisnet.org/bled2002/41/
+- Judge, T. A., Bono, J. E., Ilies, R., and Gerhardt, M. W. (2002). Personality and leadership: a qualitative and quantitative review. *Journal of Applied Psychology*, 87(4), 765–780. https://doi.org/10.1037/0021-9010.87.4.765
 - Kalmijn, M. (1998). Intermarriage and homogamy: causes, patterns,
   trends. *Annual Review of Sociology*, 24, 395-421.
   https://doi.org/10.1146/annurev.soc.24.1.395
@@ -2656,6 +2731,7 @@ work item.
 - Stiglitz, J. E., and Weiss, A. (1981). Credit rationing in markets
   with imperfect information. *American Economic Review*, 71(3),
   393–410. https://www.jstor.org/stable/1802787
+- Stogdill, R. M. (1948). Personal factors associated with leadership: a survey of the literature. *Journal of Psychology*, 25(1), 35–71. https://doi.org/10.1080/00223980.1948.9917362
 - Tabeau, E., van den Berg Jeths, A., and Heathcote, C. (eds.) (2001).
   *Forecasting Mortality in Developed Countries: Insights from a
   Statistical, Demographic and Epidemiological Perspective*. European
@@ -2690,6 +2766,7 @@ work item.
 - Wrigley, E. A., and Schofield, R. S. (1981). *The Population History
   of England, 1541-1871: A Reconstruction*. Edward Arnold, London.
   Reissued by Cambridge University Press, 1989. ISBN 978-0-521-35688-6.
+- Zhou, W.-X., Sornette, D., Hill, R. A., and Dunbar, R. I. M. (2005). Discrete hierarchical organization of social group sizes. *Proceedings of the Royal Society B*, 272(1561), 439–444. https://doi.org/10.1098/rspb.2004.2970
 - Zinn, S. (2013). The MicSim package of R: an entry-level toolkit for
   continuous-time microsimulation. *International Journal of
   Microsimulation*, 7(3), 3–32.
