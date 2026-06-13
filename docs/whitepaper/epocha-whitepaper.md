@@ -1806,7 +1806,7 @@ with `_ARRIVAL_SCATTER_RANGE = 40.0` grid units (assumes 100-unit zone boundary)
 
 ## 4.7 Factions
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `5406b95a74d3281bc98665923818d7e708745120`, code audit CONVERGED 2026-05-16 round 2.
 
 ### Background
 
@@ -1877,7 +1877,7 @@ Equation (4.41) schism trigger: a candidate sub-clique (built greedily from a se
 
 ### Status
 
-> Status: implemented as of commit `<filled-on-merge>`, code audit CONVERGED 2026-05-16 round 2.
+> Status: implemented as of commit `5406b95a74d3281bc98665923818d7e708745120`, code audit CONVERGED 2026-05-16 round 2.
 
 ---
 

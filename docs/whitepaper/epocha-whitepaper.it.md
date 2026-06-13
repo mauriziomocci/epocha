@@ -1874,7 +1874,7 @@ con `_ARRIVAL_SCATTER_RANGE = 40.0` unità di griglia (assume confine di zona di
 
 ## 4.7 Fazioni
 
-> Stato: implementato a partire dal commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato a partire dal commit `5406b95a74d3281bc98665923818d7e708745120`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 ### Background
 
@@ -1945,7 +1945,7 @@ Equazione (4.41) innesco di scissione: una sotto-cricca candidata (costruita gre
 
 ### Stato
 
-> Stato: implementato a partire dal commit `<filled-on-merge>`, audit del codice CONVERGENTE 2026-05-16 round 2.
+> Stato: implementato a partire dal commit `5406b95a74d3281bc98665923818d7e708745120`, audit del codice CONVERGENTE 2026-05-16 round 2.
 
 ---
 
