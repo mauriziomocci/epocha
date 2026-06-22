@@ -4,6 +4,7 @@ Produces a structured report summarizing the simulation's history, notable
 events, key agents, and final state. Written in an encyclopedic style
 inspired by Asimov's Galactic Encyclopedia.
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,18 +16,22 @@ from .models import Event
 
 logger = logging.getLogger(__name__)
 
-_REPORT_SYSTEM_PROMPT = """You are a historian writing an encyclopedia entry about a simulated civilization.
-Based on the data provided (events, agents, economic state), write a structured narrative report.
-
-Structure:
-1. Overview: period covered, population, key statistics
-2. Major Events: the most significant events and their consequences
-3. Notable Individuals: agents who had the greatest impact
-4. Patterns: recurring cycles or trends observed
-5. Final State: how the civilization ended up
-
-Write in a scholarly, engaging tone. Be specific — reference actual events and agents by name.
-Do not invent events that are not in the data."""
+_REPORT_SYSTEM_PROMPT = (
+    "You are a historian writing an encyclopedia entry about a simulated civilization.\n"
+    "Based on the data provided (events, agents, economic state),"
+    " write a structured narrative report.\n"
+    "\n"
+    "Structure:\n"
+    "1. Overview: period covered, population, key statistics\n"
+    "2. Major Events: the most significant events and their consequences\n"
+    "3. Notable Individuals: agents who had the greatest impact\n"
+    "4. Patterns: recurring cycles or trends observed\n"
+    "5. Final State: how the civilization ended up\n"
+    "\n"
+    "Write in a scholarly, engaging tone."
+    " Be specific — reference actual events and agents by name.\n"
+    "Do not invent events that are not in the data."
+)
 
 
 def generate_simulation_report(simulation) -> str:
@@ -47,16 +52,21 @@ def generate_simulation_report(simulation) -> str:
     total_decisions = DecisionLog.objects.filter(simulation=simulation).count()
 
     # Build context
-    events_text = "\n".join(
-        f"- [Tick {e.tick}] {e.title} (severity: {e.severity}): {e.description}"
-        for e in events
-    ) or "No significant events recorded."
+    events_text = (
+        "\n".join(
+            f"- [Tick {e.tick}] {e.title} (severity: {e.severity}): {e.description}" for e in events
+        )
+        or "No significant events recorded."
+    )
 
-    agents_text = "\n".join(
-        f"- {a.name} ({a.role}): wealth={a.wealth:.0f}, health={a.health:.1f}, "
-        f"mood={a.mood:.1f}, alive={a.is_alive}"
-        for a in agents[:30]
-    ) or "No agents."
+    agents_text = (
+        "\n".join(
+            f"- {a.name} ({a.role}): wealth={a.wealth:.0f}, health={a.health:.1f}, "
+            f"mood={a.mood:.1f}, alive={a.is_alive}"
+            for a in agents[:30]
+        )
+        or "No agents."
+    )
 
     context = (
         f"Simulation: {simulation.name}\n"

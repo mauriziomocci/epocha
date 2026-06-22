@@ -10,6 +10,7 @@ Covers:
 Scientific reference: Heligman, L. & Pollard, J.H. (1980). The age
 pattern of mortality. Journal of the Institute of Actuaries 107(1), 49-80.
 """
+
 from __future__ import annotations
 
 import math
@@ -89,10 +90,10 @@ class TestTickMortalityProbability:
         for age in (1, 25, 50, 80):
             annual_q = annual_mortality_probability(age, PRE_INDUSTRIAL_PARAMS)
             # tick = 4380 hours = 0.5 years
-            tick_q = tick_mortality_probability(age, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=4380)
-            assert tick_q < annual_q, (
-                f"tick_q={tick_q} not < annual_q={annual_q} at age {age}"
+            tick_q = tick_mortality_probability(
+                age, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=4380
             )
+            assert tick_q < annual_q, f"tick_q={tick_q} not < annual_q={annual_q} at age {age}"
 
     def test_geometric_branch_dt_one(self):
         """With annual_q=0.25 and dt=1.0 the geometric branch returns exactly 0.25.
@@ -114,7 +115,9 @@ class TestTickMortalityProbability:
         # So tick output must equal annual output when dt==1.
         for age in (0, 1):
             annual_q = annual_mortality_probability(age, PRE_INDUSTRIAL_PARAMS)
-            tick_q = tick_mortality_probability(age, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=8760)
+            tick_q = tick_mortality_probability(
+                age, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=8760
+            )
             # Both branches collapse to annual_q when dt=1
             assert abs(tick_q - annual_q) < 1e-9, (
                 f"tick_q={tick_q} != annual_q={annual_q} at age {age} with dt=1"
@@ -179,13 +182,9 @@ class TestTickMortalityProbability:
         # dt = 0.5 years = 4380 hours
         tick_q = tick_mortality_probability(1, custom_params, tick_duration_hours=4380)
         expected = 1.0 - (1.0 - 0.25) ** 0.5
-        assert abs(tick_q - expected) < 1e-12, (
-            f"tick_q={tick_q}, expected={expected}"
-        )
+        assert abs(tick_q - expected) < 1e-12, f"tick_q={tick_q}, expected={expected}"
         # Approximately 0.134
-        assert abs(tick_q - 0.13397459) < 1e-6, (
-            f"Expected ~0.1340, got {tick_q}"
-        )
+        assert abs(tick_q - 0.13397459) < 1e-6, f"Expected ~0.1340, got {tick_q}"
 
 
 # ---------------------------------------------------------------------------

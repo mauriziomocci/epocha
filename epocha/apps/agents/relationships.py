@@ -8,6 +8,7 @@ The interaction effects are qualitative; post-MVP these should be
 calibrated with social psychology research (e.g., Baumeister & Leary,
 1995 "The need to belong" for relationship formation thresholds).
 """
+
 from __future__ import annotations
 
 import logging
@@ -57,7 +58,9 @@ def find_potential_relationships(agent: Agent, proximity_threshold: float = 20) 
         agent: The agent looking for potential relationships.
         proximity_threshold: Maximum distance in meters for spatially-located agents.
     """
-    existing_targets = Relationship.objects.filter(agent_from=agent).values_list("agent_to_id", flat=True)
+    existing_targets = Relationship.objects.filter(agent_from=agent).values_list(
+        "agent_to_id", flat=True
+    )
 
     if agent.location is None:
         return list(
@@ -67,6 +70,7 @@ def find_potential_relationships(agent: Agent, proximity_threshold: float = 20) 
         )
 
     from django.contrib.gis.measure import D
+
     return list(
         Agent.objects.filter(
             simulation=agent.simulation,

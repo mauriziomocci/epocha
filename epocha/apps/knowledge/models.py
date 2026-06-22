@@ -72,7 +72,9 @@ class KnowledgeChunk(models.Model):
     """
 
     document = models.ForeignKey(
-        KnowledgeDocument, on_delete=models.CASCADE, related_name="chunks",
+        KnowledgeDocument,
+        on_delete=models.CASCADE,
+        related_name="chunks",
     )
     chunk_index = models.PositiveIntegerField()
     text = models.TextField()

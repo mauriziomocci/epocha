@@ -7,7 +7,6 @@ from pgvector.django import VectorExtension
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -17,29 +16,63 @@ class Migration(migrations.Migration):
     operations = [
         VectorExtension(),
         migrations.CreateModel(
-            name='KnowledgeDocument',
+            name="KnowledgeDocument",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=255)),
-                ('mime_type', models.CharField(max_length=50)),
-                ('content_hash', models.CharField(db_index=True, help_text='SHA-256 of normalized text content', max_length=64, unique=True)),
-                ('normalized_text', models.TextField()),
-                ('char_count', models.PositiveIntegerField()),
-                ('first_uploaded_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("title", models.CharField(max_length=255)),
+                ("mime_type", models.CharField(max_length=50)),
+                (
+                    "content_hash",
+                    models.CharField(
+                        db_index=True,
+                        help_text="SHA-256 of normalized text content",
+                        max_length=64,
+                        unique=True,
+                    ),
+                ),
+                ("normalized_text", models.TextField()),
+                ("char_count", models.PositiveIntegerField()),
+                ("first_uploaded_at", models.DateTimeField(auto_now_add=True)),
             ],
         ),
         migrations.CreateModel(
-            name='KnowledgeDocumentAccess',
+            name="KnowledgeDocumentAccess",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('uploaded_at', models.DateTimeField(auto_now_add=True)),
-                ('original_filename', models.CharField(blank=True, max_length=255)),
-                ('document', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='accesses', to='knowledge.knowledgedocument')),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='knowledge_document_accesses', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("uploaded_at", models.DateTimeField(auto_now_add=True)),
+                ("original_filename", models.CharField(blank=True, max_length=255)),
+                (
+                    "document",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="accesses",
+                        to="knowledge.knowledgedocument",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="knowledge_document_accesses",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'indexes': [models.Index(fields=['user', 'document'], name='knowledge_k_user_id_e44229_idx')],
-                'unique_together': {('user', 'document')},
+                "indexes": [
+                    models.Index(fields=["user", "document"], name="knowledge_k_user_id_e44229_idx")
+                ],
+                "unique_together": {("user", "document")},
             },
         ),
     ]

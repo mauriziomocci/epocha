@@ -1,4 +1,5 @@
 """Custom DRF permissions."""
+
 from rest_framework import permissions
 
 

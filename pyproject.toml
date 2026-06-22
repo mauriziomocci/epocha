@@ -15,8 +15,21 @@ markers = [
 ]
 
 [tool.ruff]
-line-length = 88
+line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+
+# Django migrations are auto-generated; long lines come from the generator and
+# would be lost on regeneration, so E501 is not enforced there. All other rules
+# still apply.
+#
+# knowledge/prompts.py holds multi-line LLM prompt string literals: long lines
+# live inside the prompt text, where a per-line noqa would become part of the
+# string and wrapping risks altering the byte-exact prompt sent to the model
+# (a reproducibility concern). E501 is therefore not enforced there; all other
+# rules still apply.
+[tool.ruff.lint.per-file-ignores]
+"**/migrations/*.py" = ["E501"]
+"epocha/apps/knowledge/prompts.py" = ["E501"]

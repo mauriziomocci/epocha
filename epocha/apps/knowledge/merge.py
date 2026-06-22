@@ -22,6 +22,7 @@ Merge rules for entity clusters follow a deterministic precedence:
 Relations are deduplicated by identity tuple (source, target, type, temporal
 bounds), keeping maximum confidence and weight.
 """
+
 from __future__ import annotations
 
 import logging
@@ -67,7 +68,9 @@ def _build_cosine_similarity_matrix(vectors: list[list[float]]) -> list[list[flo
     return matrix
 
 
-def _single_linkage_clusters(similarity_matrix: list[list[float]], threshold: float) -> list[list[int]]:
+def _single_linkage_clusters(
+    similarity_matrix: list[list[float]], threshold: float
+) -> list[list[int]]:
     """Cluster indices using single-linkage on a similarity matrix.
 
     Uses union-find with path compression. Two indices are merged if their
@@ -131,7 +134,9 @@ def _merge_entity_cluster(entities: list[dict]) -> dict:
         entity["chunk_ids"] = [entity.pop("chunk_id", 0)]
         return entity
 
-    sorted_entities = sorted(entities, key=lambda e: (-e["mention_count"], -len(e["name"]), e["name"]))
+    sorted_entities = sorted(
+        entities, key=lambda e: (-e["mention_count"], -len(e["name"]), e["name"])
+    )
     chosen = sorted_entities[0]
 
     seen_descriptions: set[str] = set()
@@ -186,10 +191,13 @@ def _deduplicate_relations(relations: list[dict]) -> list[dict]:
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for rel in relations:
         key = (
-            rel["source_canonical_name"], rel["source_entity_type"],
-            rel["target_canonical_name"], rel["target_entity_type"],
+            rel["source_canonical_name"],
+            rel["source_entity_type"],
+            rel["target_canonical_name"],
+            rel["target_entity_type"],
             rel["relation_type"],
-            rel.get("temporal_start_year"), rel.get("temporal_end_year"),
+            rel.get("temporal_start_year"),
+            rel.get("temporal_end_year"),
         )
         groups[key].append(rel)
 

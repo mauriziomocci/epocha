@@ -1,4 +1,5 @@
 """ASGI entry point — combines Django HTTP + Channels WebSocket."""
+
 import os
 
 from channels.auth import AuthMiddlewareStack

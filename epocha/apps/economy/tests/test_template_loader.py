@@ -75,9 +75,7 @@ class TestBehavioralConfig:
         load_default_templates()
         for name in ("pre_industrial", "industrial", "modern", "sci_fi"):
             t = EconomyTemplate.objects.get(name=name)
-            assert "expectations_config" in t.config, (
-                f"{name} missing expectations_config"
-            )
+            assert "expectations_config" in t.config, f"{name} missing expectations_config"
             ec = t.config["expectations_config"]
             assert "lambda_base" in ec
             assert "trend_threshold" in ec
@@ -86,9 +84,7 @@ class TestBehavioralConfig:
         load_default_templates()
         for name in ("pre_industrial", "industrial", "modern", "sci_fi"):
             t = EconomyTemplate.objects.get(name=name)
-            assert "expropriation_policies" in t.config, (
-                f"{name} missing expropriation_policies"
-            )
+            assert "expropriation_policies" in t.config, f"{name} missing expropriation_policies"
             ep = t.config["expropriation_policies"]
             assert ep["democracy"] == "none"
             assert ep["autocracy"] == "elite_seizure"

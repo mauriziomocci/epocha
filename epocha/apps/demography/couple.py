@@ -10,11 +10,20 @@ Sources:
 - Goode, W.J. (1963). World Revolution and Family Patterns (arranged
   marriage patterns).
 """
+
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from django.db.models import Q
+
+if TYPE_CHECKING:
+    # Type-check-only import: the runtime imports live inside the functions that
+    # touch the ORM, to avoid a circular import at module load. With
+    # `from __future__ import annotations`, annotations are lazy strings, so this
+    # block is never executed at runtime.
+    from epocha.apps.demography.models import Couple
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +36,7 @@ def _ordered_pair(agent_a, agent_b) -> tuple:
     this helper to avoid IntegrityError.
     """
     if agent_a.id is None or agent_b.id is None:
-        raise ValueError(
-            "Both agents must be saved (have a primary key) before forming a Couple"
-        )
+        raise ValueError("Both agents must be saved (have a primary key) before forming a Couple")
     if agent_a.id == agent_b.id:
         raise ValueError("Cannot form a Couple between an agent and itself")
     if agent_a.id < agent_b.id:
@@ -58,7 +65,10 @@ def active_couple_for(agent):
 
 
 def homogamy_score(
-    a, b, weights: dict, age_tolerance_years: float = 10.0,
+    a,
+    b,
+    weights: dict,
+    age_tolerance_years: float = 10.0,
 ) -> float:
     """Kalmijn-inspired compatibility score between two candidate partners.
 
@@ -72,6 +82,7 @@ def homogamy_score(
     design heuristics (see spec §Sezione 3).
     """
     import math
+
     same_class = 1.0 if a.social_class == b.social_class else 0.0
     edu_diff = abs(float(a.education_level or 0.0) - float(b.education_level or 0.0))
     edu_prox = math.exp(-edu_diff)
@@ -121,10 +132,7 @@ def stable_matching(
         )
         for p in proposers
     }
-    respondent_prefs = {
-        r: {p: score_fn(p, r) for p in proposers}
-        for r in respondents
-    }
+    respondent_prefs = {r: {p: score_fn(p, r) for p in proposers} for r in respondents}
 
     free_proposers = list(proposers)
     engagements: dict = {}
@@ -155,7 +163,7 @@ def form_couple(
     agent_y,
     formed_at_tick: int,
     couple_type: str = "monogamous",
-) -> "Couple":
+) -> Couple:
     """Create a Couple with canonical ordering enforced.
 
     Raises ValueError when the agents are the same or one of them is
@@ -175,7 +183,7 @@ def form_couple(
     )
 
 
-def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
+def resolve_pair_bond_intents(simulation, tick: int, rng) -> list[Couple]:
     """Process pair_bond intents from tick - 1, form couples where mutual.
 
     Reads DecisionLog.output_decision (TextField, JSON blob). Pre-filters
@@ -204,7 +212,9 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
     - Arranged marriage reattribution follows Goode (1963) §7.
     """
     import json
+
     from django.db import transaction
+
     from epocha.apps.agents.models import Agent, DecisionLog
     from epocha.apps.demography.template_loader import load_template
 
@@ -214,11 +224,15 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
     couple_cfg = template["couple"]
     implicit_consent = bool(couple_cfg.get("implicit_mutual_consent", True))
 
-    entries = DecisionLog.objects.filter(
-        simulation=simulation,
-        tick=tick - 1,
-        output_decision__contains='"pair_bond"',
-    ).select_related("agent").order_by("agent_id", "id")
+    entries = (
+        DecisionLog.objects.filter(
+            simulation=simulation,
+            tick=tick - 1,
+            output_decision__contains='"pair_bond"',
+        )
+        .select_related("agent")
+        .order_by("agent_id", "id")
+    )
 
     direct_intents: dict[int, list[int]] = {}
     arranged_intents: list[tuple[int, int]] = []
@@ -228,7 +242,9 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
         if not name:
             return None
         return Agent.objects.filter(
-            simulation=simulation, name=name, is_alive=True,
+            simulation=simulation,
+            name=name,
+            is_alive=True,
         ).first()
 
     def _add_direct(proposer: Agent, match_id: int) -> None:
@@ -316,7 +332,7 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
     return formed
 
 
-def resolve_separate_intents(simulation, tick: int) -> list["Couple"]:
+def resolve_separate_intents(simulation, tick: int) -> list[Couple]:
     """Process separate intents from tick - 1, dissolve active couples.
 
     Reads DecisionLog.output_decision (JSON blob) with __contains pre-filter
@@ -326,6 +342,7 @@ def resolve_separate_intents(simulation, tick: int) -> list["Couple"]:
     Returns the list of dissolved Couples.
     """
     import json
+
     from epocha.apps.agents.models import DecisionLog
     from epocha.apps.demography.template_loader import load_template
 
@@ -366,7 +383,7 @@ def resolve_separate_intents(simulation, tick: int) -> list["Couple"]:
     return dissolved
 
 
-def dissolve_on_death(deceased_agent, tick: int) -> "Couple | None":
+def dissolve_on_death(deceased_agent, tick: int) -> Couple | None:
     """Dissolve any active Couple where the deceased is a partner.
 
     Captures the deceased's name into the appropriate *_name_snapshot
@@ -384,9 +401,14 @@ def dissolve_on_death(deceased_agent, tick: int) -> "Couple | None":
         couple.agent_b = None
     couple.dissolved_at_tick = tick
     couple.dissolution_reason = "death"
-    couple.save(update_fields=[
-        "agent_a", "agent_b",
-        "agent_a_name_snapshot", "agent_b_name_snapshot",
-        "dissolved_at_tick", "dissolution_reason",
-    ])
+    couple.save(
+        update_fields=[
+            "agent_a",
+            "agent_b",
+            "agent_a_name_snapshot",
+            "agent_b_name_snapshot",
+            "dissolved_at_tick",
+            "dissolution_reason",
+        ]
+    )
     return couple

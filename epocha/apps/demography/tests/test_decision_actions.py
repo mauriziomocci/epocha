@@ -14,11 +14,12 @@ Covers:
 - apply_agent_action for avoid_conception with pre_industrial_christian template:
   skips the mutation (flag is NOT set) and emits a WARNING-level log message.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
@@ -30,7 +31,6 @@ from epocha.apps.simulation.engine import apply_agent_action
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import World, Zone
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

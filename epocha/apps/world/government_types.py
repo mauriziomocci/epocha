@@ -62,7 +62,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "anarchy": {"trigger": "very_low_stability"},
         },
     },
-
     "illiberal_democracy": {
         # Polity IV scores +1 to +5: semi-democracy with executive dominance.
         # Levitsky & Way (2010): competitive authoritarianism.
@@ -97,7 +96,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "anarchy": {"trigger": "very_low_stability"},
         },
     },
-
     "autocracy": {
         # Polity IV scores -5 to -1: partial autocracy. Personalist rule.
         # Geddes (1999): regime survival through coercive apparatus.
@@ -134,7 +132,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "anarchy": {"trigger": "very_low_stability"},
         },
     },
-
     "monarchy": {
         # Traditional monarchies: Polity IV anocracy range.
         # Weber (1922): traditional legitimacy through dynastic continuity.
@@ -169,7 +166,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "anarchy": {"trigger": "very_low_stability"},
         },
     },
-
     "oligarchy": {
         # Elite-capture states. Winters (2011): oligarchy and wealth defence.
         # Acemoglu & Robinson (2006): narrow winning coalition, high redistribution resistance.
@@ -205,7 +201,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "anarchy": {"trigger": "very_low_stability"},
         },
     },
-
     "theocracy": {
         # Weber (1922): charismatic-rational legitimacy via religious mandate.
         # Fish (2002): Islam and authoritarianism (religion-state fusion patterns).
@@ -239,7 +234,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "anarchy": {"trigger": "very_low_stability"},
         },
     },
-
     "totalitarian": {
         # Polity IV -10: full autocracy with ideological mass mobilisation.
         # Arendt (1951): The Origins of Totalitarianism. Terror as governing mechanism.
@@ -273,7 +267,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "anarchy": {"trigger": "low_stability_low_military_loyalty"},
         },
     },
-
     "terrorist_regime": {
         # Extreme case: governance via organised violence with no civic institutions.
         # Cronin (2009): How Terrorism Ends -- regime survival and collapse patterns.
@@ -306,7 +299,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "anarchy": {"trigger": "stability_falls"},
         },
     },
-
     "anarchy": {
         # Absence of central authority. Hobbes (1651): war of all against all.
         # Kalyvas (2006): The Logic of Violence in Civil War -- power vacuum dynamics.
@@ -341,9 +333,9 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "junta": {"trigger": "high_military_loyalty"},
         },
     },
-
     "federation": {
-        # Multi-unit democratic federalism. Riker (1964): Federalism: Origin, Operation, Significance.
+        # Multi-unit democratic federalism.
+        # Riker (1964): Federalism: Origin, Operation, Significance.
         # Stability derived from distributed power centres and inter-unit bargaining.
         "label": "Federation",
         "power_source": "election",
@@ -376,7 +368,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "autocracy": {"trigger": "low_stability_low_military_loyalty"},
         },
     },
-
     "kleptocracy": {
         # Rose-Ackerman & Palifka (2016): Corruption and Government.
         # Theft-as-governance: ruling class extracts rents with minimal service provision.
@@ -411,7 +402,6 @@ GOVERNMENT_TYPES: dict[str, dict] = {
             "democracy": {"trigger": "high_legitimacy_low_corruption"},
         },
     },
-
     "junta": {
         # Finer (1962): The Man on Horseback -- military intervention typology.
         # Geddes (1999): military regime survival: collegiate vs. personalist dynamics.

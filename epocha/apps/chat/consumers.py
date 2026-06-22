@@ -7,6 +7,7 @@ sends it back via WebSocket.
 This runs synchronously via database_sync_to_async since the LLM call
 and DB access are blocking operations.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,18 +35,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
         user_message = data.get("message", "")
 
         if not user_message.strip():
-            await self.send(text_data=json.dumps({
-                "role": "system",
-                "content": "Empty message received.",
-            }))
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "role": "system",
+                        "content": "Empty message received.",
+                    }
+                )
+            )
             return
 
         response_content = await self._generate_response(user_message)
 
-        await self.send(text_data=json.dumps({
-            "role": "agent",
-            "content": response_content,
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "role": "agent",
+                    "content": response_content,
+                }
+            )
+        )
 
     @database_sync_to_async
     def _generate_response(self, user_message: str) -> str:

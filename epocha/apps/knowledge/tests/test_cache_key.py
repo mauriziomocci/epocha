@@ -1,5 +1,6 @@
 """Tests for the cache key builder."""
-from epocha.apps.knowledge.cache import compute_documents_hash, compute_cache_key
+
+from epocha.apps.knowledge.cache import compute_cache_key, compute_documents_hash
 
 
 class TestComputeDocumentsHash:
@@ -64,8 +65,10 @@ class TestComputeCacheKey:
 
     def test_is_sha256_hex(self):
         key = compute_cache_key(
-            documents_hash="d" * 64, ontology_version="v1",
-            extraction_prompt_version="v1", llm_model="m",
+            documents_hash="d" * 64,
+            ontology_version="v1",
+            extraction_prompt_version="v1",
+            llm_model="m",
         )
         assert len(key) == 64
         assert all(c in "0123456789abcdef" for c in key)

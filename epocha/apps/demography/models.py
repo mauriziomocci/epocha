@@ -5,6 +5,7 @@ Scientific foundations:
 - Goode (1963) — arranged marriage patterns
 - Couple as unit of analysis for inheritance and family migration
 """
+
 from django.db import models
 from django.db.models import F, Q
 
@@ -78,9 +79,7 @@ class Couple(models.Model):
             # the constraint becomes vacuous.
             models.CheckConstraint(
                 condition=(
-                    Q(agent_a__isnull=True)
-                    | Q(agent_b__isnull=True)
-                    | Q(agent_a__lt=F("agent_b"))
+                    Q(agent_a__isnull=True) | Q(agent_b__isnull=True) | Q(agent_a__lt=F("agent_b"))
                 ),
                 name="couple_canonical_ordering",
             ),
@@ -165,9 +164,7 @@ class PopulationSnapshot(models.Model):
     total_alive = models.PositiveIntegerField(default=0)
     age_pyramid = models.JSONField(
         default=list,
-        help_text=(
-            "List of [age_bucket_low, age_bucket_high, count_male, count_female]"
-        ),
+        help_text=("List of [age_bucket_low, age_bucket_high, count_male, count_female]"),
     )
     sex_ratio = models.FloatField(default=1.0)
     avg_age = models.FloatField(default=0.0)

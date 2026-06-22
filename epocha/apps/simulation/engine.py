@@ -1,4 +1,5 @@
-"""Tick orchestrator: coordinates economy, decisions, information, factions, politics, analytics, and events.
+"""Tick orchestrator: coordinates economy, decisions, information, factions, politics,
+analytics, and events.
 
 Each tick is a discrete time step where:
 1. The economy updates (income, costs, mood effects)
@@ -29,7 +30,10 @@ from epocha.apps.agents.factions import process_faction_dynamics
 from epocha.apps.agents.information_flow import propagate_information
 from epocha.apps.agents.memory import decay_memories
 from epocha.apps.agents.models import Agent, Memory
-from epocha.apps.agents.relationships import evolve_relationships, update_relationship_from_interaction
+from epocha.apps.agents.relationships import (
+    evolve_relationships,
+    update_relationship_from_interaction,
+)
 from epocha.apps.simulation.snapshot import capture_and_detect
 from epocha.apps.world.economy import process_economy_tick
 from epocha.apps.world.government import process_political_cycle
@@ -89,7 +93,8 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
     "sell_property": -0.01,
     "buy_property": 0.02,
     # Demography actions (Plan 2).
-    # pair_bond +0.10: forming a couple is a positive life event (Becker 1991, utility gain from marriage).
+    # pair_bond +0.10: forming a couple is a positive life event
+    # (Becker 1991, utility gain from marriage).
     # separate -0.15: separation has significant negative mood impact (well-being literature).
     # avoid_conception -0.01: slight negative signal (unmet preference or social pressure).
     "pair_bond": 0.10,
@@ -141,22 +146,27 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
     target_name = action.get("target", "")
     if target_name and action_type not in ("rest", "work", "explore"):
         target_agent = (
-            Agent.objects.filter(simulation=agent.simulation, is_alive=True, name__icontains=target_name)
+            Agent.objects.filter(
+                simulation=agent.simulation, is_alive=True, name__icontains=target_name
+            )
             .exclude(id=agent.id)
             .first()
         )
         if target_agent:
             update_relationship_from_interaction(agent, target_agent, action_type, tick)
             from epocha.apps.agents.reputation import update_image
+
             update_image(holder=agent, target=target_agent, action_type=action_type, tick=tick)
 
     # Handle move_to action
     if action_type == "move_to" and target_name:
-        from epocha.apps.world.models import Zone, World, Government
+        from epocha.apps.world.models import Government, World, Zone
+
         try:
             world = World.objects.get(simulation=agent.simulation)
             target_zone = Zone.objects.filter(
-                world=world, name__icontains=target_name,
+                world=world,
+                name__icontains=target_name,
             ).first()
             if target_zone:
                 try:
@@ -164,6 +174,7 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
                 except Government.DoesNotExist:
                     gov = None
                 from epocha.apps.agents.movement import execute_movement
+
                 execute_movement(agent, target_zone, world, gov)
         except Exception:
             logger.exception("Movement failed for %s", agent.name)
@@ -279,17 +290,20 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
     # demography subsystem is not present (economy-only simulations).
     if action_type == "avoid_conception":
         try:
-            from epocha.apps.demography.template_loader import load_template
             from epocha.apps.demography.fertility import set_avoid_conception_flag
+            from epocha.apps.demography.template_loader import load_template
 
-            template_name = agent.simulation.config.get("demography_template", "pre_industrial_christian")
+            template_name = agent.simulation.config.get(
+                "demography_template", "pre_industrial_christian"
+            )
             try:
                 template = load_template(template_name)
                 if template.get("fertility_agency") == "planned":
                     set_avoid_conception_flag(agent)
                 else:
                     logger.warning(
-                        "avoid_conception action ignored for %s: era template '%s' has fertility_agency=%r",
+                        "avoid_conception action ignored for %s:"
+                        " era template '%s' has fertility_agency=%r",
                         agent.name,
                         template_name,
                         template.get("fertility_agency"),
@@ -325,9 +339,7 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
     recent_duplicate = last_memory is not None and last_memory.content.startswith(dedup_prefix)
 
     if not recent_duplicate:
-        emotional_weight = _ACTION_EMOTIONAL_WEIGHT.get(
-            action_type, _DEFAULT_EMOTIONAL_WEIGHT
-        )
+        emotional_weight = _ACTION_EMOTIONAL_WEIGHT.get(action_type, _DEFAULT_EMOTIONAL_WEIGHT)
         reason = action.get("reason", "")
         Memory.objects.create(
             agent=agent,
@@ -348,9 +360,11 @@ def run_economy(simulation) -> None:
     """
     tick = simulation.current_tick + 1
     from epocha.apps.economy.models import Currency
+
     if Currency.objects.filter(simulation=simulation).exists():
         from epocha.apps.economy.engine import process_economy_tick_new
         from epocha.apps.economy.political_feedback import apply_economic_feedback
+
         process_economy_tick_new(simulation, tick)
         apply_economic_feedback(simulation, tick)
     else:
@@ -404,9 +418,7 @@ def broadcast_tick(simulation, tick: int, events: list) -> None:
             "agents_summary": {
                 "alive": agent_count,
                 "avg_mood": round(sum(a.mood for a in agents) / max(agent_count, 1), 2),
-                "avg_wealth": round(
-                    sum(a.wealth for a in agents) / max(agent_count, 1), 2
-                ),
+                "avg_wealth": round(sum(a.wealth for a in agents) / max(agent_count, 1), 2),
             },
             "world": {
                 "stability": round(world.stability_index, 2),
@@ -440,9 +452,11 @@ class SimulationEngine:
 
         # 1. Economy -- use new engine if economy data exists, else legacy
         from epocha.apps.economy.models import Currency
+
         if Currency.objects.filter(simulation=self.simulation).exists():
             from epocha.apps.economy.engine import process_economy_tick_new
             from epocha.apps.economy.political_feedback import apply_economic_feedback
+
             process_economy_tick_new(self.simulation, tick)
             apply_economic_feedback(self.simulation, tick)
         else:

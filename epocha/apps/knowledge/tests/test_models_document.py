@@ -12,16 +12,12 @@ from epocha.apps.users.models import User
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(
-        email="kg@epocha.dev", username="kguser", password="pass1234"
-    )
+    return User.objects.create_user(email="kg@epocha.dev", username="kguser", password="pass1234")
 
 
 @pytest.fixture
 def other_user(db):
-    return User.objects.create_user(
-        email="kg2@epocha.dev", username="kguser2", password="pass1234"
-    )
+    return User.objects.create_user(email="kg2@epocha.dev", username="kguser2", password="pass1234")
 
 
 @pytest.fixture
@@ -87,7 +83,5 @@ class TestKnowledgeDocumentAccess:
         user_pk = user.pk
         user.delete()
         assert KnowledgeDocument.objects.filter(pk=document.pk).exists()
-        assert KnowledgeDocumentAccess.objects.filter(
-            document=document, user=other_user
-        ).exists()
+        assert KnowledgeDocumentAccess.objects.filter(document=document, user=other_user).exists()
         assert not KnowledgeDocumentAccess.objects.filter(user_id=user_pk).exists()

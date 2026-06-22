@@ -1,9 +1,8 @@
 """Tests for canonical name normalization."""
-import pytest
 
 from epocha.apps.knowledge.normalizer import (
-    normalize_canonical_name,
     name_contained_in_passage,
+    normalize_canonical_name,
 )
 
 
@@ -51,30 +50,22 @@ class TestNormalize:
 
 class TestNameContained:
     def test_exact_match(self):
-        assert name_contained_in_passage(
-            "Robespierre", "Robespierre spoke to the assembly."
-        ) is True
+        assert (
+            name_contained_in_passage("Robespierre", "Robespierre spoke to the assembly.") is True
+        )
 
     def test_accent_insensitive(self):
-        assert name_contained_in_passage(
-            "Déclaration", "The declaration was read aloud."
-        ) is True
+        assert name_contained_in_passage("Déclaration", "The declaration was read aloud.") is True
 
     def test_case_insensitive(self):
-        assert name_contained_in_passage(
-            "ROBESPIERRE", "Robespierre spoke."
-        ) is True
+        assert name_contained_in_passage("ROBESPIERRE", "Robespierre spoke.") is True
 
     def test_not_present(self):
-        assert name_contained_in_passage(
-            "Danton", "Robespierre spoke to the assembly."
-        ) is False
+        assert name_contained_in_passage("Danton", "Robespierre spoke to the assembly.") is False
 
     def test_partial_match_within_word(self):
         # "Paris" inside "Parisian" should still count as contained
-        assert name_contained_in_passage(
-            "Paris", "The Parisian crowds gathered."
-        ) is True
+        assert name_contained_in_passage("Paris", "The Parisian crowds gathered.") is True
 
     def test_empty_passage(self):
         assert name_contained_in_passage("Robespierre", "") is False

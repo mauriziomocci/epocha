@@ -145,9 +145,7 @@ def update_agent_expectations(simulation, tick: int) -> None:
     # simplicity in the MVP, we aggregate a single price map from
     # all zones (last-write-wins). Multi-zone price differentiation
     # will be refined in a future iteration.
-    zone_economies = list(
-        ZoneEconomy.objects.filter(zone__world__simulation=simulation)
-    )
+    zone_economies = list(ZoneEconomy.objects.filter(zone__world__simulation=simulation))
     actual_prices: dict[str, float] = {}
     for ze in zone_economies:
         actual_prices.update(ze.market_prices or {})
@@ -160,9 +158,9 @@ def update_agent_expectations(simulation, tick: int) -> None:
     # Batch-fetch existing expectations to avoid N+1 queries.
     existing_expectations = {
         (exp.agent_id, exp.good_code): exp
-        for exp in AgentExpectation.objects.filter(
-            agent__simulation=simulation
-        ).select_related("agent")
+        for exp in AgentExpectation.objects.filter(agent__simulation=simulation).select_related(
+            "agent"
+        )
     }
 
     to_create: list[AgentExpectation] = []
@@ -202,9 +200,7 @@ def update_agent_expectations(simulation, tick: int) -> None:
             else:
                 # Nerlove (1958): E_new = lambda * P_actual + (1 - lambda) * E_old
                 old_expected = existing.expected_price
-                new_expected = (
-                    agent_lambda * actual_price + (1.0 - agent_lambda) * old_expected
-                )
+                new_expected = agent_lambda * actual_price + (1.0 - agent_lambda) * old_expected
 
                 trend = detect_trend(old_expected, actual_price, threshold)
 
@@ -219,9 +215,7 @@ def update_agent_expectations(simulation, tick: int) -> None:
 
                 existing.expected_price = new_expected
                 existing.trend_direction = trend
-                existing.confidence = max(
-                    0.0, min(1.0, existing.confidence + confidence_delta)
-                )
+                existing.confidence = max(0.0, min(1.0, existing.confidence + confidence_delta))
                 existing.lambda_rate = agent_lambda
                 existing.updated_at_tick = tick
                 to_update.append(existing)

@@ -251,7 +251,8 @@ def update_image(holder: Agent, target: Agent, action_type: str, tick: int) -> R
     """
     with transaction.atomic():
         score, _ = ReputationScore.objects.select_for_update().get_or_create(
-            holder=holder, target=target,
+            holder=holder,
+            target=target,
         )
         delta = _IMAGE_DELTAS.get(action_type, 0.0)
         if delta == 0.0 and action_type not in _IMAGE_DELTAS:
@@ -305,7 +306,8 @@ def update_reputation(
     """
     with transaction.atomic():
         score, _ = ReputationScore.objects.select_for_update().get_or_create(
-            holder=holder, target=target,
+            holder=holder,
+            target=target,
         )
         delta = action_sentiment * reliability * 0.5
         score.reputation = _clamp(score.reputation + delta)

@@ -1,4 +1,5 @@
 """Smoke tests for the versions module."""
+
 from epocha.apps.knowledge import versions
 
 

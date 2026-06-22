@@ -6,6 +6,7 @@ object modeling, and Freeden (1996) for the concept/ideology/value/norm
 distinction. The relation vocabulary is a controlled set of 20 types
 chosen for operational distinguishability by an LLM.
 """
+
 from __future__ import annotations
 
 # Entity type vocabulary (10 types)
@@ -25,23 +26,34 @@ ENTITY_TYPES: tuple[str, ...] = (
 # Relation type vocabulary (20 types, grouped by category)
 RELATION_TYPES: tuple[str, ...] = (
     # Membership
-    "member_of", "founder_of", "leader_of",
+    "member_of",
+    "founder_of",
+    "leader_of",
     # Spatial
-    "located_in", "occurred_in",
+    "located_in",
+    "occurred_in",
     # Temporal
     "occurred_during",
     # Belief
-    "believes_in", "opposes", "supports",
+    "believes_in",
+    "opposes",
+    "supports",
     # Social
-    "ally_of", "enemy_of", "influences",
+    "ally_of",
+    "enemy_of",
+    "influences",
     # Kinship
-    "married_to", "parent_of", "sibling_of",
+    "married_to",
+    "parent_of",
+    "sibling_of",
     # Causal
-    "caused_by", "led_to",
+    "caused_by",
+    "led_to",
     # Participation
     "participated_in",
     # Production
-    "authored", "enacted",
+    "authored",
+    "enacted",
 )
 
 # Source type vocabulary (2 types; llm_knowledge excluded from MVP)

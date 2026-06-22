@@ -1,4 +1,5 @@
 """Tests for the basic economy tick processing."""
+
 import pytest
 
 from epocha.apps.agents.models import Agent
@@ -77,7 +78,9 @@ class TestProcessEconomyTick:
 
     def test_dead_agents_are_skipped(self, world, simulation):
         """Dead agents should not earn income or affect stability."""
-        dead = Agent.objects.create(simulation=simulation, name="Ghost", role="farmer", wealth=50, is_alive=False)
+        dead = Agent.objects.create(
+            simulation=simulation, name="Ghost", role="farmer", wealth=50, is_alive=False
+        )
         process_economy_tick(world, tick=1)
         dead.refresh_from_db()
         assert dead.wealth == 50  # Unchanged

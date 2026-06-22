@@ -18,6 +18,7 @@ Scientific grounding:
 - Powell, J.M. & Thyne, C.L. (2011). "Global instances of coups from 1950 to 2010:
   A new dataset." Journal of Peace Research, 48(2), 249-259. Coup frequency data.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,7 +31,7 @@ from epocha.apps.agents.models import Agent, Group, Memory
 from epocha.apps.world.government_types import GOVERNMENT_TYPES
 from epocha.apps.world.institutions import update_institutions
 from epocha.apps.world.models import Government, GovernmentHistory, Institution, World
-from epocha.apps.world.stratification import compute_gini, process_corruption, update_social_classes
+from epocha.apps.world.stratification import process_corruption, update_social_classes
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +205,7 @@ _TRIGGER_CONDITIONS: dict[str, list[tuple[str, str, float]]] = {
 # Helper classes and functions
 # ---------------------------------------------------------------------------
 
+
 class _Stub:
     """Placeholder object for a missing institution.
 
@@ -263,6 +265,7 @@ def _evaluate_trigger(government: Government, trigger: str) -> bool:
 # Core indicator update
 # ---------------------------------------------------------------------------
 
+
 def update_government_indicators(simulation) -> None:
     """Recompute all five political indicators from institution health and state.
 
@@ -311,8 +314,7 @@ def update_government_indicators(simulation) -> None:
 
     # Build a lookup from institution_type -> Institution for O(1) access.
     institutions_by_type: dict[str, Institution] = {
-        inst.institution_type: inst
-        for inst in Institution.objects.filter(simulation=simulation)
+        inst.institution_type: inst for inst in Institution.objects.filter(simulation=simulation)
     }
 
     justice = _get_institution(institutions_by_type, "justice")
@@ -340,8 +342,9 @@ def update_government_indicators(simulation) -> None:
     # Corruption rises when oversight institutions are weak. The government type's
     # corruption_resistance sets a structural ceiling on how fast corruption spreads.
     # Source: Rose-Ackerman & Palifka (2016): oversight gap = 1 - avg(justice, media, bureaucracy).
-    # Note: corruption was already adjusted by stratification.py:process_corruption earlier in this
-    # political cycle (based on head-of-state personality). This step adds the institutional oversight
+    # Note: corruption was already adjusted by stratification.py:process_corruption
+    # earlier in this political cycle (based on head-of-state personality).
+    # This step adds the institutional oversight
     # effect on top. The composition is intentional and cumulative: personality of the head of state
     # AND institutional health both independently push the corruption index within the same cycle.
     # Both contributions are clamped to [0, 1]; saturation behavior when both forces push in the
@@ -386,13 +389,15 @@ def update_government_indicators(simulation) -> None:
     repression_delta = (repression_tendency - government.repression_level) * _REPRESSION_DRIFT_RATE
     government.repression_level = _clamp(government.repression_level + repression_delta)
 
-    government.save(update_fields=[
-        "institutional_trust",
-        "corruption",
-        "popular_legitimacy",
-        "military_loyalty",
-        "repression_level",
-    ])
+    government.save(
+        update_fields=[
+            "institutional_trust",
+            "corruption",
+            "popular_legitimacy",
+            "military_loyalty",
+            "repression_level",
+        ]
+    )
 
     logger.debug(
         "update_government_indicators: simulation=%d trust=%.3f corruption=%.3f "
@@ -409,6 +414,7 @@ def update_government_indicators(simulation) -> None:
 # ---------------------------------------------------------------------------
 # Regime transitions
 # ---------------------------------------------------------------------------
+
 
 def check_transitions(simulation) -> str | None:
     """Evaluate all possible regime transitions and execute the most likely one.
@@ -438,7 +444,8 @@ def check_transitions(simulation) -> str | None:
     if not type_config:
         logger.warning(
             "Unknown government type %r for simulation %d; skipping transitions.",
-            government.government_type, simulation.pk,
+            government.government_type,
+            simulation.pk,
         )
         return None
 
@@ -485,31 +492,38 @@ def check_transitions(simulation) -> str | None:
         f"The government transitioned from {previous_type} to {target_type} at tick {current_tick}."
     )
     all_agents = Agent.objects.filter(simulation=simulation, is_alive=True)
-    Memory.objects.bulk_create([
-        Memory(
-            agent=agent,
-            content=memory_content,
-            emotional_weight=0.6,
-            source_type=Memory.SourceType.PUBLIC,
-            tick_created=current_tick,
-        )
-        for agent in all_agents
-    ])
+    Memory.objects.bulk_create(
+        [
+            Memory(
+                agent=agent,
+                content=memory_content,
+                emotional_weight=0.6,
+                source_type=Memory.SourceType.PUBLIC,
+                tick_created=current_tick,
+            )
+            for agent in all_agents
+        ]
+    )
 
     # Expropriation: redistribute property per new regime's policy.
     # Acemoglu & Robinson (2006). Safe when economy not initialized.
     # ImportError guards the optional economy app; OperationalError / ProgrammingError
     # guard the case where economy migrations have not been applied yet on this DB.
     from django.db.utils import OperationalError, ProgrammingError
+
     try:
         from epocha.apps.economy.property_market import process_expropriation
+
         process_expropriation(simulation, previous_type, target_type, current_tick)
     except (ImportError, OperationalError, ProgrammingError) as exc:
         logger.debug("Expropriation skipped (economy not initialized): %s", exc)
 
     logger.info(
         "Regime transition: simulation=%d tick=%d %s -> %s",
-        simulation.pk, current_tick, previous_type, target_type,
+        simulation.pk,
+        current_tick,
+        previous_type,
+        target_type,
     )
     return target_type
 
@@ -517,6 +531,7 @@ def check_transitions(simulation) -> str | None:
 # ---------------------------------------------------------------------------
 # Coups
 # ---------------------------------------------------------------------------
+
 
 def check_coups(simulation, tick: int) -> dict | None:
     """Evaluate faction coup attempts and execute a successful one if it occurs.
@@ -614,7 +629,9 @@ def check_coups(simulation, tick: int) -> dict | None:
     government.ruling_faction = faction
     government.government_type = "autocracy"
     government.formed_at_tick = tick
-    government.save(update_fields=["head_of_state", "ruling_faction", "government_type", "formed_at_tick"])
+    government.save(
+        update_fields=["head_of_state", "ruling_faction", "government_type", "formed_at_tick"]
+    )
 
     # Close any open history era.
     GovernmentHistory.objects.filter(
@@ -636,30 +653,37 @@ def check_coups(simulation, tick: int) -> dict | None:
         f"and establishing an autocracy."
     )
     all_agents = Agent.objects.filter(simulation=simulation, is_alive=True)
-    Memory.objects.bulk_create([
-        Memory(
-            agent=agent,
-            content=memory_content,
-            emotional_weight=0.8,
-            source_type=Memory.SourceType.PUBLIC,
-            tick_created=tick,
-        )
-        for agent in all_agents
-    ])
+    Memory.objects.bulk_create(
+        [
+            Memory(
+                agent=agent,
+                content=memory_content,
+                emotional_weight=0.8,
+                source_type=Memory.SourceType.PUBLIC,
+                tick_created=tick,
+            )
+            for agent in all_agents
+        ]
+    )
 
     # Expropriation: redistribute property per new regime's policy.
     # ImportError guards the optional economy app; OperationalError / ProgrammingError
     # guard the case where economy migrations have not been applied yet on this DB.
     from django.db.utils import OperationalError, ProgrammingError
+
     try:
         from epocha.apps.economy.property_market import process_expropriation
+
         process_expropriation(simulation, previous_type, "autocracy", tick)
     except (ImportError, OperationalError, ProgrammingError) as exc:
         logger.debug("Expropriation skipped after coup (economy not initialized): %s", exc)
 
     logger.info(
         "Coup succeeded: simulation=%d tick=%d faction=%r leader=%r",
-        simulation.pk, tick, faction.name, leader.name,
+        simulation.pk,
+        tick,
+        faction.name,
+        leader.name,
     )
     return {"faction": faction, "leader": leader}
 
@@ -667,6 +691,7 @@ def check_coups(simulation, tick: int) -> dict | None:
 # ---------------------------------------------------------------------------
 # Stability update
 # ---------------------------------------------------------------------------
+
 
 def _update_stability(simulation) -> None:
     """Recompute government stability from weighted indicators.
@@ -701,7 +726,9 @@ def _update_stability(simulation) -> None:
         economy = 0.5
 
     type_config = GOVERNMENT_TYPES.get(government.government_type, {})
-    weights = type_config.get("stability_weights", {"economy": 0.4, "legitimacy": 0.4, "military": 0.2})
+    weights = type_config.get(
+        "stability_weights", {"economy": 0.4, "legitimacy": 0.4, "military": 0.2}
+    )
 
     stability = (
         economy * weights["economy"]
@@ -719,6 +746,7 @@ def _update_stability(simulation) -> None:
 # ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
+
 
 @transaction.atomic
 def process_political_cycle(simulation, tick: int) -> None:
@@ -787,6 +815,7 @@ def process_political_cycle(simulation, tick: int) -> None:
 
     if election_enabled and (tick - government.last_election_tick) >= election_interval:
         from epocha.apps.world.election import run_election  # avoid circular import at module level
+
         run_election(simulation, tick)
 
     # Step 7: coup attempt.
@@ -797,13 +826,16 @@ def process_political_cycle(simulation, tick: int) -> None:
 
     logger.info(
         "process_political_cycle complete: simulation=%d tick=%d type=%r",
-        simulation.pk, tick, government.government_type,
+        simulation.pk,
+        tick,
+        government.government_type,
     )
 
 
 # ---------------------------------------------------------------------------
 # Treasury helper
 # ---------------------------------------------------------------------------
+
 
 def add_to_treasury(government, currency_code: str, amount: float) -> None:
     """Add an amount in the given currency to the government treasury.

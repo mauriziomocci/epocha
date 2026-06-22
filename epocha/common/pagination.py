@@ -1,4 +1,5 @@
 """Standard pagination for the project."""
+
 from rest_framework.pagination import PageNumberPagination
 
 

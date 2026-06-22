@@ -1,4 +1,5 @@
 """Tests for the rule-based distortion engine."""
+
 from epocha.apps.agents.distortion import distort_information
 
 
@@ -7,8 +8,10 @@ class TestDistortInformation:
         """Traits between 0.3-0.7 produce no distortion."""
         content = "Marco argued with Elena."
         personality = {
-            "neuroticism": 0.5, "agreeableness": 0.5,
-            "openness": 0.5, "extraversion": 0.5,
+            "neuroticism": 0.5,
+            "agreeableness": 0.5,
+            "openness": 0.5,
+            "extraversion": 0.5,
             "conscientiousness": 0.5,
         }
         result = distort_information(content, personality)
@@ -54,9 +57,9 @@ class TestDistortInformation:
         """Only the 2 most extreme traits apply, even if more are extreme."""
         content = "Marco argued with Elena."
         personality = {
-            "neuroticism": 0.95,     # most extreme
-            "agreeableness": 0.05,   # second most extreme
-            "openness": 0.9,         # third -- should NOT apply
+            "neuroticism": 0.95,  # most extreme
+            "agreeableness": 0.05,  # second most extreme
+            "openness": 0.9,  # third -- should NOT apply
             "extraversion": 0.5,
             "conscientiousness": 0.5,
         }

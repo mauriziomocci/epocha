@@ -4,15 +4,14 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('knowledge', '0005_materialized_at_field'),
+        ("knowledge", "0005_materialized_at_field"),
     ]
 
     operations = [
         migrations.RenameField(
-            model_name='knowledgenode',
-            old_name='properties',
-            new_name='attributes',
+            model_name="knowledgenode",
+            old_name="properties",
+            new_name="attributes",
         ),
     ]

@@ -213,13 +213,11 @@ def _pre_industrial_template() -> dict:
     )
     return {
         "description": (
-            "Agricultural economy with artisanal production,"
-            " limited trade, feudal property."
+            "Agricultural economy with artisanal production, limited trade, feudal property."
         ),
         "era_label": "Pre-Industrial (1400-1800)",
         "goods_config": [
-            {**g, "base_price": p}
-            for g, p in zip(_GOODS_BASE, [3.0, 5.0, 12.0, 50.0, 8.0])
+            {**g, "base_price": p} for g, p in zip(_GOODS_BASE, [3.0, 5.0, 12.0, 50.0, 8.0])
         ],
         "factors_config": _FACTORS_BASE,
         "currencies_config": [
@@ -275,13 +273,11 @@ def _industrial_template() -> dict:
     )
     return {
         "description": (
-            "Industrializing economy with factories,"
-            " growing trade, emerging labor market."
+            "Industrializing economy with factories, growing trade, emerging labor market."
         ),
         "era_label": "Industrial (1800-1950)",
         "goods_config": [
-            {**g, "base_price": p}
-            for g, p in zip(_GOODS_BASE, [2.0, 4.0, 8.0, 30.0, 6.0])
+            {**g, "base_price": p} for g, p in zip(_GOODS_BASE, [2.0, 4.0, 8.0, 30.0, 6.0])
         ],
         "factors_config": _FACTORS_BASE,
         "currencies_config": [
@@ -329,13 +325,11 @@ def _modern_template() -> dict:
     )
     return {
         "description": (
-            "Service-dominant economy with high technology,"
-            " global trade, complex taxation."
+            "Service-dominant economy with high technology, global trade, complex taxation."
         ),
         "era_label": "Modern (1950-present)",
         "goods_config": [
-            {**g, "base_price": p}
-            for g, p in zip(_GOODS_BASE, [5.0, 10.0, 20.0, 100.0, 15.0])
+            {**g, "base_price": p} for g, p in zip(_GOODS_BASE, [5.0, 10.0, 20.0, 100.0, 15.0])
         ],
         "factors_config": _FACTORS_BASE,
         "currencies_config": [
@@ -390,13 +384,11 @@ def _sci_fi_template() -> dict:
     )
     return {
         "description": (
-            "Knowledge-dominant economy with advanced"
-            " technology, interstellar trade potential."
+            "Knowledge-dominant economy with advanced technology, interstellar trade potential."
         ),
         "era_label": "Science Fiction / Future",
         "goods_config": [
-            {**g, "base_price": p}
-            for g, p in zip(_GOODS_BASE, [10.0, 20.0, 50.0, 200.0, 30.0])
+            {**g, "base_price": p} for g, p in zip(_GOODS_BASE, [10.0, 20.0, 50.0, 200.0, 30.0])
         ],
         "factors_config": _FACTORS_BASE,
         "currencies_config": [

@@ -1,4 +1,5 @@
 """Views for agents."""
+
 from rest_framework import permissions, viewsets
 
 from .models import Agent

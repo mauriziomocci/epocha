@@ -1,14 +1,13 @@
 """Tests for the extraction prompt builder."""
+
 import json
 
-import pytest
-
+from epocha.apps.knowledge.ontology import ENTITY_TYPES, RELATION_TYPES
 from epocha.apps.knowledge.prompts import (
+    EXTRACTION_JSON_SCHEMA,
     build_extraction_system_prompt,
     build_extraction_user_prompt,
-    EXTRACTION_JSON_SCHEMA,
 )
-from epocha.apps.knowledge.ontology import ENTITY_TYPES, RELATION_TYPES
 
 
 class TestExtractionSystemPrompt:

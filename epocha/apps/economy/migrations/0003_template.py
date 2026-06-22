@@ -4,28 +4,32 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('economy', '0002_zone_agent_property_fiscal'),
+        ("economy", "0002_zone_agent_property_fiscal"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='EconomyTemplate',
+            name="EconomyTemplate",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=50, unique=True)),
-                ('description', models.TextField(blank=True)),
-                ('era_label', models.CharField(max_length=100)),
-                ('version', models.CharField(default='1.0', max_length=10)),
-                ('goods_config', models.JSONField()),
-                ('factors_config', models.JSONField()),
-                ('currencies_config', models.JSONField()),
-                ('production_config', models.JSONField()),
-                ('tax_config', models.JSONField()),
-                ('properties_config', models.JSONField()),
-                ('initial_distribution', models.JSONField()),
-                ('config', models.JSONField(default=dict)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("name", models.CharField(max_length=50, unique=True)),
+                ("description", models.TextField(blank=True)),
+                ("era_label", models.CharField(max_length=100)),
+                ("version", models.CharField(default="1.0", max_length=10)),
+                ("goods_config", models.JSONField()),
+                ("factors_config", models.JSONField()),
+                ("currencies_config", models.JSONField()),
+                ("production_config", models.JSONField()),
+                ("tax_config", models.JSONField()),
+                ("properties_config", models.JSONField()),
+                ("initial_distribution", models.JSONField()),
+                ("config", models.JSONField(default=dict)),
             ],
         ),
     ]

@@ -15,6 +15,7 @@ Supports two paths:
 The LLM is asked to produce a structured JSON response which is then
 parsed into Django model instances.
 """
+
 from __future__ import annotations
 
 import json
@@ -33,47 +34,48 @@ from .models import Government, Institution, World, Zone
 logger = logging.getLogger(__name__)
 
 
-_WORLD_GENERATION_PROMPT = """Based on the user's description, generate a world for a civilization simulation.
-
-Respond ONLY with a JSON object with this exact structure:
-{
-    "world": {
-        "economy_level": "simplified|base|full",
-        "stability_index": 0.0-1.0
-    },
-    "zones": [
-        {
-            "name": "Zone Name",
-            "type": "urban|rural|wilderness|commercial|industrial",
-            "x": 0-100,
-            "y": 0-100,
-            "resources": {"food": N, "wood": N, "stone": N, "gold": N}
-        }
-    ],
-    "agents": [
-        {
-            "name": "Full Name",
-            "age": N,
-            "role": "role in society",
-            "gender": "male|female|non_binary",
-            "personality": {
-                "openness": 0.0-1.0,
-                "conscientiousness": 0.0-1.0,
-                "extraversion": 0.0-1.0,
-                "agreeableness": 0.0-1.0,
-                "neuroticism": 0.0-1.0,
-                "background": "backstory",
-                "ambitions": "goals",
-                "weaknesses": "flaws",
-                "values": "core beliefs"
-            }
-        }
-    ]
-}
-
-Generate 3-5 zones and 10-30 agents with diverse personalities, roles, and relationships.
-Make the world interesting with potential for conflict and cooperation.
-"""
+_WORLD_GENERATION_PROMPT = (
+    "Based on the user's description, generate a world for a civilization simulation.\n"
+    "\n"
+    "Respond ONLY with a JSON object with this exact structure:\n"
+    "{\n"
+    '    "world": {\n'
+    '        "economy_level": "simplified|base|full",\n'
+    '        "stability_index": 0.0-1.0\n'
+    "    },\n"
+    '    "zones": [\n'
+    "        {\n"
+    '            "name": "Zone Name",\n'
+    '            "type": "urban|rural|wilderness|commercial|industrial",\n'
+    '            "x": 0-100,\n'
+    '            "y": 0-100,\n'
+    '            "resources": {"food": N, "wood": N, "stone": N, "gold": N}\n'
+    "        }\n"
+    "    ],\n"
+    '    "agents": [\n'
+    "        {\n"
+    '            "name": "Full Name",\n'
+    '            "age": N,\n'
+    '            "role": "role in society",\n'
+    '            "gender": "male|female|non_binary",\n'
+    '            "personality": {\n'
+    '                "openness": 0.0-1.0,\n'
+    '                "conscientiousness": 0.0-1.0,\n'
+    '                "extraversion": 0.0-1.0,\n'
+    '                "agreeableness": 0.0-1.0,\n'
+    '                "neuroticism": 0.0-1.0,\n'
+    '                "background": "backstory",\n'
+    '                "ambitions": "goals",\n'
+    '                "weaknesses": "flaws",\n'
+    '                "values": "core beliefs"\n'
+    "            }\n"
+    "        }\n"
+    "    ]\n"
+    "}\n"
+    "\n"
+    "Generate 3-5 zones and 10-30 agents with diverse personalities, roles, and relationships.\n"
+    "Make the world interesting with potential for conflict and cooperation.\n"
+)
 
 
 def generate_world_from_prompt(prompt: str, simulation, knowledge_graph=None) -> dict:
@@ -90,7 +92,9 @@ def generate_world_from_prompt(prompt: str, simulation, knowledge_graph=None) ->
     """
     if knowledge_graph is not None:
         return _generate_from_knowledge_graph(
-            simulation, knowledge_graph, hint_prompt=prompt,
+            simulation,
+            knowledge_graph,
+            hint_prompt=prompt,
         )
 
     client = get_llm_client()
@@ -187,13 +191,17 @@ def generate_world_from_prompt(prompt: str, simulation, knowledge_graph=None) ->
     # Initialize economy from template (if economy app is available)
     try:
         from epocha.apps.economy.initialization import initialize_economy
+
         initialize_economy(simulation)
     except Exception:
         logger.debug("Economy initialization skipped (economy app may not be configured)")
 
     logger.info(
         "World generated for simulation %d: %d zones, %d agents (%d enriched)",
-        simulation.id, zones_created, agents_created, enrichment_stats["enriched"],
+        simulation.id,
+        zones_created,
+        agents_created,
+        enrichment_stats["enriched"],
     )
 
     return {
@@ -327,14 +335,19 @@ def _generate_from_knowledge_graph(simulation, knowledge_graph, hint_prompt=""):
 
     # -- Government (default) ------------------------------------------------
     Government.objects.create(
-        simulation=simulation, government_type="democracy", formed_at_tick=0,
+        simulation=simulation,
+        government_type="democracy",
+        formed_at_tick=0,
     )
 
     # -- Institutions (all 7 with neutral defaults) --------------------------
     for inst_type in Institution.InstitutionType.values:
         Institution.objects.create(
-            simulation=simulation, institution_type=inst_type,
-            health=0.5, independence=0.5, funding=0.5,
+            simulation=simulation,
+            institution_type=inst_type,
+            health=0.5,
+            independence=0.5,
+            funding=0.5,
         )
 
     # -- Zones ---------------------------------------------------------------
@@ -344,14 +357,21 @@ def _generate_from_knowledge_graph(simulation, knowledge_graph, hint_prompt=""):
         row = idx // 3
         x_offset = col * 120
         y_offset = row * 120
-        boundary = Polygon.from_bbox((
-            x_offset, y_offset, x_offset + 100, y_offset + 100,
-        ))
+        boundary = Polygon.from_bbox(
+            (
+                x_offset,
+                y_offset,
+                x_offset + 100,
+                y_offset + 100,
+            )
+        )
         center = Point(x_offset + 50, y_offset + 50)
         Zone.objects.create(
-            world=world, name=zone_data["name"],
+            world=world,
+            name=zone_data["name"],
             zone_type=zone_data.get("type", "urban"),
-            boundary=boundary, center=center,
+            boundary=boundary,
+            center=center,
             resources=zone_data.get("resources", {}),
         )
         zones_created += 1
@@ -396,13 +416,17 @@ def _generate_from_knowledge_graph(simulation, knowledge_graph, hint_prompt=""):
     # -- Economy initialization -----------------------------------------------
     try:
         from epocha.apps.economy.initialization import initialize_economy
+
         initialize_economy(simulation)
     except Exception:
         logger.debug("Economy initialization skipped (economy app may not be configured)")
 
     logger.info(
         "World generated from KG for simulation %d: %d zones, %d agents (%d enriched)",
-        simulation.id, zones_created, agents_created, enrichment_stats["enriched"],
+        simulation.id,
+        zones_created,
+        agents_created,
+        enrichment_stats["enriched"],
     )
 
     return {

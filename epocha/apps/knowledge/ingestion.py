@@ -61,8 +61,7 @@ def ingest_document(
     max_chars = getattr(settings, "EPOCHA_KG_MAX_DOCUMENT_CHARS", 500_000)
     if len(normalized) > max_chars:
         raise ValidationError(
-            f"Document is too large: {len(normalized)} characters exceeds "
-            f"the limit of {max_chars}."
+            f"Document is too large: {len(normalized)} characters exceeds the limit of {max_chars}."
         )
 
     content_hash = compute_content_hash(normalized)

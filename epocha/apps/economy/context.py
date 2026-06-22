@@ -6,6 +6,7 @@ decisions. Extended with behavioral blocks: price expectations
 (Nerlove 1958), debt situation with Minsky (1986) classification,
 and banking system state (Diamond & Dybvig 1983).
 """
+
 from __future__ import annotations
 
 import logging
@@ -43,9 +44,7 @@ def build_economic_context(agent, tick: int) -> str | None:
     simulation = agent.simulation
 
     # Get primary currency
-    currency = (
-        Currency.objects.filter(simulation=simulation, is_primary=True).first()
-    )
+    currency = Currency.objects.filter(simulation=simulation, is_primary=True).first()
     if not currency:
         return None
 
@@ -70,7 +69,8 @@ def build_economic_context(agent, tick: int) -> str | None:
     # Properties
     properties = list(
         Property.objects.filter(
-            owner=agent, owner_type="agent",
+            owner=agent,
+            owner_type="agent",
         ).values_list("property_type", flat=True)
     )
     property_count = len(properties)
@@ -92,11 +92,10 @@ def build_economic_context(agent, tick: int) -> str | None:
             prev_prices = {}
             if tick > 0:
                 prev_records = PriceHistory.objects.filter(
-                    zone_economy=ze, tick=tick - 1,
+                    zone_economy=ze,
+                    tick=tick - 1,
                 )
                 prev_prices = {ph.good_code: ph.price for ph in prev_records}
-
-            zone_name = ze.zone.name if ze.zone else "your zone"
 
             for good_code, price in sorted(ze.market_prices.items()):
                 prev = prev_prices.get(good_code)
@@ -169,9 +168,7 @@ def _build_expectations_block(agent) -> str | None:
 
     Returns None if the agent has no expectations.
     """
-    expectations = list(
-        AgentExpectation.objects.filter(agent=agent).order_by("good_code")
-    )
+    expectations = list(AgentExpectation.objects.filter(agent=agent).order_by("good_code"))
     if not expectations:
         return None
 
@@ -225,9 +222,11 @@ def _build_debt_block(agent, simulation, tick: int, symbol: str) -> str | None:
         Property.objects.filter(
             owner=agent,
             owner_type="agent",
-        ).exclude(
+        )
+        .exclude(
             collateralized_loans__status="active",
-        ).order_by("-value")
+        )
+        .order_by("-value")
     )
     best_property = unpledged_properties[0] if unpledged_properties else None
 
@@ -239,9 +238,7 @@ def _build_debt_block(agent, simulation, tick: int, symbol: str) -> str | None:
 
     if active_loans:
         total_balance = sum(loan.remaining_balance for loan in active_loans)
-        interest_due = sum(
-            loan.remaining_balance * loan.interest_rate for loan in active_loans
-        )
+        interest_due = sum(loan.remaining_balance * loan.interest_rate for loan in active_loans)
         wealth = max(agent.wealth, 1.0)
         debt_ratio = total_balance / wealth
 
@@ -253,13 +250,10 @@ def _build_debt_block(agent, simulation, tick: int, symbol: str) -> str | None:
             ratio_word = "dangerous"
 
         lines.append(
-            f"- Active loans: {len(active_loans)} "
-            f"(total balance: {total_balance:.0f} {symbol})"
+            f"- Active loans: {len(active_loans)} (total balance: {total_balance:.0f} {symbol})"
         )
         lines.append(f"- Interest due this tick: {interest_due:.1f} {symbol}")
-        lines.append(
-            f"- Debt-to-wealth ratio: {debt_ratio:.0%} ({ratio_word})"
-        )
+        lines.append(f"- Debt-to-wealth ratio: {debt_ratio:.0%} ({ratio_word})")
 
         # Lazy import to avoid circular dependency between context and credit
         from .credit import classify_minsky_stage
@@ -320,7 +314,4 @@ def _build_banking_block(simulation) -> str | None:
     else:
         conf_text = f"confidence {conf_word}"
 
-    return (
-        f"Banking system: {status}, {conf_text}, "
-        f"base rate {bs.base_interest_rate:.1%}"
-    )
+    return f"Banking system: {status}, {conf_text}, base rate {bs.base_interest_rate:.1%}"

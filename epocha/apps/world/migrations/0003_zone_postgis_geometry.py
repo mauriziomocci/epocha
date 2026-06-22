@@ -5,36 +5,45 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('world', '0002_government_institutions'),
+        ("world", "0002_government_institutions"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='zone',
-            name='height',
+            model_name="zone",
+            name="height",
         ),
         migrations.RemoveField(
-            model_name='zone',
-            name='position_x',
+            model_name="zone",
+            name="position_x",
         ),
         migrations.RemoveField(
-            model_name='zone',
-            name='position_y',
+            model_name="zone",
+            name="position_y",
         ),
         migrations.RemoveField(
-            model_name='zone',
-            name='width',
+            model_name="zone",
+            name="width",
         ),
         migrations.AddField(
-            model_name='zone',
-            name='boundary',
-            field=django.contrib.gis.db.models.fields.PolygonField(blank=True, help_text='Geographic boundary of the zone (WGS84)', null=True, srid=4326),
+            model_name="zone",
+            name="boundary",
+            field=django.contrib.gis.db.models.fields.PolygonField(
+                blank=True,
+                help_text="Geographic boundary of the zone (WGS84)",
+                null=True,
+                srid=4326,
+            ),
         ),
         migrations.AddField(
-            model_name='zone',
-            name='center',
-            field=django.contrib.gis.db.models.fields.PointField(blank=True, help_text='Center point for quick distance calculations', null=True, srid=4326),
+            model_name="zone",
+            name="center",
+            field=django.contrib.gis.db.models.fields.PointField(
+                blank=True,
+                help_text="Center point for quick distance calculations",
+                null=True,
+                srid=4326,
+            ),
         ),
     ]

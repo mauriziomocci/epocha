@@ -7,6 +7,7 @@ the new economy engine to run.
 Called at the end of generate_world_from_prompt so that every simulation
 starts with a fully configured economy layer.
 """
+
 from __future__ import annotations
 
 import logging
@@ -65,39 +66,44 @@ def initialize_economy(
     # 1. Currencies
     currencies = []
     for cur_cfg in template.currencies_config:
-        currencies.append(Currency.objects.create(
-            simulation=simulation,
-            code=cur_cfg["code"],
-            name=cur_cfg["name"],
-            symbol=cur_cfg["symbol"],
-            is_primary=True,
-            total_supply=cur_cfg["initial_supply"],
-        ))
+        currencies.append(
+            Currency.objects.create(
+                simulation=simulation,
+                code=cur_cfg["code"],
+                name=cur_cfg["name"],
+                symbol=cur_cfg["symbol"],
+                is_primary=True,
+                total_supply=cur_cfg["initial_supply"],
+            )
+        )
     primary_currency = currencies[0] if currencies else None
     primary_code = primary_currency.code if primary_currency else "LVR"
 
     # 2. Goods
     goods = []
     for good_cfg in template.goods_config:
-        goods.append(GoodCategory.objects.create(
-            simulation=simulation,
-            code=good_cfg["code"],
-            name=good_cfg["name"],
-            is_essential=good_cfg.get("is_essential", False),
-            base_price=good_cfg["base_price"],
-            price_elasticity=good_cfg["price_elasticity"],
-        ))
-    good_map = {g.code: g for g in goods}
+        goods.append(
+            GoodCategory.objects.create(
+                simulation=simulation,
+                code=good_cfg["code"],
+                name=good_cfg["name"],
+                is_essential=good_cfg.get("is_essential", False),
+                base_price=good_cfg["base_price"],
+                price_elasticity=good_cfg["price_elasticity"],
+            )
+        )
     essential_codes = [g.code for g in goods if g.is_essential]
 
     # 3. Production factors
     factors = []
     for factor_cfg in template.factors_config:
-        factors.append(ProductionFactor.objects.create(
-            simulation=simulation,
-            code=factor_cfg["code"],
-            name=factor_cfg["name"],
-        ))
+        factors.append(
+            ProductionFactor.objects.create(
+                simulation=simulation,
+                code=factor_cfg["code"],
+                name=factor_cfg["name"],
+            )
+        )
 
     # 4. Tax policy
     tax_cfg = template.tax_config
@@ -214,10 +220,7 @@ def initialize_economy(
         inventories_created += 1
 
         # Update agent wealth to reflect inventory value
-        holdings_value = sum(
-            qty * initial_prices.get(code, 0.0)
-            for code, qty in holdings.items()
-        )
+        holdings_value = sum(qty * initial_prices.get(code, 0.0) for code, qty in holdings.items())
         agent.wealth = initial_cash + holdings_value
         agent.save(update_fields=["wealth"])
 
@@ -229,8 +232,7 @@ def initialize_economy(
     if property_ownership == "class_based":
         # Elite and wealthy agents get properties in their zone
         elite_agents = [
-            a for a in agents
-            if getattr(a, "social_class", "working") in ("elite", "wealthy")
+            a for a in agents if getattr(a, "social_class", "working") in ("elite", "wealthy")
         ]
 
         for agent in elite_agents:
@@ -255,6 +257,7 @@ def initialize_economy(
     # Must run after simulation.config is saved so that initialize_banking
     # can read banking_config from simulation.config.
     from .banking import initialize_banking
+
     initialize_banking(simulation)
 
     logger.info(

@@ -8,6 +8,7 @@ A cooldown mechanism (_CRISIS_COOLDOWN_TICKS) prevents the same crisis from
 re-firing until the simulation has advanced enough ticks, avoiding event spam
 during sustained instability.
 """
+
 from django.db.models import Max
 
 from epocha.apps.agents.models import Agent, Group, Memory
@@ -265,14 +266,16 @@ def _fire_crisis(simulation, tick: int, crisis_type: str, crisis: dict) -> None:
     if not alive_agents:
         return
 
-    Memory.objects.bulk_create([
-        Memory(
-            agent_id=agent_id,
-            content=memory_content,
-            emotional_weight=severity,
-            source_type=Memory.SourceType.PUBLIC,
-            reliability=1.0,
-            tick_created=tick,
-        )
-        for agent_id in alive_agents
-    ])
+    Memory.objects.bulk_create(
+        [
+            Memory(
+                agent_id=agent_id,
+                content=memory_content,
+                emotional_weight=severity,
+                source_type=Memory.SourceType.PUBLIC,
+                reliability=1.0,
+                tick_created=tick,
+            )
+            for agent_id in alive_agents
+        ]
+    )

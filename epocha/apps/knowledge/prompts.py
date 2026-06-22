@@ -11,11 +11,10 @@ what the passage supports, never adding facts from its general knowledge.
 Source type assignment is done mechanically after extraction, not by
 the LLM (see extraction.py).
 """
+
 from __future__ import annotations
 
 import json
-
-from .ontology import ENTITY_TYPES, RELATION_TYPES
 
 # JSON schema example that the LLM must follow exactly.
 EXTRACTION_JSON_SCHEMA = json.dumps(

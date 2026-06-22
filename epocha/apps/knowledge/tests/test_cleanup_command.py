@@ -3,6 +3,7 @@
 Verifies that stale, unused cache entries are deleted while recent
 entries and entries referenced by active graphs are preserved.
 """
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -48,7 +49,6 @@ def simulation(user):
 
 @pytest.mark.django_db
 class TestCleanupExtractionCache:
-
     def test_deletes_old_unused_entries(self, db):
         old_date = timezone.now() - timedelta(days=60)
         _make_cache_entry("old1", created_at=old_date, hit_count=0)
@@ -72,7 +72,9 @@ class TestCleanupExtractionCache:
         _make_cache_entry("pop1", created_at=old_date, hit_count=5)
 
         out = StringIO()
-        call_command("cleanup_extraction_cache", "--min-age-days=30", "--max-hit-count=0", stdout=out)
+        call_command(
+            "cleanup_extraction_cache", "--min-age-days=30", "--max-hit-count=0", stdout=out
+        )
         assert ExtractionCache.objects.count() == 1
 
     def test_keeps_entries_with_active_graphs(self, simulation):
@@ -104,5 +106,7 @@ class TestCleanupExtractionCache:
 
         out = StringIO()
         # Allow up to 3 hits for deletion
-        call_command("cleanup_extraction_cache", "--min-age-days=30", "--max-hit-count=3", stdout=out)
+        call_command(
+            "cleanup_extraction_cache", "--min-age-days=30", "--max-hit-count=3", stdout=out
+        )
         assert ExtractionCache.objects.count() == 0

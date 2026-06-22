@@ -107,9 +107,7 @@ def _run_extraction(documents):
     entities and relations across the entire document set.
     """
     all_chunks = list(
-        KnowledgeChunk.objects.filter(document__in=documents).order_by(
-            "document_id", "chunk_index"
-        )
+        KnowledgeChunk.objects.filter(document__in=documents).order_by("document_id", "chunk_index")
     )
     results = []
     for chunk in all_chunks:

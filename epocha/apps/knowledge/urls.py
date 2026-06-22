@@ -3,6 +3,7 @@
 All endpoints are prefixed with ``/api/v1/knowledge/`` by the root
 URL configuration in ``config/urls.py``.
 """
+
 from django.urls import path
 
 from . import api

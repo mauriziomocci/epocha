@@ -140,9 +140,7 @@ class TestEnrichSimulationAgents:
     ):
         """The full pipeline should research and enrich historical agents only."""
         mock_classify.return_value = ["Lucrezia Borgia"]
-        mock_research.return_value = (
-            "Lucrezia Borgia was a noblewoman and alleged poisoner."
-        )
+        mock_research.return_value = "Lucrezia Borgia was a noblewoman and alleged poisoner."
 
         mock_client = MagicMock()
         mock_client.complete.return_value = json.dumps(

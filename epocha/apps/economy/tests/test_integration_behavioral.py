@@ -14,6 +14,7 @@ These tests drive the synchronous entry points (process_economy_tick_new
 and apply_agent_action) without invoking the LLM. Action dicts are passed
 directly to simulate decided-upon outcomes.
 """
+
 from __future__ import annotations
 
 import json
@@ -54,7 +55,9 @@ def behavioral_economy(db):
         password="pass1234",
     )
     sim = Simulation.objects.create(
-        name="BehavioralIntegration", seed=42, owner=user,
+        name="BehavioralIntegration",
+        seed=42,
+        owner=user,
         current_tick=0,
     )
     world = World.objects.create(
@@ -70,36 +73,58 @@ def behavioral_economy(db):
         popular_legitimacy=0.5,
     )
     z_urban = Zone.objects.create(
-        world=world, name="Capital", zone_type="commercial",
+        world=world,
+        name="Capital",
+        zone_type="commercial",
         boundary=Polygon.from_bbox((0, 0, 100, 100)),
         center=Point(50, 50),
     )
     z_rural = Zone.objects.create(
-        world=world, name="Countryside", zone_type="rural",
+        world=world,
+        name="Countryside",
+        zone_type="rural",
         boundary=Polygon.from_bbox((120, 0, 220, 100)),
         center=Point(170, 50),
     )
 
     # Elite landowner in urban zone (seller candidate)
     elite = Agent.objects.create(
-        simulation=sim, name="Elite", role="merchant",
-        social_class="elite", zone=z_urban,
+        simulation=sim,
+        name="Elite",
+        role="merchant",
+        social_class="elite",
+        zone=z_urban,
         personality={"openness": 0.6, "neuroticism": 0.4},
-        location=Point(50, 50), health=1.0, wealth=1000.0, mood=0.7,
+        location=Point(50, 50),
+        health=1.0,
+        wealth=1000.0,
+        mood=0.7,
     )
     # Middle-class agent in urban zone (borrower/buyer candidate)
     middle = Agent.objects.create(
-        simulation=sim, name="Middle", role="craftsman",
-        social_class="middle", zone=z_urban,
+        simulation=sim,
+        name="Middle",
+        role="craftsman",
+        social_class="middle",
+        zone=z_urban,
         personality={"openness": 0.5, "neuroticism": 0.5},
-        location=Point(50, 50), health=1.0, wealth=400.0, mood=0.6,
+        location=Point(50, 50),
+        health=1.0,
+        wealth=400.0,
+        mood=0.6,
     )
     # Poor farmer in rural zone
     poor = Agent.objects.create(
-        simulation=sim, name="Poor", role="farmer",
-        social_class="poor", zone=z_rural,
+        simulation=sim,
+        name="Poor",
+        role="farmer",
+        social_class="poor",
+        zone=z_rural,
         personality={"openness": 0.3, "neuroticism": 0.6},
-        location=Point(170, 50), health=1.0, wealth=150.0, mood=0.5,
+        location=Point(170, 50),
+        health=1.0,
+        wealth=150.0,
+        mood=0.5,
     )
 
     # Initialize full economy: currencies, goods, factors, zone economies,
@@ -128,8 +153,11 @@ def behavioral_economy(db):
     # (initialize_economy already creates properties for elite agents,
     # but we add an explicit one for deterministic matching in tests).
     Property.objects.get_or_create(
-        simulation=sim, owner=elite, owner_type="agent",
-        zone=z_urban, property_type="mansion",
+        simulation=sim,
+        owner=elite,
+        owner_type="agent",
+        zone=z_urban,
+        property_type="mansion",
         defaults={
             "name": "Grand Mansion",
             "value": 300.0,
@@ -217,9 +245,7 @@ class TestBehavioralIntegration:
             transaction_type="trade",
             to_agent=middle,  # middle as seller (receives cash)
         ).count()
-        assert middle_sales_tick2 == 0, (
-            "Hoarding agent should not sell goods at the following tick"
-        )
+        assert middle_sales_tick2 == 0, "Hoarding agent should not sell goods at the following tick"
 
     def test_borrow_action_issues_and_services_loan(self, behavioral_economy):
         """Borrow action creates a Loan; next economy tick services interest."""
@@ -236,7 +262,9 @@ class TestBehavioralIntegration:
         apply_agent_action(elite, action, tick=1)
 
         loan = Loan.objects.filter(
-            simulation=sim, borrower=elite, status="active",
+            simulation=sim,
+            borrower=elite,
+            status="active",
         ).first()
         assert loan is not None, "Borrow action should create an active loan"
         assert loan.collateral_id == collateral.id
@@ -287,7 +315,8 @@ class TestBehavioralIntegration:
         apply_agent_action(elite, sell_action, tick=1)
 
         listing = PropertyListing.objects.filter(
-            property__simulation=sim, status="listed",
+            property__simulation=sim,
+            status="listed",
         ).first()
         assert listing is not None, "sell_property should create a listing"
         original_seller_id = listing.property.owner_id
@@ -295,7 +324,9 @@ class TestBehavioralIntegration:
 
         # Middle records buy_property intent in DecisionLog at tick 1
         DecisionLog.objects.create(
-            simulation=sim, agent=middle, tick=1,
+            simulation=sim,
+            agent=middle,
+            tick=1,
             input_context="(test)",
             llm_model="test",
             output_decision=json.dumps(
@@ -340,11 +371,10 @@ class TestBehavioralIntegration:
 
         # Compute aggregate cash across all living agents
         living_inventories = AgentInventory.objects.filter(
-            agent__simulation=sim, agent__is_alive=True,
+            agent__simulation=sim,
+            agent__is_alive=True,
         )
-        aggregate_cash = sum(
-            sum(inv.cash.values()) for inv in living_inventories
-        )
+        aggregate_cash = sum(sum(inv.cash.values()) for inv in living_inventories)
 
         assert bs.total_deposits == pytest.approx(aggregate_cash, rel=1e-6), (
             f"total_deposits ({bs.total_deposits}) should equal aggregate cash "
@@ -366,8 +396,7 @@ class TestBehavioralIntegration:
         created = broadcast_banking_concern(sim, tick=1)
         # sample_size = max(1, int(3 * 0.5)) = 1, so at least 1 memory is created
         assert created >= 1, (
-            "broadcast_banking_concern should create at least one memory "
-            "when confidence < 0.5"
+            "broadcast_banking_concern should create at least one memory when confidence < 0.5"
         )
 
         banking_memories = Memory.objects.filter(
@@ -393,7 +422,9 @@ class TestBehavioralIntegration:
         sim.current_tick = 1
         sim.save(update_fields=["current_tick"])
         apply_agent_action(
-            elite, {"action": "borrow", "target": "100", "reason": "x"}, tick=1,
+            elite,
+            {"action": "borrow", "target": "100", "reason": "x"},
+            tick=1,
         )
         process_economy_tick_new(sim, tick=1)
 
@@ -401,8 +432,11 @@ class TestBehavioralIntegration:
         sim.current_tick = 2
         sim.save(update_fields=["current_tick"])
         DecisionLog.objects.create(
-            simulation=sim, agent=middle, tick=2,
-            input_context="(test)", llm_model="test",
+            simulation=sim,
+            agent=middle,
+            tick=2,
+            input_context="(test)",
+            llm_model="test",
             output_decision=json.dumps({"action": "hoard", "target": "subsistence"}),
         )
         process_economy_tick_new(sim, tick=2)
@@ -411,11 +445,16 @@ class TestBehavioralIntegration:
         sim.current_tick = 3
         sim.save(update_fields=["current_tick"])
         apply_agent_action(
-            elite, {"action": "sell_property", "target": "mansion"}, tick=3,
+            elite,
+            {"action": "sell_property", "target": "mansion"},
+            tick=3,
         )
         DecisionLog.objects.create(
-            simulation=sim, agent=middle, tick=3,
-            input_context="(test)", llm_model="test",
+            simulation=sim,
+            agent=middle,
+            tick=3,
+            input_context="(test)",
+            llm_model="test",
             output_decision=json.dumps({"action": "buy_property", "target": "mansion"}),
         )
         process_economy_tick_new(sim, tick=3)
@@ -428,24 +467,29 @@ class TestBehavioralIntegration:
         # Verify end-state
         # 1. Loan from tick 1 is active
         loan = Loan.objects.filter(
-            simulation=sim, borrower=elite, status="active",
+            simulation=sim,
+            borrower=elite,
+            status="active",
         ).first()
         assert loan is not None
 
         # 2. Interest was serviced at least once
         assert EconomicLedger.objects.filter(
-            simulation=sim, transaction_type="loan_interest",
+            simulation=sim,
+            transaction_type="loan_interest",
         ).exists()
 
         # 3. Property was transferred to middle
         mansion = Property.objects.get(
-            simulation=sim, property_type="mansion",
+            simulation=sim,
+            property_type="mansion",
         )
         assert mansion.owner_id == middle.id
 
         # 4. Property sale was recorded
         assert EconomicLedger.objects.filter(
-            simulation=sim, transaction_type="property_sale",
+            simulation=sim,
+            transaction_type="property_sale",
         ).exists()
 
         # 5. Deposits reconcile with aggregate cash after the final tick
@@ -453,7 +497,8 @@ class TestBehavioralIntegration:
         aggregate_cash = sum(
             sum(inv.cash.values())
             for inv in AgentInventory.objects.filter(
-                agent__simulation=sim, agent__is_alive=True,
+                agent__simulation=sim,
+                agent__is_alive=True,
             )
         )
         assert bs.total_deposits == pytest.approx(aggregate_cash, rel=1e-6)

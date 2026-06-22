@@ -292,12 +292,8 @@ def process_property_listings(simulation, tick: int) -> dict:
             try:
                 seller_inv = seller.inventory
             except AgentInventory.DoesNotExist:
-                seller_inv = AgentInventory.objects.create(
-                    agent=seller, holdings={}, cash={}
-                )
-            seller_inv.cash[cur_code] = (
-                seller_inv.cash.get(cur_code, 0.0) + listing.asking_price
-            )
+                seller_inv = AgentInventory.objects.create(agent=seller, holdings={}, cash={})
+            seller_inv.cash[cur_code] = seller_inv.cash.get(cur_code, 0.0) + listing.asking_price
             seller_inv.save(update_fields=["cash"])
 
         # Transfer property ownership

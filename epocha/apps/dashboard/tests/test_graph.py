@@ -1,4 +1,5 @@
 """Tests for the social graph data endpoints."""
+
 import pytest
 from django.test import Client
 
@@ -10,7 +11,9 @@ from epocha.apps.world.models import Government, World
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(email="graph@epocha.dev", username="graphtest", password="pass123")
+    return User.objects.create_user(
+        email="graph@epocha.dev", username="graphtest", password="pass123"
+    )
 
 
 @pytest.fixture
@@ -94,8 +97,19 @@ class TestGraphDataEndpoint:
         response = logged_in_client.get(f"/simulations/{simulation.id}/graph/data/")
         assert response.status_code == 200
         data = response.json()
-        required = {"id", "label", "role", "faction", "faction_color", "is_leader", "is_head_of_state",
-                    "charisma", "mood", "social_class", "is_alive"}
+        required = {
+            "id",
+            "label",
+            "role",
+            "faction",
+            "faction_color",
+            "is_leader",
+            "is_head_of_state",
+            "charisma",
+            "mood",
+            "social_class",
+            "is_alive",
+        }
         for node in data["nodes"]:
             assert required <= set(node.keys()), f"Node {node.get('label')} missing fields"
 

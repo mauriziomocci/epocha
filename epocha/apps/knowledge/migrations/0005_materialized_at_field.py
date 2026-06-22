@@ -4,15 +4,18 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('knowledge', '0004_graph_models'),
+        ("knowledge", "0004_graph_models"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='knowledgegraph',
-            name='materialized_at',
-            field=models.DateTimeField(blank=True, help_text='Timestamp when materialization completed successfully', null=True),
+            model_name="knowledgegraph",
+            name="materialized_at",
+            field=models.DateTimeField(
+                blank=True,
+                help_text="Timestamp when materialization completed successfully",
+                null=True,
+            ),
         ),
     ]

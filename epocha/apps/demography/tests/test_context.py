@@ -1,4 +1,5 @@
 """Unit tests for demography/context.py integration helpers."""
+
 from __future__ import annotations
 
 import pytest
@@ -19,10 +20,15 @@ from epocha.apps.world.models import Government, World, Zone
 def sim_with_zone(db):
     """Build the minimum scaffolding: user, simulation, world, zone, and an agent."""
     user = User.objects.create_user(
-        email="ctx@epocha.dev", username="ctxuser", password="pass1234",
+        email="ctx@epocha.dev",
+        username="ctxuser",
+        password="pass1234",
     )
     sim = Simulation.objects.create(
-        name="ContextTest", seed=1, owner=user, current_tick=0,
+        name="ContextTest",
+        seed=1,
+        owner=user,
+        current_tick=0,
     )
     world = World.objects.create(simulation=sim, stability_index=0.7)
     zone = Zone.objects.create(

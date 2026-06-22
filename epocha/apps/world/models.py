@@ -1,4 +1,5 @@
 """World models — map, economy, resources."""
+
 from django.contrib.gis.db import models as gis_models
 from django.db import models
 
@@ -9,7 +10,9 @@ class World(models.Model):
     """World state for a simulation."""
 
     simulation = models.OneToOneField(Simulation, on_delete=models.CASCADE, related_name="world")
-    economy_level = models.CharField(max_length=20, default="base", help_text="simplified, base, full")
+    economy_level = models.CharField(
+        max_length=20, default="base", help_text="simplified, base, full"
+    )
     global_wealth = models.FloatField(default=1000.0)
     stability_index = models.FloatField(default=0.7, help_text="0.0 = chaos, 1.0 = total peace")
     config = models.JSONField(default=dict)
@@ -40,11 +43,15 @@ class Zone(models.Model):
     name = models.CharField(max_length=255)
     zone_type = models.CharField(max_length=20, choices=ZoneType.choices)
     boundary = gis_models.PolygonField(
-        null=True, blank=True, srid=4326,
+        null=True,
+        blank=True,
+        srid=4326,
         help_text="Geographic boundary of the zone (WGS84)",
     )
     center = gis_models.PointField(
-        null=True, blank=True, srid=4326,
+        null=True,
+        blank=True,
+        srid=4326,
         help_text="Center point for quick distance calculations",
     )
     resources = models.JSONField(default=dict, help_text="Resources available in the zone")
@@ -71,15 +78,23 @@ class EconomicTransaction(models.Model):
 class Government(models.Model):
     """Political system governing the simulation world."""
 
-    simulation = models.OneToOneField(Simulation, on_delete=models.CASCADE, related_name="government")
+    simulation = models.OneToOneField(
+        Simulation, on_delete=models.CASCADE, related_name="government"
+    )
     government_type = models.CharField(max_length=30, default="democracy")
     stability = models.FloatField(default=0.5, help_text="0.0 = collapsing, 1.0 = rock solid")
     ruling_faction = models.ForeignKey(
-        "agents.Group", null=True, blank=True, on_delete=models.SET_NULL,
+        "agents.Group",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="ruled_governments",
     )
     head_of_state = models.ForeignKey(
-        "agents.Agent", null=True, blank=True, on_delete=models.SET_NULL,
+        "agents.Agent",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="headed_governments",
     )
 
@@ -108,7 +123,9 @@ class Government(models.Model):
 class GovernmentHistory(models.Model):
     """Historical record of government transitions."""
 
-    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="government_history")
+    simulation = models.ForeignKey(
+        Simulation, on_delete=models.CASCADE, related_name="government_history"
+    )
     government_type = models.CharField(max_length=30)
     head_of_state_name = models.CharField(max_length=255, blank=True)
     ruling_faction_name = models.CharField(max_length=255, blank=True)
@@ -135,10 +152,14 @@ class Institution(models.Model):
         RELIGION = "religion", "Religion"
         BUREAUCRACY = "bureaucracy", "Bureaucracy"
 
-    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="institutions")
+    simulation = models.ForeignKey(
+        Simulation, on_delete=models.CASCADE, related_name="institutions"
+    )
     institution_type = models.CharField(max_length=20, choices=InstitutionType.choices)
     health = models.FloatField(default=0.5, help_text="0.0 = failed, 1.0 = thriving")
-    independence = models.FloatField(default=0.5, help_text="0.0 = government controlled, 1.0 = fully independent")
+    independence = models.FloatField(
+        default=0.5, help_text="0.0 = government controlled, 1.0 = fully independent"
+    )
     funding = models.FloatField(default=0.5, help_text="0.0 = defunded, 1.0 = well funded")
 
     class Meta:

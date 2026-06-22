@@ -36,6 +36,7 @@ the well-documented incumbency advantage under competitive authoritarianism.
 Reference: Levitsky & Way (2010) "Competitive Authoritarianism." Cambridge
 University Press.
 """
+
 from __future__ import annotations
 
 from django.db.models import Q
@@ -68,6 +69,7 @@ _WEALTH_SATURATION: float = 100.0
 # We use 0.3 as a conservative upper bound within the [0, 1] scoring space.
 _MANIPULATION_BONUS: float = 0.3
 
+
 def compute_vote_score(voter: Agent, candidate: Agent, tick: int) -> float:
     """Return a [0.0, 1.0] score representing how likely a voter is to vote for a candidate.
 
@@ -94,6 +96,7 @@ def compute_vote_score(voter: Agent, candidate: Agent, tick: int) -> float:
     personality_alignment = _personality_similarity(voter.personality, candidate.personality)
     economic_satisfaction = (voter.mood + min(voter.wealth / _WEALTH_SATURATION, 1.0)) / 2.0
     from epocha.apps.agents.reputation import _normalize_reputation, get_combined_score
+
     reputation_raw = get_combined_score(voter, candidate)
     # Normalize from [-1, 1] to [0, 1] via the centralized helper -- single source of
     # truth for the linear transform shared by belief filter, election scoring, and
@@ -146,7 +149,9 @@ def run_election(simulation: Simulation, tick: int) -> dict:
             simulation=simulation,
             is_alive=True,
             led_groups__simulation=simulation,
-        ).select_related("group").distinct()
+        )
+        .select_related("group")
+        .distinct()
     )
 
     if not candidates:
@@ -186,16 +191,18 @@ def run_election(simulation: Simulation, tick: int) -> dict:
         f"{winner.name} won the election and became head of state at tick {tick}."
     )
     all_agents = Agent.objects.filter(simulation=simulation, is_alive=True)
-    Memory.objects.bulk_create([
-        Memory(
-            agent=agent,
-            content=election_memory_content,
-            emotional_weight=0.4,
-            source_type=Memory.SourceType.PUBLIC,
-            tick_created=tick,
-        )
-        for agent in all_agents
-    ])
+    Memory.objects.bulk_create(
+        [
+            Memory(
+                agent=agent,
+                content=election_memory_content,
+                emotional_weight=0.4,
+                source_type=Memory.SourceType.PUBLIC,
+                tick_created=tick,
+            )
+            for agent in all_agents
+        ]
+    )
 
     return {
         "winner": winner,
@@ -205,7 +212,8 @@ def run_election(simulation: Simulation, tick: int) -> dict:
 
 
 def _relationship_sentiment_score(voter: Agent, candidate: Agent) -> float:
-    """Return a [0.0, 1.0] normalised sentiment score from any relationship between voter and candidate.
+    """Return a [0.0, 1.0] normalised sentiment score from any relationship
+    between voter and candidate.
 
     Checks both directions (voter -> candidate and candidate -> voter) so that
     unilateral relationships are captured. Normalises the raw sentiment from
@@ -225,16 +233,14 @@ def _relationship_sentiment_score(voter: Agent, candidate: Agent) -> float:
     """
     try:
         rel = Relationship.objects.get(
-            Q(agent_from=voter, agent_to=candidate)
-            | Q(agent_from=candidate, agent_to=voter)
+            Q(agent_from=voter, agent_to=candidate) | Q(agent_from=candidate, agent_to=voter)
         )
     except Relationship.DoesNotExist:
         return 0.5
     except Relationship.MultipleObjectsReturned:
         rel = (
             Relationship.objects.filter(
-                Q(agent_from=voter, agent_to=candidate)
-                | Q(agent_from=candidate, agent_to=voter)
+                Q(agent_from=voter, agent_to=candidate) | Q(agent_from=candidate, agent_to=voter)
             )
             .order_by("-strength")
             .first()
@@ -242,5 +248,3 @@ def _relationship_sentiment_score(voter: Agent, candidate: Agent) -> float:
 
     # Normalise [-1.0, 1.0] -> [0.0, 1.0].
     return (rel.sentiment + 1.0) / 2.0
-
-

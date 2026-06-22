@@ -4,15 +4,16 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('simulation', '0003_simulation_visibility'),
+        ("simulation", "0003_simulation_visibility"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='simulation',
-            name='report',
-            field=models.TextField(blank=True, default='', help_text='Auto-generated narrative report'),
+            model_name="simulation",
+            name="report",
+            field=models.TextField(
+                blank=True, default="", help_text="Auto-generated narrative report"
+            ),
         ),
     ]

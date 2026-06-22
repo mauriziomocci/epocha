@@ -3,6 +3,7 @@
 Supports PDF (via PyMuPDF), DOCX (via python-docx), Markdown, and plain text.
 Used by the Express endpoint to allow users to upload documents as world seeds.
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,7 +30,9 @@ def extract_text(file_path: str) -> str:
     ext = path.suffix.lower()
 
     if ext not in SUPPORTED_EXTENSIONS:
-        raise ValueError(f"Unsupported file format: {ext}. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}")
+        raise ValueError(
+            f"Unsupported file format: {ext}. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
+        )
 
     if ext in (".txt", ".md"):
         return path.read_text(encoding="utf-8")

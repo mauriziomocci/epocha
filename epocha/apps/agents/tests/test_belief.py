@@ -1,4 +1,5 @@
 """Tests for the belief filter -- decides whether an agent accepts incoming information."""
+
 from epocha.apps.agents.belief import should_believe
 
 
@@ -98,14 +99,18 @@ class TestShouldBelieve:
         """Good transmitter reputation makes information more credible."""
         # With neutral reputation: should fail
         result_neutral = should_believe(
-            reliability=0.3, receiver_personality={"agreeableness": 0.4, "openness": 0.4},
-            relationship_strength=0.3, relationship_sentiment=0.0,
+            reliability=0.3,
+            receiver_personality={"agreeableness": 0.4, "openness": 0.4},
+            relationship_strength=0.3,
+            relationship_sentiment=0.0,
             transmitter_reputation=0.0,
         )
         # With good reputation: should pass
         result_good = should_believe(
-            reliability=0.3, receiver_personality={"agreeableness": 0.4, "openness": 0.4},
-            relationship_strength=0.3, relationship_sentiment=0.0,
+            reliability=0.3,
+            receiver_personality={"agreeableness": 0.4, "openness": 0.4},
+            relationship_strength=0.3,
+            relationship_sentiment=0.0,
             transmitter_reputation=0.8,
         )
         assert result_neutral is False
@@ -114,8 +119,10 @@ class TestShouldBelieve:
     def test_bad_reputation_decreases_acceptance(self):
         """Bad transmitter reputation makes information less credible."""
         result = should_believe(
-            reliability=0.5, receiver_personality={"agreeableness": 0.5, "openness": 0.5},
-            relationship_strength=0.3, relationship_sentiment=0.0,
+            reliability=0.5,
+            receiver_personality={"agreeableness": 0.5, "openness": 0.5},
+            relationship_strength=0.3,
+            relationship_sentiment=0.0,
             transmitter_reputation=-0.8,
         )
         # reputation_factor = (-0.8 + 1) / 2 = 0.1

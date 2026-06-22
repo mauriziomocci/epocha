@@ -1,4 +1,5 @@
 """Serializers for agents."""
+
 from rest_framework import serializers
 
 from .models import Agent, DecisionLog, Memory, Relationship
@@ -13,6 +14,7 @@ class AgentSerializer(serializers.ModelSerializer):
 
 class AgentDetailSerializer(AgentSerializer):
     """Serializer with relationships and recent memories."""
+
     memories = serializers.SerializerMethodField()
     relationships = serializers.SerializerMethodField()
 

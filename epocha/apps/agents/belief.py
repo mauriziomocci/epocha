@@ -20,6 +20,7 @@ Scientific references:
   Conference on System Sciences (HICSS-34). Supports using network-level
   reputation as a credibility signal.
 """
+
 from __future__ import annotations
 
 from django.conf import settings
@@ -84,6 +85,7 @@ def should_believe(
     # (Round 2 finding N-5 closure). Lazy import to avoid circular
     # dependencies between belief.py and reputation.py.
     from epocha.apps.agents import reputation as _rep
+
     reputation_factor = _rep._normalize_reputation(transmitter_reputation)
 
     acceptance_score = (

@@ -11,6 +11,7 @@ research on amygdala-mediated memory consolidation (McGaugh, 2004.
 "The amygdala modulates the consolidation of memories of emotionally
 arousing experiences." Annual Review of Neuroscience, 27, 1-28).
 """
+
 from __future__ import annotations
 
 from .models import Memory
@@ -39,8 +40,9 @@ def get_relevant_memories(
     then the most recent ordinary events.
     """
     return list(
-        Memory.objects.filter(agent=agent, is_active=True)
-        .order_by("-emotional_weight", "-tick_created")[:max_memories]
+        Memory.objects.filter(agent=agent, is_active=True).order_by(
+            "-emotional_weight", "-tick_created"
+        )[:max_memories]
     )
 
 

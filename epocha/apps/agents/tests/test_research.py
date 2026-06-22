@@ -23,9 +23,7 @@ class TestSearchWikipedia:
         summary_response.status_code = 200
         summary_response.json.return_value = {
             "title": "Lucrezia Borgia",
-            "extract": (
-                "Lucrezia Borgia was an Italian noblewoman of the House of Borgia."
-            ),
+            "extract": ("Lucrezia Borgia was an Italian noblewoman of the House of Borgia."),
         }
 
         mock_get.side_effect = [search_response, summary_response]
@@ -91,9 +89,7 @@ class TestSearchDuckDuckGo:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "Abstract": "Lucrezia Borgia was a duchess and political pawn.",
-            "RelatedTopics": [
-                {"Text": "Known for alleged poisonings at the papal court."}
-            ],
+            "RelatedTopics": [{"Text": "Known for alleged poisonings at the papal court."}],
         }
         mock_get.return_value = mock_response
 

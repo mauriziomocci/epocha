@@ -4,15 +4,16 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('agents', '0007_agent_postgis_location'),
-        ('simulation', '0005_simulation_snapshot'),
+        ("agents", "0007_agent_postgis_location"),
+        ("simulation", "0005_simulation_snapshot"),
     ]
 
     operations = [
         migrations.AddIndex(
-            model_name='decisionlog',
-            index=models.Index(fields=['simulation', 'tick'], name='agents_deci_simulat_cfe24f_idx'),
+            model_name="decisionlog",
+            index=models.Index(
+                fields=["simulation", "tick"], name="agents_deci_simulat_cfe24f_idx"
+            ),
         ),
     ]

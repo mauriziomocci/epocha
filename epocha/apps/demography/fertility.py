@@ -10,10 +10,11 @@ Sources:
 - Malthus-Ricardo preventive check formalization inspired by
   Ashraf & Galor (2011) AER 101(5).
 """
+
 from __future__ import annotations
 
 import math
-from typing import Mapping
+from collections.abc import Mapping
 
 
 def hadwiger_asfr(age: float, params: Mapping[str, float]) -> float:
@@ -31,13 +32,13 @@ def hadwiger_asfr(age: float, params: Mapping[str, float]) -> float:
     """
     if age <= 0 or age < 12 or age > 50:
         return 0.0
-    H = float(params["H"])
-    R = float(params["R"])
-    T = float(params["T"])
+    H = float(params["H"])  # noqa: N806 -- Hadwiger (1940) ASFR parameter notation
+    R = float(params["R"])  # noqa: N806 -- Hadwiger (1940) ASFR parameter notation
+    T = float(params["T"])  # noqa: N806 -- Hadwiger (1940) ASFR parameter notation
     ratio = R / age
     coef = (H * T) / (R * math.sqrt(math.pi))
-    shape = ratio ** 1.5
-    tail = math.exp(-(T ** 2) * (ratio + age / R - 2.0))
+    shape = ratio**1.5
+    tail = math.exp(-(T**2) * (ratio + age / R - 2.0))
     return coef * shape * tail
 
 
@@ -47,20 +48,25 @@ def _female_role_employment_fraction(zone, simulation) -> float:
     Proxy for female labor force participation. Reads the last tick of
     EconomicLedger wage transactions where the recipient is female.
     """
+
     from epocha.apps.agents.models import Agent
     from epocha.apps.economy.models import EconomicLedger
-    from django.db.models import F
 
     tick = simulation.current_tick
     females = Agent.objects.filter(
-        simulation=simulation, zone=zone, is_alive=True, gender=Agent.Gender.FEMALE,
+        simulation=simulation,
+        zone=zone,
+        is_alive=True,
+        gender=Agent.Gender.FEMALE,
     )
     total = females.count()
     if total == 0:
         return 0.0
     earning_ids = set(
         EconomicLedger.objects.filter(
-            simulation=simulation, tick=tick, transaction_type="wage",
+            simulation=simulation,
+            tick=tick,
+            transaction_type="wage",
             to_agent__in=females,
         ).values_list("to_agent_id", flat=True)
     )
@@ -69,8 +75,9 @@ def _female_role_employment_fraction(zone, simulation) -> float:
 
 def _zone_mean_wage(zone, simulation, lookback_ticks: int = 5) -> float:
     """Mean wage in the zone averaged over the last lookback_ticks ticks."""
-    from epocha.apps.economy.models import EconomicLedger
     from django.db.models import Avg
+
+    from epocha.apps.economy.models import EconomicLedger
 
     tick = simulation.current_tick
     agg = EconomicLedger.objects.filter(
@@ -92,8 +99,8 @@ def becker_modulation(agent, coeffs: Mapping[str, float]) -> float:
     Returns a scaling factor in [0.05, 3.0].
     """
     from epocha.apps.demography.context import (
-        compute_subsistence_threshold,
         compute_aggregate_outlook,
+        compute_subsistence_threshold,
     )
 
     subsistence = compute_subsistence_threshold(agent.simulation, agent.zone)
@@ -114,6 +121,7 @@ def becker_modulation(agent, coeffs: Mapping[str, float]) -> float:
 # ---------------------------------------------------------------------------
 # Task 3: Malthusian soft ceiling
 # ---------------------------------------------------------------------------
+
 
 def malthusian_soft_ceiling(
     prob: float,
@@ -148,6 +156,7 @@ def malthusian_soft_ceiling(
 # ---------------------------------------------------------------------------
 # Task 4: Combined tick_birth_probability
 # ---------------------------------------------------------------------------
+
 
 def tick_birth_probability(
     mother,
@@ -190,9 +199,15 @@ def tick_birth_probability(
         return 0.0
 
     hadwiger_params = fertility_cfg["hadwiger"]
-    annual_asfr = hadwiger_asfr(_effective_age_in_years(
-        mother, tick_duration_hours, demography_acceleration, current_tick=current_tick,
-    ), hadwiger_params)
+    annual_asfr = hadwiger_asfr(
+        _effective_age_in_years(
+            mother,
+            tick_duration_hours,
+            demography_acceleration,
+            current_tick=current_tick,
+        ),
+        hadwiger_params,
+    )
     if annual_asfr <= 0.0:
         return 0.0
     becker_factor = becker_modulation(mother, fertility_cfg["becker_coefficients"])
@@ -238,6 +253,7 @@ def _effective_age_in_years(
 # ---------------------------------------------------------------------------
 # Task 5: AgentFertilityState helpers
 # ---------------------------------------------------------------------------
+
 
 def set_avoid_conception_flag(agent) -> None:
     """Record the agent's intent to avoid conception this tick.
@@ -292,6 +308,7 @@ def is_avoid_conception_active_this_tick(agent, current_tick: int | None = None)
 # Task 6: Joint mortality-fertility resolution
 # ---------------------------------------------------------------------------
 
+
 def resolve_childbirth_event(
     mother,
     params_era: Mapping[str, object],
@@ -313,9 +330,7 @@ def resolve_childbirth_event(
     fertility path coupled but side-effect free.
     """
     mortality_cfg = params_era["mortality"]
-    maternal_death_rate = float(
-        mortality_cfg.get("maternal_mortality_rate_per_birth", 0.0)
-    )
+    maternal_death_rate = float(mortality_cfg.get("maternal_mortality_rate_per_birth", 0.0))
     neonatal_survival_when_mother_dies = float(
         mortality_cfg.get("neonatal_survival_when_mother_dies", 0.3)
     )

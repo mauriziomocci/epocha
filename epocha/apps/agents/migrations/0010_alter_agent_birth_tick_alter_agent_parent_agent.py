@@ -5,20 +5,31 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('agents', '0009_agent_birth_tick_agent_caretaker_agent_and_more'),
+        ("agents", "0009_agent_birth_tick_agent_caretaker_agent_and_more"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='agent',
-            name='birth_tick',
-            field=models.BigIntegerField(blank=True, db_index=True, help_text='Canonical age source; age = (current_tick - birth_tick) / ticks_per_year. Negative values are valid for agents older than the simulation.', null=True),
+            model_name="agent",
+            name="birth_tick",
+            field=models.BigIntegerField(
+                blank=True,
+                db_index=True,
+                help_text="Canonical age source; age = (current_tick - birth_tick) / ticks_per_year. Negative values are valid for agents older than the simulation.",
+                null=True,
+            ),
         ),
         migrations.AlterField(
-            model_name='agent',
-            name='parent_agent',
-            field=models.ForeignKey(blank=True, help_text='Biological mother by Epocha convention (ASFR is female-indexed). Agents created before demography Plan 1 may violate this convention; enforce only for agents born from the demography engine onwards. See other_parent_agent for the father.', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='children', to='agents.agent'),
+            model_name="agent",
+            name="parent_agent",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Biological mother by Epocha convention (ASFR is female-indexed). Agents created before demography Plan 1 may violate this convention; enforce only for agents born from the demography engine onwards. See other_parent_agent for the father.",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="children",
+                to="agents.agent",
+            ),
         ),
     ]

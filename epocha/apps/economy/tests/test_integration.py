@@ -4,6 +4,7 @@ Verifies that initialization + multiple economy ticks produce
 coherent results: prices change, transactions are recorded,
 wealth is updated, treasury collects tax, and velocity is positive.
 """
+
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
@@ -14,7 +15,6 @@ from epocha.apps.economy.models import (
     AgentInventory,
     Currency,
     EconomicLedger,
-    GoodCategory,
     PriceHistory,
     ZoneEconomy,
 )
@@ -35,7 +35,9 @@ def user(db):
 @pytest.fixture
 def simulation(user):
     return Simulation.objects.create(
-        name="E2ETest", seed=42, owner=user,
+        name="E2ETest",
+        seed=42,
+        owner=user,
     )
 
 
@@ -54,34 +56,53 @@ def world_with_economy(simulation):
         popular_legitimacy=0.5,
     )
     z1 = Zone.objects.create(
-        world=world, name="Market Town", zone_type="commercial",
+        world=world,
+        name="Market Town",
+        zone_type="commercial",
         boundary=Polygon.from_bbox((0, 0, 100, 100)),
         center=Point(50, 50),
     )
     z2 = Zone.objects.create(
-        world=world, name="Farmlands", zone_type="rural",
+        world=world,
+        name="Farmlands",
+        zone_type="rural",
         boundary=Polygon.from_bbox((120, 0, 220, 100)),
         center=Point(170, 50),
     )
 
     # Create diverse agents
     Agent.objects.create(
-        simulation=simulation, name="Merchant", role="merchant",
-        social_class="elite", zone=z1,
-        personality={"openness": 0.7}, location=Point(50, 50),
-        health=1.0, wealth=0.0,
+        simulation=simulation,
+        name="Merchant",
+        role="merchant",
+        social_class="elite",
+        zone=z1,
+        personality={"openness": 0.7},
+        location=Point(50, 50),
+        health=1.0,
+        wealth=0.0,
     )
     Agent.objects.create(
-        simulation=simulation, name="Craftsman", role="craftsman",
-        social_class="middle", zone=z1,
-        personality={"openness": 0.5}, location=Point(50, 50),
-        health=1.0, wealth=0.0,
+        simulation=simulation,
+        name="Craftsman",
+        role="craftsman",
+        social_class="middle",
+        zone=z1,
+        personality={"openness": 0.5},
+        location=Point(50, 50),
+        health=1.0,
+        wealth=0.0,
     )
     Agent.objects.create(
-        simulation=simulation, name="Farmer", role="farmer",
-        social_class="poor", zone=z2,
-        personality={"openness": 0.4}, location=Point(170, 50),
-        health=1.0, wealth=0.0,
+        simulation=simulation,
+        name="Farmer",
+        role="farmer",
+        social_class="poor",
+        zone=z2,
+        personality={"openness": 0.4},
+        location=Point(170, 50),
+        health=1.0,
+        wealth=0.0,
     )
 
     result = initialize_economy(simulation)
@@ -95,7 +116,9 @@ def world_with_economy(simulation):
 @pytest.mark.django_db
 class TestEconomyEndToEnd:
     def test_initialization_creates_complete_economy(
-        self, simulation, world_with_economy,
+        self,
+        simulation,
+        world_with_economy,
     ):
         """Verify initialization created all required economy objects."""
         r = world_with_economy["init_result"]
@@ -108,7 +131,9 @@ class TestEconomyEndToEnd:
         assert r["properties"] > 0
 
     def test_full_tick_with_initialized_economy(
-        self, simulation, world_with_economy,
+        self,
+        simulation,
+        world_with_economy,
     ):
         """Run 3 ticks and verify the economy produces coherent output."""
         for tick in range(1, 4):
@@ -147,7 +172,9 @@ class TestEconomyEndToEnd:
         assert currency.cached_velocity >= 0.0
 
     def test_prices_change_over_ticks(
-        self, simulation, world_with_economy,
+        self,
+        simulation,
+        world_with_economy,
     ):
         """Verify that market prices are not static."""
         process_economy_tick_new(simulation, tick=1)
@@ -158,12 +185,10 @@ class TestEconomyEndToEnd:
         ).first()
 
         tick1_prices = {
-            ph.good_code: ph.price
-            for ph in PriceHistory.objects.filter(zone_economy=ze, tick=1)
+            ph.good_code: ph.price for ph in PriceHistory.objects.filter(zone_economy=ze, tick=1)
         }
         tick2_prices = {
-            ph.good_code: ph.price
-            for ph in PriceHistory.objects.filter(zone_economy=ze, tick=2)
+            ph.good_code: ph.price for ph in PriceHistory.objects.filter(zone_economy=ze, tick=2)
         }
 
         # At least some prices should exist
@@ -171,7 +196,9 @@ class TestEconomyEndToEnd:
         assert len(tick2_prices) > 0
 
     def test_inventories_change_over_ticks(
-        self, simulation, world_with_economy,
+        self,
+        simulation,
+        world_with_economy,
     ):
         """Verify agent inventories change due to production and consumption."""
         initial_holdings = {}

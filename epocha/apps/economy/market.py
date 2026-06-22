@@ -8,6 +8,7 @@ Warning: Scarf (1960) showed tatonnement may not converge with 3+ goods.
 The max_iterations parameter is the safety net.
 Implementation follows applied CGE practice: Shoven & Whalley (1992) ch. 4.
 """
+
 from __future__ import annotations
 
 import logging
@@ -47,6 +48,12 @@ MAX_CHANGE_RATIO = 0.5
 # contract (see docs/superpowers/specs/2026-04-18-demography-design-it.md).
 # Shared with demography/context.py:compute_subsistence_threshold.
 SUBSISTENCE_NEED_PER_AGENT: float = 1.0
+# Maximum discretionary demand per agent per good per tick.
+# Without a cap, low prices combined with high cash produce absurd
+# demand quantities (e.g. cash=5000, price=0.02 => 25000 units).
+# 5 units is a reasonable upper bound for a non-essential good in
+# one tick. Tunable design parameter.
+_MAX_DISCRETIONARY_DEMAND = 5.0
 
 
 def tatonnement_prices(
@@ -176,13 +183,6 @@ def collect_supply_and_demand(
     essential_codes = {g["code"] for g in good_categories if g["is_essential"]}
     subsistence_need = SUBSISTENCE_NEED_PER_AGENT
 
-    # Maximum discretionary demand per agent per good per tick.
-    # Without a cap, low prices combined with high cash produce absurd
-    # demand quantities (e.g. cash=5000, price=0.02 => 25000 units).
-    # 5 units is a reasonable upper bound for a non-essential good in
-    # one tick. Tunable design parameter.
-    MAX_DISCRETIONARY_DEMAND = 5.0
-
     for inv in agent_inventories:
         offers: dict[str, float] = {}
         wants: dict[str, float] = {}
@@ -217,18 +217,20 @@ def collect_supply_and_demand(
                 elasticity = max(cat.get("price_elasticity", 1.0), 0.1)
                 cash = inv.get("cash_amount", 0.0)
                 discretionary = min(
-                    MAX_DISCRETIONARY_DEMAND,
+                    _MAX_DISCRETIONARY_DEMAND,
                     (cash * 0.1) / (price * elasticity),
                 )
                 if discretionary > 0.01:
                     wants[code] = discretionary
                     total_demand[code] = total_demand.get(code, 0.0) + discretionary
 
-        agent_orders.append({
-            "agent_id": inv["agent_id"],
-            "offers": offers,
-            "wants": wants,
-        })
+        agent_orders.append(
+            {
+                "agent_id": inv["agent_id"],
+                "offers": offers,
+                "wants": wants,
+            }
+        )
 
     return total_supply, total_demand, agent_orders
 
@@ -288,14 +290,16 @@ def execute_trades(
                     continue
                 share = min(actual_buy, actual_sell)
                 if share > 0.001:
-                    trades.append({
-                        "buyer_id": buyer_id,
-                        "seller_id": seller_id,
-                        "good_code": good_code,
-                        "quantity": share,
-                        "price": price,
-                        "total": share * price,
-                    })
+                    trades.append(
+                        {
+                            "buyer_id": buyer_id,
+                            "seller_id": seller_id,
+                            "good_code": good_code,
+                            "quantity": share,
+                            "price": price,
+                            "total": share * price,
+                        }
+                    )
 
     return trades
 
@@ -310,12 +314,19 @@ def clear_market(
     Returns (equilibrium_prices, trades, total_supply, total_demand).
     """
     total_supply, total_demand, agent_orders = collect_supply_and_demand(
-        agent_inventories, good_categories, market_prices,
+        agent_inventories,
+        good_categories,
+        market_prices,
     )
     equilibrium_prices, converged = tatonnement_prices(
-        market_prices, total_supply, total_demand,
+        market_prices,
+        total_supply,
+        total_demand,
     )
     trades = execute_trades(
-        agent_orders, equilibrium_prices, total_supply, total_demand,
+        agent_orders,
+        equilibrium_prices,
+        total_supply,
+        total_demand,
     )
     return equilibrium_prices, trades, total_supply, total_demand

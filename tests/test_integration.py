@@ -1,4 +1,5 @@
 """Integration test: full MVP flow from Express creation to running ticks."""
+
 import json
 from unittest.mock import MagicMock, patch
 
@@ -11,33 +12,51 @@ from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import World, Zone
 
-MOCK_WORLD_RESPONSE = json.dumps({
-    "world": {"economy_level": "base", "stability_index": 0.7},
-    "zones": [
-        {"name": "Village", "type": "urban", "x": 50, "y": 50, "resources": {"food": 200}},
-    ],
-    "agents": [
-        {
-            "name": "Marco", "age": 30, "role": "blacksmith", "gender": "male",
-            "personality": {
-                "openness": 0.8, "conscientiousness": 0.6, "extraversion": 0.4,
-                "agreeableness": 0.3, "neuroticism": 0.5, "background": "A blacksmith",
+MOCK_WORLD_RESPONSE = json.dumps(
+    {
+        "world": {"economy_level": "base", "stability_index": 0.7},
+        "zones": [
+            {"name": "Village", "type": "urban", "x": 50, "y": 50, "resources": {"food": 200}},
+        ],
+        "agents": [
+            {
+                "name": "Marco",
+                "age": 30,
+                "role": "blacksmith",
+                "gender": "male",
+                "personality": {
+                    "openness": 0.8,
+                    "conscientiousness": 0.6,
+                    "extraversion": 0.4,
+                    "agreeableness": 0.3,
+                    "neuroticism": 0.5,
+                    "background": "A blacksmith",
+                },
             },
-        },
-        {
-            "name": "Elena", "age": 25, "role": "farmer", "gender": "female",
-            "personality": {
-                "openness": 0.4, "conscientiousness": 0.8, "extraversion": 0.6,
-                "agreeableness": 0.7, "neuroticism": 0.3, "background": "A farmer",
+            {
+                "name": "Elena",
+                "age": 25,
+                "role": "farmer",
+                "gender": "female",
+                "personality": {
+                    "openness": 0.4,
+                    "conscientiousness": 0.8,
+                    "extraversion": 0.6,
+                    "agreeableness": 0.7,
+                    "neuroticism": 0.3,
+                    "background": "A farmer",
+                },
             },
-        },
-    ],
-})
+        ],
+    }
+)
 
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(email="integ@epocha.dev", username="integtest", password="pass123")
+    return User.objects.create_user(
+        email="integ@epocha.dev", username="integtest", password="pass123"
+    )
 
 
 @pytest.fixture
@@ -59,9 +78,13 @@ class TestFullMVPFlow:
         mock_get_client.return_value = mock_client
 
         # 1. Create simulation via Express
-        response = authenticated_client.post("/api/v1/simulations/express/", {
-            "prompt": "A medieval village with a blacksmith and a farmer",
-        }, format="json")
+        response = authenticated_client.post(
+            "/api/v1/simulations/express/",
+            {
+                "prompt": "A medieval village with a blacksmith and a farmer",
+            },
+            format="json",
+        )
         assert response.status_code == status.HTTP_201_CREATED
         sim_id = response.data["simulation_id"]
 
@@ -72,7 +95,9 @@ class TestFullMVPFlow:
         assert Zone.objects.filter(world__simulation=sim).count() == 1
 
         # 3. Run a tick manually (mocking agent decisions)
-        mock_client.complete.return_value = '{"action": "work", "target": "forge", "reason": "Need to earn money"}'
+        mock_client.complete.return_value = (
+            '{"action": "work", "target": "forge", "reason": "Need to earn money"}'
+        )
 
         from epocha.apps.simulation.engine import SimulationEngine
 
@@ -87,7 +112,10 @@ class TestFullMVPFlow:
         # 5. Verify agents have decision logs and memories
         assert DecisionLog.objects.filter(simulation=sim).count() == 2
         # Count only decision memories; political cycle may create stratification memories too.
-        assert Memory.objects.filter(agent__simulation=sim, content__startswith="I decided to").count() == 2
+        assert (
+            Memory.objects.filter(agent__simulation=sim, content__startswith="I decided to").count()
+            == 2
+        )
 
     @patch("epocha.apps.world.generator.get_llm_client")
     def test_multiple_ticks_produce_history(self, mock_get_client, authenticated_client):
@@ -98,9 +126,13 @@ class TestFullMVPFlow:
         mock_get_client.return_value = mock_client
 
         # Create world
-        response = authenticated_client.post("/api/v1/simulations/express/", {
-            "prompt": "A village",
-        }, format="json")
+        response = authenticated_client.post(
+            "/api/v1/simulations/express/",
+            {
+                "prompt": "A village",
+            },
+            format="json",
+        )
         sim = Simulation.objects.get(id=response.data["simulation_id"])
 
         # Run 3 ticks
@@ -119,4 +151,7 @@ class TestFullMVPFlow:
         # Dedup is active: consecutive identical actions do not create duplicate memories.
         # 3 ticks of "socialize" for each agent produce 1 memory per agent = 2 total.
         # Count only decision memories; political cycle may create stratification memories too.
-        assert Memory.objects.filter(agent__simulation=sim, content__startswith="I decided to").count() == 2
+        assert (
+            Memory.objects.filter(agent__simulation=sim, content__startswith="I decided to").count()
+            == 2
+        )

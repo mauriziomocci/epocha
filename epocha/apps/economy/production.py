@@ -17,6 +17,7 @@ the weights control only the relative importance of factors, while
 the scale parameter A controls the absolute output level. Standard
 practice in applied CGE (Shoven & Whalley 1992).
 """
+
 from __future__ import annotations
 
 import logging
@@ -113,7 +114,7 @@ def ces_production(
                 return 0.0
             # With rho > 0, X^rho -> 0, so zero input contributes nothing
             continue
-        inner_sum += alpha * (x ** rho)
+        inner_sum += alpha * (x**rho)
 
     if inner_sum <= 0:
         return 0.0
@@ -188,8 +189,7 @@ def compute_agent_output(
     # The zone provides a baseline capital level; properties augment it.
     capital_base = zone_resources.get("capital", zone_res.get("capital", 0.5))
     capital_from_properties = sum(
-        p.production_bonus.get(good_code, 0.0)
-        for p in properties_in_zone
+        p.production_bonus.get(good_code, 0.0) for p in properties_in_zone
     )
 
     factor_inputs = {
@@ -198,9 +198,7 @@ def compute_agent_output(
         "natural_resources": zone_resources.get(
             "natural_resources", zone_res.get("natural_resources", 0.5)
         ),
-        "knowledge": zone_resources.get(
-            "knowledge", zone_res.get("knowledge", 0.5)
-        ),
+        "knowledge": zone_resources.get("knowledge", zone_res.get("knowledge", 0.5)),
     }
 
     output = ces_production(

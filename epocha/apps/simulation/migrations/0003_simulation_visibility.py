@@ -4,15 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('simulation', '0002_initial'),
+        ("simulation", "0002_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='simulation',
-            name='visibility',
-            field=models.CharField(choices=[('private', 'Private'), ('shared', 'Shared'), ('public', 'Public')], default='private', help_text='Private: only owner. Shared: owner + collaborators. Public: everyone can view and fork.', max_length=10),
+            model_name="simulation",
+            name="visibility",
+            field=models.CharField(
+                choices=[("private", "Private"), ("shared", "Shared"), ("public", "Public")],
+                default="private",
+                help_text="Private: only owner. Shared: owner + collaborators. Public: everyone can view and fork.",
+                max_length=10,
+            ),
         ),
     ]

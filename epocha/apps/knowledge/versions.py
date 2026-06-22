@@ -5,6 +5,7 @@ EMBEDDING_MODEL invalidates the extraction cache automatically because
 these values compose the cache key. Other constants affect behavior but
 not cache identity.
 """
+
 from __future__ import annotations
 
 ONTOLOGY_VERSION = "v1"

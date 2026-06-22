@@ -4,30 +4,33 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='LLMRequest',
+            name="LLMRequest",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('provider', models.CharField(max_length=50)),
-                ('model', models.CharField(max_length=100)),
-                ('input_tokens', models.PositiveIntegerField(default=0)),
-                ('output_tokens', models.PositiveIntegerField(default=0)),
-                ('cost_usd', models.FloatField(default=0.0)),
-                ('latency_ms', models.PositiveIntegerField(default=0)),
-                ('success', models.BooleanField(default=True)),
-                ('error_message', models.TextField(blank=True)),
-                ('simulation_id', models.PositiveIntegerField(blank=True, null=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("provider", models.CharField(max_length=50)),
+                ("model", models.CharField(max_length=100)),
+                ("input_tokens", models.PositiveIntegerField(default=0)),
+                ("output_tokens", models.PositiveIntegerField(default=0)),
+                ("cost_usd", models.FloatField(default=0.0)),
+                ("latency_ms", models.PositiveIntegerField(default=0)),
+                ("success", models.BooleanField(default=True)),
+                ("error_message", models.TextField(blank=True)),
+                ("simulation_id", models.PositiveIntegerField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'ordering': ['-created_at'],
+                "ordering": ["-created_at"],
             },
         ),
     ]

@@ -90,6 +90,7 @@ Known Limitations:
       per-agent .save() does); and N+1 query patterns in the
       _check_join_existing_groups affinity loop and in compute_legitimacy.
 """
+
 from __future__ import annotations
 
 import json
@@ -522,7 +523,9 @@ def _check_dissolution(group: Group, tick: int) -> None:
         )
     logger.info(
         "Group '%s' dissolved at tick %d (cohesion=%.2f)",
-        group.name, tick, group.cohesion,
+        group.name,
+        tick,
+        group.cohesion,
     )
 
 
@@ -580,9 +583,7 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
             continue
 
         outward_sentiments = [
-            _get_sentiment(ally.id, non_ally.id)
-            for ally in allies
-            for non_ally in non_allies
+            _get_sentiment(ally.id, non_ally.id) for ally in allies for non_ally in non_allies
         ]
         if not outward_sentiments:
             continue
@@ -644,7 +645,10 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
 
         logger.info(
             "Schism in '%s': '%s' formed with %d members at tick %d",
-            group.name, name, len(allies), tick,
+            group.name,
+            name,
+            len(allies),
+            tick,
         )
         return  # Only one schism per tick per group.
 
@@ -687,7 +691,7 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
         if agent_a.id in visited:
             continue
         cluster: list[Agent] = [agent_a]
-        for agent_b in ungrouped[i + 1:]:
+        for agent_b in ungrouped[i + 1 :]:
             if agent_b.id in visited:
                 continue
             if len(cluster) >= max_members:
@@ -722,7 +726,8 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
     if clusters:
         logger.info(
             "Detected %d potential faction cluster(s) at tick %d",
-            len(clusters), tick,
+            len(clusters),
+            tick,
         )
 
 
@@ -846,7 +851,7 @@ def _process_formation_decisions(simulation, tick: int) -> None:
         ).first()
         if not proposal:
             continue
-        for agent_b in formers[i + 1:]:
+        for agent_b in formers[i + 1 :]:
             if agent_b.id in used:
                 continue
             if agent_b.name in proposal.content:
@@ -871,7 +876,6 @@ def _create_faction(simulation, founders: list[Agent], tick: int) -> None:
         tick: Current tick.
     """
     roles = {a.role for a in founders if a.role}
-    classes = {a.social_class for a in founders}
     founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
     fallback_name = f"The {next(iter(roles), 'Citizens').title()} Alliance"
 
@@ -898,10 +902,7 @@ def _create_faction(simulation, founders: list[Agent], tick: int) -> None:
     group.leader = scores[0][0]
     group.save(update_fields=["leader"])
 
-    other_names_map = {
-        a.id: ", ".join(f.name for f in founders if f.id != a.id)
-        for a in founders
-    }
+    other_names_map = {a.id: ", ".join(f.name for f in founders if f.id != a.id) for a in founders}
     for agent in founders:
         agent.group = group
         agent.save(update_fields=["group"])

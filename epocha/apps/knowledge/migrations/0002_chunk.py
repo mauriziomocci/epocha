@@ -7,28 +7,47 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('knowledge', '0001_initial'),
+        ("knowledge", "0001_initial"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='KnowledgeChunk',
+            name="KnowledgeChunk",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('chunk_index', models.PositiveIntegerField()),
-                ('text', models.TextField()),
-                ('start_char', models.PositiveIntegerField()),
-                ('end_char', models.PositiveIntegerField()),
-                ('embedding', pgvector.django.vector.VectorField(dimensions=1024)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('document', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='chunks', to='knowledge.knowledgedocument')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("chunk_index", models.PositiveIntegerField()),
+                ("text", models.TextField()),
+                ("start_char", models.PositiveIntegerField()),
+                ("end_char", models.PositiveIntegerField()),
+                ("embedding", pgvector.django.vector.VectorField(dimensions=1024)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "document",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="chunks",
+                        to="knowledge.knowledgedocument",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['document', 'chunk_index'],
-                'indexes': [pgvector.django.indexes.HnswIndex(ef_construction=64, fields=['embedding'], m=16, name='chunk_embedding_hnsw', opclasses=['vector_cosine_ops'])],
-                'unique_together': {('document', 'chunk_index')},
+                "ordering": ["document", "chunk_index"],
+                "indexes": [
+                    pgvector.django.indexes.HnswIndex(
+                        ef_construction=64,
+                        fields=["embedding"],
+                        m=16,
+                        name="chunk_embedding_hnsw",
+                        opclasses=["vector_cosine_ops"],
+                    )
+                ],
+                "unique_together": {("document", "chunk_index")},
             },
         ),
     ]

@@ -1,4 +1,5 @@
 """Tests for social stratification dynamics."""
+
 import pytest
 
 from epocha.apps.agents.models import Agent
@@ -10,31 +11,54 @@ from epocha.apps.world.stratification import compute_gini, update_social_classes
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(email="strat@epocha.dev", username="strattest", password="pass123")
+    return User.objects.create_user(
+        email="strat@epocha.dev", username="strattest", password="pass123"
+    )
+
 
 @pytest.fixture
 def simulation(user):
     return Simulation.objects.create(name="StratTest", seed=42, owner=user)
 
+
 @pytest.fixture
 def world(simulation):
     return World.objects.create(simulation=simulation)
 
+
 @pytest.fixture
 def agents_with_wealth(simulation):
     agents = []
-    for i, (name, wealth) in enumerate([
-        ("Ultra", 1000.0), ("Rich", 500.0), ("Upper", 200.0),
-        ("Mid1", 100.0), ("Mid2", 90.0), ("Mid3", 80.0),
-        ("Work1", 50.0), ("Work2", 40.0),
-        ("Poor1", 10.0), ("Poor2", 5.0),
-    ]):
-        agents.append(Agent.objects.create(
-            simulation=simulation, name=name, role="citizen", wealth=wealth,
-            social_class="working",
-            personality={"openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5,
-                         "agreeableness": 0.5, "neuroticism": 0.5},
-        ))
+    for i, (name, wealth) in enumerate(
+        [
+            ("Ultra", 1000.0),
+            ("Rich", 500.0),
+            ("Upper", 200.0),
+            ("Mid1", 100.0),
+            ("Mid2", 90.0),
+            ("Mid3", 80.0),
+            ("Work1", 50.0),
+            ("Work2", 40.0),
+            ("Poor1", 10.0),
+            ("Poor2", 5.0),
+        ]
+    ):
+        agents.append(
+            Agent.objects.create(
+                simulation=simulation,
+                name=name,
+                role="citizen",
+                wealth=wealth,
+                social_class="working",
+                personality={
+                    "openness": 0.5,
+                    "conscientiousness": 0.5,
+                    "extraversion": 0.5,
+                    "agreeableness": 0.5,
+                    "neuroticism": 0.5,
+                },
+            )
+        )
     return agents
 
 

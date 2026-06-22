@@ -12,6 +12,7 @@ Taxes: flat income tax on wages + rent, collected into government treasury.
 Source for bankruptcy-as-crisis: Doyle, W. (1989). The Oxford History
 of the French Revolution.
 """
+
 from __future__ import annotations
 
 import logging

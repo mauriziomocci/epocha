@@ -5,33 +5,57 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
-        ('agents', '0001_initial'),
+        ("agents", "0001_initial"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='ChatMessage',
+            name="ChatMessage",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('role', models.CharField(choices=[('user', 'User'), ('agent', 'Agent')], max_length=10)),
-                ('content', models.TextField()),
-                ('tick_at', models.PositiveIntegerField(help_text='Simulation tick at the time of the message')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "role",
+                    models.CharField(choices=[("user", "User"), ("agent", "Agent")], max_length=10),
+                ),
+                ("content", models.TextField()),
+                (
+                    "tick_at",
+                    models.PositiveIntegerField(
+                        help_text="Simulation tick at the time of the message"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'ordering': ['created_at'],
+                "ordering": ["created_at"],
             },
         ),
         migrations.CreateModel(
-            name='ChatSession',
+            name="ChatSession",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('agent', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='chat_sessions', to='agents.agent')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "agent",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="chat_sessions",
+                        to="agents.agent",
+                    ),
+                ),
             ],
         ),
     ]

@@ -1,4 +1,5 @@
 """Chat models — sessions and messages."""
+
 from django.conf import settings
 from django.db import models
 
@@ -9,7 +10,9 @@ from epocha.apps.simulation.models import Simulation
 class ChatSession(models.Model):
     """Chat session between user and agent."""
 
-    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="chat_sessions")
+    simulation = models.ForeignKey(
+        Simulation, on_delete=models.CASCADE, related_name="chat_sessions"
+    )
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     agent = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="chat_sessions")
     created_at = models.DateTimeField(auto_now_add=True)

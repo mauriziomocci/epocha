@@ -5,6 +5,7 @@ The formula uses the simulation's current_tick and tick_duration_hours
 to convert age in years to a birth_tick value consistent with the new
 canonical age source.
 """
+
 from django.db import migrations
 
 

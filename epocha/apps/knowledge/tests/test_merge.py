@@ -1,44 +1,73 @@
 """Tests for the merge and deduplication logic."""
+
 from unittest.mock import patch
 
-import pytest
-
-from epocha.apps.knowledge.merge import (
-    merge_extraction_results,
-    _merge_entity_cluster,
-    _deduplicate_relations,
-    _build_cosine_similarity_matrix,
-    _single_linkage_clusters,
-)
 from epocha.apps.knowledge.extraction import ExtractionResult
+from epocha.apps.knowledge.merge import (
+    _build_cosine_similarity_matrix,
+    _deduplicate_relations,
+    _merge_entity_cluster,
+    _single_linkage_clusters,
+    merge_extraction_results,
+)
 
 
-def _entity(name, entity_type="person", description="", confidence=0.9, mention_count=1,
-            source_type="document", chunk_id=0, passage_excerpt="passage", attributes=None):
+def _entity(
+    name,
+    entity_type="person",
+    description="",
+    confidence=0.9,
+    mention_count=1,
+    source_type="document",
+    chunk_id=0,
+    passage_excerpt="passage",
+    attributes=None,
+):
     from epocha.apps.knowledge.normalizer import normalize_canonical_name
+
     return {
-        "entity_type": entity_type, "name": name,
+        "entity_type": entity_type,
+        "name": name,
         "canonical_name": normalize_canonical_name(name),
-        "description": description, "passage_excerpt": passage_excerpt,
-        "source_type": source_type, "confidence": confidence,
-        "mention_count": mention_count, "attributes": attributes or {},
+        "description": description,
+        "passage_excerpt": passage_excerpt,
+        "source_type": source_type,
+        "confidence": confidence,
+        "mention_count": mention_count,
+        "attributes": attributes or {},
         "chunk_id": chunk_id,
     }
 
 
-def _relation(source, target, rel_type="member_of", source_type="person",
-              target_type="institution", chunk_id=0, confidence=0.9, weight=0.5):
+def _relation(
+    source,
+    target,
+    rel_type="member_of",
+    source_type="person",
+    target_type="institution",
+    chunk_id=0,
+    confidence=0.9,
+    weight=0.5,
+):
     from epocha.apps.knowledge.normalizer import normalize_canonical_name
+
     return {
-        "source_name": source, "source_entity_type": source_type,
+        "source_name": source,
+        "source_entity_type": source_type,
         "source_canonical_name": normalize_canonical_name(source),
-        "target_name": target, "target_entity_type": target_type,
+        "target_name": target,
+        "target_entity_type": target_type,
         "target_canonical_name": normalize_canonical_name(target),
-        "relation_type": rel_type, "description": "",
+        "relation_type": rel_type,
+        "description": "",
         "passage_excerpt": f"{source} and {target}",
-        "source_type": "document", "confidence": confidence, "weight": weight,
-        "temporal_start_iso": "", "temporal_start_year": None,
-        "temporal_end_iso": "", "temporal_end_year": None,
+        "source_type": "document",
+        "confidence": confidence,
+        "weight": weight,
+        "temporal_start_iso": "",
+        "temporal_start_year": None,
+        "temporal_end_iso": "",
+        "temporal_end_year": None,
         "chunk_id": chunk_id,
     }
 
@@ -102,7 +131,10 @@ class TestMergeEntityCluster:
         assert merged["name"] == "Maximilien Robespierre"
 
     def test_sums_mention_counts(self):
-        entities = [_entity("Robespierre", mention_count=3), _entity("M. Robespierre", mention_count=2)]
+        entities = [
+            _entity("Robespierre", mention_count=3),
+            _entity("M. Robespierre", mention_count=2),
+        ]
         merged = _merge_entity_cluster(entities)
         assert merged["mention_count"] == 5
 
@@ -120,12 +152,19 @@ class TestMergeEntityCluster:
         assert merged["source_type"] == "document"
 
     def test_collects_all_chunk_ids(self):
-        entities = [_entity("Robespierre", chunk_id=0), _entity("Robespierre", chunk_id=3), _entity("Robespierre", chunk_id=7)]
+        entities = [
+            _entity("Robespierre", chunk_id=0),
+            _entity("Robespierre", chunk_id=3),
+            _entity("Robespierre", chunk_id=7),
+        ]
         merged = _merge_entity_cluster(entities)
         assert set(merged["chunk_ids"]) == {0, 3, 7}
 
     def test_concatenates_descriptions(self):
-        entities = [_entity("Robespierre", description="A deputy"), _entity("Robespierre", description="Leader of the Jacobins")]
+        entities = [
+            _entity("Robespierre", description="A deputy"),
+            _entity("Robespierre", description="Leader of the Jacobins"),
+        ]
         merged = _merge_entity_cluster(entities)
         assert "A deputy" in merged["description"]
         assert "Leader of the Jacobins" in merged["description"]
@@ -172,8 +211,16 @@ class TestMergeExtractionResults:
     def test_merges_duplicate_entities_across_chunks(self, mock_embed):
         mock_embed.return_value = [[0.9] * 1024, [0.9] * 1024]
         results = [
-            ExtractionResult(chunk_id=0, entities=[_entity("Robespierre", chunk_id=0, description="a deputy")], relations=[]),
-            ExtractionResult(chunk_id=1, entities=[_entity("Robespierre", chunk_id=1, description="Jacobin leader")], relations=[]),
+            ExtractionResult(
+                chunk_id=0,
+                entities=[_entity("Robespierre", chunk_id=0, description="a deputy")],
+                relations=[],
+            ),
+            ExtractionResult(
+                chunk_id=1,
+                entities=[_entity("Robespierre", chunk_id=1, description="Jacobin leader")],
+                relations=[],
+            ),
         ]
         merged = merge_extraction_results(results)
         person_nodes = [n for n in merged["nodes"] if n["entity_type"] == "person"]
@@ -184,7 +231,9 @@ class TestMergeExtractionResults:
     def test_different_entities_not_merged(self, mock_embed):
         mock_embed.return_value = [[0.9] * 1024, [0.1] * 1024]
         results = [
-            ExtractionResult(chunk_id=0, entities=[_entity("Robespierre", chunk_id=0)], relations=[]),
+            ExtractionResult(
+                chunk_id=0, entities=[_entity("Robespierre", chunk_id=0)], relations=[]
+            ),
             ExtractionResult(chunk_id=1, entities=[_entity("Danton", chunk_id=1)], relations=[]),
         ]
         merged = merge_extraction_results(results)
@@ -195,9 +244,13 @@ class TestMergeExtractionResults:
     def test_collects_unrecognized(self, mock_embed):
         mock_embed.return_value = []
         results = [
-            ExtractionResult(chunk_id=0, entities=[], relations=[],
-                           unrecognized_entities=[{"entity_type": "dragon", "name": "Smaug"}],
-                           unrecognized_relations=[{"relation_type": "breathes_fire"}]),
+            ExtractionResult(
+                chunk_id=0,
+                entities=[],
+                relations=[],
+                unrecognized_entities=[{"entity_type": "dragon", "name": "Smaug"}],
+                unrecognized_relations=[{"relation_type": "breathes_fire"}],
+            ),
         ]
         merged = merge_extraction_results(results)
         assert len(merged["unrecognized_entities"]) == 1
@@ -207,9 +260,11 @@ class TestMergeExtractionResults:
     def test_output_has_expected_keys(self, mock_embed):
         mock_embed.return_value = [[0.5] * 1024]
         results = [
-            ExtractionResult(chunk_id=0,
-                           entities=[_entity("Robespierre", chunk_id=0)],
-                           relations=[_relation("Robespierre", "Jacobin Club", chunk_id=0)]),
+            ExtractionResult(
+                chunk_id=0,
+                entities=[_entity("Robespierre", chunk_id=0)],
+                relations=[_relation("Robespierre", "Jacobin Club", chunk_id=0)],
+            ),
         ]
         merged = merge_extraction_results(results)
         assert "nodes" in merged

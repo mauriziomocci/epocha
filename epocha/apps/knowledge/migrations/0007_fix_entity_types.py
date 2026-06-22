@@ -4,15 +4,28 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('knowledge', '0006_rename_properties_to_attributes'),
+        ("knowledge", "0006_rename_properties_to_attributes"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='knowledgenode',
-            name='entity_type',
-            field=models.CharField(choices=[('person', 'Person'), ('group', 'Group'), ('place', 'Geographic Place'), ('institution', 'Institution'), ('event', 'Historical Event'), ('concept', 'Abstract Concept'), ('ideology', 'Ideology'), ('object', 'Material Object'), ('norm', 'Norm or Law'), ('value', 'Cultural Value')], max_length=20),
+            model_name="knowledgenode",
+            name="entity_type",
+            field=models.CharField(
+                choices=[
+                    ("person", "Person"),
+                    ("group", "Group"),
+                    ("place", "Geographic Place"),
+                    ("institution", "Institution"),
+                    ("event", "Historical Event"),
+                    ("concept", "Abstract Concept"),
+                    ("ideology", "Ideology"),
+                    ("object", "Material Object"),
+                    ("norm", "Norm or Law"),
+                    ("value", "Cultural Value"),
+                ],
+                max_length=20,
+            ),
         ),
     ]

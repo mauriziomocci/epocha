@@ -11,6 +11,7 @@ Covers:
 - resolve_separate_intents: divorce_enabled=True dissolves, divorce_enabled=False is no-op
 - dissolve_on_death: name snapshot captured, FK nulled, correct dissolution metadata
 """
+
 from __future__ import annotations
 
 import json
@@ -36,7 +37,6 @@ from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import World, Zone
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -46,10 +46,15 @@ from epocha.apps.world.models import World, Zone
 def sim_with_zone(db):
     """Minimal scaffolding: user, simulation, world, zone."""
     user = User.objects.create_user(
-        email="couple@epocha.dev", username="coupleuser", password="pass1234",
+        email="couple@epocha.dev",
+        username="coupleuser",
+        password="pass1234",
     )
     sim = Simulation.objects.create(
-        name="CoupleTest", seed=42, owner=user, current_tick=5,
+        name="CoupleTest",
+        seed=42,
+        owner=user,
+        current_tick=5,
     )
     world = World.objects.create(simulation=sim, stability_index=0.7)
     zone = Zone.objects.create(
@@ -262,9 +267,15 @@ def test_stable_matching_3x3_produces_3_pairs():
     # Use simple integers as stand-ins for agents; score_fn returns a fixed table
     # P = proposers, R = respondents; scores are arbitrary but distinct
     score_table = {
-        (0, "A"): 0.9, (0, "B"): 0.6, (0, "C"): 0.3,
-        (1, "A"): 0.5, (1, "B"): 0.8, (1, "C"): 0.4,
-        (2, "A"): 0.3, (2, "B"): 0.4, (2, "C"): 0.9,
+        (0, "A"): 0.9,
+        (0, "B"): 0.6,
+        (0, "C"): 0.3,
+        (1, "A"): 0.5,
+        (1, "B"): 0.8,
+        (1, "C"): 0.4,
+        (2, "A"): 0.3,
+        (2, "B"): 0.4,
+        (2, "C"): 0.9,
     }
     pairs = stable_matching(
         proposers=[0, 1, 2],
@@ -282,9 +293,15 @@ def test_stable_matching_3x3_is_stable():
     """The Gale-Shapley output must be stable: no (p, r) pair both prefer each other
     over their matched partners (Gale & Shapley 1962 Theorem 1)."""
     score_table = {
-        (0, "A"): 0.9, (0, "B"): 0.6, (0, "C"): 0.3,
-        (1, "A"): 0.5, (1, "B"): 0.8, (1, "C"): 0.4,
-        (2, "A"): 0.3, (2, "B"): 0.4, (2, "C"): 0.9,
+        (0, "A"): 0.9,
+        (0, "B"): 0.6,
+        (0, "C"): 0.3,
+        (1, "A"): 0.5,
+        (1, "B"): 0.8,
+        (1, "C"): 0.4,
+        (2, "A"): 0.3,
+        (2, "B"): 0.4,
+        (2, "C"): 0.9,
     }
     pairs = stable_matching(
         proposers=[0, 1, 2],
@@ -311,9 +328,12 @@ def test_stable_matching_3x3_is_stable():
 def test_stable_matching_asymmetric_3_proposers_2_respondents():
     """With 3 proposers and 2 respondents, exactly 2 matches must be produced."""
     score_table = {
-        (0, "X"): 0.8, (0, "Y"): 0.5,
-        (1, "X"): 0.6, (1, "Y"): 0.9,
-        (2, "X"): 0.4, (2, "Y"): 0.4,
+        (0, "X"): 0.8,
+        (0, "Y"): 0.5,
+        (1, "X"): 0.6,
+        (1, "Y"): 0.9,
+        (2, "X"): 0.4,
+        (2, "Y"): 0.4,
     }
     pairs = stable_matching(
         proposers=[0, 1, 2],
@@ -352,6 +372,7 @@ def test_resolve_pair_bond_mutual_consent_forms_couple(sim_with_zone):
     _decision_log(sim, b, tick=4, action="pair_bond", target=a.name)
 
     import random
+
     formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(42))
 
     assert len(formed) == 1
@@ -389,7 +410,10 @@ def test_resolve_pair_bond_implicit_consent_forms_couple(sim_with_zone):
     }
 
     import random
-    with patch("epocha.apps.demography.template_loader.load_template", return_value=implicit_template):
+
+    with patch(
+        "epocha.apps.demography.template_loader.load_template", return_value=implicit_template
+    ):
         formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(1))
 
     assert len(formed) == 1
@@ -423,7 +447,10 @@ def test_resolve_pair_bond_explicit_consent_requires_both(sim_with_zone):
     }
 
     import random
-    with patch("epocha.apps.demography.template_loader.load_template", return_value=explicit_template):
+
+    with patch(
+        "epocha.apps.demography.template_loader.load_template", return_value=explicit_template
+    ):
         formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(2))
 
     assert len(formed) == 0
@@ -449,6 +476,7 @@ def test_resolve_pair_bond_skips_already_coupled_agents(sim_with_zone):
     _decision_log(sim, b, tick=4, action="pair_bond", target=a.name)
 
     import random
+
     formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(7))
 
     assert len(formed) == 0
@@ -473,11 +501,15 @@ def test_resolve_pair_bond_arranged_marriage_payload(sim_with_zone):
 
     # Parent proposes on behalf of child toward match
     _decision_log(
-        sim, parent, tick=4, action="pair_bond",
+        sim,
+        parent,
+        tick=4,
+        action="pair_bond",
         target={"for_child": child.name, "match": match.name},
     )
 
     import random
+
     formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(3))
 
     assert len(formed) == 1
@@ -559,7 +591,7 @@ def test_dissolve_on_death_captures_snapshot_and_nulls_fk(sim_with_zone):
     sim, zone = sim_with_zone
     a = _make_agent(sim, zone, "Nora")
     b = _make_agent(sim, zone, "Oscar", gender=Agent.Gender.MALE)
-    couple = form_couple(a, b, formed_at_tick=1)
+    form_couple(a, b, formed_at_tick=1)
 
     # a (agent_a, lower PK) dies at tick 7
     result = dissolve_on_death(a, tick=7)
@@ -580,7 +612,7 @@ def test_dissolve_on_death_when_agent_b_dies(sim_with_zone):
     sim, zone = sim_with_zone
     a = _make_agent(sim, zone, "Petra")
     b = _make_agent(sim, zone, "Quentin", gender=Agent.Gender.MALE)
-    couple = form_couple(a, b, formed_at_tick=2)
+    form_couple(a, b, formed_at_tick=2)
 
     result = dissolve_on_death(b, tick=9)
 

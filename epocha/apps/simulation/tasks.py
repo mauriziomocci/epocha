@@ -49,18 +49,14 @@ def run_simulation_loop(simulation_id: int) -> None:
     from epocha.apps.agents.tasks import process_agent_turn
 
     agent_ids = list(
-        Agent.objects.filter(simulation=simulation, is_alive=True).values_list(
-            "id", flat=True
-        )
+        Agent.objects.filter(simulation=simulation, is_alive=True).values_list("id", flat=True)
     )
 
     if not agent_ids:
         finalize_tick([], simulation_id, tick)
         return
 
-    header = [
-        process_agent_turn.s(agent_id, simulation_id, tick) for agent_id in agent_ids
-    ]
+    header = [process_agent_turn.s(agent_id, simulation_id, tick) for agent_id in agent_ids]
     callback = finalize_tick.s(simulation_id, tick)
 
     chord(header)(callback)
@@ -96,18 +92,22 @@ def finalize_tick(agent_results: list, simulation_id: int, tick: int) -> None:
 
     # Information flow (propagate hearsay and rumors)
     from epocha.apps.agents.information_flow import propagate_information
+
     propagate_information(simulation, tick)
 
     # Faction dynamics (every N ticks)
     from epocha.apps.agents.factions import process_faction_dynamics
+
     process_faction_dynamics(simulation, tick)
 
     # Political cycle (every N ticks)
     from epocha.apps.world.government import process_political_cycle
+
     process_political_cycle(simulation, tick)
 
     # Relationship decay
     from epocha.apps.agents.relationships import evolve_relationships
+
     evolve_relationships(simulation, tick)
 
     # Memory decay (periodic)
@@ -115,6 +115,7 @@ def finalize_tick(agent_results: list, simulation_id: int, tick: int) -> None:
 
     # Capture snapshot + detect crises
     from epocha.apps.simulation.snapshot import capture_and_detect
+
     capture_and_detect(simulation, tick)
 
     # Advance tick counter

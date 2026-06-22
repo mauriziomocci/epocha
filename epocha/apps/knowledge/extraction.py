@@ -11,6 +11,7 @@ References:
       passage_excerpt (accent/case insensitive) the source_type is
       "document"; otherwise "document_inferred".
 """
+
 from __future__ import annotations
 
 import json
@@ -95,17 +96,19 @@ def validate_extracted_entities(raw_entities: list[dict]) -> tuple[list[dict], l
         source_type = assign_source_type(name, passage)
         if source_type is None:
             continue
-        valid.append({
-            "entity_type": entity_type,
-            "name": name,
-            "canonical_name": normalize_canonical_name(name),
-            "description": entity.get("description", ""),
-            "passage_excerpt": passage,
-            "source_type": source_type,
-            "confidence": float(entity.get("confidence", 0.5)),
-            "mention_count": 1,
-            "attributes": entity.get("attributes", {}),
-        })
+        valid.append(
+            {
+                "entity_type": entity_type,
+                "name": name,
+                "canonical_name": normalize_canonical_name(name),
+                "description": entity.get("description", ""),
+                "passage_excerpt": passage,
+                "source_type": source_type,
+                "confidence": float(entity.get("confidence", 0.5)),
+                "mention_count": 1,
+                "attributes": entity.get("attributes", {}),
+            }
+        )
     return valid, unrecognized
 
 
@@ -132,24 +135,27 @@ def validate_extracted_relations(raw_relations: list[dict]) -> tuple[list[dict],
             continue
         temporal_start = relation.get("temporal_start", "")
         temporal_end = relation.get("temporal_end", "")
-        valid.append({
-            "source_name": relation.get("source_name", ""),
-            "source_entity_type": relation.get("source_entity_type", ""),
-            "source_canonical_name": normalize_canonical_name(relation.get("source_name", "")),
-            "target_name": relation.get("target_name", ""),
-            "target_entity_type": relation.get("target_entity_type", ""),
-            "target_canonical_name": normalize_canonical_name(relation.get("target_name", "")),
-            "relation_type": rel_type,
-            "description": relation.get("description", ""),
-            "passage_excerpt": passage,
-            "source_type": assign_source_type(relation.get("source_name", ""), passage) or "document_inferred",
-            "confidence": float(relation.get("confidence", 0.5)),
-            "weight": float(relation.get("weight", 0.5)),
-            "temporal_start_iso": temporal_start,
-            "temporal_start_year": _parse_temporal_year(temporal_start),
-            "temporal_end_iso": temporal_end,
-            "temporal_end_year": _parse_temporal_year(temporal_end),
-        })
+        valid.append(
+            {
+                "source_name": relation.get("source_name", ""),
+                "source_entity_type": relation.get("source_entity_type", ""),
+                "source_canonical_name": normalize_canonical_name(relation.get("source_name", "")),
+                "target_name": relation.get("target_name", ""),
+                "target_entity_type": relation.get("target_entity_type", ""),
+                "target_canonical_name": normalize_canonical_name(relation.get("target_name", "")),
+                "relation_type": rel_type,
+                "description": relation.get("description", ""),
+                "passage_excerpt": passage,
+                "source_type": assign_source_type(relation.get("source_name", ""), passage)
+                or "document_inferred",
+                "confidence": float(relation.get("confidence", 0.5)),
+                "weight": float(relation.get("weight", 0.5)),
+                "temporal_start_iso": temporal_start,
+                "temporal_start_year": _parse_temporal_year(temporal_start),
+                "temporal_end_iso": temporal_end,
+                "temporal_end_year": _parse_temporal_year(temporal_end),
+            }
+        )
     return valid, unrecognized
 
 

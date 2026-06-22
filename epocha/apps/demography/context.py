@@ -5,6 +5,7 @@ Contracts. These helpers compute quantities that do not exist as
 named fields in the economy subsystem but are derivable from its
 state.
 """
+
 from __future__ import annotations
 
 from epocha.apps.economy.market import SUBSISTENCE_NEED_PER_AGENT

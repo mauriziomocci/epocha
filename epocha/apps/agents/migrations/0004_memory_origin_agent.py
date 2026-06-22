@@ -5,19 +5,28 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('agents', '0003_memory_dedup_index'),
+        ("agents", "0003_memory_dedup_index"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='memory',
-            name='origin_agent',
-            field=models.ForeignKey(blank=True, help_text='Agent who originally performed the action (for dedup and traceability)', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='originated_memories', to='agents.agent'),
+            model_name="memory",
+            name="origin_agent",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Agent who originally performed the action (for dedup and traceability)",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="originated_memories",
+                to="agents.agent",
+            ),
         ),
         migrations.AddIndex(
-            model_name='memory',
-            index=models.Index(fields=['origin_agent', 'tick_created', 'source_type'], name='memory_propagation_idx'),
+            model_name="memory",
+            index=models.Index(
+                fields=["origin_agent", "tick_created", "source_type"],
+                name="memory_propagation_idx",
+            ),
         ),
     ]

@@ -18,6 +18,7 @@ Scientific basis for the propagation model:
   propagation probability for weak ties as bridges) is deferred to a future
   version.
 """
+
 from __future__ import annotations
 
 import logging
@@ -68,16 +69,13 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
     max_recipients = getattr(settings, "EPOCHA_INFO_FLOW_MAX_RECIPIENTS", 20)
 
     # Phase 1: direct memories from this tick -> hearsay
-    direct_memories = (
-        Memory.objects.filter(
-            agent__simulation=simulation,
-            source_type=Memory.SourceType.DIRECT,
-            tick_created=tick,
-            emotional_weight__gte=threshold,
-            is_active=True,
-        )
-        .select_related("agent", "origin_agent")
-    )
+    direct_memories = Memory.objects.filter(
+        agent__simulation=simulation,
+        source_type=Memory.SourceType.DIRECT,
+        tick_created=tick,
+        emotional_weight__gte=threshold,
+        is_active=True,
+    ).select_related("agent", "origin_agent")
     for memory in direct_memories:
         _propagate_memory(
             memory=memory,
@@ -100,15 +98,12 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
     # agents transmit what they have heard even when not personally invested.
     # If this asymmetry is undesired, enforce the threshold consistently
     # across phases. Closes Round 2 finding N-9.
-    hearsay_memories = (
-        Memory.objects.filter(
-            agent__simulation=simulation,
-            source_type=Memory.SourceType.HEARSAY,
-            tick_created=tick - 1,
-            is_active=True,
-        )
-        .select_related("agent", "origin_agent")
-    )
+    hearsay_memories = Memory.objects.filter(
+        agent__simulation=simulation,
+        source_type=Memory.SourceType.HEARSAY,
+        tick_created=tick - 1,
+        is_active=True,
+    ).select_related("agent", "origin_agent")
     for memory in hearsay_memories:
         _propagate_memory(
             memory=memory,
@@ -121,15 +116,12 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
         )
 
     # Phase 3: rumors from the previous tick -> rumor (if within max_hops)
-    rumor_memories = (
-        Memory.objects.filter(
-            agent__simulation=simulation,
-            source_type=Memory.SourceType.RUMOR,
-            tick_created=tick - 1,
-            is_active=True,
-        )
-        .select_related("agent", "origin_agent")
-    )
+    rumor_memories = Memory.objects.filter(
+        agent__simulation=simulation,
+        source_type=Memory.SourceType.RUMOR,
+        tick_created=tick - 1,
+        is_active=True,
+    ).select_related("agent", "origin_agent")
     for memory in rumor_memories:
         current_hop = _estimate_hop(memory.reliability, decay)
         if current_hop >= max_hops:
@@ -170,8 +162,7 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
             )
 
     logger.debug(
-        "propagate_information: simulation=%s tick=%d "
-        "direct=%d hearsay=%d rumor=%d events=%d",
+        "propagate_information: simulation=%s tick=%d direct=%d hearsay=%d rumor=%d events=%d",
         simulation.pk,
         tick,
         direct_memories.count(),
@@ -224,12 +215,9 @@ def _propagate_memory(
     origin = memory.origin_agent or memory.agent
 
     # Bidirectional relationship lookup: transmitter is either agent_from or agent_to
-    relationships = (
-        Relationship.objects.filter(
-            Q(agent_from=transmitter) | Q(agent_to=transmitter)
-        )
-        .select_related("agent_from", "agent_to")
-    )
+    relationships = Relationship.objects.filter(
+        Q(agent_from=transmitter) | Q(agent_to=transmitter)
+    ).select_related("agent_from", "agent_to")
 
     # Gather already-informed agents (dedup): recipients who already have hearsay
     # or rumor from this origin agent for this tick.
