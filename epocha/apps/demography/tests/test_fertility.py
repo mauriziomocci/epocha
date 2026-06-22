@@ -119,7 +119,7 @@ def test_hadwiger_asfr_exactly_at_boundaries():
     assert hadwiger_asfr(50.0, PRE_INDUSTRIAL_HADWIGER) > 0.0
 
 
-def test_hadwiger_asfr_peak_near_R():
+def test_hadwiger_asfr_peak_near_R():  # noqa: N802 -- Hadwiger parameter R in test name
     """The ASFR peak for H=5, R=26, T=3.5 must fall in the range [24, 28].
 
     The Hadwiger mode is slightly below R for typical T values; empirically
@@ -141,7 +141,7 @@ def test_hadwiger_asfr_peak_value_approximate():
     assert 0.30 <= peak <= 0.45, f"Expected peak ~0.38, got {peak:.4f}"
 
 
-def test_hadwiger_asfr_integral_within_15pct_of_H():
+def test_hadwiger_asfr_integral_within_15pct_of_H():  # noqa: N802 -- Hadwiger parameter H in test name
     """Trapezoidal integral over [12, 50] should be within 15% of H=5.0.
 
     Canonical Hadwiger normalization ensures the integral over all fertile ages
@@ -151,7 +151,7 @@ def test_hadwiger_asfr_integral_within_15pct_of_H():
     Source: Schmertmann (2003) Demographic Research 9, equation (1) and
     Chandola, Coleman & Hiorns (1999) Population Studies 53(3).
     """
-    H = PRE_INDUSTRIAL_HADWIGER["H"]
+    H = PRE_INDUSTRIAL_HADWIGER["H"]  # noqa: N806 -- Hadwiger (1940) ASFR parameter notation
     ages = [12 + i * 0.1 for i in range(0, 381)]  # step 0.1 years
     rates = [hadwiger_asfr(a, PRE_INDUSTRIAL_HADWIGER) for a in ages]
     integral = sum(0.5 * (rates[i] + rates[i + 1]) * 0.1 for i in range(len(rates) - 1))

@@ -32,9 +32,9 @@ def hadwiger_asfr(age: float, params: Mapping[str, float]) -> float:
     """
     if age <= 0 or age < 12 or age > 50:
         return 0.0
-    H = float(params["H"])
-    R = float(params["R"])
-    T = float(params["T"])
+    H = float(params["H"])  # noqa: N806 -- Hadwiger (1940) ASFR parameter notation
+    R = float(params["R"])  # noqa: N806 -- Hadwiger (1940) ASFR parameter notation
+    T = float(params["T"])  # noqa: N806 -- Hadwiger (1940) ASFR parameter notation
     ratio = R / age
     coef = (H * T) / (R * math.sqrt(math.pi))
     shape = ratio**1.5

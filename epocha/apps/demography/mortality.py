@@ -35,7 +35,7 @@ def _unpack(params: Mapping[str, float]) -> tuple[float, ...]:
 
 def _hp_components(age: float, params: Mapping[str, float]) -> tuple[float, float, float]:
     """Return (c1, c2, c3) corresponding to the three HP components at age x."""
-    A, B, C, D, E, F, G, H = _unpack(params)
+    A, B, C, D, E, F, G, H = _unpack(params)  # noqa: N806 -- Heligman-Pollard (1980) parameter notation
     x = max(float(age), 0.01)
     c1 = A ** ((x + B) ** C)
     c2 = D * math.exp(-E * (math.log(x) - math.log(F)) ** 2) if x > 0 else 0.0
@@ -119,7 +119,7 @@ def fit_heligman_pollard(
     import numpy as np
     from scipy.optimize import curve_fit
 
-    def _hp_model(x, A, B, C, D, E, F, G, H):
+    def _hp_model(x, A, B, C, D, E, F, G, H):  # noqa: N803 -- Heligman-Pollard (1980) parameter notation
         x_safe = np.maximum(x, 0.01)
         c1 = A ** ((x_safe + B) ** C)
         c2 = D * np.exp(-E * (np.log(x_safe) - np.log(F)) ** 2)

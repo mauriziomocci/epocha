@@ -145,28 +145,28 @@ def setup(db):
         age=28,
     )
     # FEMALE A — created first, so A.pk < B.pk < C.pk < D.pk
-    A = Agent.objects.create(
+    A = Agent.objects.create(  # noqa: N806 -- terse test fixture label
         name="AgentA_female",
         role="teacher",
         gender=Agent.Gender.FEMALE,
         **agent_defaults,
     )
     # FEMALE B
-    B = Agent.objects.create(
+    B = Agent.objects.create(  # noqa: N806 -- terse test fixture label
         name="AgentB_female",
         role="nurse",
         gender=Agent.Gender.FEMALE,
         **agent_defaults,
     )
     # MALE C
-    C = Agent.objects.create(
+    C = Agent.objects.create(  # noqa: N806 -- terse test fixture label
         name="AgentC_male",
         role="engineer",
         gender=Agent.Gender.MALE,
         **agent_defaults,
     )
     # MALE D
-    D = Agent.objects.create(
+    D = Agent.objects.create(  # noqa: N806 -- terse test fixture label
         name="AgentD_male",
         role="farmer",
         gender=Agent.Gender.MALE,
@@ -217,7 +217,7 @@ def test_full_pair_bond_avoid_conception_separate_cycle(setup):
     """
     import random
 
-    sim, zone, A, B, C, D, template = setup
+    sim, zone, A, B, C, D, template = setup  # noqa: N806 -- terse test fixture labels
 
     # Dummy RNG for resolvers (pair_bond resolver does not actually use it
     # but the signature requires one).

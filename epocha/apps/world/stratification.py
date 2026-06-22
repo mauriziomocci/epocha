@@ -59,6 +59,8 @@ _CLASS_RANK: dict[str, int] = {
 # 2%/tick value is a tunable simulation design parameter, not a value reported by
 # either source.
 _CORRUPTION_SKIM_RATE = 0.02
+# Conscientiousness threshold below which an agent engages in corruption.
+_CONSCIENTIOUSNESS_THRESHOLD = 0.4
 
 # Emotional weight assigned to class-change memories.
 # Upward mobility is mildly positive; downward mobility is more emotionally salient.
@@ -280,22 +282,19 @@ def process_corruption(simulation, tick: int) -> None:
             seen_ids.add(agent.pk)
             unique_agents.append(agent)
 
-    # Conscientiousness threshold below which an agent engages in corruption.
-    CONSCIENTIOUSNESS_THRESHOLD = 0.4
-
     agents_to_update: list[Agent] = []
     memories_to_create: list[Memory] = []
     is_head_of_state_corrupt = False
 
     for agent in unique_agents:
         conscientiousness = agent.personality.get("conscientiousness", 0.5)
-        if conscientiousness >= CONSCIENTIOUSNESS_THRESHOLD:
+        if conscientiousness >= _CONSCIENTIOUSNESS_THRESHOLD:
             continue
 
         # Skim rate scales linearly: fully corrupt agent (c=0) skims at max rate;
         # agent at threshold (c=0.4) skims nothing.
         skim_fraction = _CORRUPTION_SKIM_RATE * (
-            1.0 - conscientiousness / CONSCIENTIOUSNESS_THRESHOLD
+            1.0 - conscientiousness / _CONSCIENTIOUSNESS_THRESHOLD
         )
         skim_amount = agent.wealth * skim_fraction
         # Corruption transfers wealth from the global pool to the corrupt agent.
