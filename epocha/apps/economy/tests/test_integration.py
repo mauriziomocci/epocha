@@ -15,7 +15,6 @@ from epocha.apps.economy.models import (
     AgentInventory,
     Currency,
     EconomicLedger,
-    GoodCategory,
     PriceHistory,
     ZoneEconomy,
 )

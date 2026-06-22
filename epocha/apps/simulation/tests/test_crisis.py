@@ -2,7 +2,7 @@
 
 import pytest
 
-from epocha.apps.agents.models import Agent, Group, Memory
+from epocha.apps.agents.models import Agent, Memory
 from epocha.apps.simulation.crisis import detect_crises
 from epocha.apps.simulation.models import Event, Simulation, SimulationSnapshot
 from epocha.apps.users.models import User

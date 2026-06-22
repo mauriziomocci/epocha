@@ -41,7 +41,6 @@ References:
 """
 
 import re
-from typing import Optional
 
 # Thresholds for extreme trait detection. Set at 0.7 (high) and 0.3 (low) on the
 # [0,1] Big Five scale. These are tunable design parameters. Allport & Postman (1947)

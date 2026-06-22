@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Mapping
+from collections.abc import Mapping
 
 HP_PARAM_KEYS = tuple("ABCDEFGH")
 

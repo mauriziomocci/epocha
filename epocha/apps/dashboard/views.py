@@ -26,7 +26,6 @@ from epocha.apps.users.models import User
 from epocha.apps.world.government_types import GOVERNMENT_TYPES
 from epocha.apps.world.models import Government, GovernmentHistory, World
 
-
 # ---------- Auth ----------
 
 
@@ -929,8 +928,8 @@ def group_chat_view(request, sim_id):
 
             if is_addressed:
                 role_instruction = (
-                    f"The Visitor is speaking to you directly. "
-                    f"Respond to their message. You may also react to what other characters said."
+                    "The Visitor is speaking to you directly. "
+                    "Respond to their message. You may also react to what other characters said."
                 )
                 max_tokens = 200
             else:
@@ -1092,6 +1091,7 @@ def graph_data_view(request, sim_id):
 
     # Nodes: all agents in the simulation
     from django.db.models import Avg
+
     from epocha.apps.agents.models import ReputationScore
 
     # Precompute average reputation for all agents (one query instead of N)

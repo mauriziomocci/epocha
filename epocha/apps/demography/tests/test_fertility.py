@@ -12,7 +12,6 @@ Covers:
 
 from __future__ import annotations
 
-import math
 import random
 import sys
 import types
@@ -34,7 +33,6 @@ from epocha.apps.economy.models import BankingState, GoodCategory, ZoneEconomy
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import Government, World, Zone
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -171,8 +169,6 @@ def test_hadwiger_asfr_integral_within_15pct_of_H():
 def _full_db_for_becker(sim_with_zone):
     """Add ZoneEconomy + GoodCategory + Government + BankingState so the
     context helpers return finite values for becker_modulation tests."""
-    from epocha.apps.economy.models import BankingState, GoodCategory, ZoneEconomy
-    from epocha.apps.world.models import Government
 
     sim, zone = sim_with_zone
     GoodCategory.objects.create(

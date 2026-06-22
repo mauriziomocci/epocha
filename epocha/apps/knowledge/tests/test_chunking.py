@@ -1,8 +1,7 @@
 """Tests for the chunking service."""
 
-import pytest
 
-from epocha.apps.knowledge.chunking import split_text_into_chunks, ChunkResult
+from epocha.apps.knowledge.chunking import split_text_into_chunks
 
 
 class TestSplitTextIntoChunks:

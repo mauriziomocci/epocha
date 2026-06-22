@@ -4,7 +4,6 @@ import pytest
 
 from epocha.apps.agents.factions import (
     compute_leadership_score,
-    compute_legitimacy,
     update_group_cohesion,
     update_group_leadership,
 )

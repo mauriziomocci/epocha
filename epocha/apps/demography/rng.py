@@ -39,7 +39,7 @@ def get_seeded_rng(simulation, tick: int, phase: str) -> random.Random:
         )
     base_seed = simulation.seed or 0
     simulation_id = getattr(simulation, "id", 0) or 0
-    key = f"{simulation_id}:{base_seed}:{tick}:{phase}".encode("utf-8")
+    key = f"{simulation_id}:{base_seed}:{tick}:{phase}".encode()
     digest = hashlib.sha256(key).digest()
     derived_seed = int.from_bytes(digest[:8], "big")
     return random.Random(derived_seed)

@@ -9,7 +9,6 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from django.test import override_settings
 from rest_framework.test import APIClient
 
 from epocha.apps.knowledge.models import (

@@ -38,7 +38,6 @@ from .credit import (
 )
 from .distribution import compute_rent, compute_taxes, compute_wages
 from .expectations import update_agent_expectations
-from .property_market import process_property_listings
 from .market import (
     SUBSISTENCE_NEED_PER_AGENT,
     collect_supply_and_demand,
@@ -62,6 +61,7 @@ from .monetary import (
     update_agent_wealth,
 )
 from .production import compute_agent_output
+from .property_market import process_property_listings
 from .template_loader import _ROLE_PRODUCTION, _ZONE_TYPE_RESOURCES
 
 logger = logging.getLogger(__name__)

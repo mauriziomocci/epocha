@@ -20,7 +20,8 @@ from functools import lru_cache
 
 from django.conf import settings
 
-from .versions import EMBEDDING_DIM, EMBEDDING_MODEL
+from .versions import EMBEDDING_DIM as EMBEDDING_DIM  # re-exported for consumers
+from .versions import EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 

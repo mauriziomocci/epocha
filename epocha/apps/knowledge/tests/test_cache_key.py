@@ -1,6 +1,6 @@
 """Tests for the cache key builder."""
 
-from epocha.apps.knowledge.cache import compute_documents_hash, compute_cache_key
+from epocha.apps.knowledge.cache import compute_cache_key, compute_documents_hash
 
 
 class TestComputeDocumentsHash:

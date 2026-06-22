@@ -1,10 +1,9 @@
 """Tests for canonical name normalization."""
 
-import pytest
 
 from epocha.apps.knowledge.normalizer import (
-    normalize_canonical_name,
     name_contained_in_passage,
+    normalize_canonical_name,
 )
 
 

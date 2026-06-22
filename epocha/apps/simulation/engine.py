@@ -158,7 +158,7 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
 
     # Handle move_to action
     if action_type == "move_to" and target_name:
-        from epocha.apps.world.models import Zone, World, Government
+        from epocha.apps.world.models import Government, World, Zone
 
         try:
             world = World.objects.get(simulation=agent.simulation)
@@ -288,8 +288,8 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
     # demography subsystem is not present (economy-only simulations).
     if action_type == "avoid_conception":
         try:
-            from epocha.apps.demography.template_loader import load_template
             from epocha.apps.demography.fertility import set_avoid_conception_flag
+            from epocha.apps.demography.template_loader import load_template
 
             template_name = agent.simulation.config.get(
                 "demography_template", "pre_industrial_christian"

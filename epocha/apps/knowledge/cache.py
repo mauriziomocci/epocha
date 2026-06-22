@@ -12,7 +12,7 @@ Any change to any of these fields invalidates the cache automatically.
 from __future__ import annotations
 
 import hashlib
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def compute_documents_hash(content_hashes: Iterable[str]) -> str:

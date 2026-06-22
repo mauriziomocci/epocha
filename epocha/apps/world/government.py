@@ -31,7 +31,7 @@ from epocha.apps.agents.models import Agent, Group, Memory
 from epocha.apps.world.government_types import GOVERNMENT_TYPES
 from epocha.apps.world.institutions import update_institutions
 from epocha.apps.world.models import Government, GovernmentHistory, Institution, World
-from epocha.apps.world.stratification import compute_gini, process_corruption, update_social_classes
+from epocha.apps.world.stratification import process_corruption, update_social_classes
 
 logger = logging.getLogger(__name__)
 

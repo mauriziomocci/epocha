@@ -2,12 +2,11 @@
 
 import pytest
 
-from epocha.apps.agents.models import Agent, Group, Memory
+from epocha.apps.agents.models import Agent, Group
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.government import (
     check_transitions,
-    process_political_cycle,
     update_government_indicators,
 )
 from epocha.apps.world.models import Government, GovernmentHistory, Institution, World

@@ -2,16 +2,14 @@
 
 from unittest.mock import patch
 
-import pytest
-
-from epocha.apps.knowledge.merge import (
-    merge_extraction_results,
-    _merge_entity_cluster,
-    _deduplicate_relations,
-    _build_cosine_similarity_matrix,
-    _single_linkage_clusters,
-)
 from epocha.apps.knowledge.extraction import ExtractionResult
+from epocha.apps.knowledge.merge import (
+    _build_cosine_similarity_matrix,
+    _deduplicate_relations,
+    _merge_entity_cluster,
+    _single_linkage_clusters,
+    merge_extraction_results,
+)
 
 
 def _entity(

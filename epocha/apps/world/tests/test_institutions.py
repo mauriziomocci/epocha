@@ -2,10 +2,10 @@
 
 import pytest
 
-from epocha.apps.world.institutions import update_institutions
-from epocha.apps.world.models import Government, Institution, World
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
+from epocha.apps.world.institutions import update_institutions
+from epocha.apps.world.models import Government, Institution, World
 
 
 @pytest.fixture

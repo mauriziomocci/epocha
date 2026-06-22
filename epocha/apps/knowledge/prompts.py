@@ -16,8 +16,6 @@ from __future__ import annotations
 
 import json
 
-from .ontology import ENTITY_TYPES, RELATION_TYPES
-
 # JSON schema example that the LLM must follow exactly.
 EXTRACTION_JSON_SCHEMA = json.dumps(
     {

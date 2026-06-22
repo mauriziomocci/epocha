@@ -1,6 +1,5 @@
 """Tests for agent pairwise affinity calculation."""
 
-import math
 
 import pytest
 

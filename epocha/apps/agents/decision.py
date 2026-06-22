@@ -15,7 +15,7 @@ from epocha.apps.llm_adapter.client import get_llm_client
 from epocha.common.utils import clean_llm_json
 
 from .memory import get_relevant_memories
-from .models import Agent, DecisionLog, Group, Relationship
+from .models import Agent, DecisionLog, Relationship
 from .personality import build_personality_prompt
 
 logger = logging.getLogger(__name__)
@@ -336,8 +336,8 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     # Build zone context (reuses world_state from caller and government from political context)
     zone_context = None
     try:
-        from epocha.apps.world.models import Zone
         from epocha.apps.agents.movement import calculate_max_distance, get_transport_type
+        from epocha.apps.world.models import Zone
 
         zones = Zone.objects.filter(world=world_state)
         gov = government

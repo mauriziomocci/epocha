@@ -204,7 +204,9 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
     - Arranged marriage reattribution follows Goode (1963) §7.
     """
     import json
+
     from django.db import transaction
+
     from epocha.apps.agents.models import Agent, DecisionLog
     from epocha.apps.demography.template_loader import load_template
 
@@ -332,6 +334,7 @@ def resolve_separate_intents(simulation, tick: int) -> list["Couple"]:
     Returns the list of dissolved Couples.
     """
     import json
+
     from epocha.apps.agents.models import DecisionLog
     from epocha.apps.demography.template_loader import load_template
 

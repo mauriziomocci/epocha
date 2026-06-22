@@ -259,7 +259,6 @@ def process_corruption(simulation, tick: int) -> None:
     except Government.DoesNotExist:
         government = None
 
-    from epocha.apps.agents.models import Group  # avoid circular import at module level
 
     group_leaders = (
         Agent.objects.filter(

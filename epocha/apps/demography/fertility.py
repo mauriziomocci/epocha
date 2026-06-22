@@ -14,7 +14,7 @@ Sources:
 from __future__ import annotations
 
 import math
-from typing import Mapping
+from collections.abc import Mapping
 
 
 def hadwiger_asfr(age: float, params: Mapping[str, float]) -> float:
@@ -48,9 +48,9 @@ def _female_role_employment_fraction(zone, simulation) -> float:
     Proxy for female labor force participation. Reads the last tick of
     EconomicLedger wage transactions where the recipient is female.
     """
+
     from epocha.apps.agents.models import Agent
     from epocha.apps.economy.models import EconomicLedger
-    from django.db.models import F
 
     tick = simulation.current_tick
     females = Agent.objects.filter(
@@ -75,8 +75,9 @@ def _female_role_employment_fraction(zone, simulation) -> float:
 
 def _zone_mean_wage(zone, simulation, lookback_ticks: int = 5) -> float:
     """Mean wage in the zone averaged over the last lookback_ticks ticks."""
-    from epocha.apps.economy.models import EconomicLedger
     from django.db.models import Avg
+
+    from epocha.apps.economy.models import EconomicLedger
 
     tick = simulation.current_tick
     agg = EconomicLedger.objects.filter(
@@ -98,8 +99,8 @@ def becker_modulation(agent, coeffs: Mapping[str, float]) -> float:
     Returns a scaling factor in [0.05, 3.0].
     """
     from epocha.apps.demography.context import (
-        compute_subsistence_threshold,
         compute_aggregate_outlook,
+        compute_subsistence_threshold,
     )
 
     subsistence = compute_subsistence_threshold(agent.simulation, agent.zone)

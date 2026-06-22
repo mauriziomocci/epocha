@@ -28,7 +28,7 @@ from epocha.apps.agents.models import Agent
 from epocha.apps.world.models import Government
 from epocha.apps.world.stratification import compute_gini
 
-from .models import Currency, PriceHistory, ZoneEconomy
+from .models import PriceHistory, ZoneEconomy
 from .monetary import compute_inflation
 
 logger = logging.getLogger(__name__)
