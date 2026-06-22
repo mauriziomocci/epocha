@@ -9,6 +9,7 @@ Covers:
   and tick+1 settlement semantics
 - resolve_childbirth_event: deterministic outcomes under seeded RNG
 """
+
 from __future__ import annotations
 
 import math
@@ -44,10 +45,15 @@ from epocha.apps.world.models import Government, World, Zone
 def sim_with_zone(db):
     """Minimal scaffolding: user, simulation, world, zone."""
     user = User.objects.create_user(
-        email="fertility@epocha.dev", username="fertilityuser", password="pass1234",
+        email="fertility@epocha.dev",
+        username="fertilityuser",
+        password="pass1234",
     )
     sim = Simulation.objects.create(
-        name="FertilityTest", seed=42, owner=user, current_tick=0,
+        name="FertilityTest",
+        seed=42,
+        owner=user,
+        current_tick=0,
     )
     world = World.objects.create(simulation=sim, stability_index=0.7)
     zone = Zone.objects.create(
@@ -150,9 +156,7 @@ def test_hadwiger_asfr_integral_within_15pct_of_H():
     H = PRE_INDUSTRIAL_HADWIGER["H"]
     ages = [12 + i * 0.1 for i in range(0, 381)]  # step 0.1 years
     rates = [hadwiger_asfr(a, PRE_INDUSTRIAL_HADWIGER) for a in ages]
-    integral = sum(
-        0.5 * (rates[i] + rates[i + 1]) * 0.1 for i in range(len(rates) - 1)
-    )
+    integral = sum(0.5 * (rates[i] + rates[i + 1]) * 0.1 for i in range(len(rates) - 1))
     assert abs(integral - H) / H < 0.15, (
         f"Integral {integral:.3f} deviates from H={H} by more than 15%"
     )
@@ -197,10 +201,18 @@ def test_becker_modulation_zero_coefficients(_full_db_for_becker):
 
     sim, zone = _full_db_for_becker
     agent = Agent.objects.create(
-        simulation=sim, name="Neutral", role="farmer",
-        zone=zone, location=Point(50, 50),
-        gender=Agent.Gender.FEMALE, health=1.0, wealth=100.0,
-        age=25, birth_tick=0, mood=0.5, education_level=0.5,
+        simulation=sim,
+        name="Neutral",
+        role="farmer",
+        zone=zone,
+        location=Point(50, 50),
+        gender=Agent.Gender.FEMALE,
+        health=1.0,
+        wealth=100.0,
+        age=25,
+        birth_tick=0,
+        mood=0.5,
+        education_level=0.5,
     )
     zero_coeffs = {"beta_0": 0.0, "beta_1": 0.0, "beta_2": 0.0, "beta_3": 0.0, "beta_4": 0.0}
     result = becker_modulation(agent, zero_coeffs)
@@ -214,10 +226,18 @@ def test_becker_modulation_high_wealth_positive_beta1(_full_db_for_becker):
 
     sim, zone = _full_db_for_becker
     rich_agent = Agent.objects.create(
-        simulation=sim, name="Rich", role="merchant",
-        zone=zone, location=Point(50, 50),
-        gender=Agent.Gender.FEMALE, health=1.0, wealth=10000.0,
-        age=25, birth_tick=0, mood=0.5, education_level=0.3,
+        simulation=sim,
+        name="Rich",
+        role="merchant",
+        zone=zone,
+        location=Point(50, 50),
+        gender=Agent.Gender.FEMALE,
+        health=1.0,
+        wealth=10000.0,
+        age=25,
+        birth_tick=0,
+        mood=0.5,
+        education_level=0.3,
     )
     coeffs = {"beta_0": 0.0, "beta_1": 0.3, "beta_2": 0.0, "beta_3": 0.0, "beta_4": 0.0}
     result = becker_modulation(rich_agent, coeffs)
@@ -231,10 +251,18 @@ def test_becker_modulation_low_wealth_positive_beta1(_full_db_for_becker):
 
     sim, zone = _full_db_for_becker
     poor_agent = Agent.objects.create(
-        simulation=sim, name="Poor", role="servant",
-        zone=zone, location=Point(50, 50),
-        gender=Agent.Gender.FEMALE, health=1.0, wealth=0.01,
-        age=25, birth_tick=0, mood=0.5, education_level=0.3,
+        simulation=sim,
+        name="Poor",
+        role="servant",
+        zone=zone,
+        location=Point(50, 50),
+        gender=Agent.Gender.FEMALE,
+        health=1.0,
+        wealth=0.01,
+        age=25,
+        birth_tick=0,
+        mood=0.5,
+        education_level=0.3,
     )
     coeffs = {"beta_0": 0.0, "beta_1": 0.3, "beta_2": 0.0, "beta_3": 0.0, "beta_4": 0.0}
     result = becker_modulation(poor_agent, coeffs)
@@ -360,6 +388,7 @@ def test_tick_birth_probability_no_couple_returns_zero(female_agent):
     with _inject_couple_stub(return_value=False):
         # Force fertility module to re-import couple with the stub in place
         import importlib
+
         importlib.reload(fertility_mod)
         result = fertility_mod.tick_birth_probability(
             agent,
@@ -397,6 +426,7 @@ def test_tick_birth_probability_avoid_conception_returns_zero(female_agent):
 
     with _inject_couple_stub(return_value=True):
         import importlib
+
         importlib.reload(fertility_mod)
         result = fertility_mod.tick_birth_probability(
             agent,

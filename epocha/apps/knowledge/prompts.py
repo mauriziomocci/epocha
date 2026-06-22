@@ -11,6 +11,7 @@ what the passage supports, never adding facts from its general knowledge.
 Source type assignment is done mechanically after extraction, not by
 the LLM (see extraction.py).
 """
+
 from __future__ import annotations
 
 import json

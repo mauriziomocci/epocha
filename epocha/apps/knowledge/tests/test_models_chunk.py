@@ -1,4 +1,5 @@
 """Tests for the KnowledgeChunk model."""
+
 import pytest
 from django.db import IntegrityError
 
@@ -8,7 +9,8 @@ from epocha.apps.knowledge.models import KnowledgeChunk, KnowledgeDocument
 @pytest.fixture
 def document(db):
     return KnowledgeDocument.objects.create(
-        title="Test", mime_type="text/plain",
+        title="Test",
+        mime_type="text/plain",
         content_hash="b" * 64,
         normalized_text="The Bastille was stormed on July 14, 1789.",
         char_count=42,
@@ -33,22 +35,31 @@ class TestKnowledgeChunk:
 
     def test_chunk_index_unique_per_document(self, document):
         KnowledgeChunk.objects.create(
-            document=document, chunk_index=0,
-            text="a", start_char=0, end_char=1,
+            document=document,
+            chunk_index=0,
+            text="a",
+            start_char=0,
+            end_char=1,
             embedding=[0.0] * 1024,
         )
         with pytest.raises(IntegrityError):
             KnowledgeChunk.objects.create(
-                document=document, chunk_index=0,
-                text="b", start_char=1, end_char=2,
+                document=document,
+                chunk_index=0,
+                text="b",
+                start_char=1,
+                end_char=2,
                 embedding=[0.0] * 1024,
             )
 
     def test_chunks_ordered_by_index(self, document):
         for i in range(3):
             KnowledgeChunk.objects.create(
-                document=document, chunk_index=i,
-                text=f"chunk {i}", start_char=i * 10, end_char=(i + 1) * 10,
+                document=document,
+                chunk_index=i,
+                text=f"chunk {i}",
+                start_char=i * 10,
+                end_char=(i + 1) * 10,
                 embedding=[float(i)] * 1024,
             )
         chunks = list(document.chunks.order_by("chunk_index"))

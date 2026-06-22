@@ -4,6 +4,7 @@ Produces a structured report summarizing the simulation's history, notable
 events, key agents, and final state. Written in an encyclopedic style
 inspired by Asimov's Galactic Encyclopedia.
 """
+
 from __future__ import annotations
 
 import logging
@@ -47,16 +48,21 @@ def generate_simulation_report(simulation) -> str:
     total_decisions = DecisionLog.objects.filter(simulation=simulation).count()
 
     # Build context
-    events_text = "\n".join(
-        f"- [Tick {e.tick}] {e.title} (severity: {e.severity}): {e.description}"
-        for e in events
-    ) or "No significant events recorded."
+    events_text = (
+        "\n".join(
+            f"- [Tick {e.tick}] {e.title} (severity: {e.severity}): {e.description}" for e in events
+        )
+        or "No significant events recorded."
+    )
 
-    agents_text = "\n".join(
-        f"- {a.name} ({a.role}): wealth={a.wealth:.0f}, health={a.health:.1f}, "
-        f"mood={a.mood:.1f}, alive={a.is_alive}"
-        for a in agents[:30]
-    ) or "No agents."
+    agents_text = (
+        "\n".join(
+            f"- {a.name} ({a.role}): wealth={a.wealth:.0f}, health={a.health:.1f}, "
+            f"mood={a.mood:.1f}, alive={a.is_alive}"
+            for a in agents[:30]
+        )
+        or "No agents."
+    )
 
     context = (
         f"Simulation: {simulation.name}\n"

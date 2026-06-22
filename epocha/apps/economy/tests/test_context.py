@@ -1,4 +1,5 @@
 """Tests for economic context builder."""
+
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
@@ -29,7 +30,9 @@ def user(db):
 @pytest.fixture
 def simulation(user):
     return Simulation.objects.create(
-        name="ContextTest", seed=42, owner=user,
+        name="ContextTest",
+        seed=42,
+        owner=user,
     )
 
 
@@ -42,23 +45,35 @@ def economy_setup(simulation):
         tick_duration_hours=24.0,
     )
     zone = Zone.objects.create(
-        world=world, name="Paris", zone_type="urban",
+        world=world,
+        name="Paris",
+        zone_type="urban",
         boundary=Polygon.from_bbox((0, 0, 100, 100)),
         center=Point(50, 50),
     )
     currency = Currency.objects.create(
-        simulation=simulation, code="LVR", name="Livre",
-        symbol="L", is_primary=True, total_supply=10000.0,
+        simulation=simulation,
+        code="LVR",
+        name="Livre",
+        symbol="L",
+        is_primary=True,
+        total_supply=10000.0,
     )
     sub = GoodCategory.objects.create(
-        simulation=simulation, code="subsistence",
-        name="Subsistence", is_essential=True,
-        base_price=3.0, price_elasticity=0.3,
+        simulation=simulation,
+        code="subsistence",
+        name="Subsistence",
+        is_essential=True,
+        base_price=3.0,
+        price_elasticity=0.3,
     )
     lux = GoodCategory.objects.create(
-        simulation=simulation, code="luxury",
-        name="Luxury", is_essential=False,
-        base_price=50.0, price_elasticity=2.0,
+        simulation=simulation,
+        code="luxury",
+        name="Luxury",
+        is_essential=False,
+        base_price=50.0,
+        price_elasticity=2.0,
     )
     ze = ZoneEconomy.objects.create(
         zone=zone,
@@ -66,18 +81,30 @@ def economy_setup(simulation):
     )
     # Previous tick prices for % change
     PriceHistory.objects.create(
-        zone_economy=ze, good_code="subsistence", tick=0,
-        price=3.0, supply=10, demand=10,
+        zone_economy=ze,
+        good_code="subsistence",
+        tick=0,
+        price=3.0,
+        supply=10,
+        demand=10,
     )
     PriceHistory.objects.create(
-        zone_economy=ze, good_code="luxury", tick=0,
-        price=50.0, supply=5, demand=5,
+        zone_economy=ze,
+        good_code="luxury",
+        tick=0,
+        price=50.0,
+        supply=5,
+        demand=5,
     )
 
     agent = Agent.objects.create(
-        simulation=simulation, name="Trader", role="merchant",
-        personality={"openness": 0.5}, location=Point(50, 50),
-        zone=zone, wealth=180.0,
+        simulation=simulation,
+        name="Trader",
+        role="merchant",
+        personality={"openness": 0.5},
+        location=Point(50, 50),
+        zone=zone,
+        wealth=180.0,
     )
     AgentInventory.objects.create(
         agent=agent,
@@ -85,9 +112,12 @@ def economy_setup(simulation):
         cash={"LVR": 50.0},
     )
     Property.objects.create(
-        simulation=simulation, owner=agent,
-        owner_type="agent", zone=zone,
-        property_type="land", name="Trader's Land",
+        simulation=simulation,
+        owner=agent,
+        owner_type="agent",
+        zone=zone,
+        property_type="land",
+        name="Trader's Land",
         value=100.0,
     )
 
@@ -151,16 +181,20 @@ class TestHoardActionInPrompt:
         # _DECISION_SYSTEM_PROMPT was replaced by _BASE_ACTIONS + _build_system_prompt
         # in Plan 2 (dynamic era filter). Verify hoard is in the base action vocabulary.
         from epocha.apps.agents.decision import _BASE_ACTIONS
+
         assert "hoard" in _BASE_ACTIONS
 
     def test_hoard_in_action_verbs(self):
         from epocha.apps.dashboard.formatters import _ACTION_VERBS
+
         assert "hoard" in _ACTION_VERBS
 
     def test_hoard_in_emotional_weight(self):
         from epocha.apps.simulation.engine import _ACTION_EMOTIONAL_WEIGHT
+
         assert "hoard" in _ACTION_EMOTIONAL_WEIGHT
 
     def test_hoard_in_mood_delta(self):
         from epocha.apps.simulation.engine import _ACTION_MOOD_DELTA
+
         assert "hoard" in _ACTION_MOOD_DELTA

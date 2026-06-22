@@ -24,6 +24,7 @@ Weight rationale:
     long-term group cohesion requires compatible temperament and
     established trust.
 """
+
 from __future__ import annotations
 
 import math
@@ -114,6 +115,7 @@ def _personality_similarity(personality_a: dict, personality_b: dict) -> float:
     Returns:
         Float in [0.0, 1.0].
     """
+
     def _get_trait(personality: dict, trait: str) -> float:
         value = personality.get(trait, _TRAIT_DEFAULT)
         return value if isinstance(value, (int, float)) else _TRAIT_DEFAULT
@@ -157,8 +159,7 @@ def _relationship_score(agent_a: Agent, agent_b: Agent) -> float:
     """
     try:
         rel = Relationship.objects.get(
-            Q(agent_from=agent_a, agent_to=agent_b)
-            | Q(agent_from=agent_b, agent_to=agent_a)
+            Q(agent_from=agent_a, agent_to=agent_b) | Q(agent_from=agent_b, agent_to=agent_a)
         )
     except Relationship.DoesNotExist:
         return 0.0
@@ -166,8 +167,7 @@ def _relationship_score(agent_a: Agent, agent_b: Agent) -> float:
         # When both directions exist, take the stronger one.
         rel = (
             Relationship.objects.filter(
-                Q(agent_from=agent_a, agent_to=agent_b)
-                | Q(agent_from=agent_b, agent_to=agent_a)
+                Q(agent_from=agent_a, agent_to=agent_b) | Q(agent_from=agent_b, agent_to=agent_a)
             )
             .order_by("-strength")
             .first()

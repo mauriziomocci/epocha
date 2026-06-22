@@ -1,4 +1,5 @@
 """Tests for the simulation tick orchestrator."""
+
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -21,10 +22,15 @@ def sim_with_world(user):
     world = World.objects.create(simulation=sim)
     Zone.objects.create(world=world, name="Village", zone_type="urban")
     Agent.objects.create(
-        simulation=sim, name="Marco", role="blacksmith",
+        simulation=sim,
+        name="Marco",
+        role="blacksmith",
         personality={
-            "openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5,
-            "agreeableness": 0.5, "neuroticism": 0.5,
+            "openness": 0.5,
+            "conscientiousness": 0.5,
+            "extraversion": 0.5,
+            "agreeableness": 0.5,
+            "neuroticism": 0.5,
             "background": "A blacksmith",
         },
     )
@@ -48,7 +54,9 @@ class TestSimulationEngine:
     def test_run_tick_processes_all_agents(self, mock_decision, sim_with_world):
         """Every living agent should get a decision call."""
         Agent.objects.create(
-            simulation=sim_with_world, name="Elena", role="farmer",
+            simulation=sim_with_world,
+            name="Elena",
+            role="farmer",
             personality={"openness": 0.5},
         )
         mock_decision.return_value = {"action": "rest"}
@@ -62,8 +70,11 @@ class TestSimulationEngine:
     def test_dead_agents_are_skipped(self, mock_decision, sim_with_world):
         """Dead agents must not be processed."""
         Agent.objects.create(
-            simulation=sim_with_world, name="Ghost", role="farmer",
-            personality={}, is_alive=False,
+            simulation=sim_with_world,
+            name="Ghost",
+            role="farmer",
+            personality={},
+            is_alive=False,
         )
         mock_decision.return_value = {"action": "rest"}
 
@@ -101,7 +112,9 @@ class TestSimulationEngine:
     def test_agent_failure_does_not_crash_tick(self, mock_decision, sim_with_world):
         """If one agent's decision fails, the tick should continue for others."""
         Agent.objects.create(
-            simulation=sim_with_world, name="Elena", role="farmer",
+            simulation=sim_with_world,
+            name="Elena",
+            role="farmer",
             personality={"openness": 0.5},
         )
         mock_decision.side_effect = [Exception("LLM error"), {"action": "rest"}]
@@ -136,23 +149,33 @@ class TestSimulationEngine:
         engine.run_tick()  # tick 3 - same action, should skip memory
 
         marco = Agent.objects.get(name="Marco")
-        argue_memories = Memory.objects.filter(agent=marco, content__startswith="I decided to argue")
+        argue_memories = Memory.objects.filter(
+            agent=marco, content__startswith="I decided to argue"
+        )
         assert argue_memories.count() == 1
 
     @patch("epocha.apps.simulation.engine.process_agent_decision")
     def test_information_flow_runs_after_decisions(self, mock_decision, sim_with_world):
         """Information flow should propagate after agent decisions."""
         Agent.objects.create(
-            simulation=sim_with_world, name="Elena", role="farmer",
+            simulation=sim_with_world,
+            name="Elena",
+            role="farmer",
             personality={
-                "openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5,
-                "agreeableness": 0.5, "neuroticism": 0.5,
+                "openness": 0.5,
+                "conscientiousness": 0.5,
+                "extraversion": 0.5,
+                "agreeableness": 0.5,
+                "neuroticism": 0.5,
             },
         )
         Relationship.objects.create(
             agent_from=Agent.objects.get(name="Marco"),
             agent_to=Agent.objects.get(name="Elena"),
-            relation_type="friendship", strength=0.7, sentiment=0.6, since_tick=0,
+            relation_type="friendship",
+            strength=0.7,
+            sentiment=0.6,
+            since_tick=0,
         )
         mock_decision.return_value = {"action": "argue", "reason": "angry at priest"}
 
@@ -189,6 +212,7 @@ class TestSimulationEngine:
     def test_snapshot_captured_every_tick(self, mock_decision, sim_with_world):
         """A SimulationSnapshot should be created for each tick."""
         from epocha.apps.simulation.models import SimulationSnapshot
+
         mock_decision.return_value = {"action": "work", "reason": "busy"}
         engine = SimulationEngine(sim_with_world)
         engine.run_tick()

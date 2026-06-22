@@ -3,6 +3,7 @@
 Uses Django templates with Alpine.js for interactivity and Tailwind CSS
 via CDN for styling. No build step required.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -27,6 +28,7 @@ from epocha.apps.world.models import Government, GovernmentHistory, World
 
 
 # ---------- Auth ----------
+
 
 def register_view(request):
     if request.method == "POST":
@@ -123,6 +125,7 @@ def set_language_view(request):
 
 # ---------- Simulations ----------
 
+
 @login_required(login_url="/login/")
 def simulation_list_view(request):
     simulations = Simulation.objects.filter(owner=request.user).order_by("-created_at")
@@ -134,7 +137,9 @@ def simulation_create_view(request):
     if request.method == "POST":
         prompt = request.POST.get("prompt", "")
         if not prompt.strip():
-            return render(request, "dashboard/simulation_create.html", {"error": "Prompt is required."})
+            return render(
+                request, "dashboard/simulation_create.html", {"error": "Prompt is required."}
+            )
 
         simulation = Simulation.objects.create(
             name="Express Simulation",
@@ -175,29 +180,43 @@ def simulation_feed_api(request, sim_id):
     from django.db.models import Count, Sum
 
     cost_stats = LLMRequest.objects.filter(
-        simulation_id=simulation.id, success=True,
+        simulation_id=simulation.id,
+        success=True,
     ).aggregate(total_cost=Sum("cost_usd"), total_requests=Count("id"))
 
-    return JsonResponse({
-        "status": simulation.status,
-        "tick": simulation.current_tick,
-        "stability": round(world.stability_index, 2) if world else 0,
-        "total_cost": round(cost_stats["total_cost"] or 0, 4),
-        "total_requests": cost_stats["total_requests"] or 0,
-        "agents": [
-            {"id": a.id, "name": a.name, "role": a.role, "alive": a.is_alive,
-             "health": round(a.health, 1), "mood": round(a.mood, 1), "wealth": round(a.wealth, 0)}
-            for a in agents
-        ],
-        "decisions": [
-            {"agent": d.agent.name, "tick": d.tick, "decision": format_decision_text(d.output_decision)}
-            for d in decisions
-        ],
-        "events": [
-            {"title": e.title, "tick": e.tick, "description": e.description[:80]}
-            for e in events
-        ],
-    })
+    return JsonResponse(
+        {
+            "status": simulation.status,
+            "tick": simulation.current_tick,
+            "stability": round(world.stability_index, 2) if world else 0,
+            "total_cost": round(cost_stats["total_cost"] or 0, 4),
+            "total_requests": cost_stats["total_requests"] or 0,
+            "agents": [
+                {
+                    "id": a.id,
+                    "name": a.name,
+                    "role": a.role,
+                    "alive": a.is_alive,
+                    "health": round(a.health, 1),
+                    "mood": round(a.mood, 1),
+                    "wealth": round(a.wealth, 0),
+                }
+                for a in agents
+            ],
+            "decisions": [
+                {
+                    "agent": d.agent.name,
+                    "tick": d.tick,
+                    "decision": format_decision_text(d.output_decision),
+                }
+                for d in decisions
+            ],
+            "events": [
+                {"title": e.title, "tick": e.tick, "description": e.description[:80]}
+                for e in events
+            ],
+        }
+    )
 
 
 @login_required(login_url="/login/")
@@ -217,26 +236,41 @@ def simulation_detail_view(request, sim_id):
     from django.db.models import Count, Sum
 
     cost_stats = LLMRequest.objects.filter(
-        simulation_id=simulation.id, success=True,
+        simulation_id=simulation.id,
+        success=True,
     ).aggregate(
         total_cost=Sum("cost_usd"),
         total_requests=Count("id"),
     )
 
     # JSON for Alpine.js live feed initialization
-    agents_json = json.dumps([
-        {"id": a.id, "name": a.name, "role": a.role, "alive": a.is_alive,
-         "health": round(a.health, 1), "mood": round(a.mood, 1), "wealth": round(a.wealth, 0)}
-        for a in agents
-    ])
-    decisions_json = json.dumps([
-        {"agent": d.agent.name, "tick": d.tick, "decision": format_decision_text(d.output_decision)}
-        for d in decisions
-    ])
-    events_json = json.dumps([
-        {"title": e.title, "tick": e.tick, "description": e.description[:80]}
-        for e in events
-    ])
+    agents_json = json.dumps(
+        [
+            {
+                "id": a.id,
+                "name": a.name,
+                "role": a.role,
+                "alive": a.is_alive,
+                "health": round(a.health, 1),
+                "mood": round(a.mood, 1),
+                "wealth": round(a.wealth, 0),
+            }
+            for a in agents
+        ]
+    )
+    decisions_json = json.dumps(
+        [
+            {
+                "agent": d.agent.name,
+                "tick": d.tick,
+                "decision": format_decision_text(d.output_decision),
+            }
+            for d in decisions
+        ]
+    )
+    events_json = json.dumps(
+        [{"title": e.title, "tick": e.tick, "description": e.description[:80]} for e in events]
+    )
 
     context = {
         "simulation": simulation,
@@ -365,7 +399,7 @@ def inject_event_view(request, sim_id):
         # Clean and parse
         cleaned = raw.strip()
         if cleaned.startswith("```"):
-            cleaned = cleaned[cleaned.index("\n") + 1:]
+            cleaned = cleaned[cleaned.index("\n") + 1 :]
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3]
         effects = json.loads(cleaned.strip())
@@ -376,9 +410,17 @@ def inject_event_view(request, sim_id):
         effects = []
         for a in agents:
             if a.name.lower() in event_text:
-                effects.append({"name": a.name, "targeted": True, "witness": False,
-                                "dies": False, "mood_delta": -severity * 0.5,
-                                "health_delta": -severity * 0.4, "wealth_delta": 0})
+                effects.append(
+                    {
+                        "name": a.name,
+                        "targeted": True,
+                        "witness": False,
+                        "dies": False,
+                        "mood_delta": -severity * 0.5,
+                        "health_delta": -severity * 0.4,
+                        "wealth_delta": 0,
+                    }
+                )
             # Others are not included -- they do not know about the event
 
     # Apply effects only to agents the LLM included (targeted + witnesses).
@@ -464,7 +506,12 @@ def simulation_report_view(request, sim_id):
                     return JsonResponse({"status": "error", "error": str(e)})
             return JsonResponse({"status": "ready", "report": simulation.report})
         # GET check
-        return JsonResponse({"status": "ready" if simulation.report else "pending", "report": simulation.report or ""})
+        return JsonResponse(
+            {
+                "status": "ready" if simulation.report else "pending",
+                "report": simulation.report or "",
+            }
+        )
 
     return render(request, "dashboard/simulation_report.html", {"simulation": simulation})
 
@@ -478,7 +525,9 @@ def chat_view(request, sim_id, agent_id):
 
     # Get or create chat session
     session, _ = ChatSession.objects.get_or_create(
-        simulation=simulation, user=request.user, agent=agent,
+        simulation=simulation,
+        user=request.user,
+        agent=agent,
     )
 
     # Handle AJAX chat messages (JSON or FormData with file)
@@ -499,7 +548,9 @@ def chat_view(request, sim_id, agent_id):
 
             from epocha.apps.world.document_parser import SUPPORTED_EXTENSIONS, extract_text
 
-            suffix = f".{uploaded_file.name.rsplit('.', 1)[-1]}" if "." in uploaded_file.name else ""
+            suffix = (
+                f".{uploaded_file.name.rsplit('.', 1)[-1]}" if "." in uploaded_file.name else ""
+            )
             if suffix.lower() in SUPPORTED_EXTENSIONS:
                 with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                     for chunk in uploaded_file.chunks():
@@ -516,17 +567,21 @@ def chat_view(request, sim_id, agent_id):
             # Check if agent is dead
             agent.refresh_from_db()
             if not agent.is_alive:
-                return JsonResponse({
-                    "role": "system",
-                    "content": f"{agent.name} is dead and cannot respond. You can view their history in the Galactic Encyclopedia (Report).",
-                })
+                return JsonResponse(
+                    {
+                        "role": "system",
+                        "content": f"{agent.name} is dead and cannot respond. You can view their history in the Galactic Encyclopedia (Report).",
+                    }
+                )
 
             # Save user message (include file reference if any)
             save_content = message
             if uploaded_file:
                 save_content += f" [Attached: {uploaded_file.name}]"
             ChatMessage.objects.create(
-                session=session, role="user", content=save_content,
+                session=session,
+                role="user",
+                content=save_content,
                 tick_at=simulation.current_tick,
             )
 
@@ -539,16 +594,18 @@ def chat_view(request, sim_id, agent_id):
             memories = get_relevant_memories(agent, current_tick=simulation.current_tick)
             memory_text = ""
             if memories:
-                memory_text = "\n\nYour recent memories:\n" + "\n".join(f"- {m.content}" for m in memories[:5])
+                memory_text = "\n\nYour recent memories:\n" + "\n".join(
+                    f"- {m.content}" for m in memories[:5]
+                )
 
             # Include the most recent events — put in USER prompt for higher attention
             recent_events = list(Event.objects.filter(simulation=simulation).order_by("-id")[:3])
             events_context = ""
             if recent_events:
                 events_context = (
-                    "\n\n[CONTEXT: " + " ".join(
-                        f"{e.title} - {e.description}" for e in reversed(recent_events)
-                    ) + f" — React to this as {agent.name}.]"
+                    "\n\n[CONTEXT: "
+                    + " ".join(f"{e.title} - {e.description}" for e in reversed(recent_events))
+                    + f" — React to this as {agent.name}.]"
                 )
 
             # Include recent chat history for continuity.
@@ -576,7 +633,11 @@ def chat_view(request, sim_id, agent_id):
                 chat_history = "\n\nPrevious conversation:\n" + "\n".join(lines)
 
             system_prompt = _build_chat_system_prompt(
-                agent, request, personality_prompt, memory_text, chat_history,
+                agent,
+                request,
+                personality_prompt,
+                memory_text,
+                chat_history,
             )
 
             # Events go in the USER prompt where the model pays most attention
@@ -596,18 +657,22 @@ def chat_view(request, sim_id, agent_id):
 
             # Save agent response
             ChatMessage.objects.create(
-                session=session, role="agent", content=response,
+                session=session,
+                role="agent",
+                content=response,
                 tick_at=simulation.current_tick,
             )
 
             from django.utils import timezone
 
-            return JsonResponse({
-                "role": "agent",
-                "content": response,
-                "time": timezone.now().strftime("%H:%M"),
-                "provider": client.get_provider_info(),
-            })
+            return JsonResponse(
+                {
+                    "role": "agent",
+                    "content": response,
+                    "time": timezone.now().strftime("%H:%M"),
+                    "provider": client.get_provider_info(),
+                }
+            )
 
         return JsonResponse({"role": "system", "content": "Empty message."})
 
@@ -621,11 +686,15 @@ def chat_view(request, sim_id, agent_id):
         for m in ChatMessage.objects.filter(session=session).order_by("created_at")
     ]
 
-    return render(request, "dashboard/chat.html", {
-        "simulation": simulation,
-        "agent": agent,
-        "chat_history_json": json.dumps(chat_history),
-    })
+    return render(
+        request,
+        "dashboard/chat.html",
+        {
+            "simulation": simulation,
+            "agent": agent,
+            "chat_history_json": json.dumps(chat_history),
+        },
+    )
 
 
 @login_required(login_url="/login/")
@@ -641,7 +710,9 @@ def chat_history_api(request, sim_id, agent_id):
     from epocha.apps.chat.models import ChatMessage, ChatSession
 
     session, _ = ChatSession.objects.get_or_create(
-        simulation=simulation, user=request.user, agent=agent,
+        simulation=simulation,
+        user=request.user,
+        agent=agent,
     )
 
     messages = [
@@ -672,7 +743,9 @@ def chat_send_api(request, sim_id, agent_id):
     from epocha.apps.chat.models import ChatMessage, ChatSession
 
     session, _ = ChatSession.objects.get_or_create(
-        simulation=simulation, user=request.user, agent=agent,
+        simulation=simulation,
+        user=request.user,
+        agent=agent,
     )
 
     data = json.loads(request.body)
@@ -684,14 +757,18 @@ def chat_send_api(request, sim_id, agent_id):
     # Check if agent is dead
     agent.refresh_from_db()
     if not agent.is_alive:
-        return JsonResponse({
-            "role": "system",
-            "content": f"{agent.name} is dead and cannot respond. You can view their history in the Galactic Encyclopedia (Report).",
-        })
+        return JsonResponse(
+            {
+                "role": "system",
+                "content": f"{agent.name} is dead and cannot respond. You can view their history in the Galactic Encyclopedia (Report).",
+            }
+        )
 
     # Save user message
     ChatMessage.objects.create(
-        session=session, role="user", content=message,
+        session=session,
+        role="user",
+        content=message,
         tick_at=simulation.current_tick,
     )
 
@@ -704,16 +781,18 @@ def chat_send_api(request, sim_id, agent_id):
     memories = get_relevant_memories(agent, current_tick=simulation.current_tick)
     memory_text = ""
     if memories:
-        memory_text = "\n\nYour recent memories:\n" + "\n".join(f"- {m.content}" for m in memories[:5])
+        memory_text = "\n\nYour recent memories:\n" + "\n".join(
+            f"- {m.content}" for m in memories[:5]
+        )
 
     # Include the most recent events in user prompt for higher attention
     recent_events = list(Event.objects.filter(simulation=simulation).order_by("-id")[:3])
     events_context = ""
     if recent_events:
         events_context = (
-            "\n\n[CONTEXT: " + " ".join(
-                f"{e.title} - {e.description}" for e in reversed(recent_events)
-            ) + f" — React to this as {agent.name}.]"
+            "\n\n[CONTEXT: "
+            + " ".join(f"{e.title} - {e.description}" for e in reversed(recent_events))
+            + f" — React to this as {agent.name}.]"
         )
 
     # Include recent chat history for continuity.
@@ -741,7 +820,11 @@ def chat_send_api(request, sim_id, agent_id):
         chat_history = "\n\nPrevious conversation:\n" + "\n".join(lines)
 
     system_prompt = _build_chat_system_prompt(
-        agent, request, personality_prompt, memory_text, chat_history,
+        agent,
+        request,
+        personality_prompt,
+        memory_text,
+        chat_history,
     )
 
     # Events go in the USER prompt where the model pays most attention
@@ -760,18 +843,22 @@ def chat_send_api(request, sim_id, agent_id):
 
     # Save agent response
     ChatMessage.objects.create(
-        session=session, role="agent", content=response,
+        session=session,
+        role="agent",
+        content=response,
         tick_at=simulation.current_tick,
     )
 
     from django.utils import timezone
 
-    return JsonResponse({
-        "role": "agent",
-        "content": response,
-        "time": timezone.now().strftime("%H:%M"),
-        "provider": client.get_provider_info(),
-    })
+    return JsonResponse(
+        {
+            "role": "agent",
+            "content": response,
+            "time": timezone.now().strftime("%H:%M"),
+            "provider": client.get_provider_info(),
+        }
+    )
 
 
 @login_required(login_url="/login/")
@@ -875,15 +962,21 @@ def group_chat_view(request, sim_id):
             except Exception:
                 response = "*remains silent*"
 
-            responses.append({"agent_name": agent.name, "agent_role": agent.role, "content": response})
+            responses.append(
+                {"agent_name": agent.name, "agent_role": agent.role, "content": response}
+            )
             conversation_so_far += f"\n{agent.name}: {response}"
 
         return JsonResponse({"responses": responses})
 
-    return render(request, "dashboard/group_chat.html", {
-        "simulation": simulation,
-        "agents": all_agents,
-    })
+    return render(
+        request,
+        "dashboard/group_chat.html",
+        {
+            "simulation": simulation,
+            "agents": all_agents,
+        },
+    )
 
 
 def _apply_chat_mood_effects(agent, message: str) -> None:
@@ -897,13 +990,40 @@ def _apply_chat_mood_effects(agent, message: str) -> None:
     msg = message.lower()
 
     # Negative physical actions (reduce mood, minor health impact)
-    negative_actions = ("calcio", "kick", "punch", "pugno", "schiaffo", "slap",
-                       "sputo", "spit", "insulto", "insult", "colpis", "hit",
-                       "morso", "bite", "frustat", "whip")
+    negative_actions = (
+        "calcio",
+        "kick",
+        "punch",
+        "pugno",
+        "schiaffo",
+        "slap",
+        "sputo",
+        "spit",
+        "insulto",
+        "insult",
+        "colpis",
+        "hit",
+        "morso",
+        "bite",
+        "frustat",
+        "whip",
+    )
     # Positive physical actions (increase mood)
-    positive_actions = ("abbraccio", "hug", "carezza", "caress", "bacio", "kiss",
-                       "regalo", "gift", "compliment", "applauso", "applause",
-                       "aiuto", "help")
+    positive_actions = (
+        "abbraccio",
+        "hug",
+        "carezza",
+        "caress",
+        "bacio",
+        "kiss",
+        "regalo",
+        "gift",
+        "compliment",
+        "applauso",
+        "applause",
+        "aiuto",
+        "help",
+    )
 
     is_negative = any(action in msg for action in negative_actions)
     is_positive = any(action in msg for action in positive_actions)
@@ -918,6 +1038,7 @@ def _apply_chat_mood_effects(agent, message: str) -> None:
 
 
 # ---------- Social Graph ----------
+
 
 def _faction_color(name: str) -> str:
     """Return a deterministic hex color for a faction name.
@@ -951,9 +1072,11 @@ def graph_data_view(request, sim_id):
     simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
 
     # Government metadata (optional: simulation may not have a government yet)
-    government = Government.objects.filter(simulation=simulation).select_related(
-        "head_of_state", "ruling_faction", "ruling_faction__leader"
-    ).first()
+    government = (
+        Government.objects.filter(simulation=simulation)
+        .select_related("head_of_state", "ruling_faction", "ruling_faction__leader")
+        .first()
+    )
 
     head_of_state_id = None
     ruling_faction_id = None
@@ -962,7 +1085,9 @@ def graph_data_view(request, sim_id):
     if government:
         head_of_state_id = government.head_of_state_id
         ruling_faction_id = government.ruling_faction_id
-        government_label = GOVERNMENT_TYPES.get(government.government_type, {}).get("label", government.government_type)
+        government_label = GOVERNMENT_TYPES.get(government.government_type, {}).get(
+            "label", government.government_type
+        )
         government_stability = government.stability
 
     # Nodes: all agents in the simulation
@@ -982,27 +1107,33 @@ def graph_data_view(request, sim_id):
     for agent in agents:
         faction_name = agent.group.name if agent.group else None
         # Color by faction if in a group, otherwise by role for visual variety
-        faction_color = _faction_color(faction_name) if faction_name else _faction_color(agent.role or "unknown")
+        faction_color = (
+            _faction_color(faction_name)
+            if faction_name
+            else _faction_color(agent.role or "unknown")
+        )
         is_leader = bool(agent.group and agent.group.leader_id == agent.id)
-        nodes.append({
-            "id": agent.id,
-            "label": agent.name,
-            "role": agent.role,
-            "faction": faction_name,
-            "faction_color": faction_color,
-            "is_leader": is_leader,
-            "is_head_of_state": agent.id == head_of_state_id,
-            "charisma": agent.charisma,
-            "mood": agent.mood,
-            "social_class": agent.social_class,
-            "is_alive": agent.is_alive,
-            "avg_reputation": round(avg_reps.get(agent.id, 0.0), 2),
-        })
+        nodes.append(
+            {
+                "id": agent.id,
+                "label": agent.name,
+                "role": agent.role,
+                "faction": faction_name,
+                "faction_color": faction_color,
+                "is_leader": is_leader,
+                "is_head_of_state": agent.id == head_of_state_id,
+                "charisma": agent.charisma,
+                "mood": agent.mood,
+                "social_class": agent.social_class,
+                "is_alive": agent.is_alive,
+                "avg_reputation": round(avg_reps.get(agent.id, 0.0), 2),
+            }
+        )
 
     # Edges: all relationships within this simulation
-    relationships = Relationship.objects.filter(
-        agent_from__simulation=simulation
-    ).select_related("agent_from", "agent_to")
+    relationships = Relationship.objects.filter(agent_from__simulation=simulation).select_related(
+        "agent_from", "agent_to"
+    )
     edges = [
         {
             "source": rel.agent_from_id,
@@ -1034,18 +1165,20 @@ def graph_data_view(request, sim_id):
             for member_id in member_ids:
                 power_flow.append({"from": faction_leader_id, "to": member_id})
 
-    return JsonResponse({
-        "nodes": nodes,
-        "edges": edges,
-        "power_flow": power_flow,
-        "government": {
-            "type": government.government_type if government else None,
-            "label": government_label,
-            "stability": government_stability,
-            "head_of_state_id": head_of_state_id,
-            "ruling_faction_id": ruling_faction_id,
-        },
-    })
+    return JsonResponse(
+        {
+            "nodes": nodes,
+            "edges": edges,
+            "power_flow": power_flow,
+            "government": {
+                "type": government.government_type if government else None,
+                "label": government_label,
+                "stability": government_stability,
+                "head_of_state_id": head_of_state_id,
+                "ruling_faction_id": ruling_faction_id,
+            },
+        }
+    )
 
 
 @login_required(login_url="/login/")
@@ -1069,13 +1202,15 @@ def graph_agent_detail_view(request, sim_id, agent_id):
     for rel in relationships_qs:
         other = rel.agent_to if rel.agent_from_id == agent.id else rel.agent_from
         related_agent_names.append(other.name)
-        relationships.append({
-            "agent": other.name,
-            "agent_id": other.id,
-            "type": rel.relation_type,
-            "strength": rel.strength,
-            "sentiment": rel.sentiment,
-        })
+        relationships.append(
+            {
+                "agent": other.name,
+                "agent_id": other.id,
+                "type": rel.relation_type,
+                "strength": rel.strength,
+                "sentiment": rel.sentiment,
+            }
+        )
 
     # Recent memories: last 5 active memories that mention related agents,
     # plus the agent's own direct memories. Merged, deduped by ID, capped at 5.
@@ -1090,42 +1225,46 @@ def graph_agent_detail_view(request, sim_id, agent_id):
         if related_agent_names
         else Memory.objects.none()
     )
-    own_memories = (
-        Memory.objects.filter(agent=agent, is_active=True)
-        .order_by("-emotional_weight", "-tick_created")[:5]
-    )
+    own_memories = Memory.objects.filter(agent=agent, is_active=True).order_by(
+        "-emotional_weight", "-tick_created"
+    )[:5]
 
     seen_ids: set[int] = set()
     merged_memories = []
     for mem in list(contextual_memories) + list(own_memories):
         if mem.id not in seen_ids:
             seen_ids.add(mem.id)
-            merged_memories.append({
-                "content": mem.content,
-                "emotional_weight": mem.emotional_weight,
-                "tick_created": mem.tick_created,
-                "source_type": mem.source_type,
-            })
+            merged_memories.append(
+                {
+                    "content": mem.content,
+                    "emotional_weight": mem.emotional_weight,
+                    "tick_created": mem.tick_created,
+                    "source_type": mem.source_type,
+                }
+            )
         if len(merged_memories) >= 5:
             break
 
-    return JsonResponse({
-        "id": agent.id,
-        "name": agent.name,
-        "role": agent.role,
-        "faction": agent.group.name if agent.group else None,
-        "social_class": agent.social_class,
-        "health": agent.health,
-        "mood": agent.mood,
-        "wealth": agent.wealth,
-        "charisma": agent.charisma,
-        "is_alive": agent.is_alive,
-        "relationships": relationships,
-        "recent_memories": merged_memories,
-    })
+    return JsonResponse(
+        {
+            "id": agent.id,
+            "name": agent.name,
+            "role": agent.role,
+            "faction": agent.group.name if agent.group else None,
+            "social_class": agent.social_class,
+            "health": agent.health,
+            "mood": agent.mood,
+            "wealth": agent.wealth,
+            "charisma": agent.charisma,
+            "is_alive": agent.is_alive,
+            "relationships": relationships,
+            "recent_memories": merged_memories,
+        }
+    )
 
 
 # ---------- Analytics ----------
+
 
 @login_required(login_url="/login/")
 def analytics_view(request, sim_id):
@@ -1181,15 +1320,19 @@ def analytics_data_view(request, sim_id):
     # Crises: events whose title starts with the [EPOCHAL CRISIS] prefix.
     # The label is the portion of the title after the prefix and trailing space.
     crisis_prefix = "[EPOCHAL CRISIS] "
-    crisis_events = Event.objects.filter(
-        simulation=simulation,
-        title__startswith=crisis_prefix,
-    ).order_by("tick").values("tick", "title", "description", "severity")
+    crisis_events = (
+        Event.objects.filter(
+            simulation=simulation,
+            title__startswith=crisis_prefix,
+        )
+        .order_by("tick")
+        .values("tick", "title", "description", "severity")
+    )
 
     crises = [
         {
             "tick": e["tick"],
-            "label": e["title"][len(crisis_prefix):],
+            "label": e["title"][len(crisis_prefix) :],
             "description": e["description"],
             "severity": round(e["severity"], 2),
         }
@@ -1208,12 +1351,14 @@ def analytics_data_view(request, sim_id):
     transitions = []
     for i, record in enumerate(history_qs):
         from_type = history_qs[i - 1]["government_type"] if i > 0 else "initial"
-        transitions.append({
-            "tick": record["from_tick"],
-            "from_type": from_type,
-            "to_type": record["government_type"],
-            "cause": record["transition_cause"],
-        })
+        transitions.append(
+            {
+                "tick": record["from_tick"],
+                "from_type": from_type,
+                "to_type": record["government_type"],
+                "cause": record["transition_cause"],
+            }
+        )
 
     # Factions: active groups (cohesion > 0) with member count and display color
     from django.db.models import Count
@@ -1232,9 +1377,11 @@ def analytics_data_view(request, sim_id):
         )
     ]
 
-    return JsonResponse({
-        "snapshots": snapshots,
-        "crises": crises,
-        "transitions": transitions,
-        "factions": factions,
-    })
+    return JsonResponse(
+        {
+            "snapshots": snapshots,
+            "crises": crises,
+            "transitions": transitions,
+            "factions": factions,
+        }
+    )

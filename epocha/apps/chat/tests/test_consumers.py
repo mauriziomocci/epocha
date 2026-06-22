@@ -1,4 +1,5 @@
 """Tests for the chat WebSocket consumer."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,7 +14,9 @@ from epocha.apps.users.models import User
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(email="chat@epocha.dev", username="chattest", password="pass123")
+    return User.objects.create_user(
+        email="chat@epocha.dev", username="chattest", password="pass123"
+    )
 
 
 @pytest.fixture

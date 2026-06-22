@@ -4,6 +4,7 @@ Each tick, every agent goes through this pipeline to decide what to do.
 The LLM receives the agent's personality, recent memories, relationships,
 and world state, then produces a structured JSON action.
 """
+
 from __future__ import annotations
 
 import json
@@ -61,7 +62,9 @@ def _build_system_prompt(agent) -> str:
     try:
         from epocha.apps.demography.template_loader import load_template
 
-        template_name = agent.simulation.config.get("demography_template", "pre_industrial_christian")
+        template_name = agent.simulation.config.get(
+            "demography_template", "pre_industrial_christian"
+        )
         template = load_template(template_name)
 
         # Remove 'separate' when the era forbids divorce.
@@ -92,7 +95,7 @@ def _build_system_prompt(agent) -> str:
         f"You are simulating a person in a world. Based on your personality,\n"
         f"memories, relationships, and current situation, decide what to do next.\n"
         f"\nRespond ONLY with a JSON object:\n"
-        f'{{\n'
+        f"{{\n"
         f'    "action": "{action_vocab}",\n'
         f'    "target": "who or what (optional)",\n'
         f'    "reason": "brief internal thought"\n'
@@ -101,6 +104,7 @@ def _build_system_prompt(agent) -> str:
     )
 
     return f"{personality_prompt}\n\n{system_prompt_body}"
+
 
 # Fallback action when the LLM response cannot be parsed as JSON.
 _FALLBACK_ACTION = {"action": "rest", "reason": "confused"}
@@ -230,13 +234,13 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
 
     memories = get_relevant_memories(agent, current_tick=tick, max_memories=5)
     relationships = list(
-        Relationship.objects.filter(agent_from=agent)
-        .select_related("agent_to")[:10]
+        Relationship.objects.filter(agent_from=agent).select_related("agent_to")[:10]
     )
     # Include recent events (injected by user or system) from last 5 ticks
     recent_events = list(
-        Event.objects.filter(simulation=agent.simulation, tick__gte=max(0, tick - 5))
-        .order_by("-tick")[:5]
+        Event.objects.filter(simulation=agent.simulation, tick__gte=max(0, tick - 5)).order_by(
+            "-tick"
+        )[:5]
     )
     # Enumerate living agents so the LLM only references real characters
     living_agents = list(
@@ -257,7 +261,9 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
         )
         member_list = ", ".join(f"{m.name} ({m.role})" for m in members)
         leader_name = group.leader.name if group.leader else "no leader"
-        cohesion_word = "strong" if group.cohesion > 0.6 else "moderate" if group.cohesion > 0.3 else "fragile"
+        cohesion_word = (
+            "strong" if group.cohesion > 0.6 else "moderate" if group.cohesion > 0.3 else "fragile"
+        )
         group_context = (
             f"Your faction: {group.name} (objective: {group.objective})\n"
             f"Leader: {leader_name}\n"
@@ -270,10 +276,20 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     government = None
     try:
         from epocha.apps.world.models import Government
+
         government = Government.objects.get(simulation=agent.simulation)
         from epocha.apps.world.government_types import GOVERNMENT_TYPES
-        type_label = GOVERNMENT_TYPES.get(government.government_type, {}).get("label", government.government_type)
-        stability_word = "stable" if government.stability > 0.6 else "moderate" if government.stability > 0.3 else "unstable"
+
+        type_label = GOVERNMENT_TYPES.get(government.government_type, {}).get(
+            "label", government.government_type
+        )
+        stability_word = (
+            "stable"
+            if government.stability > 0.6
+            else "moderate"
+            if government.stability > 0.3
+            else "unstable"
+        )
         head_name = government.head_of_state.name if government.head_of_state else "none"
         political_context = (
             f"Government: {type_label} ({stability_word})\n"
@@ -288,7 +304,12 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     reputation_context = None
     try:
         from epocha.apps.agents.models import ReputationScore
-        notable = ReputationScore.objects.filter(holder=agent).select_related("target").exclude(target=agent)
+
+        notable = (
+            ReputationScore.objects.filter(holder=agent)
+            .select_related("target")
+            .exclude(target=agent)
+        )
         rep_lines = []
         for rep in notable:
             combined = rep.get_combined_score()
@@ -307,6 +328,7 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     economic_context = None
     try:
         from epocha.apps.economy.context import build_economic_context
+
         economic_context = build_economic_context(agent, tick)
     except Exception:
         pass
@@ -338,8 +360,18 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
         logger.debug("Failed to build zone context for %s", agent.name, exc_info=True)
 
     context = _build_context(
-        agent, world_state, tick, memories, relationships, recent_events, living_agents, group_context,
-        political_context, reputation_context, zone_context, economic_context,
+        agent,
+        world_state,
+        tick,
+        memories,
+        relationships,
+        recent_events,
+        living_agents,
+        group_context,
+        political_context,
+        reputation_context,
+        zone_context,
+        economic_context,
     )
 
     # 2. Build system prompt with personality and era-filtered action vocabulary
@@ -359,7 +391,9 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     try:
         action = json.loads(cleaned)
     except json.JSONDecodeError:
-        logger.warning("Agent %s returned non-JSON at tick %d: %s", agent.name, tick, raw_response[:100])
+        logger.warning(
+            "Agent %s returned non-JSON at tick %d: %s", agent.name, tick, raw_response[:100]
+        )
         action = {**_FALLBACK_ACTION, "raw": raw_response}
 
     # 5. Log decision

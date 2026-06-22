@@ -3,6 +3,7 @@
 Provides CRUD for simulations, the Express endpoint for one-prompt world
 generation, and play/pause actions that control the Celery tick loop.
 """
+
 from __future__ import annotations
 
 import random
@@ -93,20 +94,23 @@ class SimulationViewSet(viewsets.ModelViewSet):
 
         simulation = self.get_object()
         stats = LLMRequest.objects.filter(
-            simulation_id=simulation.id, success=True,
+            simulation_id=simulation.id,
+            success=True,
         ).aggregate(
             total_cost=Sum("cost_usd"),
             total_input_tokens=Sum("input_tokens"),
             total_output_tokens=Sum("output_tokens"),
             total_requests=Count("id"),
         )
-        return Response({
-            "simulation_id": simulation.id,
-            "total_cost_usd": round(stats["total_cost"] or 0, 6),
-            "total_input_tokens": stats["total_input_tokens"] or 0,
-            "total_output_tokens": stats["total_output_tokens"] or 0,
-            "total_requests": stats["total_requests"] or 0,
-        })
+        return Response(
+            {
+                "simulation_id": simulation.id,
+                "total_cost_usd": round(stats["total_cost"] or 0, 6),
+                "total_input_tokens": stats["total_input_tokens"] or 0,
+                "total_output_tokens": stats["total_output_tokens"] or 0,
+                "total_requests": stats["total_requests"] or 0,
+            }
+        )
 
     @action(detail=True, methods=["get"])
     def report(self, request, pk=None):
@@ -118,11 +122,13 @@ class SimulationViewSet(viewsets.ModelViewSet):
             generate_simulation_report(simulation)
             simulation.refresh_from_db()
 
-        return Response({
-            "simulation_id": simulation.id,
-            "report": simulation.report,
-            "current_tick": simulation.current_tick,
-        })
+        return Response(
+            {
+                "simulation_id": simulation.id,
+                "report": simulation.report,
+                "current_tick": simulation.current_tick,
+            }
+        )
 
     @action(detail=True, methods=["get"])
     def events(self, request, pk=None):

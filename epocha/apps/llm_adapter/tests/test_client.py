@@ -1,4 +1,5 @@
 """Tests for the LLM adapter client and OpenAI-compatible provider."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest

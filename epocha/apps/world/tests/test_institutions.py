@@ -1,4 +1,5 @@
 """Tests for institution health dynamics."""
+
 import pytest
 
 from epocha.apps.world.institutions import update_institutions
@@ -9,24 +10,35 @@ from epocha.apps.users.models import User
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(email="inst@epocha.dev", username="insttest", password="pass123")
+    return User.objects.create_user(
+        email="inst@epocha.dev", username="insttest", password="pass123"
+    )
+
 
 @pytest.fixture
 def simulation(user):
     return Simulation.objects.create(name="InstTest", seed=42, owner=user)
 
+
 @pytest.fixture
 def world(simulation):
     return World.objects.create(simulation=simulation)
+
 
 @pytest.fixture
 def government(simulation):
     return Government.objects.create(simulation=simulation, government_type="democracy")
 
+
 @pytest.fixture
 def all_institutions(simulation):
     types = ["justice", "education", "health", "military", "media", "religion", "bureaucracy"]
-    return [Institution.objects.create(simulation=simulation, institution_type=t, health=0.5, independence=0.5, funding=0.5) for t in types]
+    return [
+        Institution.objects.create(
+            simulation=simulation, institution_type=t, health=0.5, independence=0.5, funding=0.5
+        )
+        for t in types
+    ]
 
 
 @pytest.mark.django_db

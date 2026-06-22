@@ -6,6 +6,7 @@ deterministic hash of (simulation.seed, tick, phase). Reordering or
 suppressing one subsystem does not shift the RNG sequence of others,
 which is essential for reproducibility across refactors.
 """
+
 from __future__ import annotations
 
 import hashlib

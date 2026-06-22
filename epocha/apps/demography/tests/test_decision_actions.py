@@ -14,6 +14,7 @@ Covers:
 - apply_agent_action for avoid_conception with pre_industrial_christian template:
   skips the mutation (flag is NOT set) and emits a WARNING-level log message.
 """
+
 from __future__ import annotations
 
 import json

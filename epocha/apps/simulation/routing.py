@@ -1,4 +1,5 @@
 """WebSocket URL patterns for the simulation."""
+
 from django.urls import re_path
 
 from . import consumers

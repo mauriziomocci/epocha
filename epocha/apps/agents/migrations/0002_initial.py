@@ -5,67 +5,112 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
-        ('agents', '0001_initial'),
-        ('simulation', '0001_initial'),
+        ("agents", "0001_initial"),
+        ("simulation", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='agent',
-            name='simulation',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='agents', to='simulation.simulation'),
+            model_name="agent",
+            name="simulation",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="agents",
+                to="simulation.simulation",
+            ),
         ),
         migrations.AddField(
-            model_name='decisionlog',
-            name='agent',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='decisions', to='agents.agent'),
+            model_name="decisionlog",
+            name="agent",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="decisions",
+                to="agents.agent",
+            ),
         ),
         migrations.AddField(
-            model_name='decisionlog',
-            name='simulation',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='decision_logs', to='simulation.simulation'),
+            model_name="decisionlog",
+            name="simulation",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="decision_logs",
+                to="simulation.simulation",
+            ),
         ),
         migrations.AddField(
-            model_name='group',
-            name='leader',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='led_groups', to='agents.agent'),
+            model_name="group",
+            name="leader",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="led_groups",
+                to="agents.agent",
+            ),
         ),
         migrations.AddField(
-            model_name='group',
-            name='parent_group',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='subgroups', to='agents.group'),
+            model_name="group",
+            name="parent_group",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="subgroups",
+                to="agents.group",
+            ),
         ),
         migrations.AddField(
-            model_name='group',
-            name='simulation',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='groups', to='simulation.simulation'),
+            model_name="group",
+            name="simulation",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="groups",
+                to="simulation.simulation",
+            ),
         ),
         migrations.AddField(
-            model_name='agent',
-            name='group',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='members', to='agents.group'),
+            model_name="agent",
+            name="group",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="members",
+                to="agents.group",
+            ),
         ),
         migrations.AddField(
-            model_name='memory',
-            name='agent',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='memories', to='agents.agent'),
+            model_name="memory",
+            name="agent",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="memories",
+                to="agents.agent",
+            ),
         ),
         migrations.AddField(
-            model_name='relationship',
-            name='agent_from',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='relationships_from', to='agents.agent'),
+            model_name="relationship",
+            name="agent_from",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="relationships_from",
+                to="agents.agent",
+            ),
         ),
         migrations.AddField(
-            model_name='relationship',
-            name='agent_to',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='relationships_to', to='agents.agent'),
+            model_name="relationship",
+            name="agent_to",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="relationships_to",
+                to="agents.agent",
+            ),
         ),
         migrations.AlterUniqueTogether(
-            name='relationship',
-            unique_together={('agent_from', 'agent_to', 'relation_type')},
+            name="relationship",
+            unique_together={("agent_from", "agent_to", "relation_type")},
         ),
     ]

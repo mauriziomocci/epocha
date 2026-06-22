@@ -8,6 +8,7 @@ Scientific paradigm: neoclassical (Arrow et al. 1961, Walras 1874,
 Fisher 1911, Ricardo 1817). See the spec for full references:
 docs/superpowers/specs/2026-04-12-economy-base-design.md
 """
+
 from django.apps import AppConfig
 
 

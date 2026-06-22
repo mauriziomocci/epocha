@@ -42,6 +42,7 @@ enforced by the World.distance_scale calibration only. Behavioral fix
 (switch to projected coordinates with a proper SRID) is scope-positive
 and deferred to a future iteration.
 """
+
 from __future__ import annotations
 
 import logging
@@ -59,16 +60,16 @@ logger = logging.getLogger(__name__)
 # Historical travel speeds in km/day (sustained, including rest stops).
 # Source: Chandler (1966), Braudel (1979). See module docstring.
 TRAVEL_SPEEDS: dict[str, float] = {
-    "foot": 25.0,       # Civilian sustained travel rate on foot. Chandler (1966) reports
-                        # Napoleonic infantry at 20-35 km/day for military campaigns;
-                        # 25 km/day is a reasonable estimate for non-military civilian travel
-                        # including rest stops. Braudel (1979) gives similar figures for
-                        # medieval merchants.
-    "horse": 60.0,      # Cavalry sustained rate (Chandler, 1966)
-    "carriage": 60.0,   # Horse-drawn carriage on good roads. Chandler (1966) reports
-                        # 60-80 km/day with relay stations for military/royal use;
-                        # 60 km/day is used as a general estimate without assuming relay stations.
-    "boat": 50.0,       # River/canal boat, pre-industrial Europe (Braudel, 1979)
+    "foot": 25.0,  # Civilian sustained travel rate on foot. Chandler (1966) reports
+    # Napoleonic infantry at 20-35 km/day for military campaigns;
+    # 25 km/day is a reasonable estimate for non-military civilian travel
+    # including rest stops. Braudel (1979) gives similar figures for
+    # medieval merchants.
+    "horse": 60.0,  # Cavalry sustained rate (Chandler, 1966)
+    "carriage": 60.0,  # Horse-drawn carriage on good roads. Chandler (1966) reports
+    # 60-80 km/day with relay stations for military/royal use;
+    # 60 km/day is used as a general estimate without assuming relay stations.
+    "boat": 50.0,  # River/canal boat, pre-industrial Europe (Braudel, 1979)
 }
 
 # Default transport mode by agent role.
@@ -76,9 +77,12 @@ TRAVEL_SPEEDS: dict[str, float] = {
 # Role names are in the language of the simulation scenario (e.g. Italian
 # for the French Revolution scenario). Unknown roles default to foot.
 ROLE_TRANSPORT: dict[str, str] = {
-    "re": "carriage", "regina": "carriage",
-    "nobile": "horse", "nobildonna": "carriage",
-    "ufficiale": "horse", "mercante": "horse",
+    "re": "carriage",
+    "regina": "carriage",
+    "nobile": "horse",
+    "nobildonna": "carriage",
+    "ufficiale": "horse",
+    "mercante": "horse",
     "banchiere": "carriage",
 }
 
@@ -178,7 +182,9 @@ def calculate_max_distance(
     # Terrain factor: rough terrain slows travel.
     terrain_factor = _TERRAIN_FACTORS.get(destination_zone_type, 0.7)
 
-    effective_speed_km = base_speed_km * health_factor * stability_factor * repression_factor * terrain_factor
+    effective_speed_km = (
+        base_speed_km * health_factor * stability_factor * repression_factor * terrain_factor
+    )
     max_distance_km = effective_speed_km * (world.tick_duration_hours / 24.0)
 
     # Convert km to grid units using world distance scale.
@@ -218,7 +224,10 @@ def execute_movement(agent: Agent, target_zone, world, government) -> dict:
 
     transport = get_transport_type(agent)
     max_dist = calculate_max_distance(
-        transport, agent.health, world, government,
+        transport,
+        agent.health,
+        world,
+        government,
         destination_zone_type=target_zone.zone_type,
     )
 
@@ -260,7 +269,8 @@ def execute_movement(agent: Agent, target_zone, world, government) -> dict:
 
         # Update zone if the new location falls inside a different zone boundary.
         new_zone = Zone.objects.filter(
-            world=world, boundary__contains=new_loc,
+            world=world,
+            boundary__contains=new_loc,
         ).first()
         if new_zone:
             agent.zone = new_zone

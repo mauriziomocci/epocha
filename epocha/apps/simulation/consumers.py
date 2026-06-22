@@ -1,4 +1,5 @@
 """WebSocket consumer: stream simulation state in real time."""
+
 import json
 
 from channels.generic.websocket import AsyncWebsocketConsumer

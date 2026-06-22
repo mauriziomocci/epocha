@@ -1,4 +1,5 @@
 """Tests for the extraction prompt builder."""
+
 import json
 
 import pytest

@@ -1,4 +1,5 @@
 """Tests for economy initialization from templates."""
+
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
@@ -31,7 +32,9 @@ def user(db):
 @pytest.fixture
 def simulation(user):
     return Simulation.objects.create(
-        name="InitTest", seed=42, owner=user,
+        name="InitTest",
+        seed=42,
+        owner=user,
     )
 
 
@@ -44,35 +47,55 @@ def world_with_agents(simulation):
         tick_duration_hours=24.0,
     )
     z1 = Zone.objects.create(
-        world=world, name="Paris", zone_type="urban",
+        world=world,
+        name="Paris",
+        zone_type="urban",
         boundary=Polygon.from_bbox((0, 0, 100, 100)),
         center=Point(50, 50),
     )
     z2 = Zone.objects.create(
-        world=world, name="Countryside", zone_type="rural",
+        world=world,
+        name="Countryside",
+        zone_type="rural",
         boundary=Polygon.from_bbox((120, 0, 220, 100)),
         center=Point(170, 50),
     )
 
     elite = Agent.objects.create(
-        simulation=simulation, name="Lord", role="merchant",
-        social_class="elite", zone=z1,
-        personality={"openness": 0.5}, location=Point(50, 50),
+        simulation=simulation,
+        name="Lord",
+        role="merchant",
+        social_class="elite",
+        zone=z1,
+        personality={"openness": 0.5},
+        location=Point(50, 50),
     )
     middle = Agent.objects.create(
-        simulation=simulation, name="Artisan", role="craftsman",
-        social_class="middle", zone=z1,
-        personality={"openness": 0.5}, location=Point(50, 50),
+        simulation=simulation,
+        name="Artisan",
+        role="craftsman",
+        social_class="middle",
+        zone=z1,
+        personality={"openness": 0.5},
+        location=Point(50, 50),
     )
     worker = Agent.objects.create(
-        simulation=simulation, name="Farmer", role="farmer",
-        social_class="working", zone=z2,
-        personality={"openness": 0.5}, location=Point(170, 50),
+        simulation=simulation,
+        name="Farmer",
+        role="farmer",
+        social_class="working",
+        zone=z2,
+        personality={"openness": 0.5},
+        location=Point(170, 50),
     )
     poor = Agent.objects.create(
-        simulation=simulation, name="Beggar", role="farmer",
-        social_class="poor", zone=z2,
-        personality={"openness": 0.5}, location=Point(170, 50),
+        simulation=simulation,
+        name="Beggar",
+        role="farmer",
+        social_class="poor",
+        zone=z2,
+        personality={"openness": 0.5},
+        location=Point(170, 50),
     )
 
     return {
@@ -127,9 +150,12 @@ class TestInitializeEconomy:
 
     def test_creates_inventories(self, simulation, world_with_agents):
         initialize_economy(simulation)
-        assert AgentInventory.objects.filter(
-            agent__simulation=simulation,
-        ).count() == 4
+        assert (
+            AgentInventory.objects.filter(
+                agent__simulation=simulation,
+            ).count()
+            == 4
+        )
 
     def test_inventory_has_cash(self, simulation, world_with_agents):
         initialize_economy(simulation)
@@ -158,21 +184,24 @@ class TestInitializeEconomy:
     def test_creates_properties_for_elite(self, simulation, world_with_agents):
         initialize_economy(simulation)
         props = Property.objects.filter(
-            simulation=simulation, owner__name="Lord",
+            simulation=simulation,
+            owner__name="Lord",
         )
         assert props.count() > 0
 
     def test_no_properties_for_poor(self, simulation, world_with_agents):
         initialize_economy(simulation)
         props = Property.objects.filter(
-            simulation=simulation, owner__name="Beggar",
+            simulation=simulation,
+            owner__name="Beggar",
         )
         assert props.count() == 0
 
     def test_price_history_at_tick_zero(self, simulation, world_with_agents):
         initialize_economy(simulation)
         ph = PriceHistory.objects.filter(
-            zone_economy__zone__world__simulation=simulation, tick=0,
+            zone_economy__zone__world__simulation=simulation,
+            tick=0,
         )
         assert ph.count() > 0
 
@@ -298,5 +327,6 @@ class TestInitializationBehavioralConfig:
 
     def test_banking_state_created(self, simulation_with_economy):
         from epocha.apps.economy.models import BankingState
+
         sim = simulation_with_economy
         assert BankingState.objects.filter(simulation=sim).exists()

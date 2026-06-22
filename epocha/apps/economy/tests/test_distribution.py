@@ -24,7 +24,9 @@ class TestComputeRent:
 
     def test_no_properties_no_rent(self):
         rents = compute_rent(
-            {"subsistence": 100.0}, [], {"subsistence": 3.0},
+            {"subsistence": 100.0},
+            [],
+            {"subsistence": 3.0},
         )
         assert rents == {}
 
@@ -33,39 +35,55 @@ class TestComputeRent:
             {"owner_id": 1, "production_bonus": {"subsistence": 1.5}},
         ]
         rents = compute_rent(
-            {"subsistence": 0.0}, properties, {"subsistence": 3.0},
+            {"subsistence": 0.0},
+            properties,
+            {"subsistence": 3.0},
         )
         assert rents.get(1, 0.0) == 0.0
 
 
 class TestComputeWages:
     def test_wage_is_share_of_output_value(self):
-        agent_outputs = [{
-            "agent_id": 1, "good_code": "subsistence",
-            "quantity": 10.0, "owns_property": False,
-        }]
+        agent_outputs = [
+            {
+                "agent_id": 1,
+                "good_code": "subsistence",
+                "quantity": 10.0,
+                "owns_property": False,
+            }
+        ]
         prices = {"subsistence": 3.0}
         wages = compute_wages(agent_outputs, prices, wage_share=0.6)
         # 10 * 3.0 * 0.6 = 18.0
         assert abs(wages[1] - 18.0) < 0.01
 
     def test_property_owner_gets_full_value(self):
-        agent_outputs = [{
-            "agent_id": 1, "good_code": "subsistence",
-            "quantity": 10.0, "owns_property": True,
-        }]
+        agent_outputs = [
+            {
+                "agent_id": 1,
+                "good_code": "subsistence",
+                "quantity": 10.0,
+                "owns_property": True,
+            }
+        ]
         prices = {"subsistence": 3.0}
         wages = compute_wages(agent_outputs, prices, wage_share=0.6)
         # Owner keeps full value: 10 * 3.0 = 30.0
         assert abs(wages[1] - 30.0) < 0.01
 
     def test_zero_output_zero_wage(self):
-        agent_outputs = [{
-            "agent_id": 1, "good_code": "subsistence",
-            "quantity": 0.0, "owns_property": False,
-        }]
+        agent_outputs = [
+            {
+                "agent_id": 1,
+                "good_code": "subsistence",
+                "quantity": 0.0,
+                "owns_property": False,
+            }
+        ]
         wages = compute_wages(
-            agent_outputs, {"subsistence": 3.0}, wage_share=0.6,
+            agent_outputs,
+            {"subsistence": 3.0},
+            wage_share=0.6,
         )
         assert wages.get(1, 0.0) == 0.0
 

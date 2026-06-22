@@ -10,6 +10,7 @@ Mood-wealth relationship follows Kahneman & Deaton (2010): emotional
 well-being plateaus above a satiation threshold. Implemented as
 exponential decay of mood boost above threshold.
 """
+
 from __future__ import annotations
 
 import logging
@@ -70,7 +71,9 @@ def check_fisher_consistency(
         logger.warning(
             "Fisher MV=PQ divergence: %.1f%%. MV=%.1f, PQ=%.1f. "
             "Money supply may be inconsistent with price level.",
-            divergence * 100, mv, pq,
+            divergence * 100,
+            mv,
+            pq,
         )
 
     return divergence
@@ -110,10 +113,7 @@ def update_agent_wealth(
     This replaces the old Agent.wealth as a computed summary for
     backward compatibility with modules that read it.
     """
-    inventory_value = sum(
-        qty * prices.get(good, 0.0)
-        for good, qty in holdings.items()
-    )
+    inventory_value = sum(qty * prices.get(good, 0.0) for good, qty in holdings.items())
     total_cash = sum(cash.values())
     total_property = sum(property_values)
     return inventory_value + total_cash + total_property

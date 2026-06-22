@@ -4,6 +4,7 @@ Inherits database configuration from base (which uses DATABASE_URL from
 the environment) so the same file works on developer laptop and in the
 Docker Compose stack without hard-coding host/credentials.
 """
+
 from .base import *  # noqa: F401, F403
 
 SECRET_KEY = "test-secret-key"

@@ -1,4 +1,5 @@
 """Tests for per-tick snapshot capture."""
+
 import pytest
 
 from epocha.apps.agents.models import Agent, Group
@@ -10,7 +11,9 @@ from epocha.apps.world.models import Government, World
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(email="snap@epocha.dev", username="snaptest", password="pass123")
+    return User.objects.create_user(
+        email="snap@epocha.dev", username="snaptest", password="pass123"
+    )
 
 
 @pytest.fixture
@@ -26,9 +29,14 @@ def world(simulation):
 @pytest.fixture
 def government(simulation):
     return Government.objects.create(
-        simulation=simulation, government_type="democracy",
-        stability=0.6, institutional_trust=0.5, repression_level=0.1,
-        corruption=0.2, popular_legitimacy=0.5, military_loyalty=0.5,
+        simulation=simulation,
+        government_type="democracy",
+        stability=0.6,
+        institutional_trust=0.5,
+        repression_level=0.1,
+        corruption=0.2,
+        popular_legitimacy=0.5,
+        military_loyalty=0.5,
     )
 
 
@@ -40,17 +48,25 @@ def agents(simulation):
         ("Mid", 80.0, 0.5, "middle"),
         ("Poor", 10.0, 0.2, "poor"),
     ]:
-        agents.append(Agent.objects.create(
-            simulation=simulation, name=name, role="citizen",
-            wealth=wealth, mood=mood, social_class=social_class,
-            personality={"openness": 0.5},
-        ))
+        agents.append(
+            Agent.objects.create(
+                simulation=simulation,
+                name=name,
+                role="citizen",
+                wealth=wealth,
+                mood=mood,
+                social_class=social_class,
+                personality={"openness": 0.5},
+            )
+        )
     return agents
 
 
 @pytest.fixture
 def faction(simulation):
-    return Group.objects.create(simulation=simulation, name="The Guild", cohesion=0.7, formed_at_tick=1)
+    return Group.objects.create(
+        simulation=simulation, name="The Guild", cohesion=0.7, formed_at_tick=1
+    )
 
 
 @pytest.mark.django_db
@@ -94,8 +110,11 @@ class TestCaptureSnapshot:
         capture_snapshot(simulation, tick=5)
         snap = SimulationSnapshot.objects.get(simulation=simulation, tick=5)
         total = (
-            snap.class_elite_pct + snap.class_wealthy_pct + snap.class_middle_pct
-            + snap.class_working_pct + snap.class_poor_pct
+            snap.class_elite_pct
+            + snap.class_wealthy_pct
+            + snap.class_middle_pct
+            + snap.class_working_pct
+            + snap.class_poor_pct
         )
         assert abs(total - 1.0) < 0.01
 

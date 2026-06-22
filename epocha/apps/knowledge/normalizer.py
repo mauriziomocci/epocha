@@ -5,6 +5,7 @@ orthographic differences collapse to the same canonical form) and for
 the mechanical source_type assignment (is the name contained in the
 passage?).
 """
+
 from __future__ import annotations
 
 import re
@@ -51,7 +52,7 @@ def _strip_honorifics(text: str) -> str:
         changed = False
         for honorific in _HONORIFICS:
             if result.startswith(honorific + " "):
-                result = result[len(honorific) + 1:]
+                result = result[len(honorific) + 1 :]
                 changed = True
                 break
             if result == honorific:

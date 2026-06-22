@@ -1,4 +1,5 @@
 """Celery tasks for agent response generation."""
+
 from config.celery import app
 
 

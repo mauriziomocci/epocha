@@ -81,9 +81,7 @@ def materialize_graph(
         # collisions.
         doc_ids = [d.pk for d in documents]
         chunks_qs = KnowledgeChunk.objects.filter(document_id__in=doc_ids)
-        chunks_by_index: dict[int, KnowledgeChunk] = {
-            c.chunk_index: c for c in chunks_qs
-        }
+        chunks_by_index: dict[int, KnowledgeChunk] = {c.chunk_index: c for c in chunks_qs}
 
         # -- Pass 1: create nodes ----------------------------------------
         node_index: dict[tuple[str, str], KnowledgeNode] = {}

@@ -62,16 +62,31 @@ _MAX_ACTIVE_TRAITS: int = 2
 
 _HIGH_NEUROTICISM_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
     # Allport & Postman: assimilation toward negative-affect schema in high-anxiety retellers
-    (re.compile(r"\bargued\b", re.IGNORECASE), ["quarreled", "fought bitterly", "attacked viciously"]),
-    (re.compile(r"\bdisagreed\b", re.IGNORECASE), ["clashed", "argued fiercely", "erupted into conflict"]),
-    (re.compile(r"\bcritici[sz]ed\b", re.IGNORECASE), ["attacked", "viciously mocked", "verbally assaulted"]),
+    (
+        re.compile(r"\bargued\b", re.IGNORECASE),
+        ["quarreled", "fought bitterly", "attacked viciously"],
+    ),
+    (
+        re.compile(r"\bdisagreed\b", re.IGNORECASE),
+        ["clashed", "argued fiercely", "erupted into conflict"],
+    ),
+    (
+        re.compile(r"\bcritici[sz]ed\b", re.IGNORECASE),
+        ["attacked", "viciously mocked", "verbally assaulted"],
+    ),
     (re.compile(r"\bdisappointed\b", re.IGNORECASE), ["let down", "betrayed", "devastated"]),
-    (re.compile(r"\bwent wrong\b", re.IGNORECASE), ["failed badly", "collapsed", "turned into a disaster"]),
+    (
+        re.compile(r"\bwent wrong\b", re.IGNORECASE),
+        ["failed badly", "collapsed", "turned into a disaster"],
+    ),
 ]
 
 _LOW_NEUROTICISM_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
     # Leveling: emotionally stable retellers downplay conflict
-    (re.compile(r"\bfought bitterly\b", re.IGNORECASE), ["argued", "had a disagreement", "had a brief exchange"]),
+    (
+        re.compile(r"\bfought bitterly\b", re.IGNORECASE),
+        ["argued", "had a disagreement", "had a brief exchange"],
+    ),
     (re.compile(r"\battacked\b", re.IGNORECASE), ["criticized", "challenged", "disagreed with"]),
     (re.compile(r"\berupted\b", re.IGNORECASE), ["started", "began", "developed"]),
     (re.compile(r"\bbetrayed\b", re.IGNORECASE), ["disappointed", "let down", "differed from"]),
@@ -81,10 +96,19 @@ _LOW_NEUROTICISM_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
 _HIGH_AGREEABLENESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
     # High agreeableness: reteller softens interpersonal conflict to preserve harmony
     (re.compile(r"\bbetrayed\b", re.IGNORECASE), ["disappointed", "let down", "failed to support"]),
-    (re.compile(r"\battacked\b", re.IGNORECASE), ["disagreed with", "pushed back on", "challenged"]),
+    (
+        re.compile(r"\battacked\b", re.IGNORECASE),
+        ["disagreed with", "pushed back on", "challenged"],
+    ),
     (re.compile(r"\bfought\b", re.IGNORECASE), ["disagreed", "had a discussion", "talked through"]),
-    (re.compile(r"\bargued\b", re.IGNORECASE), ["discussed", "raised a concern with", "spoke with"]),
-    (re.compile(r"\bconflict\b", re.IGNORECASE), ["disagreement", "misunderstanding", "difference"]),
+    (
+        re.compile(r"\bargued\b", re.IGNORECASE),
+        ["discussed", "raised a concern with", "spoke with"],
+    ),
+    (
+        re.compile(r"\bconflict\b", re.IGNORECASE),
+        ["disagreement", "misunderstanding", "difference"],
+    ),
 ]
 
 _LOW_AGREEABLENESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
@@ -92,7 +116,10 @@ _LOW_AGREEABLENESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
     (re.compile(r"\bargued\b", re.IGNORECASE), ["attacked", "went after", "turned against"]),
     (re.compile(r"\bdisagreed\b", re.IGNORECASE), ["fought with", "confronted", "turned on"]),
     (re.compile(r"\bdiscussed\b", re.IGNORECASE), ["argued about", "clashed over", "fought over"]),
-    (re.compile(r"\bdisappointed\b", re.IGNORECASE), ["let down", "betrayed", "stabbed in the back"]),
+    (
+        re.compile(r"\bdisappointed\b", re.IGNORECASE),
+        ["let down", "betrayed", "stabbed in the back"],
+    ),
     (re.compile(r"\bhelped\b", re.IGNORECASE), ["claimed to help", "manipulated", "used"]),
 ]
 
@@ -103,7 +130,14 @@ _HIGH_OPENNESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
     # After multiple propagation hops through high-openness transmitters, messages
     # accumulate multiple insertions. Consider limiting to first or last sentence
     # boundary in future versions.
-    (re.compile(r"\.\s"), [" -- possibly for a reason. ", " -- perhaps because of something deeper. ", " -- perhaps for a reason. "]),
+    (
+        re.compile(r"\.\s"),
+        [
+            " -- possibly for a reason. ",
+            " -- perhaps because of something deeper. ",
+            " -- perhaps for a reason. ",
+        ],
+    ),
 ]
 
 _LOW_OPENNESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
@@ -125,13 +159,23 @@ _HIGH_EXTRAVERSION_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
 _LOW_EXTRAVERSION_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
     # Low extraversion: reteller minimizes social scope
     (re.compile(r"\beveryone\b", re.IGNORECASE), ["many people", "some people", "someone"]),
-    (re.compile(r"\bthe whole group\b", re.IGNORECASE), ["several people", "some people", "someone"]),
+    (
+        re.compile(r"\bthe whole group\b", re.IGNORECASE),
+        ["several people", "some people", "someone"],
+    ),
     (re.compile(r"\ball\b", re.IGNORECASE), ["many", "some", "a few"]),
 ]
 
 _HIGH_CONSCIENTIOUSNESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
     # High conscientiousness: reteller adds precision and causal attribution
-    (re.compile(r"\.\s*$"), [" -- exactly as it happened.", " -- precisely as documented.", " -- according to the established facts."]),
+    (
+        re.compile(r"\.\s*$"),
+        [
+            " -- exactly as it happened.",
+            " -- precisely as documented.",
+            " -- according to the established facts.",
+        ],
+    ),
 ]
 
 _LOW_CONSCIENTIOUSNESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [

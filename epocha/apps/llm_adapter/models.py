@@ -1,4 +1,5 @@
 """Log of LLM calls for cost monitoring."""
+
 from django.db import models
 
 

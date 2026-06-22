@@ -8,6 +8,7 @@ The suite is intentionally narrow: each test guards one cluster-wide property
 that would silently regress if a future refactor broke a single line. Failure
 of any test signals an architectural drift, not a calibration tweak.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -179,9 +180,7 @@ class TestPoliticalInvariants:
         gov_src = inspect.getsource(government.update_government_indicators).lower()
 
         combined = strat_src + gov_src
-        assert any(
-            k in combined for k in ("layered", "cumulative", "composition", "stack")
-        ), (
+        assert any(k in combined for k in ("layered", "cumulative", "composition", "stack")), (
             "process_corruption and update_government_indicators must document the "
             "intentional layering on government.corruption (X-1 closure)."
         )

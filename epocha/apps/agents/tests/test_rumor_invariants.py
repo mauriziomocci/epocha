@@ -62,13 +62,19 @@ class TestDistortionIndependentReputation:
 
         # High-neuroticism transmitter intensifies negative affect.
         high_neuro = {
-            "openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5,
-            "agreeableness": 0.5, "neuroticism": 0.9,
+            "openness": 0.5,
+            "conscientiousness": 0.5,
+            "extraversion": 0.5,
+            "agreeableness": 0.5,
+            "neuroticism": 0.9,
         }
         # High-agreeableness transmitter softens negative affect.
         high_agree = {
-            "openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5,
-            "agreeableness": 0.9, "neuroticism": 0.5,
+            "openness": 0.5,
+            "conscientiousness": 0.5,
+            "extraversion": 0.5,
+            "agreeableness": 0.9,
+            "neuroticism": 0.5,
         }
 
         # Distorted variants are expected to differ -- this is the established
@@ -108,11 +114,10 @@ class TestSentimentExtractionDistortionIndependence:
         ORIGINAL source content, not the distorted variant.
         """
         from epocha.apps.agents.reputation import extract_action_sentiment
+
         source = "I decided to help. saved a life"
         # Distortion would intensify or soften the content, e.g.
         # "I decided to help. rescued courageously"
         # but the sentiment from the SOURCE must be the canonical signal.
         sentiment_source = extract_action_sentiment(source)
-        assert sentiment_source > 0, (
-            "'help' must produce positive sentiment from source content"
-        )
+        assert sentiment_source > 0, "'help' must produce positive sentiment from source content"

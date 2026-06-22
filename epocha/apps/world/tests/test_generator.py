@@ -1,4 +1,5 @@
 """Tests for world generation from text prompt (Express mode)."""
+
 import json
 from unittest.mock import MagicMock, patch
 
@@ -10,49 +11,75 @@ from epocha.apps.users.models import User
 from epocha.apps.world.generator import generate_world_from_prompt
 from epocha.apps.world.models import Government, Institution, World, Zone
 
-MOCK_LLM_RESPONSE = json.dumps({
-    "world": {
-        "economy_level": "base",
-        "stability_index": 0.6,
-    },
-    "zones": [
-        {"name": "Village Center", "type": "urban", "x": 50, "y": 50, "resources": {"food": 100, "wood": 50}},
-        {"name": "Farm Fields", "type": "rural", "x": 20, "y": 30, "resources": {"food": 300}},
-        {"name": "Forest", "type": "wilderness", "x": 80, "y": 70, "resources": {"wood": 200, "game": 100}},
-    ],
-    "agents": [
-        {
-            "name": "Marco",
-            "age": 35,
-            "role": "blacksmith",
-            "gender": "male",
-            "personality": {
-                "openness": 0.8, "conscientiousness": 0.6, "extraversion": 0.4,
-                "agreeableness": 0.3, "neuroticism": 0.5, "background": "A skilled blacksmith",
-            },
+MOCK_LLM_RESPONSE = json.dumps(
+    {
+        "world": {
+            "economy_level": "base",
+            "stability_index": 0.6,
         },
-        {
-            "name": "Elena",
-            "age": 28,
-            "role": "farmer",
-            "gender": "female",
-            "personality": {
-                "openness": 0.4, "conscientiousness": 0.8, "extraversion": 0.6,
-                "agreeableness": 0.7, "neuroticism": 0.3, "background": "A hardworking farmer",
+        "zones": [
+            {
+                "name": "Village Center",
+                "type": "urban",
+                "x": 50,
+                "y": 50,
+                "resources": {"food": 100, "wood": 50},
             },
-        },
-        {
-            "name": "Padre Luca",
-            "age": 55,
-            "role": "priest",
-            "gender": "male",
-            "personality": {
-                "openness": 0.3, "conscientiousness": 0.5, "extraversion": 0.7,
-                "agreeableness": 0.6, "neuroticism": 0.4, "background": "A corrupt priest",
+            {"name": "Farm Fields", "type": "rural", "x": 20, "y": 30, "resources": {"food": 300}},
+            {
+                "name": "Forest",
+                "type": "wilderness",
+                "x": 80,
+                "y": 70,
+                "resources": {"wood": 200, "game": 100},
             },
-        },
-    ],
-})
+        ],
+        "agents": [
+            {
+                "name": "Marco",
+                "age": 35,
+                "role": "blacksmith",
+                "gender": "male",
+                "personality": {
+                    "openness": 0.8,
+                    "conscientiousness": 0.6,
+                    "extraversion": 0.4,
+                    "agreeableness": 0.3,
+                    "neuroticism": 0.5,
+                    "background": "A skilled blacksmith",
+                },
+            },
+            {
+                "name": "Elena",
+                "age": 28,
+                "role": "farmer",
+                "gender": "female",
+                "personality": {
+                    "openness": 0.4,
+                    "conscientiousness": 0.8,
+                    "extraversion": 0.6,
+                    "agreeableness": 0.7,
+                    "neuroticism": 0.3,
+                    "background": "A hardworking farmer",
+                },
+            },
+            {
+                "name": "Padre Luca",
+                "age": 55,
+                "role": "priest",
+                "gender": "male",
+                "personality": {
+                    "openness": 0.3,
+                    "conscientiousness": 0.5,
+                    "extraversion": 0.7,
+                    "agreeableness": 0.6,
+                    "neuroticism": 0.4,
+                    "background": "A corrupt priest",
+                },
+            },
+        ],
+    }
+)
 
 
 @pytest.fixture
@@ -150,6 +177,8 @@ class TestGenerateWorldFromPrompt:
 
         assert Institution.objects.filter(simulation=simulation).count() == 7
         institution_types = set(
-            Institution.objects.filter(simulation=simulation).values_list("institution_type", flat=True)
+            Institution.objects.filter(simulation=simulation).values_list(
+                "institution_type", flat=True
+            )
         )
         assert institution_types == set(Institution.InstitutionType.values)

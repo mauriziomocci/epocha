@@ -7,6 +7,7 @@ counter resets automatically after the window expires.
 Reference: Redis INCR pattern for rate limiting.
 https://redis.io/commands/incr/#pattern-rate-limiter-1
 """
+
 from __future__ import annotations
 
 

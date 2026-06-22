@@ -3,6 +3,7 @@
 Covers the knowledge graph template rendering, authentication redirect,
 and 404 on missing graph.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -20,7 +21,9 @@ from epocha.apps.users.models import User
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(email="view@epocha.dev", username="viewuser", password="pass1234")
+    return User.objects.create_user(
+        email="view@epocha.dev", username="viewuser", password="pass1234"
+    )
 
 
 @pytest.fixture
@@ -66,9 +69,12 @@ def graph(simulation, cache_entry, document):
 @pytest.fixture
 def node(graph):
     return KnowledgeNode.objects.create(
-        graph=graph, entity_type="person",
-        name="Danton", canonical_name="danton",
-        source_type="document", confidence=0.9,
+        graph=graph,
+        entity_type="person",
+        name="Danton",
+        canonical_name="danton",
+        source_type="document",
+        confidence=0.9,
         embedding=[0.1] * 1024,
     )
 
@@ -82,7 +88,6 @@ def logged_in_client(user):
 
 @pytest.mark.django_db
 class TestKnowledgeGraphView:
-
     def test_returns_200_with_graph(self, logged_in_client, simulation, graph, node):
         response = logged_in_client.get(f"/simulations/{simulation.id}/knowledge-graph/")
         assert response.status_code == 200

@@ -10,6 +10,7 @@ Usage:
     python manage.py cleanup_extraction_cache --min-age-days 60
     python manage.py cleanup_extraction_cache --dry-run
 """
+
 from __future__ import annotations
 
 from datetime import timedelta

@@ -5,6 +5,7 @@ configured in versions.py. The service returns lightweight ChunkResult
 dataclasses; persistence is handled separately so the chunker remains
 pure and testable without a database.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -65,12 +66,14 @@ def split_text_into_chunks(
             idx = text.find(chunk_text)
             if idx == -1:
                 continue
-        results.append(ChunkResult(
-            chunk_index=i,
-            text=chunk_text,
-            start_char=idx,
-            end_char=idx + len(chunk_text),
-        ))
+        results.append(
+            ChunkResult(
+                chunk_index=i,
+                text=chunk_text,
+                start_char=idx,
+                end_char=idx + len(chunk_text),
+            )
+        )
         cursor = idx + len(chunk_text)
 
     return results

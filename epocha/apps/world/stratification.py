@@ -12,6 +12,7 @@ Reference: Acemoglu, D., & Robinson, J. A. (2006). "Economic Origins of Dictator
 Cambridge University Press. Chapter 2: agents controlling political institutions extract rents from
 the public pool rather than creating new wealth.
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,11 +33,11 @@ logger = logging.getLogger(__name__)
 # Reference: Gilbert, D. (2011). "The American Class Structure in an Age of Growing Inequality."
 # SAGE Publications. Chapter 1.
 _CLASS_THRESHOLDS: list[tuple[str, float, float]] = [
-    ("elite",   0.00, 0.05),   # top 5%
-    ("wealthy", 0.05, 0.15),   # next 10%
-    ("middle",  0.15, 0.50),   # next 35%
-    ("working", 0.50, 0.80),   # next 30%
-    ("poor",    0.80, 1.00),   # bottom 20%
+    ("elite", 0.00, 0.05),  # top 5%
+    ("wealthy", 0.05, 0.15),  # next 10%
+    ("middle", 0.15, 0.50),  # next 35%
+    ("working", 0.50, 0.80),  # next 30%
+    ("poor", 0.80, 1.00),  # bottom 20%
 ]
 
 # Class rank used to detect significant mobility (2+ rank jumps).
@@ -174,14 +175,16 @@ def update_social_classes(simulation) -> None:
                 )
                 emotional_weight = _DOWNWARD_MOBILITY_WEIGHT
 
-            memories_to_create.append(Memory(
-                agent=agent,
-                content=content,
-                emotional_weight=emotional_weight,
-                source_type=Memory.SourceType.DIRECT,
-                reliability=1.0,
-                tick_created=tick,
-            ))
+            memories_to_create.append(
+                Memory(
+                    agent=agent,
+                    content=content,
+                    emotional_weight=emotional_weight,
+                    source_type=Memory.SourceType.DIRECT,
+                    reliability=1.0,
+                    tick_created=tick,
+                )
+            )
 
     Agent.objects.bulk_update(agents_to_update, ["social_class"])
     if memories_to_create:
@@ -189,7 +192,10 @@ def update_social_classes(simulation) -> None:
 
     logger.debug(
         "update_social_classes: simulation=%d tick=%d agents=%d mobility_memories=%d",
-        simulation.pk, tick, total, len(memories_to_create),
+        simulation.pk,
+        tick,
+        total,
+        len(memories_to_create),
     )
 
 
@@ -260,7 +266,8 @@ def process_corruption(simulation, tick: int) -> None:
             simulation=simulation,
             is_alive=True,
             led_groups__simulation=simulation,
-        ).distinct()
+        )
+        .distinct()
         .only("id", "name", "wealth", "personality")
     )
     agents_in_power.extend(group_leaders)
@@ -287,7 +294,9 @@ def process_corruption(simulation, tick: int) -> None:
 
         # Skim rate scales linearly: fully corrupt agent (c=0) skims at max rate;
         # agent at threshold (c=0.4) skims nothing.
-        skim_fraction = _CORRUPTION_SKIM_RATE * (1.0 - conscientiousness / CONSCIENTIOUSNESS_THRESHOLD)
+        skim_fraction = _CORRUPTION_SKIM_RATE * (
+            1.0 - conscientiousness / CONSCIENTIOUSNESS_THRESHOLD
+        )
         skim_amount = agent.wealth * skim_fraction
         # Corruption transfers wealth from the global pool to the corrupt agent.
         # The 1% cap prevents a single agent from draining the economy in one tick.
@@ -299,17 +308,19 @@ def process_corruption(simulation, tick: int) -> None:
         agent.wealth += skim_amount
         agents_to_update.append(agent)
 
-        memories_to_create.append(Memory(
-            agent=agent,
-            content=(
-                f"I used my position of power to extract {skim_amount:.1f} units of wealth "
-                f"at tick {tick}."
-            ),
-            emotional_weight=0.3,
-            source_type=Memory.SourceType.DIRECT,
-            reliability=1.0,
-            tick_created=tick,
-        ))
+        memories_to_create.append(
+            Memory(
+                agent=agent,
+                content=(
+                    f"I used my position of power to extract {skim_amount:.1f} units of wealth "
+                    f"at tick {tick}."
+                ),
+                emotional_weight=0.3,
+                source_type=Memory.SourceType.DIRECT,
+                reliability=1.0,
+                tick_created=tick,
+            )
+        )
 
         # Track whether the head of state was corrupt this tick.
         if government and government.head_of_state_id == agent.pk:
@@ -342,5 +353,8 @@ def process_corruption(simulation, tick: int) -> None:
 
     logger.debug(
         "process_corruption: simulation=%d tick=%d corrupt_agents=%d head_corrupt=%s",
-        simulation.pk, tick, len(agents_to_update), is_head_of_state_corrupt,
+        simulation.pk,
+        tick,
+        len(agents_to_update),
+        is_head_of_state_corrupt,
     )

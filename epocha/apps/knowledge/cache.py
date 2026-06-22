@@ -8,6 +8,7 @@ The cache key is the SHA-256 of a deterministic composition of:
 
 Any change to any of these fields invalidates the cache automatically.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -33,8 +34,5 @@ def compute_cache_key(
     llm_model: str,
 ) -> str:
     """Compute the composite cache key from its four components."""
-    key_material = (
-        f"{documents_hash}|{ontology_version}|"
-        f"{extraction_prompt_version}|{llm_model}"
-    )
+    key_material = f"{documents_hash}|{ontology_version}|{extraction_prompt_version}|{llm_model}"
     return hashlib.sha256(key_material.encode("utf-8")).hexdigest()

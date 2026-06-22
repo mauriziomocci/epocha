@@ -20,9 +20,7 @@ def user(db):
 
 @pytest.fixture
 def simulation(user):
-    return Simulation.objects.create(
-        name="TaskTest", seed=42, owner=user, status="running"
-    )
+    return Simulation.objects.create(name="TaskTest", seed=42, owner=user, status="running")
 
 
 @pytest.fixture

@@ -10,6 +10,7 @@ Sources:
 - Malthus-Ricardo preventive check formalization inspired by
   Ashraf & Galor (2011) AER 101(5).
 """
+
 from __future__ import annotations
 
 import math
@@ -36,8 +37,8 @@ def hadwiger_asfr(age: float, params: Mapping[str, float]) -> float:
     T = float(params["T"])
     ratio = R / age
     coef = (H * T) / (R * math.sqrt(math.pi))
-    shape = ratio ** 1.5
-    tail = math.exp(-(T ** 2) * (ratio + age / R - 2.0))
+    shape = ratio**1.5
+    tail = math.exp(-(T**2) * (ratio + age / R - 2.0))
     return coef * shape * tail
 
 
@@ -53,14 +54,19 @@ def _female_role_employment_fraction(zone, simulation) -> float:
 
     tick = simulation.current_tick
     females = Agent.objects.filter(
-        simulation=simulation, zone=zone, is_alive=True, gender=Agent.Gender.FEMALE,
+        simulation=simulation,
+        zone=zone,
+        is_alive=True,
+        gender=Agent.Gender.FEMALE,
     )
     total = females.count()
     if total == 0:
         return 0.0
     earning_ids = set(
         EconomicLedger.objects.filter(
-            simulation=simulation, tick=tick, transaction_type="wage",
+            simulation=simulation,
+            tick=tick,
+            transaction_type="wage",
             to_agent__in=females,
         ).values_list("to_agent_id", flat=True)
     )
@@ -115,6 +121,7 @@ def becker_modulation(agent, coeffs: Mapping[str, float]) -> float:
 # Task 3: Malthusian soft ceiling
 # ---------------------------------------------------------------------------
 
+
 def malthusian_soft_ceiling(
     prob: float,
     current_pop: int,
@@ -148,6 +155,7 @@ def malthusian_soft_ceiling(
 # ---------------------------------------------------------------------------
 # Task 4: Combined tick_birth_probability
 # ---------------------------------------------------------------------------
+
 
 def tick_birth_probability(
     mother,
@@ -190,9 +198,15 @@ def tick_birth_probability(
         return 0.0
 
     hadwiger_params = fertility_cfg["hadwiger"]
-    annual_asfr = hadwiger_asfr(_effective_age_in_years(
-        mother, tick_duration_hours, demography_acceleration, current_tick=current_tick,
-    ), hadwiger_params)
+    annual_asfr = hadwiger_asfr(
+        _effective_age_in_years(
+            mother,
+            tick_duration_hours,
+            demography_acceleration,
+            current_tick=current_tick,
+        ),
+        hadwiger_params,
+    )
     if annual_asfr <= 0.0:
         return 0.0
     becker_factor = becker_modulation(mother, fertility_cfg["becker_coefficients"])
@@ -238,6 +252,7 @@ def _effective_age_in_years(
 # ---------------------------------------------------------------------------
 # Task 5: AgentFertilityState helpers
 # ---------------------------------------------------------------------------
+
 
 def set_avoid_conception_flag(agent) -> None:
     """Record the agent's intent to avoid conception this tick.
@@ -292,6 +307,7 @@ def is_avoid_conception_active_this_tick(agent, current_tick: int | None = None)
 # Task 6: Joint mortality-fertility resolution
 # ---------------------------------------------------------------------------
 
+
 def resolve_childbirth_event(
     mother,
     params_era: Mapping[str, object],
@@ -313,9 +329,7 @@ def resolve_childbirth_event(
     fertility path coupled but side-effect free.
     """
     mortality_cfg = params_era["mortality"]
-    maternal_death_rate = float(
-        mortality_cfg.get("maternal_mortality_rate_per_birth", 0.0)
-    )
+    maternal_death_rate = float(mortality_cfg.get("maternal_mortality_rate_per_birth", 0.0))
     neonatal_survival_when_mother_dies = float(
         mortality_cfg.get("neonatal_survival_when_mother_dies", 0.3)
     )

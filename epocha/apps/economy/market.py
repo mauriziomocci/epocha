@@ -8,6 +8,7 @@ Warning: Scarf (1960) showed tatonnement may not converge with 3+ goods.
 The max_iterations parameter is the safety net.
 Implementation follows applied CGE practice: Shoven & Whalley (1992) ch. 4.
 """
+
 from __future__ import annotations
 
 import logging
@@ -224,11 +225,13 @@ def collect_supply_and_demand(
                     wants[code] = discretionary
                     total_demand[code] = total_demand.get(code, 0.0) + discretionary
 
-        agent_orders.append({
-            "agent_id": inv["agent_id"],
-            "offers": offers,
-            "wants": wants,
-        })
+        agent_orders.append(
+            {
+                "agent_id": inv["agent_id"],
+                "offers": offers,
+                "wants": wants,
+            }
+        )
 
     return total_supply, total_demand, agent_orders
 
@@ -288,14 +291,16 @@ def execute_trades(
                     continue
                 share = min(actual_buy, actual_sell)
                 if share > 0.001:
-                    trades.append({
-                        "buyer_id": buyer_id,
-                        "seller_id": seller_id,
-                        "good_code": good_code,
-                        "quantity": share,
-                        "price": price,
-                        "total": share * price,
-                    })
+                    trades.append(
+                        {
+                            "buyer_id": buyer_id,
+                            "seller_id": seller_id,
+                            "good_code": good_code,
+                            "quantity": share,
+                            "price": price,
+                            "total": share * price,
+                        }
+                    )
 
     return trades
 
@@ -310,12 +315,19 @@ def clear_market(
     Returns (equilibrium_prices, trades, total_supply, total_demand).
     """
     total_supply, total_demand, agent_orders = collect_supply_and_demand(
-        agent_inventories, good_categories, market_prices,
+        agent_inventories,
+        good_categories,
+        market_prices,
     )
     equilibrium_prices, converged = tatonnement_prices(
-        market_prices, total_supply, total_demand,
+        market_prices,
+        total_supply,
+        total_demand,
     )
     trades = execute_trades(
-        agent_orders, equilibrium_prices, total_supply, total_demand,
+        agent_orders,
+        equilibrium_prices,
+        total_supply,
+        total_demand,
     )
     return equilibrium_prices, trades, total_supply, total_demand

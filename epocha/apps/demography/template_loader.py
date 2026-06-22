@@ -6,6 +6,7 @@ loader validates the schema at load time and raises on missing or
 malformed fields. Real calibration of numerical parameters (HP, Hadwiger)
 happens in Plan 4 against historical life tables.
 """
+
 from __future__ import annotations
 
 import json
@@ -67,9 +68,7 @@ def _validate_template(data: dict[str, Any], source: str) -> None:
     mortality = data["mortality"]
     missing_mort = REQUIRED_MORTALITY_KEYS - mortality.keys()
     if missing_mort:
-        raise ValueError(
-            f"Template {source} mortality missing keys: {sorted(missing_mort)}"
-        )
+        raise ValueError(f"Template {source} mortality missing keys: {sorted(missing_mort)}")
     hp = mortality["heligman_pollard"]
     missing_hp = REQUIRED_HP_KEYS - hp.keys()
     if missing_hp:
@@ -79,8 +78,7 @@ def _validate_template(data: dict[str, Any], source: str) -> None:
 
     if data["fertility_agency"] not in ALLOWED_FERTILITY_AGENCY:
         raise ValueError(
-            f"Template {source} fertility_agency must be one of "
-            f"{sorted(ALLOWED_FERTILITY_AGENCY)}"
+            f"Template {source} fertility_agency must be one of {sorted(ALLOWED_FERTILITY_AGENCY)}"
         )
 
 

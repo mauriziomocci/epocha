@@ -1,4 +1,5 @@
 """Settings shared across all environments."""
+
 import environ
 
 env = environ.Env()
@@ -156,7 +157,9 @@ EPOCHA_DEFAULT_TICK_INTERVAL_SECONDS = env.int("EPOCHA_TICK_INTERVAL", default=5
 # Actions below this threshold are considered too mundane for gossip.
 # Source: threshold aligns with _ACTION_EMOTIONAL_WEIGHT in engine.py where
 # socialize=0.2 (excluded) and help=0.3 (included).
-EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD = env.float("EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD", default=0.3)
+EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD = env.float(
+    "EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD", default=0.3
+)
 
 # Reliability decay factor per hop in the communication chain.
 # Source: Bartlett (1932) serial reproduction experiments show ~30% detail loss per step.
@@ -198,7 +201,9 @@ EPOCHA_FACTION_MIN_MEMBERS = env.int("EPOCHA_FACTION_MIN_MEMBERS", default=3)
 EPOCHA_FACTION_MAX_INITIAL_MEMBERS = env.int("EPOCHA_FACTION_MAX_INITIAL_MEMBERS", default=8)
 
 # Cohesion threshold below which a group dissolves.
-EPOCHA_FACTION_DISSOLUTION_THRESHOLD = env.float("EPOCHA_FACTION_DISSOLUTION_THRESHOLD", default=0.2)
+EPOCHA_FACTION_DISSOLUTION_THRESHOLD = env.float(
+    "EPOCHA_FACTION_DISSOLUTION_THRESHOLD", default=0.2
+)
 
 # Leadership legitimacy threshold below which the leader is replaced.
 EPOCHA_FACTION_LEGITIMACY_THRESHOLD = env.float("EPOCHA_FACTION_LEGITIMACY_THRESHOLD", default=0.3)
@@ -212,10 +217,14 @@ EPOCHA_GOVERNMENT_ELECTION_INTERVAL = env.int("EPOCHA_GOVERNMENT_ELECTION_INTERV
 
 # Gini coefficient threshold above which revolt probability increases.
 # Source: Acemoglu & Robinson (2006), most revolutions occur at Gini 0.6-0.8.
-EPOCHA_GOVERNMENT_GINI_REVOLT_THRESHOLD = env.float("EPOCHA_GOVERNMENT_GINI_REVOLT_THRESHOLD", default=0.6)
+EPOCHA_GOVERNMENT_GINI_REVOLT_THRESHOLD = env.float(
+    "EPOCHA_GOVERNMENT_GINI_REVOLT_THRESHOLD", default=0.6
+)
 
 # Government stability threshold below which coups become possible.
-EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD = env.float("EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD", default=0.3)
+EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD = env.float(
+    "EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD", default=0.3
+)
 
 # --- Knowledge Graph ---
 # Master switch for the Knowledge Graph feature.

@@ -1,4 +1,5 @@
 """Custom user manager."""
+
 from django.contrib.auth.base_user import BaseUserManager
 
 

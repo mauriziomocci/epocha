@@ -7,6 +7,7 @@ chat completions endpoint via configurable base_url.
 Includes automatic retry with exponential backoff for rate limit errors
 (HTTP 429), which is common with free-tier providers like Groq.
 """
+
 from __future__ import annotations
 
 import logging
@@ -178,11 +179,15 @@ class OpenAIProvider(BaseLLMProvider):
                 except openai.RateLimitError as exc:
                     last_exception = exc
                     if attempt < _MAX_RETRIES:
-                        delay = _RETRY_BASE_DELAY_SECONDS * (2 ** attempt)
+                        delay = _RETRY_BASE_DELAY_SECONDS * (2**attempt)
                         logger.warning(
                             "Rate limited by %s (key %d/%d, attempt %d/%d), retrying in %.1fs",
-                            self.model, self._current_key_index + 1, len(self._api_keys),
-                            attempt + 1, _MAX_RETRIES, delay,
+                            self.model,
+                            self._current_key_index + 1,
+                            len(self._api_keys),
+                            attempt + 1,
+                            _MAX_RETRIES,
+                            delay,
                         )
                         time.sleep(delay)
 
@@ -202,9 +207,7 @@ class OpenAIProvider(BaseLLMProvider):
         Pricing is per 1M tokens; we divide accordingly.
         """
         pricing = MODEL_PRICING.get(self.model, DEFAULT_PRICING)
-        return (
-            input_tokens * pricing["input"] + output_tokens * pricing["output"]
-        ) / 1_000_000
+        return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
 
     def get_model_name(self) -> str:
         return self.model

@@ -144,12 +144,8 @@ def classify_minsky_stage(agent: Agent, simulation, tick: int) -> str:
         status="active",
     )
 
-    interest_due = sum(
-        loan.remaining_balance * loan.interest_rate for loan in active_loans
-    )
-    principal_due = sum(
-        loan.remaining_balance for loan in active_loans.filter(due_at_tick=tick)
-    )
+    interest_due = sum(loan.remaining_balance * loan.interest_rate for loan in active_loans)
+    principal_due = sum(loan.remaining_balance for loan in active_loans.filter(due_at_tick=tick))
 
     if income >= interest_due + principal_due:
         return "hedge"
@@ -493,9 +489,7 @@ def process_maturity(simulation, tick: int) -> None:
 
                 if loan.lender_type == "agent" and loan.lender:
                     lender_inv = _get_or_create_inventory(loan.lender)
-                    lender_inv.cash[cur_code] = (
-                        lender_inv.cash.get(cur_code, 0.0) + interest
-                    )
+                    lender_inv.cash[cur_code] = lender_inv.cash.get(cur_code, 0.0) + interest
                     lender_inv.save(update_fields=["cash"])
 
             # Mark old loan as rolled over
@@ -733,7 +727,8 @@ def default_dead_agent_loans(simulation) -> int:
         dead_loans.update(status="defaulted")
         logger.info(
             "Defaulted %d loans from dead agents in simulation %d",
-            count, simulation.id,
+            count,
+            simulation.id,
         )
     return count
 

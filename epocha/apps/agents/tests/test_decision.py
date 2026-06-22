@@ -1,4 +1,5 @@
 """Tests for the agent decision pipeline."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -48,7 +49,9 @@ class TestProcessAgentDecision:
     def test_returns_action_dict(self, mock_get_client, agent, world):
         """The pipeline should return a parsed action dictionary."""
         mock_client = MagicMock()
-        mock_client.complete.return_value = '{"action": "work", "target": "forge", "reason": "Need to earn money"}'
+        mock_client.complete.return_value = (
+            '{"action": "work", "target": "forge", "reason": "Need to earn money"}'
+        )
         mock_client.get_model_name.return_value = "gpt-4o-mini"
         mock_get_client.return_value = mock_client
 
@@ -89,8 +92,10 @@ class TestProcessAgentDecision:
     def test_includes_memories_in_context(self, mock_get_client, agent, world):
         """Agent memories should be included in the LLM prompt context."""
         Memory.objects.create(
-            agent=agent, content="The priest insulted me yesterday",
-            emotional_weight=0.7, tick_created=1,
+            agent=agent,
+            content="The priest insulted me yesterday",
+            emotional_weight=0.7,
+            tick_created=1,
         )
         mock_client = MagicMock()
         mock_client.complete.return_value = '{"action": "argue", "reason": "Still angry"}'
@@ -122,12 +127,17 @@ class TestProcessAgentDecision:
     def test_context_includes_living_agents_list(self, mock_get_client, agent, world, simulation):
         """The LLM prompt must list living agents so the agent only targets real people."""
         Agent.objects.create(
-            simulation=simulation, name="Elena", role="farmer",
+            simulation=simulation,
+            name="Elena",
+            role="farmer",
             personality={"openness": 0.5},
         )
         Agent.objects.create(
-            simulation=simulation, name="Ghost", role="priest",
-            personality={"openness": 0.5}, is_alive=False,
+            simulation=simulation,
+            name="Ghost",
+            role="priest",
+            personality={"openness": 0.5},
+            is_alive=False,
         )
         mock_client = MagicMock()
         mock_client.complete.return_value = '{"action": "socialize", "target": "Elena"}'
@@ -152,8 +162,11 @@ class TestProcessAgentDecision:
     def test_context_includes_group_info(self, mock_get_client, agent, world, simulation):
         """If the agent belongs to a group, the context should include group details."""
         group = Group.objects.create(
-            simulation=simulation, name="The Guild", objective="Protect artisans",
-            cohesion=0.7, formed_at_tick=1,
+            simulation=simulation,
+            name="The Guild",
+            objective="Protect artisans",
+            cohesion=0.7,
+            formed_at_tick=1,
         )
         agent.group = group
         agent.save(update_fields=["group"])
@@ -176,7 +189,13 @@ class TestProcessAgentDecision:
     def test_context_includes_government_info(self, mock_get_client, agent, world, simulation):
         """If a government exists, the context should include political info."""
         from epocha.apps.world.models import Government
-        Government.objects.create(simulation=simulation, government_type="democracy", stability=0.6, popular_legitimacy=0.5)
+
+        Government.objects.create(
+            simulation=simulation,
+            government_type="democracy",
+            stability=0.6,
+            popular_legitimacy=0.5,
+        )
         mock_client = MagicMock()
         mock_client.complete.return_value = '{"action": "work", "reason": "busy"}'
         mock_client.get_model_name.return_value = "gpt-4o-mini"

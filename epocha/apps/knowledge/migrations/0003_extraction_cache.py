@@ -4,25 +4,34 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('knowledge', '0002_chunk'),
+        ("knowledge", "0002_chunk"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='ExtractionCache',
+            name="ExtractionCache",
             fields=[
-                ('cache_key', models.CharField(max_length=64, primary_key=True, serialize=False)),
-                ('documents_hash', models.CharField(db_index=True, max_length=64)),
-                ('ontology_version', models.CharField(max_length=20)),
-                ('extraction_prompt_version', models.CharField(max_length=20)),
-                ('llm_model', models.CharField(max_length=100)),
-                ('extracted_data', models.JSONField(help_text='Raw extraction output: {nodes, relations, unrecognized_relations, ...}')),
-                ('stats', models.JSONField(help_text='chunks_processed, llm_calls, elapsed_seconds, token counts')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('hit_count', models.PositiveIntegerField(default=0)),
-                ('last_hit_at', models.DateTimeField(blank=True, null=True)),
+                ("cache_key", models.CharField(max_length=64, primary_key=True, serialize=False)),
+                ("documents_hash", models.CharField(db_index=True, max_length=64)),
+                ("ontology_version", models.CharField(max_length=20)),
+                ("extraction_prompt_version", models.CharField(max_length=20)),
+                ("llm_model", models.CharField(max_length=100)),
+                (
+                    "extracted_data",
+                    models.JSONField(
+                        help_text="Raw extraction output: {nodes, relations, unrecognized_relations, ...}"
+                    ),
+                ),
+                (
+                    "stats",
+                    models.JSONField(
+                        help_text="chunks_processed, llm_calls, elapsed_seconds, token counts"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("hit_count", models.PositiveIntegerField(default=0)),
+                ("last_hit_at", models.DateTimeField(blank=True, null=True)),
             ],
         ),
     ]

@@ -1,4 +1,5 @@
 """Views for the users app."""
+
 from rest_framework import generics, permissions
 
 from .serializers import UserRegistrationSerializer, UserSerializer

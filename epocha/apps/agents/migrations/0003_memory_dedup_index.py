@@ -4,14 +4,15 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('agents', '0002_initial'),
+        ("agents", "0002_initial"),
     ]
 
     operations = [
         migrations.AddIndex(
-            model_name='memory',
-            index=models.Index(fields=['agent', 'is_active', '-tick_created'], name='memory_dedup_idx'),
+            model_name="memory",
+            index=models.Index(
+                fields=["agent", "is_active", "-tick_created"], name="memory_dedup_idx"
+            ),
         ),
     ]

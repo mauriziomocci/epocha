@@ -102,9 +102,7 @@ def extracted_data(chunk):
                 "temporal_end_year": None,
                 "chunk_ids": [chunk.chunk_index],
                 "passage_excerpts": {
-                    str(chunk.chunk_index): (
-                        "Robespierre was a member of the Jacobin Club."
-                    ),
+                    str(chunk.chunk_index): ("Robespierre was a member of the Jacobin Club."),
                 },
             },
         ],
@@ -237,9 +235,7 @@ class TestMaterializeGraph:
         assert rel.citations.count() == 1
         citation = rel.citations.first()
         assert citation.chunk == chunk
-        assert citation.passage_excerpt == (
-            "Robespierre was a member of the Jacobin Club."
-        )
+        assert citation.passage_excerpt == ("Robespierre was a member of the Jacobin Club.")
 
     def test_graph_linked_to_documents(
         self,

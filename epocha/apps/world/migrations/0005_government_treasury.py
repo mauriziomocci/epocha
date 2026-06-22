@@ -4,15 +4,16 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('world', '0004_world_distance_scale'),
+        ("world", "0004_world_distance_scale"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='government',
-            name='government_treasury',
-            field=models.JSONField(default=dict, help_text='{currency_code: amount} -- tax revenue collected'),
+            model_name="government",
+            name="government_treasury",
+            field=models.JSONField(
+                default=dict, help_text="{currency_code: amount} -- tax revenue collected"
+            ),
         ),
     ]

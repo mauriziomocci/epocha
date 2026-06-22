@@ -228,8 +228,7 @@ def enrich_simulation_agents(
             enriched += 1
 
     logger.info(
-        "Enrichment complete for simulation %d: "
-        "%d classified, %d researched, %d enriched",
+        "Enrichment complete for simulation %d: %d classified, %d researched, %d enriched",
         simulation.id,
         len(historical_names),
         researched,

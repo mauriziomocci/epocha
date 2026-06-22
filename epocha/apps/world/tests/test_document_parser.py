@@ -1,4 +1,5 @@
 """Tests for multi-format document text extraction."""
+
 import tempfile
 
 import pytest

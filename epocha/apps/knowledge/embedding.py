@@ -12,6 +12,7 @@ does not include that model. intfloat/multilingual-e5-large is the
 closest alternative: multilingual, 1024-dim, ONNX-based, and
 available in fastembed out of the box.
 """
+
 from __future__ import annotations
 
 import logging
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 def get_embedding_model():
     """Return the singleton TextEmbedding instance."""
     from fastembed import TextEmbedding
+
     logger.info("Loading embedding model %s", EMBEDDING_MODEL)
     return TextEmbedding(model_name=EMBEDDING_MODEL)
 

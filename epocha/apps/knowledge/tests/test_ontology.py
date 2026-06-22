@@ -1,4 +1,5 @@
 """Tests for the ontology validators and vocabularies."""
+
 import pytest
 
 from epocha.apps.knowledge.ontology import (
@@ -17,8 +18,16 @@ class TestEntityTypes:
 
     def test_contains_expected_types(self):
         expected = {
-            "person", "group", "place", "institution", "event",
-            "concept", "ideology", "object", "norm", "value",
+            "person",
+            "group",
+            "place",
+            "institution",
+            "event",
+            "concept",
+            "ideology",
+            "object",
+            "norm",
+            "value",
         }
         assert set(ENTITY_TYPES) == expected
 

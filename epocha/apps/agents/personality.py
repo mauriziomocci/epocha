@@ -7,6 +7,7 @@ Source: Costa & McCrae (1992). "Revised NEO Personality Inventory (NEO-PI-R)
 and NEO Five-Factor Inventory (NEO-FFI) professional manual."
 Psychological Assessment Resources.
 """
+
 from __future__ import annotations
 
 # Big Five trait descriptors mapped to high (>= 0.7) and low (<= 0.3) values.

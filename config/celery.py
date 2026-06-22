@@ -1,4 +1,5 @@
 """Celery configuration for Epocha."""
+
 import os
 
 from celery import Celery

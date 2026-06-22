@@ -1,4 +1,5 @@
 """Tests for economic feedback on political indicators."""
+
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
@@ -22,7 +23,9 @@ def user(db):
 @pytest.fixture
 def simulation(user):
     return Simulation.objects.create(
-        name="PFTest", seed=42, owner=user,
+        name="PFTest",
+        seed=42,
+        owner=user,
     )
 
 
@@ -35,7 +38,9 @@ def political_setup(simulation):
         tick_duration_hours=24.0,
     )
     zone = Zone.objects.create(
-        world=world, name="Capital", zone_type="urban",
+        world=world,
+        name="Capital",
+        zone_type="urban",
         boundary=Polygon.from_bbox((0, 0, 100, 100)),
         center=Point(50, 50),
     )
@@ -46,8 +51,12 @@ def political_setup(simulation):
         popular_legitimacy=0.5,
     )
     Currency.objects.create(
-        simulation=simulation, code="LVR", name="Livre",
-        symbol="L", is_primary=True, total_supply=10000.0,
+        simulation=simulation,
+        code="LVR",
+        name="Livre",
+        symbol="L",
+        is_primary=True,
+        total_supply=10000.0,
     )
     ze = ZoneEconomy.objects.create(
         zone=zone,
@@ -55,13 +64,21 @@ def political_setup(simulation):
     )
 
     # Create agents with diverse wealth for Gini computation
-    for i, (name, wealth) in enumerate([
-        ("Rich", 500.0), ("Middle", 100.0), ("Poor", 10.0),
-    ]):
+    for i, (name, wealth) in enumerate(
+        [
+            ("Rich", 500.0),
+            ("Middle", 100.0),
+            ("Poor", 10.0),
+        ]
+    ):
         Agent.objects.create(
-            simulation=simulation, name=name, role="citizen",
-            personality={"openness": 0.5}, location=Point(50, 50),
-            zone=zone, wealth=wealth,
+            simulation=simulation,
+            name=name,
+            role="citizen",
+            personality={"openness": 0.5},
+            location=Point(50, 50),
+            zone=zone,
+            wealth=wealth,
         )
 
     return {
@@ -78,12 +95,20 @@ class TestInflationFeedback:
         ze = political_setup["zone_economy"]
         # Tick 0: price 3.0, tick 1: price 4.0 => 33% inflation
         PriceHistory.objects.create(
-            zone_economy=ze, good_code="subsistence", tick=0,
-            price=3.0, supply=10, demand=10,
+            zone_economy=ze,
+            good_code="subsistence",
+            tick=0,
+            price=3.0,
+            supply=10,
+            demand=10,
         )
         PriceHistory.objects.create(
-            zone_economy=ze, good_code="subsistence", tick=1,
-            price=4.0, supply=10, demand=12,
+            zone_economy=ze,
+            good_code="subsistence",
+            tick=1,
+            price=4.0,
+            supply=10,
+            demand=12,
         )
 
         apply_economic_feedback(simulation, tick=1)
@@ -95,12 +120,20 @@ class TestInflationFeedback:
         ze = political_setup["zone_economy"]
         # 3% inflation, below threshold
         PriceHistory.objects.create(
-            zone_economy=ze, good_code="subsistence", tick=0,
-            price=3.0, supply=10, demand=10,
+            zone_economy=ze,
+            good_code="subsistence",
+            tick=0,
+            price=3.0,
+            supply=10,
+            demand=10,
         )
         PriceHistory.objects.create(
-            zone_economy=ze, good_code="subsistence", tick=1,
-            price=3.09, supply=10, demand=10,
+            zone_economy=ze,
+            good_code="subsistence",
+            tick=1,
+            price=3.09,
+            supply=10,
+            demand=10,
         )
 
         apply_economic_feedback(simulation, tick=1)

@@ -324,9 +324,7 @@ class TestBankingBlock:
 
     def test_no_banking_block_when_no_state(self, behavioral_setup):
         # Ensure no BankingState exists
-        BankingState.objects.filter(
-            simulation=behavioral_setup["simulation"]
-        ).delete()
+        BankingState.objects.filter(simulation=behavioral_setup["simulation"]).delete()
 
         ctx = build_economic_context(behavioral_setup["agent"], tick=1)
         assert "Banking system:" not in ctx

@@ -6,28 +6,41 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
-        ('simulation', '0001_initial'),
+        ("simulation", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='simulation',
-            name='owner',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='simulations', to=settings.AUTH_USER_MODEL),
+            model_name="simulation",
+            name="owner",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="simulations",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
         migrations.AddField(
-            model_name='simulation',
-            name='parent',
-            field=models.ForeignKey(blank=True, help_text='Simulation from which this was forked', null=True, on_delete=django.db.models.deletion.SET_NULL, to='simulation.simulation'),
+            model_name="simulation",
+            name="parent",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Simulation from which this was forked",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to="simulation.simulation",
+            ),
         ),
         migrations.AddField(
-            model_name='event',
-            name='simulation',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='events', to='simulation.simulation'),
+            model_name="event",
+            name="simulation",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="events",
+                to="simulation.simulation",
+            ),
         ),
     ]

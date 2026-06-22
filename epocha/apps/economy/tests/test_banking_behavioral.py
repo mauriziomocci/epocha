@@ -23,7 +23,9 @@ from epocha.apps.world.models import World, Zone
 def banking_sim(db):
     """Create a simulation with economy and multiple agents."""
     user = User.objects.create_user(
-        email="banking@epocha.dev", username="bankuser", password="pass1234",
+        email="banking@epocha.dev",
+        username="bankuser",
+        password="pass1234",
     )
     sim = Simulation.objects.create(name="bank_test", seed=42, owner=user, config={})
     world = World.objects.create(
@@ -146,7 +148,7 @@ class TestBroadcastBankingConcern:
             Memory.objects.create(
                 agent=agent,
                 content="The banking system is under stress. Some depositors "
-                        "are worried about the safety of their savings.",
+                "are worried about the safety of their savings.",
                 emotional_weight=0.6,
                 source_type="public",
                 tick_created=5,

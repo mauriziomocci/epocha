@@ -5,6 +5,7 @@ database round-trip where possible and writes one SimulationSnapshot record.
 It is called by the tick engine after each tick completes so that the analytics
 dashboard always has a consistent time-series to read from.
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,11 +33,7 @@ _CLASS_FIELDS: dict[str, str] = {
 
 def _collect_population(simulation) -> dict:
     """Return alive/dead agent counts for the simulation."""
-    counts = (
-        Agent.objects.filter(simulation=simulation)
-        .values("is_alive")
-        .annotate(c=Count("id"))
-    )
+    counts = Agent.objects.filter(simulation=simulation).values("is_alive").annotate(c=Count("id"))
     alive = 0
     dead = 0
     for row in counts:
@@ -134,10 +131,7 @@ def _collect_class_distribution(simulation) -> dict:
     if total == 0:
         return {field: 0.0 for field in _CLASS_FIELDS.values()}
 
-    return {
-        field: round(class_counts[label] / total, 4)
-        for label, field in _CLASS_FIELDS.items()
-    }
+    return {field: round(class_counts[label] / total, 4) for label, field in _CLASS_FIELDS.items()}
 
 
 def capture_snapshot(simulation, tick: int) -> SimulationSnapshot:
@@ -173,8 +167,11 @@ def capture_snapshot(simulation, tick: int) -> SimulationSnapshot:
 
     logger.debug(
         "capture_snapshot: simulation=%d tick=%d created=%s alive=%d gini=%.4f",
-        simulation.pk, tick, created,
-        data["population_alive"], data["gini_coefficient"],
+        simulation.pk,
+        tick,
+        created,
+        data["population_alive"],
+        data["gini_coefficient"],
     )
     return snapshot
 
@@ -189,6 +186,7 @@ def capture_and_detect(simulation, tick: int) -> None:
     snapshot = capture_snapshot(simulation, tick)
     try:
         from .crisis import detect_crises
+
         detect_crises(simulation, snapshot)
     except ImportError:
         pass  # crisis module not yet implemented

@@ -29,6 +29,7 @@ Scientific grounding:
 - The institution_effects values in GOVERNMENT_TYPES are design parameters inspired by
   qualitative patterns in the literature (see government_types.py for full citations).
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,7 +79,9 @@ def update_institutions(simulation) -> None:
     try:
         government = Government.objects.get(simulation=simulation)
     except Government.DoesNotExist:
-        logger.debug("No government found for simulation %s; skipping institution update.", simulation.pk)
+        logger.debug(
+            "No government found for simulation %s; skipping institution update.", simulation.pk
+        )
         return
 
     type_config = GOVERNMENT_TYPES.get(government.government_type)

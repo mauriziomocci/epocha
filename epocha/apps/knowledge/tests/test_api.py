@@ -3,6 +3,7 @@
 Covers the graph data, upload, and status endpoints with authentication,
 filtering, pagination, and error cases.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -29,7 +30,9 @@ def user(db):
 
 @pytest.fixture
 def other_user(db):
-    return User.objects.create_user(email="other@epocha.dev", username="otheruser", password="pass1234")
+    return User.objects.create_user(
+        email="other@epocha.dev", username="otheruser", password="pass1234"
+    )
 
 
 @pytest.fixture
@@ -88,24 +91,36 @@ def graph(simulation, cache_entry, document):
 def nodes(graph):
     """Create a small set of nodes for testing."""
     person = KnowledgeNode.objects.create(
-        graph=graph, entity_type="person",
-        name="Robespierre", canonical_name="robespierre",
+        graph=graph,
+        entity_type="person",
+        name="Robespierre",
+        canonical_name="robespierre",
         description="A revolutionary leader",
-        source_type="document", confidence=0.95, mention_count=5,
+        source_type="document",
+        confidence=0.95,
+        mention_count=5,
         embedding=[0.1] * 1024,
     )
     place = KnowledgeNode.objects.create(
-        graph=graph, entity_type="place",
-        name="Paris", canonical_name="paris",
+        graph=graph,
+        entity_type="place",
+        name="Paris",
+        canonical_name="paris",
         description="Capital of France",
-        source_type="document", confidence=0.90, mention_count=3,
+        source_type="document",
+        confidence=0.90,
+        mention_count=3,
         embedding=[0.2] * 1024,
     )
     event = KnowledgeNode.objects.create(
-        graph=graph, entity_type="event",
-        name="Storming of the Bastille", canonical_name="storming of the bastille",
+        graph=graph,
+        entity_type="event",
+        name="Storming of the Bastille",
+        canonical_name="storming of the bastille",
         description="Key event of the Revolution",
-        source_type="document", confidence=0.85, mention_count=2,
+        source_type="document",
+        confidence=0.85,
+        mention_count=2,
         embedding=[0.3] * 1024,
     )
     return person, place, event
@@ -116,14 +131,22 @@ def edges(graph, nodes):
     """Create edges between nodes."""
     person, place, event = nodes
     e1 = KnowledgeRelation.objects.create(
-        graph=graph, source_node=person, target_node=place,
-        relation_type="located_in", source_type="document",
-        confidence=0.8, weight=1.0,
+        graph=graph,
+        source_node=person,
+        target_node=place,
+        relation_type="located_in",
+        source_type="document",
+        confidence=0.8,
+        weight=1.0,
     )
     e2 = KnowledgeRelation.objects.create(
-        graph=graph, source_node=person, target_node=event,
-        relation_type="participated_in", source_type="document",
-        confidence=0.9, weight=1.5,
+        graph=graph,
+        source_node=person,
+        target_node=event,
+        relation_type="participated_in",
+        source_type="document",
+        confidence=0.9,
+        weight=1.5,
     )
     return e1, e2
 
@@ -135,7 +158,6 @@ def edges(graph, nodes):
 
 @pytest.mark.django_db
 class TestKnowledgeGraphDataView:
-
     def test_returns_nodes_and_edges(self, api_client, simulation, graph, nodes, edges):
         response = api_client.get(f"/api/v1/knowledge/{simulation.id}/graph/")
         assert response.status_code == 200
@@ -195,14 +217,22 @@ class TestKnowledgeGraphDataView:
     def test_node_linked_field(self, api_client, simulation, graph):
         """Verify the linked field serializes correctly when a FK is set."""
         from epocha.apps.agents.models import Agent
+
         agent = Agent.objects.create(
-            simulation=simulation, name="TestAgent", role="citizen",
-            personality={}, age=30, social_class="middle",
+            simulation=simulation,
+            name="TestAgent",
+            role="citizen",
+            personality={},
+            age=30,
+            social_class="middle",
         )
         node = KnowledgeNode.objects.create(
-            graph=graph, entity_type="person",
-            name="Test", canonical_name="test",
-            source_type="document", confidence=0.9,
+            graph=graph,
+            entity_type="person",
+            name="Test",
+            canonical_name="test",
+            source_type="document",
+            confidence=0.9,
             embedding=[0.1] * 1024,
             linked_agent=agent,
         )
@@ -227,7 +257,6 @@ class TestKnowledgeGraphDataView:
 
 @pytest.mark.django_db
 class TestKnowledgeGraphStatusView:
-
     def test_ready_graph(self, api_client, simulation, graph, nodes):
         response = api_client.get(f"/api/v1/knowledge/{simulation.id}/status/")
         assert response.status_code == 200
@@ -255,11 +284,13 @@ class TestKnowledgeGraphStatusView:
 
 @pytest.mark.django_db
 class TestKnowledgeGraphUploadView:
-
     @patch("epocha.apps.knowledge.tasks.extract_and_generate")
     @patch("epocha.apps.world.document_parser.extract_text")
     def test_upload_creates_simulation_and_returns_202(
-        self, mock_extract_text, mock_pipeline, api_client,
+        self,
+        mock_extract_text,
+        mock_pipeline,
+        api_client,
     ):
         mock_extract_text.return_value = "The French Revolution began in 1789."
         mock_pipeline.return_value = {
@@ -270,6 +301,7 @@ class TestKnowledgeGraphUploadView:
         }
 
         from django.core.files.uploadedfile import SimpleUploadedFile
+
         doc = SimpleUploadedFile("test.txt", b"Revolution content", content_type="text/plain")
         response = api_client.post(
             "/api/v1/knowledge/upload/",
@@ -294,6 +326,7 @@ class TestKnowledgeGraphUploadView:
 
     def test_upload_requires_name(self, api_client):
         from django.core.files.uploadedfile import SimpleUploadedFile
+
         doc = SimpleUploadedFile("test.txt", b"content", content_type="text/plain")
         response = api_client.post(
             "/api/v1/knowledge/upload/",

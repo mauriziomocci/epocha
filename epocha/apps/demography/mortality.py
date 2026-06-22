@@ -8,6 +8,7 @@ The three HP components (infant mortality, young-adult accident hump,
 senescence) are decomposed explicitly so the cause-of-death attribution
 can sample from the dominant component at the age of death.
 """
+
 from __future__ import annotations
 
 import math
@@ -38,7 +39,7 @@ def _hp_components(age: float, params: Mapping[str, float]) -> tuple[float, floa
     x = max(float(age), 0.01)
     c1 = A ** ((x + B) ** C)
     c2 = D * math.exp(-E * (math.log(x) - math.log(F)) ** 2) if x > 0 else 0.0
-    c3 = G * (H ** x)
+    c3 = G * (H**x)
     return c1, c2, c3
 
 
@@ -122,7 +123,7 @@ def fit_heligman_pollard(
         x_safe = np.maximum(x, 0.01)
         c1 = A ** ((x_safe + B) ** C)
         c2 = D * np.exp(-E * (np.log(x_safe) - np.log(F)) ** 2)
-        c3 = G * (H ** x_safe)
+        c3 = G * (H**x_safe)
         q_over_p = c1 + c2 + c3
         return q_over_p / (1.0 + q_over_p)
 
@@ -150,7 +151,12 @@ def fit_heligman_pollard(
 
     try:
         popt, _ = curve_fit(
-            _hp_model, xs, ys, p0=p0, bounds=(lower, upper), maxfev=10_000,
+            _hp_model,
+            xs,
+            ys,
+            p0=p0,
+            bounds=(lower, upper),
+            maxfev=10_000,
         )
     except RuntimeError as exc:
         raise RuntimeError("Heligman-Pollard fit did not converge") from exc

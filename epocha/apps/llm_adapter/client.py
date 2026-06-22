@@ -8,6 +8,7 @@ If the chat provider is not configured, it falls back to the main provider.
 If the chat provider hits rate limits, it falls back to the main provider
 automatically via FallbackProvider.
 """
+
 import logging
 
 from django.conf import settings
@@ -31,11 +32,15 @@ class FallbackProvider(BaseLLMProvider):
         self._fallback = fallback
         self._last_used = primary
 
-    def complete(self, prompt, system_prompt="", temperature=0.7, max_tokens=1000, simulation_id=None):
+    def complete(
+        self, prompt, system_prompt="", temperature=0.7, max_tokens=1000, simulation_id=None
+    ):
         try:
             result = self._primary.complete(
-                prompt=prompt, system_prompt=system_prompt,
-                temperature=temperature, max_tokens=max_tokens,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 simulation_id=simulation_id,
             )
             self._last_used = self._primary
@@ -43,11 +48,14 @@ class FallbackProvider(BaseLLMProvider):
         except Exception:
             logger.warning(
                 "Chat provider %s failed, falling back to %s",
-                self._primary.get_model_name(), self._fallback.get_model_name(),
+                self._primary.get_model_name(),
+                self._fallback.get_model_name(),
             )
             result = self._fallback.complete(
-                prompt=prompt, system_prompt=system_prompt,
-                temperature=temperature, max_tokens=max_tokens,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 simulation_id=simulation_id,
             )
             self._last_used = self._fallback

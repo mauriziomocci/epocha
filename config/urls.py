@@ -1,4 +1,5 @@
 """URL root: aggregates routes from all apps."""
+
 from django.contrib import admin
 from django.urls import include, path
 

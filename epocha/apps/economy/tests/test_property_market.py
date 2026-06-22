@@ -269,9 +269,7 @@ class TestProcessPropertyListings:
             agent=agent,
             tick=tick,
             input_context="test",
-            output_decision=json.dumps(
-                {"action": "buy_property", "reason": "investment"}
-            ),
+            output_decision=json.dumps({"action": "buy_property", "reason": "investment"}),
             llm_model="test",
         )
 

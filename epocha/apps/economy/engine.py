@@ -119,9 +119,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         tax_policy = None
 
     zone_economies = list(
-        ZoneEconomy.objects.filter(zone__world__simulation=simulation).select_related(
-            "zone"
-        )
+        ZoneEconomy.objects.filter(zone__world__simulation=simulation).select_related("zone")
     )
     if not zone_economies:
         return
@@ -162,9 +160,9 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     for ze in zone_economies:
         zone = ze.zone
         agents = list(
-            Agent.objects.filter(
-                simulation=simulation, zone=zone, is_alive=True
-            ).select_related("inventory")
+            Agent.objects.filter(simulation=simulation, zone=zone, is_alive=True).select_related(
+                "inventory"
+            )
         )
         if not agents:
             continue
@@ -462,9 +460,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             if inv:
                 for code in essential_codes:
                     current = inv.holdings.get(code, 0.0)
-                    inv.holdings[code] = max(
-                        0.0, current - SUBSISTENCE_NEED_PER_AGENT
-                    )
+                    inv.holdings[code] = max(0.0, current - SUBSISTENCE_NEED_PER_AGENT)
                 inv.save(update_fields=["holdings"])
 
     # === STEP 8a (global): MONETARY UPDATE (Fisher velocity) ===
@@ -485,9 +481,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             continue
 
         property_values = list(
-            Property.objects.filter(owner=agent, owner_type="agent").values_list(
-                "value", flat=True
-            )
+            Property.objects.filter(owner=agent, owner_type="agent").values_list("value", flat=True)
         )
 
         agent.wealth = update_agent_wealth(

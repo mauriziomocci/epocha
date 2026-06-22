@@ -1,4 +1,5 @@
 """Formatting utilities for dashboard display."""
+
 from __future__ import annotations
 
 import json

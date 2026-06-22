@@ -1,4 +1,5 @@
 """Tests for the living relationships system."""
+
 import pytest
 from django.contrib.gis.geos import Point
 
@@ -29,16 +30,22 @@ class TestFindPotentialRelationships:
         # At the equator, 0.0001 degrees longitude ≈ 11m, so threshold=20 meters should include
         # a point 0.0001 deg away but exclude one 10 degrees away.
         a1 = Agent.objects.create(
-            simulation=simulation, name="Marco",
-            location=Point(0.0, 0.0, srid=4326), personality={},
+            simulation=simulation,
+            name="Marco",
+            location=Point(0.0, 0.0, srid=4326),
+            personality={},
         )
         Agent.objects.create(
-            simulation=simulation, name="Elena",
-            location=Point(0.0001, 0.0, srid=4326), personality={},
+            simulation=simulation,
+            name="Elena",
+            location=Point(0.0001, 0.0, srid=4326),
+            personality={},
         )
         Agent.objects.create(
-            simulation=simulation, name="Luca",
-            location=Point(10.0, 10.0, srid=4326), personality={},
+            simulation=simulation,
+            name="Luca",
+            location=Point(10.0, 10.0, srid=4326),
+            personality={},
         )
 
         candidates = find_potential_relationships(a1, proximity_threshold=20)
@@ -48,14 +55,25 @@ class TestFindPotentialRelationships:
 
     def test_existing_relationships_excluded(self, simulation):
         a1 = Agent.objects.create(
-            simulation=simulation, name="Marco",
-            location=Point(0.0, 0.0, srid=4326), personality={},
+            simulation=simulation,
+            name="Marco",
+            location=Point(0.0, 0.0, srid=4326),
+            personality={},
         )
         a2 = Agent.objects.create(
-            simulation=simulation, name="Elena",
-            location=Point(0.0001, 0.0, srid=4326), personality={},
+            simulation=simulation,
+            name="Elena",
+            location=Point(0.0001, 0.0, srid=4326),
+            personality={},
         )
-        Relationship.objects.create(agent_from=a1, agent_to=a2, relation_type="friendship", strength=0.5, sentiment=0.5, since_tick=1)
+        Relationship.objects.create(
+            agent_from=a1,
+            agent_to=a2,
+            relation_type="friendship",
+            strength=0.5,
+            sentiment=0.5,
+            since_tick=1,
+        )
 
         candidates = find_potential_relationships(a1, proximity_threshold=20)
         assert len(candidates) == 0
@@ -97,8 +115,12 @@ class TestUpdateRelationshipFromInteraction:
     def test_betrayal_flips_friendship_to_rivalry(self, two_agents):
         marco, elena = two_agents
         Relationship.objects.create(
-            agent_from=marco, agent_to=elena,
-            relation_type="friendship", strength=0.6, sentiment=0.7, since_tick=1,
+            agent_from=marco,
+            agent_to=elena,
+            relation_type="friendship",
+            strength=0.6,
+            sentiment=0.7,
+            since_tick=1,
         )
         update_relationship_from_interaction(marco, elena, "betray", tick=10)
 
@@ -113,8 +135,12 @@ class TestEvolveRelationships:
         a1 = Agent.objects.create(simulation=simulation, name="Marco", personality={})
         a2 = Agent.objects.create(simulation=simulation, name="Elena", personality={})
         Relationship.objects.create(
-            agent_from=a1, agent_to=a2,
-            relation_type="friendship", strength=0.3, sentiment=0.3, since_tick=1,
+            agent_from=a1,
+            agent_to=a2,
+            relation_type="friendship",
+            strength=0.3,
+            sentiment=0.3,
+            since_tick=1,
         )
         evolve_relationships(simulation, current_tick=200)
 
@@ -125,8 +151,12 @@ class TestEvolveRelationships:
         a1 = Agent.objects.create(simulation=simulation, name="Marco", personality={})
         a2 = Agent.objects.create(simulation=simulation, name="Elena", personality={})
         Relationship.objects.create(
-            agent_from=a1, agent_to=a2,
-            relation_type="rivalry", strength=0.5, sentiment=-0.9, since_tick=1,
+            agent_from=a1,
+            agent_to=a2,
+            relation_type="rivalry",
+            strength=0.5,
+            sentiment=-0.9,
+            since_tick=1,
         )
         evolve_relationships(simulation, current_tick=200)
 

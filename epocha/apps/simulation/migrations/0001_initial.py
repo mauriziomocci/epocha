@@ -4,45 +4,105 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='Event',
+            name="Event",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('tick', models.PositiveIntegerField()),
-                ('event_type', models.CharField(choices=[('economic', 'Economic'), ('political', 'Political'), ('social', 'Social'), ('military', 'Military'), ('scientific', 'Scientific'), ('cultural', 'Cultural'), ('natural', 'Natural'), ('custom', 'Custom')], max_length=20)),
-                ('title', models.CharField(max_length=255)),
-                ('description', models.TextField()),
-                ('severity', models.FloatField(default=0.5, help_text='0.0 = negligible, 1.0 = catastrophic')),
-                ('consequences', models.JSONField(default=dict)),
-                ('caused_by', models.CharField(blank=True, help_text='Agent or system that caused the event', max_length=255)),
-                ('is_seldon_crisis', models.BooleanField(default=False)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("tick", models.PositiveIntegerField()),
+                (
+                    "event_type",
+                    models.CharField(
+                        choices=[
+                            ("economic", "Economic"),
+                            ("political", "Political"),
+                            ("social", "Social"),
+                            ("military", "Military"),
+                            ("scientific", "Scientific"),
+                            ("cultural", "Cultural"),
+                            ("natural", "Natural"),
+                            ("custom", "Custom"),
+                        ],
+                        max_length=20,
+                    ),
+                ),
+                ("title", models.CharField(max_length=255)),
+                ("description", models.TextField()),
+                (
+                    "severity",
+                    models.FloatField(
+                        default=0.5, help_text="0.0 = negligible, 1.0 = catastrophic"
+                    ),
+                ),
+                ("consequences", models.JSONField(default=dict)),
+                (
+                    "caused_by",
+                    models.CharField(
+                        blank=True,
+                        help_text="Agent or system that caused the event",
+                        max_length=255,
+                    ),
+                ),
+                ("is_seldon_crisis", models.BooleanField(default=False)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'ordering': ['tick'],
+                "ordering": ["tick"],
             },
         ),
         migrations.CreateModel(
-            name='Simulation',
+            name="Simulation",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=255)),
-                ('description', models.TextField(blank=True)),
-                ('status', models.CharField(choices=[('created', 'Created'), ('initializing', 'Initializing'), ('running', 'Running'), ('paused', 'Paused'), ('stopped', 'Stopped'), ('error', 'Error')], default='created', max_length=20)),
-                ('seed', models.BigIntegerField(help_text='Seed for reproducibility (non-LLM part)')),
-                ('current_tick', models.PositiveIntegerField(default=0)),
-                ('speed', models.FloatField(default=1.0, help_text='Simulation speed multiplier')),
-                ('config', models.JSONField(default=dict, help_text='Complete simulation configuration')),
-                ('branch_point', models.PositiveIntegerField(blank=True, help_text='Divergence tick from parent', null=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("name", models.CharField(max_length=255)),
+                ("description", models.TextField(blank=True)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("created", "Created"),
+                            ("initializing", "Initializing"),
+                            ("running", "Running"),
+                            ("paused", "Paused"),
+                            ("stopped", "Stopped"),
+                            ("error", "Error"),
+                        ],
+                        default="created",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "seed",
+                    models.BigIntegerField(help_text="Seed for reproducibility (non-LLM part)"),
+                ),
+                ("current_tick", models.PositiveIntegerField(default=0)),
+                ("speed", models.FloatField(default=1.0, help_text="Simulation speed multiplier")),
+                (
+                    "config",
+                    models.JSONField(default=dict, help_text="Complete simulation configuration"),
+                ),
+                (
+                    "branch_point",
+                    models.PositiveIntegerField(
+                        blank=True, help_text="Divergence tick from parent", null=True
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
             ],
         ),
     ]

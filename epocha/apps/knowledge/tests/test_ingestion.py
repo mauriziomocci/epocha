@@ -18,9 +18,7 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "small_french_rev.txt"
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(
-        email="ing@epocha.dev", username="inguser", password="pass1234"
-    )
+    return User.objects.create_user(email="ing@epocha.dev", username="inguser", password="pass1234")
 
 
 @pytest.fixture

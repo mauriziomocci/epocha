@@ -6,29 +6,37 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('agents', '0006_reputation_score'),
-        ('world', '0003_zone_postgis_geometry'),
+        ("agents", "0006_reputation_score"),
+        ("world", "0003_zone_postgis_geometry"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='agent',
-            name='position_x',
+            model_name="agent",
+            name="position_x",
         ),
         migrations.RemoveField(
-            model_name='agent',
-            name='position_y',
+            model_name="agent",
+            name="position_y",
         ),
         migrations.AddField(
-            model_name='agent',
-            name='location',
-            field=django.contrib.gis.db.models.fields.PointField(blank=True, help_text='Current geographic position (WGS84)', null=True, srid=4326),
+            model_name="agent",
+            name="location",
+            field=django.contrib.gis.db.models.fields.PointField(
+                blank=True, help_text="Current geographic position (WGS84)", null=True, srid=4326
+            ),
         ),
         migrations.AddField(
-            model_name='agent',
-            name='zone',
-            field=models.ForeignKey(blank=True, help_text='Current zone (denormalized for performance)', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='agents_in_zone', to='world.zone'),
+            model_name="agent",
+            name="zone",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Current zone (denormalized for performance)",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="agents_in_zone",
+                to="world.zone",
+            ),
         ),
     ]

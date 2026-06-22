@@ -1,4 +1,5 @@
 """Tests for the demography template loader."""
+
 from __future__ import annotations
 
 import json

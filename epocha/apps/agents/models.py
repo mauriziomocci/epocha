@@ -1,4 +1,5 @@
 """Agent models — personality, memory, decisions."""
+
 from django.contrib.gis.db import models as gis_models
 from django.db import models
 
@@ -24,20 +25,33 @@ class Agent(models.Model):
     name = models.CharField(max_length=255)
     age = models.PositiveIntegerField(default=25)
     gender = models.CharField(max_length=20, choices=Gender.choices, default=Gender.MALE)
-    sexual_orientation = models.CharField(max_length=20, choices=SexualOrientation.choices, default=SexualOrientation.HETEROSEXUAL)
-    role = models.CharField(max_length=100, blank=True, help_text="Role in society (blacksmith, priest, farmer...)")
+    sexual_orientation = models.CharField(
+        max_length=20, choices=SexualOrientation.choices, default=SexualOrientation.HETEROSEXUAL
+    )
+    role = models.CharField(
+        max_length=100, blank=True, help_text="Role in society (blacksmith, priest, farmer...)"
+    )
 
     # Personality and psychology (Big Five + extended traits stored as JSONB)
-    personality = models.JSONField(default=dict, help_text=(
-        "Full personality profile: Big Five (openness, conscientiousness, extraversion, "
-        "agreeableness, neuroticism), character traits, temperament, ambitions, fears, "
-        "values, beliefs, humor style, attachment style"
-    ))
+    personality = models.JSONField(
+        default=dict,
+        help_text=(
+            "Full personality profile: Big Five (openness, conscientiousness, extraversion, "
+            "agreeableness, neuroticism), character traits, temperament, ambitions, fears, "
+            "values, beliefs, humor style, attachment style"
+        ),
+    )
 
     # Cognitive abilities
-    intelligence = models.FloatField(default=0.5, help_text="0.0 = very low, 0.5 = average, 1.0 = genius")
-    emotional_intelligence = models.FloatField(default=0.5, help_text="0.0 = oblivious, 1.0 = deeply empathetic")
-    creativity = models.FloatField(default=0.5, help_text="0.0 = conventional, 1.0 = highly creative")
+    intelligence = models.FloatField(
+        default=0.5, help_text="0.0 = very low, 0.5 = average, 1.0 = genius"
+    )
+    emotional_intelligence = models.FloatField(
+        default=0.5, help_text="0.0 = oblivious, 1.0 = deeply empathetic"
+    )
+    creativity = models.FloatField(
+        default=0.5, help_text="0.0 = conventional, 1.0 = highly creative"
+    )
     cunning = models.FloatField(default=0.5, help_text="0.0 = naive, 1.0 = extremely shrewd")
 
     # Physical abilities
@@ -47,8 +61,12 @@ class Agent(models.Model):
 
     # Health
     health = models.FloatField(default=1.0, help_text="0.0 = dead, 1.0 = perfect health")
-    mental_health = models.FloatField(default=0.8, help_text="0.0 = severe disorder, 1.0 = thriving")
-    conditions = models.JSONField(default=list, help_text="List of active conditions: diseases, disabilities, addictions")
+    mental_health = models.FloatField(
+        default=0.8, help_text="0.0 = severe disorder, 1.0 = thriving"
+    )
+    conditions = models.JSONField(
+        default=list, help_text="List of active conditions: diseases, disabilities, addictions"
+    )
     fertility = models.FloatField(default=0.8, help_text="0.0 = infertile, 1.0 = highly fertile")
 
     # Social and economic state
@@ -56,22 +74,36 @@ class Agent(models.Model):
     mood = models.FloatField(default=0.5, help_text="0.0 = desperate, 1.0 = euphoric")
     charisma = models.FloatField(default=0.5, help_text="0.0 = repulsive, 1.0 = magnetic")
     education_level = models.FloatField(default=0.3, help_text="0.0 = illiterate, 1.0 = scholar")
-    social_class = models.CharField(max_length=30, default="working", help_text="elite, wealthy, middle, working, poor, enslaved")
+    social_class = models.CharField(
+        max_length=30,
+        default="working",
+        help_text="elite, wealthy, middle, working, poor, enslaved",
+    )
 
     # Position and status
     location = gis_models.PointField(
-        null=True, blank=True, srid=4326,
+        null=True,
+        blank=True,
+        srid=4326,
         help_text="Current geographic position (WGS84)",
     )
     zone = models.ForeignKey(
-        "world.Zone", null=True, blank=True, on_delete=models.SET_NULL,
+        "world.Zone",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="agents_in_zone",
         help_text="Current zone (denormalized for performance)",
     )
     is_alive = models.BooleanField(default=True)
-    group = models.ForeignKey("Group", null=True, blank=True, on_delete=models.SET_NULL, related_name="members")
+    group = models.ForeignKey(
+        "Group", null=True, blank=True, on_delete=models.SET_NULL, related_name="members"
+    )
     parent_agent = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.SET_NULL,
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="children",
         help_text=(
             "Biological mother by Epocha convention (ASFR is female-indexed). "
@@ -142,9 +174,15 @@ class Group(models.Model):
     name = models.CharField(max_length=255)
     objective = models.TextField(blank=True)
     cohesion = models.FloatField(default=0.5, help_text="0.0 = fragmented, 1.0 = monolithic")
-    leader = models.ForeignKey(Agent, null=True, blank=True, on_delete=models.SET_NULL, related_name="led_groups")
-    parent_group = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="subgroups")
-    formed_at_tick = models.PositiveIntegerField(default=0, help_text="Tick when the group was formed")
+    leader = models.ForeignKey(
+        Agent, null=True, blank=True, on_delete=models.SET_NULL, related_name="led_groups"
+    )
+    parent_group = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="subgroups"
+    )
+    formed_at_tick = models.PositiveIntegerField(
+        default=0, help_text="Tick when the group was formed"
+    )
 
     def __str__(self):
         return self.name
@@ -161,13 +199,20 @@ class Memory(models.Model):
 
     agent = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="memories")
     content = models.TextField()
-    emotional_weight = models.FloatField(default=0.5, help_text="0.0 = trivial, 1.0 = traumatic/ecstatic")
-    source_type = models.CharField(max_length=20, choices=SourceType.choices, default=SourceType.DIRECT)
+    emotional_weight = models.FloatField(
+        default=0.5, help_text="0.0 = trivial, 1.0 = traumatic/ecstatic"
+    )
+    source_type = models.CharField(
+        max_length=20, choices=SourceType.choices, default=SourceType.DIRECT
+    )
     reliability = models.FloatField(default=1.0, help_text="0.0 = unreliable, 1.0 = certain")
     tick_created = models.PositiveIntegerField()
     is_active = models.BooleanField(default=True, help_text="False = faded memory")
     origin_agent = models.ForeignKey(
-        "Agent", null=True, blank=True, on_delete=models.SET_NULL,
+        "Agent",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="originated_memories",
         help_text="Agent who originally performed the action (for dedup and traceability)",
     )
@@ -200,7 +245,9 @@ class Relationship(models.Model):
         PROFESSIONAL = "professional", "Professional"
         DISTRUST = "distrust", "Distrust"
 
-    agent_from = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="relationships_from")
+    agent_from = models.ForeignKey(
+        Agent, on_delete=models.CASCADE, related_name="relationships_from"
+    )
     agent_to = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="relationships_to")
     relation_type = models.CharField(max_length=20, choices=RelationType.choices)
     strength = models.FloatField(default=0.5, help_text="0.0 = weak, 1.0 = very strong")
@@ -217,7 +264,9 @@ class Relationship(models.Model):
 class DecisionLog(models.Model):
     """Log of every decision made by an agent (for replay and debug)."""
 
-    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="decision_logs")
+    simulation = models.ForeignKey(
+        Simulation, on_delete=models.CASCADE, related_name="decision_logs"
+    )
     agent = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="decisions")
     tick = models.PositiveIntegerField()
     input_context = models.TextField(help_text="Context sent to the LLM")
@@ -244,10 +293,16 @@ class ReputationScore(models.Model):
     and Social Simulation, vol. 1, no. 3.
     """
 
-    holder = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="reputation_assessments")
+    holder = models.ForeignKey(
+        Agent, on_delete=models.CASCADE, related_name="reputation_assessments"
+    )
     target = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="reputation_scores")
-    image = models.FloatField(default=0.0, help_text="-1.0 = terrible, 0.0 = neutral, 1.0 = excellent (direct experience)")
-    reputation = models.FloatField(default=0.0, help_text="-1.0 = terrible, 0.0 = neutral, 1.0 = excellent (social evaluation)")
+    image = models.FloatField(
+        default=0.0, help_text="-1.0 = terrible, 0.0 = neutral, 1.0 = excellent (direct experience)"
+    )
+    reputation = models.FloatField(
+        default=0.0, help_text="-1.0 = terrible, 0.0 = neutral, 1.0 = excellent (social evaluation)"
+    )
     last_updated_tick = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -270,6 +325,7 @@ class ReputationScore(models.Model):
         """
         # Lazy import to avoid any potential circular import at module load.
         from epocha.apps.agents import reputation as _rep
+
         return self.image * _rep._WEIGHT_IMAGE + self.reputation * _rep._WEIGHT_REPUTATION
 
     def get_combined_score_normalized(self) -> float:
@@ -284,6 +340,7 @@ class ReputationScore(models.Model):
             Combined score in [0.0, 1.0]. Neutral (0.0) maps to 0.5.
         """
         from epocha.apps.agents import reputation as _rep
+
         raw = self.image * _rep._WEIGHT_IMAGE + self.reputation * _rep._WEIGHT_REPUTATION
         return _rep._normalize_reputation(raw)
 

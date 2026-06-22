@@ -11,6 +11,7 @@ design spec (Scientific Models Engine section).
 Income values are relative (not calibrated to any real currency), designed
 to produce interesting dynamics within 50-100 ticks.
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,8 +47,8 @@ COST_OF_LIVING = 3.0
 # boost above the threshold. The specific decay rate is a tunable parameter;
 # the qualitative behavior (mood plateau at high wealth) is the paper's
 # central finding.
-MOOD_BOOST_WEALTHY = 0.02     # Base mood boost at the satiation threshold (Kahneman & Deaton, 2010)
-MOOD_PENALTY_POOR = 0.05      # Wealth < 10: moderate mood decrease
+MOOD_BOOST_WEALTHY = 0.02  # Base mood boost at the satiation threshold (Kahneman & Deaton, 2010)
+MOOD_PENALTY_POOR = 0.05  # Wealth < 10: moderate mood decrease
 MOOD_PENALTY_DESTITUTE = 0.10  # Wealth < 0: severe mood decrease
 HEALTH_PENALTY_STARVING = 0.01  # Wealth < 0: health decreases (starvation)
 

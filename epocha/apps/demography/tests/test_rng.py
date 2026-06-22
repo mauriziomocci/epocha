@@ -1,4 +1,5 @@
 """Tests for the seeded per-subsystem RNG streams."""
+
 from __future__ import annotations
 
 import pytest
@@ -11,7 +12,9 @@ from epocha.apps.users.models import User
 @pytest.fixture
 def sim(db):
     user = User.objects.create_user(
-        email="rng@epocha.dev", username="rnguser", password="pass1234",
+        email="rng@epocha.dev",
+        username="rnguser",
+        password="pass1234",
     )
     return Simulation.objects.create(name="RngTest", seed=42, owner=user, current_tick=0)
 

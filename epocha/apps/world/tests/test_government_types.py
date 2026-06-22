@@ -1,21 +1,38 @@
 """Tests for government type configuration data integrity."""
+
 from epocha.apps.world.government_types import GOVERNMENT_TYPES
 
 
 class TestGovernmentTypesConfig:
     def test_all_12_types_present(self):
         expected = {
-            "democracy", "illiberal_democracy", "autocracy", "monarchy",
-            "oligarchy", "theocracy", "totalitarian", "terrorist_regime",
-            "anarchy", "federation", "kleptocracy", "junta",
+            "democracy",
+            "illiberal_democracy",
+            "autocracy",
+            "monarchy",
+            "oligarchy",
+            "theocracy",
+            "totalitarian",
+            "terrorist_regime",
+            "anarchy",
+            "federation",
+            "kleptocracy",
+            "junta",
         }
         assert set(GOVERNMENT_TYPES.keys()) == expected
 
     def test_all_types_have_required_fields(self):
         required_fields = {
-            "label", "power_source", "legitimacy_base", "repression_tendency",
-            "corruption_resistance", "election_enabled", "succession",
-            "stability_weights", "institution_effects", "transitions",
+            "label",
+            "power_source",
+            "legitimacy_base",
+            "repression_tendency",
+            "corruption_resistance",
+            "election_enabled",
+            "succession",
+            "stability_weights",
+            "institution_effects",
+            "transitions",
         }
         for type_name, config in GOVERNMENT_TYPES.items():
             missing = required_fields - set(config.keys())
@@ -28,7 +45,15 @@ class TestGovernmentTypesConfig:
             assert abs(total - 1.0) < 0.01, f"{type_name} stability weights sum to {total}"
 
     def test_institution_effects_have_all_7(self):
-        institutions = {"justice", "education", "health", "military", "media", "religion", "bureaucracy"}
+        institutions = {
+            "justice",
+            "education",
+            "health",
+            "military",
+            "media",
+            "religion",
+            "bureaucracy",
+        }
         for type_name, config in GOVERNMENT_TYPES.items():
             effects = set(config["institution_effects"].keys())
             assert effects == institutions, f"{type_name} missing: {institutions - effects}"

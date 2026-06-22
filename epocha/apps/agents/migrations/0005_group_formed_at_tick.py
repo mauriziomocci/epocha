@@ -4,15 +4,16 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('agents', '0004_memory_origin_agent'),
+        ("agents", "0004_memory_origin_agent"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='group',
-            name='formed_at_tick',
-            field=models.PositiveIntegerField(default=0, help_text='Tick when the group was formed'),
+            model_name="group",
+            name="formed_at_tick",
+            field=models.PositiveIntegerField(
+                default=0, help_text="Tick when the group was formed"
+            ),
         ),
     ]

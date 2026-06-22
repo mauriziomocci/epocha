@@ -1,4 +1,5 @@
 """Tests for agent memory retrieval and decay."""
+
 import pytest
 
 from epocha.apps.agents.memory import decay_memories, get_relevant_memories
@@ -27,9 +28,15 @@ def agent(simulation):
 class TestGetRelevantMemories:
     def test_returns_most_relevant_by_emotional_weight(self, agent):
         """High emotional weight memories should rank first."""
-        Memory.objects.create(agent=agent, content="Saw a bird", emotional_weight=0.1, tick_created=1)
-        Memory.objects.create(agent=agent, content="House burned down", emotional_weight=0.9, tick_created=2)
-        Memory.objects.create(agent=agent, content="Had lunch", emotional_weight=0.2, tick_created=3)
+        Memory.objects.create(
+            agent=agent, content="Saw a bird", emotional_weight=0.1, tick_created=1
+        )
+        Memory.objects.create(
+            agent=agent, content="House burned down", emotional_weight=0.9, tick_created=2
+        )
+        Memory.objects.create(
+            agent=agent, content="Had lunch", emotional_weight=0.2, tick_created=3
+        )
 
         memories = get_relevant_memories(agent, current_tick=10, max_memories=2)
         assert len(memories) == 2
@@ -38,15 +45,21 @@ class TestGetRelevantMemories:
     def test_respects_max_memories_limit(self, agent):
         """Should return at most max_memories entries."""
         for i in range(20):
-            Memory.objects.create(agent=agent, content=f"Event {i}", emotional_weight=0.5, tick_created=i)
+            Memory.objects.create(
+                agent=agent, content=f"Event {i}", emotional_weight=0.5, tick_created=i
+            )
 
         memories = get_relevant_memories(agent, current_tick=50, max_memories=5)
         assert len(memories) == 5
 
     def test_excludes_inactive_memories(self, agent):
         """Faded memories (is_active=False) must not appear."""
-        Memory.objects.create(agent=agent, content="Old memory", emotional_weight=0.5, tick_created=1, is_active=False)
-        Memory.objects.create(agent=agent, content="Active memory", emotional_weight=0.5, tick_created=2)
+        Memory.objects.create(
+            agent=agent, content="Old memory", emotional_weight=0.5, tick_created=1, is_active=False
+        )
+        Memory.objects.create(
+            agent=agent, content="Active memory", emotional_weight=0.5, tick_created=2
+        )
 
         memories = get_relevant_memories(agent, current_tick=10)
         assert all(m.is_active for m in memories)

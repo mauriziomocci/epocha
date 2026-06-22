@@ -5,6 +5,7 @@ data JSON API. The node serializer includes a ``linked`` field that
 resolves optional foreign keys to simulation-model entities into a
 compact {kind, id} dict.
 """
+
 from __future__ import annotations
 
 from rest_framework import serializers

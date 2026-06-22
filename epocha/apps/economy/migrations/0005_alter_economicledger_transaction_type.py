@@ -4,15 +4,27 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('economy', '0004_behavioral_models'),
+        ("economy", "0004_behavioral_models"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='economicledger',
-            name='transaction_type',
-            field=models.CharField(choices=[('production', 'Production'), ('trade', 'Trade'), ('tax', 'Tax'), ('rent', 'Rent'), ('wage', 'Wage'), ('property_sale', 'Property Sale'), ('loan_issued', 'Loan Issued'), ('loan_interest', 'Loan Interest'), ('expropriation', 'Expropriation')], max_length=20),
+            model_name="economicledger",
+            name="transaction_type",
+            field=models.CharField(
+                choices=[
+                    ("production", "Production"),
+                    ("trade", "Trade"),
+                    ("tax", "Tax"),
+                    ("rent", "Rent"),
+                    ("wage", "Wage"),
+                    ("property_sale", "Property Sale"),
+                    ("loan_issued", "Loan Issued"),
+                    ("loan_interest", "Loan Interest"),
+                    ("expropriation", "Expropriation"),
+                ],
+                max_length=20,
+            ),
         ),
     ]

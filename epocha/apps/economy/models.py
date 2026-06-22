@@ -143,8 +143,7 @@ class ZoneEconomy(models.Model):
     )
     production_config = models.JSONField(
         default=dict,
-        help_text="{good_code: {factors: {factor_code: exponent}, "
-        "scale: A, sigma: sigma_CES}}",
+        help_text="{good_code: {factors: {factor_code: exponent}, scale: A, sigma: sigma_CES}}",
     )
     market_prices = models.JSONField(
         default=dict,
@@ -498,9 +497,7 @@ class PropertyListing(models.Model):
     )
 
     def __str__(self):
-        return (
-            f"Listing for {self.property.name}: {self.asking_price:.0f} ({self.status})"
-        )
+        return f"Listing for {self.property.name}: {self.asking_price:.0f} ({self.status})"
 
 
 class AgentExpectation(models.Model):
@@ -546,8 +543,7 @@ class AgentExpectation(models.Model):
     )
     confidence = models.FloatField(
         default=0.5,
-        help_text="0.0 = no confidence, 1.0 = certain. "
-        "Increases when expectations match reality.",
+        help_text="0.0 = no confidence, 1.0 = certain. Increases when expectations match reality.",
     )
     lambda_rate = models.FloatField(
         help_text="Adaptation speed [0.05, 0.95], modulated by "

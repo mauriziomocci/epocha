@@ -5,6 +5,7 @@ Provides three endpoints:
 - Document upload with synchronous extraction
 - Graph status polling
 """
+
 from __future__ import annotations
 
 import logging
@@ -61,15 +62,18 @@ class KnowledgeGraphDataView(APIView):
 
         # Build node queryset with select_related to avoid N+1 on linked FKs
         nodes_qs = KnowledgeNode.objects.filter(graph=graph).select_related(
-            "linked_agent", "linked_group", "linked_zone",
-            "linked_institution", "linked_event",
+            "linked_agent",
+            "linked_group",
+            "linked_zone",
+            "linked_institution",
+            "linked_event",
         )
         if entity_types_raw:
             types = [t.strip() for t in entity_types_raw.split(",") if t.strip()]
             nodes_qs = nodes_qs.filter(entity_type__in=types)
 
         total_nodes = nodes_qs.count()
-        nodes = nodes_qs[offset:offset + limit]
+        nodes = nodes_qs[offset : offset + limit]
         node_ids = set(nodes.values_list("id", flat=True))
 
         # Only return edges where both endpoints are in the returned node set
@@ -79,15 +83,17 @@ class KnowledgeGraphDataView(APIView):
             target_node_id__in=node_ids,
         )
 
-        return Response({
-            "nodes": KnowledgeNodeSerializer(nodes, many=True).data,
-            "edges": KnowledgeEdgeSerializer(edges_qs, many=True).data,
-            "stats": {
-                "total_nodes": total_nodes,
-                "returned_nodes": len(node_ids),
-                "has_more": (offset + limit) < total_nodes,
-            },
-        })
+        return Response(
+            {
+                "nodes": KnowledgeNodeSerializer(nodes, many=True).data,
+                "edges": KnowledgeEdgeSerializer(edges_qs, many=True).data,
+                "stats": {
+                    "total_nodes": total_nodes,
+                    "returned_nodes": len(node_ids),
+                    "has_more": (offset + limit) < total_nodes,
+                },
+            }
+        )
 
 
 class KnowledgeGraphUploadView(APIView):
@@ -131,7 +137,8 @@ class KnowledgeGraphUploadView(APIView):
         documents_data = []
         for uploaded_file in files:
             with tempfile.NamedTemporaryFile(
-                suffix=f"_{uploaded_file.name}", delete=True,
+                suffix=f"_{uploaded_file.name}",
+                delete=True,
             ) as tmp:
                 for chunk in uploaded_file.chunks():
                     tmp.write(chunk)
@@ -139,15 +146,18 @@ class KnowledgeGraphUploadView(APIView):
 
                 raw_text = extract_text(tmp.name)
 
-            documents_data.append({
-                "raw_text": raw_text,
-                "title": uploaded_file.name,
-                "mime_type": uploaded_file.content_type or "application/octet-stream",
-                "original_filename": uploaded_file.name,
-            })
+            documents_data.append(
+                {
+                    "raw_text": raw_text,
+                    "title": uploaded_file.name,
+                    "mime_type": uploaded_file.content_type or "application/octet-stream",
+                    "original_filename": uploaded_file.name,
+                }
+            )
 
         # Create a simulation for this knowledge graph
         import random
+
         simulation = Simulation.objects.create(
             name=name,
             description=prompt[:500] if prompt else "",
@@ -197,9 +207,11 @@ class KnowledgeGraphStatusView(APIView):
                 {"status": "no_graph", "error": "", "nodes": 0, "relations": 0},
             )
 
-        return Response({
-            "status": graph.status,
-            "error": graph.error_message,
-            "nodes": graph.nodes.count(),
-            "relations": graph.relations.count(),
-        })
+        return Response(
+            {
+                "status": graph.status,
+                "error": graph.error_message,
+                "nodes": graph.nodes.count(),
+                "relations": graph.relations.count(),
+            }
+        )

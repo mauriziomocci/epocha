@@ -1,4 +1,5 @@
 """Tests for the Redis-based LLM rate limiter."""
+
 from unittest.mock import MagicMock
 
 from epocha.apps.llm_adapter.rate_limiter import RateLimiter
