@@ -1,22 +1,34 @@
 ---
 name: project_ruff_cleanup_pending
-description: "NUOVO work item (scoperto 2026-06-13). ruff check . esce 1 su develop, 1185 errori / 150 file, CI lint gate gia' rosso. Aprire spec Spec Kit dedicato per ripristinare gate verde."
+description: "CLOSED 2026-06-22. Ruff repo-wide cleanup completato e mergiato (PR#10, merge ed5e9e1). CI lint gate ora VERDE su develop (ruff check . e ruff format --check . exit 0)."
 metadata: 
   node_type: memory
   type: project
   originSessionId: c0fe38ea-15e1-44b8-8624-3d4503b5a8f2
 ---
 
-Scoperto durante la chiusura di Branch 5 factions (2026-06-13): `ruff check .` sul repo esce con exit 1.
+CHIUSO il 2026-06-22 via PR#10 (merge `ed5e9e1` in develop). Spec Kit: `specs/20260622-152915-ruff-repo-wide-cleanup/`.
 
-**Entita' del debito**: 1185 errori su 150 file. Breakdown: 1058 E501 (line-length 88), 32 I001 (import sorting), 30 F401 (unused import), 26 N806 (variable naming), 9 F841 (unused local), 8 N803, 5 UP037, 4 F821, 4 F811, 3 UP035, 2 N802, 2 F541, 1 UP012, 1 E402.
+Stato iniziale (scoperto 2026-06-13 a chiusura factions Branch 5): `ruff check .` exit 1 con 1183 errori / 150 file; `ruff format --check .` 212 file. Gate CI lint rosso da tempo.
 
-**Config**: `pyproject.toml` `[tool.ruff] line-length=88`, `[tool.ruff.lint] select=["E","F","I","N","W","UP"]`. CI `.github/workflows/ci.yml:18-19` gira `ruff check .` e `ruff format --check .` come step.
+Risultato: **`ruff check .` exit 0 e `ruff format --check .` exit 0 su develop**, pytest 809 invariato, zero cambi comportamentali.
 
-**Perche' conta** (il punto vero, non i 1058 E501): il gate CI lint e' **gia' rosso da tempo** su develop. Un gate permanentemente rosso addestra il team a ignorare la CI rossa, e cosi un fallimento reale (test che si rompe, format drift) passa inosservato. Il rischio e' la perdita di affidabilita' del segnale CI, non lo stile.
+Come risolto (7 commit, strategia ordinata):
+- line-length 88->100 in pyproject.toml (E501 1056->489)
+- `ruff format` repo-wide commit isolato (227 file, E501 489->52)
+- auto-fix safe rules (I001, F401, F811, F541, UP035, UP012)
+- E501 residui wrap/noqa; E402 import spostato
+- naming N806/N803/N802: noqa-con-citazione per variabili-formula scientifiche (Heligman-Pollard 1980, Hadwiger 1940); costanti locali non-scientifiche hoistate a module-level
+- F821 (4x `Couple` in demography/couple.py): NON era bug runtime, era igiene type-hint -> blocco `if TYPE_CHECKING:` + unquote annotation
+- F841 dead-var rimossi (chiamate con side-effect DB mantenute, solo target assegnazione rimosso)
 
-**Cosa fare**: aprire spec dedicato via Spec Kit `specs/<timestamp>-ruff-repo-wide-cleanup/`. 77 errori auto-fixable con `ruff check --fix` + `ruff format` (9 hidden con `--unsafe-fixes` da valutare). Il resto E501 a mano o spezzando, caso per caso. Obiettivo: `ruff check .` e `ruff format --check .` di nuovo verdi, gate CI affidabile.
+Config exclusions (giustificate in pyproject.toml):
+- `**/migrations/*.py` E501 ignorato (generati Django, persi a rigenerazione)
+- `epocha/apps/knowledge/prompts.py` E501 ignorato (literal prompt LLM multi-line, wrap rischia byte del prompt)
 
-**Nota**: Branch 5 factions NON ha aggiunto violazioni (le 2 regressioni E501 sue corrette in commit 1c24c83). Il debito e' pre-esistente, fuori scope dei branch audit scientifici.
+Lezioni:
+- `ruff format` va eseguito DOPO aver settato line-length (usa quel limite).
+- auto-fix F401 puo' rimuovere re-export legittimi: `EMBEDDING_DIM` in knowledge/embedding.py era re-export consumato da test -> ripristinato con `import ... as ...` esplicito. In futuro: dopo `ruff --fix F401` controllare collection pytest.
+- Subagent puo' over-restructurare stringhe; per prompt LLM/JSON template preferire per-file-ignore a restructure (rischio byte-change). Verificare byte-identity via ast.literal_eval su HEAD vs working.
 
-Tracciato in [[session-resume-2026-06-13]].
+Vedi [[session-resume-2026-06-22]].
