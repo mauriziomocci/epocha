@@ -228,7 +228,7 @@ generate_branch_name() {
         if ! echo "$word" | grep -qiE "$stop_words"; then
             if [ ${#word} -ge 3 ]; then
                 meaningful_words+=("$word")
-            elif echo "$description" | grep -q "\b${word^^}\b"; then
+            elif echo "$description" | grep -q "\b$(printf '%s' "$word" | tr '[:lower:]' '[:upper:]')\b"; then
                 # Keep short words if they appear as uppercase in original (likely acronyms)
                 meaningful_words+=("$word")
             fi
@@ -263,6 +263,17 @@ if [ -n "$SHORT_NAME" ]; then
 else
     # Generate from description with smart filtering
     BRANCH_SUFFIX=$(generate_branch_name "$FEATURE_DESCRIPTION")
+fi
+
+# Honor the project's init-options.json branch numbering: when it requests
+# "timestamp" and the caller did not force a mode, default to timestamp prefix.
+# Keeps branch naming consistent with the project convention without relying on
+# the caller remembering the --timestamp flag.
+if [ "$USE_TIMESTAMP" = false ] && [ -z "$BRANCH_NUMBER" ]; then
+    _init_options="$(cd "$(dirname "$0")/../.." && pwd)/init-options.json"
+    if [ -f "$_init_options" ] && grep -q '"branch_numbering"[[:space:]]*:[[:space:]]*"timestamp"' "$_init_options"; then
+        USE_TIMESTAMP=true
+    fi
 fi
 
 # Warn if --number and --timestamp are both specified
