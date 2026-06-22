@@ -1,6 +1,5 @@
 """Tests for agent pairwise affinity calculation."""
 
-
 import pytest
 
 from epocha.apps.agents.affinity import compute_affinity

@@ -1,6 +1,5 @@
 """Tests for the chunking service."""
 
-
 from epocha.apps.knowledge.chunking import split_text_into_chunks
 
 

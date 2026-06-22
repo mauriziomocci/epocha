@@ -262,7 +262,6 @@ def process_corruption(simulation, tick: int) -> None:
     except Government.DoesNotExist:
         government = None
 
-
     group_leaders = (
         Agent.objects.filter(
             simulation=simulation,

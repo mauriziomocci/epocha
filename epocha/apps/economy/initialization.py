@@ -92,7 +92,6 @@ def initialize_economy(
                 price_elasticity=good_cfg["price_elasticity"],
             )
         )
-    good_map = {g.code: g for g in goods}
     essential_codes = [g.code for g in goods if g.is_essential]
 
     # 3. Production factors

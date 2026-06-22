@@ -38,22 +38,22 @@ _WORLD_GENERATION_PROMPT = (
     "Based on the user's description, generate a world for a civilization simulation.\n"
     "\n"
     "Respond ONLY with a JSON object with this exact structure:\n"
-    '{\n'
+    "{\n"
     '    "world": {\n'
     '        "economy_level": "simplified|base|full",\n'
     '        "stability_index": 0.0-1.0\n'
-    '    },\n'
+    "    },\n"
     '    "zones": [\n'
-    '        {\n'
+    "        {\n"
     '            "name": "Zone Name",\n'
     '            "type": "urban|rural|wilderness|commercial|industrial",\n'
     '            "x": 0-100,\n'
     '            "y": 0-100,\n'
     '            "resources": {"food": N, "wood": N, "stone": N, "gold": N}\n'
-    '        }\n'
-    '    ],\n'
+    "        }\n"
+    "    ],\n"
     '    "agents": [\n'
-    '        {\n'
+    "        {\n"
     '            "name": "Full Name",\n'
     '            "age": N,\n'
     '            "role": "role in society",\n'
@@ -68,10 +68,10 @@ _WORLD_GENERATION_PROMPT = (
     '                "ambitions": "goals",\n'
     '                "weaknesses": "flaws",\n'
     '                "values": "core beliefs"\n'
-    '            }\n'
-    '        }\n'
-    '    ]\n'
-    '}\n'
+    "            }\n"
+    "        }\n"
+    "    ]\n"
+    "}\n"
     "\n"
     "Generate 3-5 zones and 10-30 agents with diverse personalities, roles, and relationships.\n"
     "Make the world interesting with potential for conflict and cooperation.\n"

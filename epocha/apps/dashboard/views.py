@@ -159,7 +159,7 @@ def simulation_create_view(request):
         try:
             from epocha.apps.world.generator import generate_world_from_prompt
 
-            result = generate_world_from_prompt(prompt=prompt, simulation=simulation)
+            generate_world_from_prompt(prompt=prompt, simulation=simulation)
             simulation.status = Simulation.Status.PAUSED
             simulation.save(update_fields=["status"])
             return redirect("dashboard:simulation-detail", sim_id=simulation.id)

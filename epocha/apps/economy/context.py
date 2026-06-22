@@ -97,8 +97,6 @@ def build_economic_context(agent, tick: int) -> str | None:
                 )
                 prev_prices = {ph.good_code: ph.price for ph in prev_records}
 
-            zone_name = ze.zone.name if ze.zone else "your zone"
-
             for good_code, price in sorted(ze.market_prices.items()):
                 prev = prev_prices.get(good_code)
                 if prev and prev > 0:

@@ -118,7 +118,7 @@ class TestKnowledgeGraphView:
         assert response.status_code == 404
 
     def test_404_other_user(self, simulation, graph, node):
-        other = User.objects.create_user(email="x@x.dev", username="xuser", password="pass1234")
+        User.objects.create_user(email="x@x.dev", username="xuser", password="pass1234")
         client = Client()
         client.login(email="x@x.dev", password="pass1234")
         response = client.get(f"/simulations/{simulation.id}/knowledge-graph/")

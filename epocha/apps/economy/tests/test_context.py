@@ -59,7 +59,7 @@ def economy_setup(simulation):
         is_primary=True,
         total_supply=10000.0,
     )
-    sub = GoodCategory.objects.create(
+    GoodCategory.objects.create(
         simulation=simulation,
         code="subsistence",
         name="Subsistence",
@@ -67,7 +67,7 @@ def economy_setup(simulation):
         base_price=3.0,
         price_elasticity=0.3,
     )
-    lux = GoodCategory.objects.create(
+    GoodCategory.objects.create(
         simulation=simulation,
         code="luxury",
         name="Luxury",

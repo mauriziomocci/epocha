@@ -733,7 +733,7 @@ def default_dead_agent_loans(simulation) -> int:
     return count
 
 
-def find_best_unpledged_property(agent: Agent) -> "Property | None":
+def find_best_unpledged_property(agent: Agent) -> Property | None:
     """Find the agent's highest-value property not already used as collateral.
 
     Excludes properties that are collateral for active loans to prevent

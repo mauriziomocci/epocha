@@ -1,6 +1,5 @@
 """Tests for the ontology validators and vocabularies."""
 
-
 from epocha.apps.knowledge.ontology import (
     ENTITY_TYPES,
     RELATION_TYPES,

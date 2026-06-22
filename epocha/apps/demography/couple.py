@@ -14,8 +14,16 @@ Sources:
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from django.db.models import Q
+
+if TYPE_CHECKING:
+    # Type-check-only import: the runtime imports live inside the functions that
+    # touch the ORM, to avoid a circular import at module load. With
+    # `from __future__ import annotations`, annotations are lazy strings, so this
+    # block is never executed at runtime.
+    from epocha.apps.demography.models import Couple
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +163,7 @@ def form_couple(
     agent_y,
     formed_at_tick: int,
     couple_type: str = "monogamous",
-) -> "Couple":
+) -> Couple:
     """Create a Couple with canonical ordering enforced.
 
     Raises ValueError when the agents are the same or one of them is
@@ -175,7 +183,7 @@ def form_couple(
     )
 
 
-def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
+def resolve_pair_bond_intents(simulation, tick: int, rng) -> list[Couple]:
     """Process pair_bond intents from tick - 1, form couples where mutual.
 
     Reads DecisionLog.output_decision (TextField, JSON blob). Pre-filters
@@ -324,7 +332,7 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list["Couple"]:
     return formed
 
 
-def resolve_separate_intents(simulation, tick: int) -> list["Couple"]:
+def resolve_separate_intents(simulation, tick: int) -> list[Couple]:
     """Process separate intents from tick - 1, dissolve active couples.
 
     Reads DecisionLog.output_decision (JSON blob) with __contains pre-filter
@@ -375,7 +383,7 @@ def resolve_separate_intents(simulation, tick: int) -> list["Couple"]:
     return dissolved
 
 
-def dissolve_on_death(deceased_agent, tick: int) -> "Couple | None":
+def dissolve_on_death(deceased_agent, tick: int) -> Couple | None:
     """Dissolve any active Couple where the deceased is a partner.
 
     Captures the deceased's name into the appropriate *_name_snapshot

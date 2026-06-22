@@ -876,7 +876,6 @@ def _create_faction(simulation, founders: list[Agent], tick: int) -> None:
         tick: Current tick.
     """
     roles = {a.role for a in founders if a.role}
-    classes = {a.social_class for a in founders}
     founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
     fallback_name = f"The {next(iter(roles), 'Citizens').title()} Alliance"
 

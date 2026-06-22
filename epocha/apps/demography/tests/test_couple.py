@@ -591,7 +591,7 @@ def test_dissolve_on_death_captures_snapshot_and_nulls_fk(sim_with_zone):
     sim, zone = sim_with_zone
     a = _make_agent(sim, zone, "Nora")
     b = _make_agent(sim, zone, "Oscar", gender=Agent.Gender.MALE)
-    couple = form_couple(a, b, formed_at_tick=1)
+    form_couple(a, b, formed_at_tick=1)
 
     # a (agent_a, lower PK) dies at tick 7
     result = dissolve_on_death(a, tick=7)
@@ -612,7 +612,7 @@ def test_dissolve_on_death_when_agent_b_dies(sim_with_zone):
     sim, zone = sim_with_zone
     a = _make_agent(sim, zone, "Petra")
     b = _make_agent(sim, zone, "Quentin", gender=Agent.Gender.MALE)
-    couple = form_couple(a, b, formed_at_tick=2)
+    form_couple(a, b, formed_at_tick=2)
 
     result = dissolve_on_death(b, tick=9)
 
