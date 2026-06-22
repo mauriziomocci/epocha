@@ -334,7 +334,8 @@ GOVERNMENT_TYPES: dict[str, dict] = {
         },
     },
     "federation": {
-        # Multi-unit democratic federalism. Riker (1964): Federalism: Origin, Operation, Significance.
+        # Multi-unit democratic federalism.
+        # Riker (1964): Federalism: Origin, Operation, Significance.
         # Stability derived from distributed power centres and inter-unit bargaining.
         "label": "Federation",
         "power_source": "election",

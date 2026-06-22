@@ -34,47 +34,48 @@ from .models import Government, Institution, World, Zone
 logger = logging.getLogger(__name__)
 
 
-_WORLD_GENERATION_PROMPT = """Based on the user's description, generate a world for a civilization simulation.
-
-Respond ONLY with a JSON object with this exact structure:
-{
-    "world": {
-        "economy_level": "simplified|base|full",
-        "stability_index": 0.0-1.0
-    },
-    "zones": [
-        {
-            "name": "Zone Name",
-            "type": "urban|rural|wilderness|commercial|industrial",
-            "x": 0-100,
-            "y": 0-100,
-            "resources": {"food": N, "wood": N, "stone": N, "gold": N}
-        }
-    ],
-    "agents": [
-        {
-            "name": "Full Name",
-            "age": N,
-            "role": "role in society",
-            "gender": "male|female|non_binary",
-            "personality": {
-                "openness": 0.0-1.0,
-                "conscientiousness": 0.0-1.0,
-                "extraversion": 0.0-1.0,
-                "agreeableness": 0.0-1.0,
-                "neuroticism": 0.0-1.0,
-                "background": "backstory",
-                "ambitions": "goals",
-                "weaknesses": "flaws",
-                "values": "core beliefs"
-            }
-        }
-    ]
-}
-
-Generate 3-5 zones and 10-30 agents with diverse personalities, roles, and relationships.
-Make the world interesting with potential for conflict and cooperation.
-"""
+_WORLD_GENERATION_PROMPT = (
+    "Based on the user's description, generate a world for a civilization simulation.\n"
+    "\n"
+    "Respond ONLY with a JSON object with this exact structure:\n"
+    '{\n'
+    '    "world": {\n'
+    '        "economy_level": "simplified|base|full",\n'
+    '        "stability_index": 0.0-1.0\n'
+    '    },\n'
+    '    "zones": [\n'
+    '        {\n'
+    '            "name": "Zone Name",\n'
+    '            "type": "urban|rural|wilderness|commercial|industrial",\n'
+    '            "x": 0-100,\n'
+    '            "y": 0-100,\n'
+    '            "resources": {"food": N, "wood": N, "stone": N, "gold": N}\n'
+    '        }\n'
+    '    ],\n'
+    '    "agents": [\n'
+    '        {\n'
+    '            "name": "Full Name",\n'
+    '            "age": N,\n'
+    '            "role": "role in society",\n'
+    '            "gender": "male|female|non_binary",\n'
+    '            "personality": {\n'
+    '                "openness": 0.0-1.0,\n'
+    '                "conscientiousness": 0.0-1.0,\n'
+    '                "extraversion": 0.0-1.0,\n'
+    '                "agreeableness": 0.0-1.0,\n'
+    '                "neuroticism": 0.0-1.0,\n'
+    '                "background": "backstory",\n'
+    '                "ambitions": "goals",\n'
+    '                "weaknesses": "flaws",\n'
+    '                "values": "core beliefs"\n'
+    '            }\n'
+    '        }\n'
+    '    ]\n'
+    '}\n'
+    "\n"
+    "Generate 3-5 zones and 10-30 agents with diverse personalities, roles, and relationships.\n"
+    "Make the world interesting with potential for conflict and cooperation.\n"
+)
 
 
 def generate_world_from_prompt(prompt: str, simulation, knowledge_graph=None) -> dict:

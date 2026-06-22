@@ -27,7 +27,10 @@ class Simulation(models.Model):
         max_length=10,
         choices=Visibility.choices,
         default=Visibility.PRIVATE,
-        help_text="Private: only owner. Shared: owner + collaborators. Public: everyone can view and fork.",
+        help_text=(
+            "Private: only owner. Shared: owner + collaborators."
+            " Public: everyone can view and fork."
+        ),
     )
     seed = models.BigIntegerField(help_text="Seed for reproducibility (non-LLM part)")
     current_tick = models.PositiveIntegerField(default=0)

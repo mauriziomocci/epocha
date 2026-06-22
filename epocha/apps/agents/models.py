@@ -345,4 +345,7 @@ class ReputationScore(models.Model):
         return _rep._normalize_reputation(raw)
 
     def __str__(self):
-        return f"{self.holder.name}'s view of {self.target.name}: img={self.image:.2f} rep={self.reputation:.2f}"
+        return (
+            f"{self.holder.name}'s view of {self.target.name}:"
+            f" img={self.image:.2f} rep={self.reputation:.2f}"
+        )

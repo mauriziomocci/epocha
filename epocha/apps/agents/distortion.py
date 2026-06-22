@@ -55,7 +55,8 @@ _LOW_THRESHOLD: float = 0.3
 # propagation hops.
 _MAX_ACTIVE_TRAITS: int = 2
 
-# Each entry in a pattern list is (compiled_regex, [low_replacement, mid_replacement, high_replacement]).
+# Each entry in a pattern list is
+# (compiled_regex, [low_replacement, mid_replacement, high_replacement]).
 # Replacement index maps to _get_strength_index() output: 0=mild, 1=moderate, 2=strong.
 # The lists encode graduated intensity so distortion scales continuously with trait extremity.
 
@@ -148,7 +149,8 @@ _LOW_OPENNESS_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
 ]
 
 _HIGH_EXTRAVERSION_PATTERNS: list[tuple[re.Pattern, list[str]]] = [
-    # High extraversion: reteller exaggerates social scope (Allport & Postman: assimilation toward expansive-social schema)
+    # High extraversion: reteller exaggerates social scope
+    # (Allport & Postman: assimilation toward expansive-social schema)
     (re.compile(r"\bsomeone\b", re.IGNORECASE), ["several people", "many people", "everyone"]),
     (re.compile(r"\ba person\b", re.IGNORECASE), ["some people", "many people", "a crowd"]),
     (re.compile(r"\bone person\b", re.IGNORECASE), ["some people", "a group", "many people"]),

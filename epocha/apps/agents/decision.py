@@ -159,7 +159,8 @@ def _build_context(
     """
     parts = [
         f"You are {agent.name}, a {agent.role}.",
-        f"Tick: {tick}. Health: {agent.health:.1f}, wealth: {agent.wealth:.1f}, mood: {agent.mood:.1f}.",
+        f"Tick: {tick}. Health: {agent.health:.1f}, wealth: {agent.wealth:.1f},"
+        f" mood: {agent.mood:.1f}.",
         f"World stability: {world_state.stability_index:.1f}.",
     ]
 
@@ -294,8 +295,8 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
         political_context = (
             f"Government: {type_label} ({stability_word})\n"
             f"Head of state: {head_name}\n"
-            f"Trust: {'high' if government.institutional_trust > 0.6 else 'low' if government.institutional_trust < 0.3 else 'moderate'}. "
-            f"Corruption: {'high' if government.corruption > 0.6 else 'low' if government.corruption < 0.3 else 'moderate'}."
+            f"Trust: {'high' if government.institutional_trust > 0.6 else 'low' if government.institutional_trust < 0.3 else 'moderate'}. "  # noqa: E501 -- nested ternary inside f-string; splitting would break readability
+            f"Corruption: {'high' if government.corruption > 0.6 else 'low' if government.corruption < 0.3 else 'moderate'}."  # noqa: E501 -- nested ternary inside f-string; splitting would break readability
         )
     except Exception:
         pass

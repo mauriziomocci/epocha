@@ -106,7 +106,8 @@ def _build_chat_system_prompt(agent, request, personality_prompt, memory_text, c
         f"- If the visitor asks a question, ANSWER it. Do not deflect or redirect.\n"
         f"- Your reactions should reflect your era, status, and personality -- "
         f"a Pope speaks differently than a soldier, a duchess differently than a servant.\n"
-        f"- CRITICAL: React ONLY to the visitor's latest message. Do not repeat previous reactions.\n\n"
+        f"- CRITICAL: React ONLY to the visitor's latest message."
+        f" Do not repeat previous reactions.\n\n"
         f"{personality_prompt}"
         f"{memory_text}{chat_history}"
     )
@@ -389,7 +390,10 @@ def inject_event_view(request, sim_id):
     try:
         raw = client.complete(
             prompt=classification_prompt,
-            system_prompt="You classify simulation events into structured effects. Respond ONLY with valid JSON.",
+            system_prompt=(
+                "You classify simulation events into structured effects."
+                " Respond ONLY with valid JSON."
+            ),
             temperature=0.1,
             max_tokens=500,
             simulation_id=simulation.id,
@@ -556,9 +560,15 @@ def chat_view(request, sim_id, agent_id):
                         tmp.write(chunk)
                     tmp.flush()
                     extracted = extract_text(tmp.name)
-                    file_context = f"\n\n[The visitor hands you a document titled '{uploaded_file.name}'. Its content is:]\n{extracted[:2000]}"
+                    file_context = (
+                        f"\n\n[The visitor hands you a document titled '{uploaded_file.name}'."
+                        f" Its content is:]\n{extracted[:2000]}"
+                    )
             elif suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
-                file_context = f"\n\n[The visitor shows you an image: {uploaded_file.name}. React to it based on the conversation context.]"
+                file_context = (
+                    f"\n\n[The visitor shows you an image: {uploaded_file.name}."
+                    f" React to it based on the conversation context.]"
+                )
             else:
                 file_context = f"\n\n[The visitor shows you a file: {uploaded_file.name}]"
 
@@ -569,7 +579,10 @@ def chat_view(request, sim_id, agent_id):
                 return JsonResponse(
                     {
                         "role": "system",
-                        "content": f"{agent.name} is dead and cannot respond. You can view their history in the Galactic Encyclopedia (Report).",
+                        "content": (
+                            f"{agent.name} is dead and cannot respond."
+                            " You can view their history in the Galactic Encyclopedia (Report)."
+                        ),
                     }
                 )
 
@@ -759,7 +772,10 @@ def chat_send_api(request, sim_id, agent_id):
         return JsonResponse(
             {
                 "role": "system",
-                "content": f"{agent.name} is dead and cannot respond. You can view their history in the Galactic Encyclopedia (Report).",
+                "content": (
+                    f"{agent.name} is dead and cannot respond."
+                    " You can view their history in the Galactic Encyclopedia (Report)."
+                ),
             }
         )
 
@@ -937,7 +953,8 @@ def group_chat_view(request, sim_id):
                     f"The Visitor is speaking to {mentioned_agent.name}, not to you. "
                     f"You are listening. Only respond if you have something relevant to add "
                     f"(a reaction, a contradiction, a comment). "
-                    f"If you have nothing to add, say nothing -- respond with just: *ascolta in silenzio*"
+                    f"If you have nothing to add, say nothing --"
+                    f" respond with just: *ascolta in silenzio*"
                 )
                 max_tokens = 80
 

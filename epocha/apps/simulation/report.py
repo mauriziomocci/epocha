@@ -16,18 +16,22 @@ from .models import Event
 
 logger = logging.getLogger(__name__)
 
-_REPORT_SYSTEM_PROMPT = """You are a historian writing an encyclopedia entry about a simulated civilization.
-Based on the data provided (events, agents, economic state), write a structured narrative report.
-
-Structure:
-1. Overview: period covered, population, key statistics
-2. Major Events: the most significant events and their consequences
-3. Notable Individuals: agents who had the greatest impact
-4. Patterns: recurring cycles or trends observed
-5. Final State: how the civilization ended up
-
-Write in a scholarly, engaging tone. Be specific — reference actual events and agents by name.
-Do not invent events that are not in the data."""
+_REPORT_SYSTEM_PROMPT = (
+    "You are a historian writing an encyclopedia entry about a simulated civilization.\n"
+    "Based on the data provided (events, agents, economic state),"
+    " write a structured narrative report.\n"
+    "\n"
+    "Structure:\n"
+    "1. Overview: period covered, population, key statistics\n"
+    "2. Major Events: the most significant events and their consequences\n"
+    "3. Notable Individuals: agents who had the greatest impact\n"
+    "4. Patterns: recurring cycles or trends observed\n"
+    "5. Final State: how the civilization ended up\n"
+    "\n"
+    "Write in a scholarly, engaging tone."
+    " Be specific — reference actual events and agents by name.\n"
+    "Do not invent events that are not in the data."
+)
 
 
 def generate_simulation_report(simulation) -> str:

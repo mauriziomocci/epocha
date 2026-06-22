@@ -1,4 +1,5 @@
-"""Tick orchestrator: coordinates economy, decisions, information, factions, politics, analytics, and events.
+"""Tick orchestrator: coordinates economy, decisions, information, factions, politics,
+analytics, and events.
 
 Each tick is a discrete time step where:
 1. The economy updates (income, costs, mood effects)
@@ -92,7 +93,8 @@ _ACTION_MOOD_DELTA: dict[str, float] = {
     "sell_property": -0.01,
     "buy_property": 0.02,
     # Demography actions (Plan 2).
-    # pair_bond +0.10: forming a couple is a positive life event (Becker 1991, utility gain from marriage).
+    # pair_bond +0.10: forming a couple is a positive life event
+    # (Becker 1991, utility gain from marriage).
     # separate -0.15: separation has significant negative mood impact (well-being literature).
     # avoid_conception -0.01: slight negative signal (unmet preference or social pressure).
     "pair_bond": 0.10,
@@ -300,7 +302,8 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
                     set_avoid_conception_flag(agent)
                 else:
                     logger.warning(
-                        "avoid_conception action ignored for %s: era template '%s' has fertility_agency=%r",
+                        "avoid_conception action ignored for %s:"
+                        " era template '%s' has fertility_agency=%r",
                         agent.name,
                         template_name,
                         template.get("fertility_agency"),

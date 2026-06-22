@@ -212,7 +212,8 @@ def run_election(simulation: Simulation, tick: int) -> dict:
 
 
 def _relationship_sentiment_score(voter: Agent, candidate: Agent) -> float:
-    """Return a [0.0, 1.0] normalised sentiment score from any relationship between voter and candidate.
+    """Return a [0.0, 1.0] normalised sentiment score from any relationship
+    between voter and candidate.
 
     Checks both directions (voter -> candidate and candidate -> voter) so that
     unilateral relationships are captured. Normalises the raw sentiment from

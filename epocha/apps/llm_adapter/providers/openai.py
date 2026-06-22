@@ -15,14 +15,14 @@ import time
 
 import openai
 
+from .base import BaseLLMProvider
+
 logger = logging.getLogger(__name__)
 
 # Retry configuration for rate limit errors (429).
 # Groq free tier: 30 RPM. A 3-retry strategy with 2s base covers most bursts.
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY_SECONDS = 2.0
-
-from .base import BaseLLMProvider
 
 # Pricing per 1M tokens. Used for cost estimation.
 # Source: provider pricing pages as of March 2026. Update as needed.

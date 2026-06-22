@@ -1,4 +1,5 @@
-"""Social stratification engine — dynamic class mobility, Gini coefficient, and corruption mechanics.
+"""Social stratification engine — dynamic class mobility, Gini coefficient,
+and corruption mechanics.
 
 Wealth-based social class assignment follows a percentile approach: agents are ranked by wealth
 each political cycle and assigned to one of five strata. Class transitions generate memories that
