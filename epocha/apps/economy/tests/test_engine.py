@@ -314,6 +314,221 @@ class TestConservationOfOutputValue:
         assert abs(total_injected - output_value) < 1e-6
 
 
+@pytest.mark.django_db
+class TestAbsentOwnerFactorIncomeAndTaxSymmetry:
+    """Round 2 re-audit findings CM-TAX-1, CM-TAX-2 and NEW-3.
+
+    Shared root cause: the zone loop resolves factor-income payees
+    through inv_cache, built only from agents that are alive AND
+    resident in the zone being processed, while Property.owner_id can
+    point to an agent who is dead or lives in another zone. That
+    asymmetry (a) silently drops rent/profit owed to living
+    out-of-zone owners (NEW-3), (b) lets the taxation step credit the
+    treasury for income that was never debited from anyone (CM-TAX-1,
+    money creation), and (c) with no Government, debits agents without
+    crediting any treasury (CM-TAX-2, money destruction).
+    """
+
+    def _output_value(self, simulation, prices):
+        production_entries = EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            transaction_type="production",
+        )
+        return sum(
+            entry.quantity * prices.get(entry.good_category.code, 0.0)
+            for entry in production_entries
+            if entry.good_category is not None
+        )
+
+    def _factor_income_injected(self, simulation):
+        credits = EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            from_agent__isnull=True,
+            transaction_type__in=["rent", "wage", "profit"],
+        )
+        return sum(entry.total_amount for entry in credits)
+
+    def test_out_of_zone_owner_receives_rent(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        # A living landlord resident in a zone WITHOUT a ZoneEconomy
+        # owns the only property claiming a bonus on the good actually
+        # produced in the economic zone. Their rent must be credited,
+        # not silently dropped by the zone-local payee lookup (NEW-3).
+        other_zone = Zone.objects.create(
+            world=setup_economy["world"],
+            name="Countryside",
+            zone_type="rural",
+            boundary=Polygon.from_bbox((200, 0, 300, 100)),
+            center=Point(250, 50),
+        )
+        landlord = Agent.objects.create(
+            simulation=simulation,
+            name="AbsenteeLandlord",
+            role="noble",
+            personality={"openness": 0.5},
+            location=Point(250, 50),
+            zone=other_zone,
+            health=1.0,
+            wealth=100.0,
+        )
+        AgentInventory.objects.create(
+            agent=landlord,
+            holdings={},
+            cash={"LVR": 100.0},
+        )
+        Property.objects.create(
+            simulation=simulation,
+            owner=landlord,
+            owner_type="agent",
+            zone=setup_economy["zone"],
+            property_type="farm",
+            name="Absentee Farm",
+            value=100.0,
+            production_bonus={"subsistence": 1.0},
+        )
+
+        process_economy_tick_new(simulation, tick=1)
+
+        rent_entries = EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            transaction_type="rent",
+            to_agent=landlord,
+        )
+        assert rent_entries.exists()
+
+        # The full factor-income partition must still sum to the zone
+        # output value V: the absentee owner's slice is paid out, not
+        # dropped from the injection.
+        ze = setup_economy["zone_economy"]
+        ze.refresh_from_db()
+        output_value = self._output_value(simulation, ze.market_prices)
+        injected = self._factor_income_injected(simulation)
+        assert abs(injected - output_value) < 1e-6
+
+    def test_dead_owner_share_reallocated_not_dropped(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        # A dead agent still recorded as owner of the only property
+        # claiming the produced good: the partition must exclude the
+        # dead owner (no rent/profit credited to a corpse) and
+        # reallocate that share so the injection still equals V.
+        dead_owner = Agent.objects.create(
+            simulation=simulation,
+            name="DeadLandlord",
+            role="noble",
+            personality={"openness": 0.5},
+            location=Point(50, 50),
+            zone=setup_economy["zone"],
+            health=0.0,
+            wealth=100.0,
+            is_alive=False,
+        )
+        AgentInventory.objects.create(
+            agent=dead_owner,
+            holdings={},
+            cash={"LVR": 100.0},
+        )
+        Property.objects.create(
+            simulation=simulation,
+            owner=dead_owner,
+            owner_type="agent",
+            zone=setup_economy["zone"],
+            property_type="farm",
+            name="Estate of the Deceased",
+            value=100.0,
+            production_bonus={"subsistence": 1.0},
+        )
+
+        process_economy_tick_new(simulation, tick=1)
+
+        assert not EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            transaction_type__in=["rent", "profit"],
+            to_agent=dead_owner,
+        ).exists()
+
+        ze = setup_economy["zone_economy"]
+        ze.refresh_from_db()
+        output_value = self._output_value(simulation, ze.market_prices)
+        injected = self._factor_income_injected(simulation)
+        assert abs(injected - output_value) < 1e-6
+
+    def test_treasury_credit_equals_agent_tax_debits(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        # CM-TAX-1: the treasury must receive exactly the sum of the
+        # taxes actually debited from agents, never compute_taxes'
+        # nominal total over incomes whose earner could not be debited.
+        # The dead-owner property reproduces the pre-fix leak: the dead
+        # owner's rent was taxed into the treasury with no counterpart
+        # agent debit, creating money.
+        dead_owner = Agent.objects.create(
+            simulation=simulation,
+            name="DeadLandlord",
+            role="noble",
+            personality={"openness": 0.5},
+            location=Point(50, 50),
+            zone=setup_economy["zone"],
+            health=0.0,
+            wealth=100.0,
+            is_alive=False,
+        )
+        Property.objects.create(
+            simulation=simulation,
+            owner=dead_owner,
+            owner_type="agent",
+            zone=setup_economy["zone"],
+            property_type="farm",
+            name="Estate of the Deceased",
+            value=100.0,
+            production_bonus={"subsistence": 1.0},
+        )
+
+        process_economy_tick_new(simulation, tick=1)
+
+        setup_economy["government"].refresh_from_db()
+        treasury = setup_economy["government"].government_treasury.get("LVR", 0.0)
+        debited = sum(
+            entry.total_amount
+            for entry in EconomicLedger.objects.filter(
+                simulation=simulation,
+                tick=1,
+                transaction_type="tax",
+            )
+        )
+        assert abs(treasury - debited) < 1e-6
+
+    def test_no_government_skips_taxation(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        # CM-TAX-2: with a TaxPolicy but no Government, the pre-fix
+        # loop still debited every earner's cash while the treasury
+        # credit was skipped, destroying money. Without a fiscal
+        # authority the taxation step must not run at all.
+        setup_economy["government"].delete()
+
+        process_economy_tick_new(simulation, tick=1)
+
+        assert not EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            transaction_type="tax",
+        ).exists()
+
+
 @pytest.fixture
 def setup_two_zone_economy(simulation):
     """Two zones both quoting 'subsistence', seeded with DIFFERENT

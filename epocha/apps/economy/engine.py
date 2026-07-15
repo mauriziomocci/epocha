@@ -405,10 +405,30 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         # and compute_wages each independently credited (approximately)
         # the full V as brand-new cash, injecting strictly more money
         # than the output actually produced every tick.
+        # Round 2 re-audit fix (CM-TAX-1 / NEW-3, run wf_da2305bc-4cd):
+        # Property.owner_id may point to an agent who is dead or lives
+        # in another zone, while the payee lookup below (inv_cache) only
+        # holds this zone's living agents. Owners are therefore resolved
+        # against the SIMULATION-WIDE living-agent set: dead owners are
+        # excluded from the partition entirely (their bonus share is
+        # reallocated by compute_profit's no-landlord fallback, keeping
+        # the partition summing to V), and living out-of-zone owners are
+        # paid through the extended payee lookup built after the
+        # partition instead of being silently dropped.
+        owner_ids = {p.owner_id for p in properties if p.owner_type == "agent" and p.owner_id}
+        alive_owner_ids: set[int] = (
+            set(
+                Agent.objects.filter(
+                    simulation=simulation, id__in=owner_ids, is_alive=True
+                ).values_list("id", flat=True)
+            )
+            if owner_ids
+            else set()
+        )
         prop_dicts = [
             {"owner_id": p.owner_id, "production_bonus": p.production_bonus}
             for p in properties
-            if p.owner_type == "agent" and p.owner_id
+            if p.owner_type == "agent" and p.owner_id in alive_owner_ids
         ]
         factor_shares = partition_output_value(
             zone_production,
@@ -424,9 +444,24 @@ def process_economy_tick_new(simulation, tick: int) -> None:
 
         cur_code = primary_currency.code
 
+        # Extended payee lookup (NEW-3 fix): factor incomes may be owed
+        # to living owners resident in OTHER zones, absent from the
+        # zone-local inv_cache. Fetch their inventories simulation-wide
+        # so rent/profit credits (and the matching tax debits in step 6)
+        # reach every living payee. Fresh per zone: a cross-zone owner
+        # credited by an earlier zone is re-read from the DB here, so
+        # running balances stay consistent across the zone loop.
+        payee_invs: dict[int, AgentInventory] = dict(inv_cache)
+        missing_payee_ids = (set(rents) | set(wages) | set(profits)) - payee_invs.keys()
+        if missing_payee_ids:
+            for inv in AgentInventory.objects.filter(
+                agent_id__in=missing_payee_ids, agent__is_alive=True
+            ):
+                payee_invs[inv.agent_id] = inv
+
         # === STEP 4: RENT (land factor share, emergent Ricardian) ===
         for owner_id, rent_amount in rents.items():
-            inv = inv_cache.get(owner_id)
+            inv = payee_invs.get(owner_id)
             if inv and rent_amount > 0:
                 inv.cash[cur_code] = inv.cash.get(cur_code, 0.0) + rent_amount
                 inv.save(update_fields=["cash"])
@@ -458,7 +493,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             wages = {k: min(v, max_wage) for k, v in wages.items()}
 
         for agent_id, wage_amount in wages.items():
-            inv = inv_cache.get(agent_id)
+            inv = payee_invs.get(agent_id)
             if inv and wage_amount > 0:
                 current_cash = inv.cash.get(cur_code, 0.0)
                 inv.cash[cur_code] = current_cash + wage_amount
@@ -477,7 +512,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         # === STEP 5b: PROFIT (capital/entrepreneurial residual factor
         # share) ===
         for agent_id, profit_amount in profits.items():
-            inv = inv_cache.get(agent_id)
+            inv = payee_invs.get(agent_id)
             if inv and profit_amount > 0:
                 current_cash = inv.cash.get(cur_code, 0.0)
                 inv.cash[cur_code] = current_cash + profit_amount
@@ -494,43 +529,60 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 )
 
         # === STEP 6: TAXATION (flat rate -> government treasury) ===
-        # Unchanged by the CM-1 conservation fix: taxable income is still
-        # wages + rent only (profit is not yet in the taxable base --
-        # a known scope limitation, not addressed by this fix; taxing
-        # profit would be a separate, deliberate policy change).
+        # Taxable income is still wages + rent only (profit is not yet
+        # in the taxable base -- a known scope limitation; taxing profit
+        # would be a separate, deliberate policy change).
+        #
+        # Round 2 re-audit fixes (CM-TAX-1 / CM-TAX-2, run
+        # wf_da2305bc-4cd): taxation is a TRANSFER, so debits and the
+        # treasury credit must be two legs of the same amount.
+        # (1) The step runs only when a Government exists: taxing with
+        #     no fiscal authority to receive the revenue destroyed money
+        #     (agents were debited while the `if gov` guard skipped the
+        #     credit). Without a government, no tax is levied at all.
+        # (2) The treasury is credited with the RUNNING TOTAL of taxes
+        #     actually debited from agents, not compute_taxes' nominal
+        #     total_revenue: pre-fix, income imputed to an owner absent
+        #     from the payee lookup was credited to the treasury with no
+        #     matching debit, creating money. With the extended
+        #     payee_invs lookup every living earner is debitable, and
+        #     the running total makes the conservation structural.
         if tax_policy:
-            agent_incomes: dict[int, float] = {}
-            for agent_id in set(list(wages.keys()) + list(rents.keys())):
-                income = wages.get(agent_id, 0.0) + rents.get(agent_id, 0.0)
-                if income > 0:
-                    agent_incomes[agent_id] = income
-
-            tax_result = compute_taxes(agent_incomes, tax_policy.income_tax_rate)
-
             try:
                 gov = Government.objects.get(simulation=simulation)
             except Government.DoesNotExist:
                 gov = None
 
-            for agent_id, tax_amount in tax_result["agent_taxes"].items():
-                if tax_amount > 0:
-                    inv = inv_cache.get(agent_id)
-                    if inv:
-                        cur_cash = inv.cash.get(cur_code, 0.0)
-                        inv.cash[cur_code] = cur_cash - tax_amount
-                        inv.save(update_fields=["cash"])
-                        EconomicLedger.objects.create(
-                            simulation=simulation,
-                            tick=tick,
-                            from_agent_id=agent_id,
-                            to_agent=None,
-                            currency=primary_currency,
-                            total_amount=tax_amount,
-                            transaction_type="tax",
-                        )
+            if gov is not None:
+                agent_incomes: dict[int, float] = {}
+                for agent_id in set(list(wages.keys()) + list(rents.keys())):
+                    income = wages.get(agent_id, 0.0) + rents.get(agent_id, 0.0)
+                    if income > 0:
+                        agent_incomes[agent_id] = income
 
-            if gov and tax_result["total_revenue"] > 0:
-                add_to_treasury(gov, cur_code, tax_result["total_revenue"])
+                tax_result = compute_taxes(agent_incomes, tax_policy.income_tax_rate)
+
+                collected_tax = 0.0
+                for agent_id, tax_amount in tax_result["agent_taxes"].items():
+                    if tax_amount > 0:
+                        inv = payee_invs.get(agent_id)
+                        if inv:
+                            cur_cash = inv.cash.get(cur_code, 0.0)
+                            inv.cash[cur_code] = cur_cash - tax_amount
+                            inv.save(update_fields=["cash"])
+                            collected_tax += tax_amount
+                            EconomicLedger.objects.create(
+                                simulation=simulation,
+                                tick=tick,
+                                from_agent_id=agent_id,
+                                to_agent=None,
+                                currency=primary_currency,
+                                total_amount=tax_amount,
+                                transaction_type="tax",
+                            )
+
+                if collected_tax > 0:
+                    add_to_treasury(gov, cur_code, collected_tax)
 
         # Update zone prices and write price history
         ze.market_prices = equilibrium_prices
