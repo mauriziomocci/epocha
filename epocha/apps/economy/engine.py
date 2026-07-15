@@ -430,7 +430,13 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         # reallocated by compute_profit's no-landlord fallback, keeping
         # the partition summing to V), and living out-of-zone owners are
         # paid through the extended payee lookup built after the
-        # partition instead of being silently dropped.
+        # partition instead of being silently dropped. Properties not
+        # owned by an agent at all (owner_type != "agent", e.g.
+        # government/public holdings) are likewise excluded: goods
+        # claimed only by such properties route their land+capital share
+        # to the producing agents via the same no-landlord fallback
+        # (Round 2 re-audit finding NEW-5, documented modeling
+        # assumption -- see distribution.py's module docstring).
         owner_ids = {p.owner_id for p in properties if p.owner_type == "agent" and p.owner_id}
         alive_owner_ids: set[int] = (
             set(
@@ -501,7 +507,12 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         # should rarely bind, but it is kept as a defense-in-depth
         # safety net -- documented, not removed. The floor of 100.0
         # ensures the cap is non-trivial even when the median is very
-        # low. Tunable design parameter.
+        # low. Tunable design parameter. When the cap DOES bind, the
+        # credited factor-income total falls strictly below V and the
+        # clipped remainder is deliberately not redistributed: the
+        # conservation invariant is "injection <= V, equal whenever the
+        # cap is not binding" (Round 2 re-audit finding NEW-2; see
+        # distribution.py's module docstring).
         if wages:
             sorted_wages = sorted(wages.values())
             median_wage = sorted_wages[len(sorted_wages) // 2]

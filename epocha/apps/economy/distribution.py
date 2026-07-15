@@ -25,6 +25,22 @@ calling all three and crediting the results as cash transfers keeps
 the tick's money supply conserved: the total newly credited cash
 equals V exactly, not a multiple of it (see engine.py steps 4/5/5b).
 
+Two engine-side qualifications to the exact-V identity (Round 2
+re-audit findings NEW-2 and NEW-5, disclosed simplifications):
+(1) engine.py applies a defense-in-depth wage sanity cap (100x median
+wage) at credit time; when it binds -- never in the calibrated
+templates -- the credited total falls strictly BELOW V and the clipped
+remainder is deliberately not redistributed, so the invariant is
+"injection <= V, equal whenever the cap is not binding" (bounded
+injection, never creation). (2) Properties not owned by a living agent
+(owner_type != "agent", e.g. government/public land, or a dead owner
+still on record) are excluded from the partition's property set; goods
+claimed only by such properties route their land+capital share to the
+producing agents through compute_profit's no-landlord fallback. The
+modeling assumption is that public/ownerless land income accrues to
+its cultivators; routing it to the treasury instead would be a
+deliberate fiscal-policy change, not a conservation fix.
+
 Rent: emergent from zone production proportional to property bonus.
 Simplification: proportional to bonus instead of differential surplus
 vs marginal land. See spec for detailed rationale.

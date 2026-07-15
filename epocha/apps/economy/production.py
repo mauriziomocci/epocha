@@ -95,6 +95,21 @@ def ces_production(
     # min(X_i / a_i) under an explicit per-factor coefficient a_i; it is
     # not implemented here since factor_weights are already normalized to
     # sum to 1, not treated as fixed input-output coefficients.
+    #
+    # Numerical seam at the threshold (Round 2 re-audit finding NEW-4,
+    # disclosed simplification): at sigma = _LEONTIEF_THRESHOLD the
+    # general branch below evaluates the power mean at a finite rho
+    # (sigma=0.05 -> rho=-19), which is close to but not exactly
+    # min(X_i), so switching branches introduces a small bounded
+    # discontinuity (the power mean converges to the min monotonically
+    # from above as rho -> -inf). Evaluating the general form for
+    # arbitrarily small sigma is not an option: rho diverges and
+    # X_i**rho overflows/underflows floats, which is exactly why the
+    # limit branch exists. The threshold is a tunable numerical-
+    # stability parameter; the seam magnitude shrinks as the threshold
+    # is lowered and is covered by the continuity regression test
+    # (test_ces_leontief_limit_continuity, epsilon-agreement across the
+    # threshold).
     if sigma < _LEONTIEF_THRESHOLD:
         return scale * min(x for _, x in pairs)
 

@@ -286,6 +286,19 @@ def compute_mood_delta(
     threshold the agent is. Below zero: a more severe, likewise constant,
     penalty -_MOOD_PENALTY_DESTITUTE.
 
+    Known discontinuity at the satiation threshold (Round 2 re-audit
+    finding PROD-5, disclosed simplification): the moderate band pays
+    _MOOD_BOOST_BASE * 0.5, while just above satiation_threshold the
+    decay branch starts from the FULL _MOOD_BOOST_BASE (excess ~ 0), so
+    the per-tick boost momentarily doubles exactly at the threshold
+    before decaying toward zero. This is a piecewise simplification,
+    locally at odds with the plateau narrative in a neighborhood of the
+    threshold; the paper's qualitative finding (no further emotional
+    gain from wealth far above satiation) still holds asymptotically. A
+    continuous alternative would start the decay branch at
+    _MOOD_BOOST_BASE * 0.5; the current form is kept as a tunable
+    heuristic and the seam is documented rather than smoothed.
+
     CM-6 fix: poverty_threshold is now a parameter (previously hardcoded
     to the module constant _POVERTY_THRESHOLD), symmetric with
     satiation_threshold, so callers can pass wealth-scale-reconciled
