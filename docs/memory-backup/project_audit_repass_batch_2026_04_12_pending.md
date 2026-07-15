@@ -1,58 +1,44 @@
 ---
 name: audit-repass-batch-2026-04-12-pending
-description: HIGH-PRIORITY follow-up after Demography Plan 3 -- re-audit pass on the 8 modules audited in batch 2026-04-12 with remediation done but no Round 2 verification
+description: F-CAMPAIGN chiusa 6/6 (2026-07-15). Questo file traccia ora SOLO il residuo Round 2 fuori campagna -- paragraph 8.1 Knowledge Graph e paragraph 8.2 economy base layer, audit Round 2 pendente.
 type: project
 originSessionId: b165274d-a708-4e8c-abed-b28a018c163f
 ---
-# Audit re-pass debt -- batch 2026-04-12
+# Audit re-pass -- batch 2026-04-12: campagna chiusa, residuo tracciato
 
-## Stato
+## Perche' il nome file resta "pending"
 
-Nel 2026-04-12 fu eseguito un adversarial scientific audit su 8+ moduli implementati pre-canonical-workflow. L'audit produsse 14 INCORRECT + 19 UNJUSTIFIED + 6 INCONSISTENT + 12 MISSING findings.
+Il whitepaper bilingue cita questo file per nome in piu' punti (paragrafi 10 Discussion, 11 Known Limitations, 12 Conclusions) come tracker del Round 2 residuo. Il nome storico e' quindi mantenuto anche se la campagna F-CAMPAIGN e' chiusa: il contenuto e' stato riscritto (2026-07-15) e ora traccia solo il residuo fuori-batch che il whitepaper gli attribuisce.
 
-Tre commit di remediation seguirono:
-- `17f046a` fix(science): correct false citations and unjustified parameters in reputation, distortion, economy, movement
-- `7744016` fix(science): correct false citations in belief, government, stratification + fix corruption bug and deterministic coup
-- `951a606` fix(science): complete scientific audit remediation across all modules
+## Stato campagna F-CAMPAIGN: CHIUSA 6/6
 
-**Nessun Round 2 audit fu eseguito.** Per definizione del project workflow (CLAUDE.md "Mandatory convergence loop"), questi moduli sono in stato "Round 1 done, remediation done, Round 2 pending" -- NON CONVERGED.
+Piano campagna: `docs/superpowers/plans/2026-05-12-audit-repass-campaign.md` (legacy pre-Spec-Kit). Retrospettiva: [[project_audit_repass_2026_04_12_completed]].
 
-Audit log originale: `docs/scientific-audit-2026-04-12.md`.
+| # | Branch | Esito | PR | Merge SHA |
+|---|--------|-------|----|-----------|
+| 1 | Reputation | CONVERGED Round 2 (2026-05-12), promosso a paragraph 4.3 | PR#5 | c196281 |
+| 2 | Rumor cluster (info flow, distortion, belief, affinity) | CONVERGED Round 2 (2026-05-16), promosso a paragraph 4.4 | PR#6 | a0ea075 |
+| 3 | Political cluster (government, gov_types, institutions, stratification, election) | CONVERGED Round 2 (2026-05-16), promosso a paragraph 4.5 | PR#7 | dfeb709 |
+| 4 | Movement | CONVERGED Round 2 (2026-05-16), promosso a paragraph 4.6 | PR#8 | c543c10 |
+| 5 | Factions | CONVERGED Round 2 (2026-05-16), promosso a paragraph 4.7 | PR#9 | 5406b95 |
+| 6 | World economy deprecation (path B: marker, fallback invariato) | Chiuso via Spec Kit `specs/20260715-094457-world-economy-deprecation/` | PR alla chiusura del branch | vedi git history |
 
-## Moduli interessati
+## Residuo tracciato da questo file (fuori scope campagna)
 
-| Modulo | Path | Status whitepaper | Promozione attesa |
-|---|---|---|---|
-| Reputation | `epocha/apps/agents/reputation.py` | cap. 8 (audit pending) | cap. 4 dopo CONVERGED |
-| Distortion (rumor) | `epocha/apps/agents/distortion.py` | cap. 8 cluster rumor | cap. 4 dopo CONVERGED |
-| Information Flow | `epocha/apps/agents/information_flow.py` | cap. 8 cluster rumor | cap. 4 dopo CONVERGED |
-| Belief Filter | `epocha/apps/agents/belief.py` | cap. 8 cluster rumor | cap. 4 dopo CONVERGED |
-| Government | `epocha/apps/world/government.py`, `government_types.py` | cap. 8 cluster political | cap. 4 dopo CONVERGED |
-| Stratification | `epocha/apps/world/stratification.py` | cap. 8 cluster political | cap. 4 dopo CONVERGED |
-| Movement | `epocha/apps/agents/movement.py` | cap. 8 | cap. 4 dopo CONVERGED |
-| Factions | `epocha/apps/agents/factions.py` | cap. 8 | cap. 4 dopo CONVERGED |
+Due moduli restano in paragraph 8 del whitepaper con Round 2 pendente. NON erano nei 6 branch della campagna:
 
-## Priorita' e collocazione nel roadmap
+| Modulo | Whitepaper | Stato |
+|--------|-----------|-------|
+| Knowledge Graph | paragraph 8.1 | Round 2 pendente; findings originali in `docs/scientific-audit-2026-04-12.md` |
+| Economy base layer (`epocha/apps/economy/*` substrato di paragraph 3.6) | paragraph 8.2 | Round 2 pendente; findings originali in `docs/scientific-audit-2026-04-12.md` |
 
-**Subito dopo Demography Plan 3** (Inheritance + Migration), prima di Plan 4 o di nuovi sottosistemi. Motivo: il debt aumenta con ogni nuova feature che si appoggia sui moduli non re-auditati.
+Gate: la promozione da paragraph 8 a paragraph 4.x, l'ingresso dei parametri nelle tabelle di calibrazione paragraph 6 e l'ingresso nella campagna di validazione paragraph 7 dipendono dal Round 2 CONVERGED di ciascun modulo (procedura in [[project_whitepaper_promotion_pipeline]]).
 
-## Procedura raccomandata
+## Storia (sintesi)
 
-Per ogni modulo (uno per branch dedicato `audit-repass/<modulo>`):
-1. Re-leggere findings originali in `docs/scientific-audit-2026-04-12.md`
-2. Verificare ogni finding contro il codice corrente (potrebbe essere gia' risolto o regredito)
-3. Dispatch `critical-analyzer` Round 2 con mandato "verify Round 1 resolutions and hunt for new issues"
-4. Loop fino a CONVERGED
-5. Aggiornare il capitolo del whitepaper: promuovere il modulo da cap. 8 a `4.x` con sub-section dedicata
-6. Aggiornare README.md + README.it.md status table
-7. Merge a develop
+Nel 2026-04-12 un adversarial scientific audit su 8+ moduli pre-canonical-workflow produsse 14 INCORRECT + 19 UNJUSTIFIED + 6 INCONSISTENT + 12 MISSING findings. Remediation nei commit `17f046a`, `7744016`, `951a606` senza Round 2 di verifica. La campagna F-CAMPAIGN (2026-05-12 -> 2026-07-15) ha eseguito il Round 2 su tutti i moduli in scope fino a CONVERGED e li ha promossi a paragraph 4; il modulo legacy `world/economy.py` e' stato deprecato invece che re-auditato perche' superato dal package economy auditato.
 
-## Why
+## Follow-up correlati
 
-- Il whitepaper bilingue dichiara questi moduli "audit pending" in cap. 8: e' onesto ma e' un debito tracciato.
-- Senza re-audit, ogni claim su questi moduli e' indifendibile in peer review.
-- Il pattern Demography (Round 4 to converge) suggerisce 2-4 round per modulo. Lavoro stimato: 1-2 settimane per modulo, 8 moduli totali. Si puo' parallelizzare a coppie (rumor cluster, political cluster).
-
-## How to apply
-
-Quando l'utente chiede "cosa e' rimasto da fare prima di feature X", segnala questo debt come priorita' alta dopo Plan 3. Quando un modulo sta per essere modificato, suggerisci il re-audit nello stesso branch (un colpo, due benefici).
+- Factions Round 3 hardening: 5 finding behavioral deferred a chiusura factions (NEW-1, NEW-7, NEW-8, NEW-10, NEW-12/13) -- work item separato, vedi session resume.
+- Audit log originale: `docs/scientific-audit-2026-04-12.md`.
