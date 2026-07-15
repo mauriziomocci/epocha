@@ -99,7 +99,7 @@ import logging
 from django.conf import settings
 from django.db.models import Q
 
-from epocha.apps.agents.affinity import compute_affinity
+from epocha.apps.agents.affinity import build_affinity_context, compute_affinity
 
 from .models import Agent, DecisionLog, Group, Memory, Relationship
 
@@ -675,14 +675,47 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
     min_members = getattr(settings, "EPOCHA_FACTION_MIN_MEMBERS", 3)
     max_members = getattr(settings, "EPOCHA_FACTION_MAX_INITIAL_MEMBERS", 8)
 
+    # Seed ordering: name was already the primary key of the sort; the id
+    # tiebreak (FR-011) removes the residual nondeterminism for name
+    # collisions (Agent.name is not unique) WITHOUT changing the seed order
+    # -- the greedy, order-dependent clustering itself is unchanged and
+    # remains work item F-4 (Known Limitations (d)).
     ungrouped = list(
-        Agent.objects.filter(simulation=simulation, is_alive=True, group=None).order_by("name")
+        Agent.objects.filter(simulation=simulation, is_alive=True, group=None).order_by(
+            "name", "id"
+        )
     )
     if len(ungrouped) < min_members:
         return
 
+    # Prefetched affinity context for the candidate set (FR-003): the
+    # clustering loop below evaluates O(candidates^2) pairs; the context
+    # replaces their per-pair Relationship/Memory queries with two aggregate
+    # queries built once per tick.
+    context = build_affinity_context(ungrouped, ungrouped, tick)
+
+    # already_proposed prefetch: one aggregated query over ALL memories of
+    # the candidates in the tick-5 window (same shape as the join-check
+    # dedup in _check_join_existing_groups, but built here on its own: the
+    # two functions run on different agent sets at different points of the
+    # pipeline, so sharing state between them would couple them for no
+    # measurable gain). The content__contains="share common ground" filter
+    # is replicated in-memory as a case-sensitive substring test. Fetching
+    # before the loop is equivalent to the old per-agent exists() because
+    # each agent enters at most one cluster (visited set), so its check runs
+    # at most once and never needs to see memories created in this call.
+    candidate_ids = [agent.id for agent in ungrouped]
+    recent_contents: dict[int, list[str]] = {agent_id: [] for agent_id in candidate_ids}
+    proposal_rows = Memory.objects.filter(
+        agent_id__in=candidate_ids,
+        tick_created__gte=max(0, tick - 5),
+    ).values_list("agent_id", "content")
+    for agent_id, content in proposal_rows:
+        recent_contents[agent_id].append(content)
+
     clusters: list[list[Agent]] = []
     visited: set[int] = set()
+    proposal_memories: list[Memory] = []
 
     # Cluster detection seeds from the first agent in the queryset
     # (order-dependent), same limitation as _check_schism. See module
@@ -697,7 +730,7 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
             if len(cluster) >= max_members:
                 break
             # Require affinity above threshold with every current cluster member.
-            affinities = [compute_affinity(agent_b, c, tick) for c in cluster]
+            affinities = [compute_affinity(agent_b, c, tick, context=context) for c in cluster]
             if all(a >= threshold for a in affinities):
                 cluster.append(agent_b)
 
@@ -705,23 +738,26 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
             for agent in cluster:
                 visited.add(agent.id)
                 other_names = ", ".join(a.name for a in cluster if a.id != agent.id)
-                already_proposed = Memory.objects.filter(
-                    agent=agent,
-                    content__contains="share common ground",
-                    tick_created__gte=max(0, tick - 5),
-                ).exists()
+                already_proposed = any(
+                    "share common ground" in content for content in recent_contents[agent.id]
+                )
                 if not already_proposed:
-                    Memory.objects.create(
-                        agent=agent,
-                        content=(
-                            f"I share common ground with {other_names}. "
-                            "We face similar circumstances and could organize together."
-                        ),
-                        emotional_weight=0.2,
-                        source_type=Memory.SourceType.DIRECT,
-                        tick_created=tick,
+                    proposal_memories.append(
+                        Memory(
+                            agent=agent,
+                            content=(
+                                f"I share common ground with {other_names}. "
+                                "We face similar circumstances and could organize together."
+                            ),
+                            emotional_weight=0.2,
+                            source_type=Memory.SourceType.DIRECT,
+                            tick_created=tick,
+                        )
                     )
             clusters.append(cluster)
+
+    if proposal_memories:
+        Memory.objects.bulk_create(proposal_memories)
 
     if clusters:
         logger.info(
@@ -734,48 +770,121 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
 def _check_join_existing_groups(simulation, tick: int) -> None:
     """Suggest existing groups to ungrouped agents with high affinity.
 
-    For each ungrouped agent, checks all active groups. If the agent's average
-    affinity with the first 5 group members is above threshold AND the agent
-    has at least one positive relationship with a member, creates a memory
-    suggestion. Only one suggestion per agent per 5-tick window.
+    For each ungrouped agent (iterated in id order), checks all active groups
+    (id order). If the agent's average affinity over ALL living members of a
+    group is above EPOCHA_FACTION_AFFINITY_THRESHOLD AND the agent has at
+    least one positive-sentiment relationship with a member of that group
+    (either direction), a suggestion memory is queued; an agent receives at
+    most one suggestion per cycle (first qualifying group in id order wins).
+
+    Query discipline (Round 3 hardening, FR-002): all data is prefetched in
+    a fixed number of per-tick aggregate queries -- living members of every
+    group in one query (grouped in-memory by group id), Relationship and
+    PUBLIC-Memory data for the affinity formula via `build_affinity_context`,
+    positive-sentiment pairs in one query, and the dedup memories in one
+    query -- then the (agent, group) loop runs with zero queries per pair.
+    Suggestions are written with a single `bulk_create`.
+
+    Dedup semantics (preserved exactly from the pre-refactor code): a
+    suggestion for a group is suppressed when the agent has ANY memory in
+    the `tick_created >= tick - 5` window whose content contains the group
+    name as a case-sensitive substring -- regardless of source type or
+    whether the memory is itself a suggestion (joins, dissolutions, schisms
+    and broadcasts all count), including the pre-existing quirk of group
+    names that contain each other.
 
     Args:
         simulation: The Simulation instance.
         tick: Current tick.
     """
     threshold = getattr(settings, "EPOCHA_FACTION_AFFINITY_THRESHOLD", 0.5)
-    ungrouped = list(Agent.objects.filter(simulation=simulation, is_alive=True, group=None))
-    groups = list(Group.objects.filter(simulation=simulation, cohesion__gt=0.0))
+    # Explicit id ordering on every iterated queryset (FR-011): Agent and
+    # Group have no Meta.ordering, so unordered iteration would be
+    # implementation-defined on Postgres.
+    ungrouped = list(
+        Agent.objects.filter(simulation=simulation, is_alive=True, group=None).order_by("id")
+    )
+    if not ungrouped:
+        return
+    groups = list(Group.objects.filter(simulation=simulation, cohesion__gt=0.0).order_by("id"))
+    if not groups:
+        return
 
+    # Living members of ALL groups fetched once per tick in a SINGLE query,
+    # grouped in-memory by group id. Chosen over one query per group because
+    # the rows are needed in full anyway and a single scan keeps the budget
+    # flat in the number of groups.
+    members_by_group: dict[int, list[Agent]] = {group.id: [] for group in groups}
+    all_members = list(Agent.objects.filter(group__in=groups, is_alive=True).order_by("id"))
+    for member in all_members:
+        members_by_group[member.group_id].append(member)
+
+    context = build_affinity_context(ungrouped, all_members, tick)
+
+    # Positive-relationship prefetch. `context.relationships` holds only ONE
+    # selected row per pair (the (-strength, id) tie-break winner used by the
+    # affinity formula), while the pre-refactor has_positive_rel check
+    # matched ANY Relationship row with sentiment > 0 between the agent and
+    # a member -- if a non-winner row is positive but the winner is not, the
+    # two semantics diverge. One extra fixed query over the raw rows
+    # preserves the original semantics exactly.
+    ungrouped_ids = [agent.id for agent in ungrouped]
+    member_ids = [member.id for member in all_members]
+    positive_pairs: set[frozenset[int]] = set()
+    positive_rows = Relationship.objects.filter(
+        Q(agent_from_id__in=ungrouped_ids, agent_to_id__in=member_ids, sentiment__gt=0)
+        | Q(agent_from_id__in=member_ids, agent_to_id__in=ungrouped_ids, sentiment__gt=0)
+    ).values_list("agent_from_id", "agent_to_id")
+    for from_id, to_id in positive_rows:
+        positive_pairs.add(frozenset({from_id, to_id}))
+
+    # Dedup prefetch: ALL memories of the ungrouped agents in the tick-5
+    # window, with no type or content pre-filter, in ONE query. The
+    # per-(agent, group) content__contains check is replicated in-memory as
+    # a case-sensitive substring test (see docstring, "Dedup semantics").
+    recent_contents: dict[int, list[str]] = {agent_id: [] for agent_id in ungrouped_ids}
+    dedup_rows = Memory.objects.filter(
+        agent_id__in=ungrouped_ids,
+        tick_created__gte=max(0, tick - 5),
+    ).values_list("agent_id", "content")
+    for agent_id, content in dedup_rows:
+        recent_contents[agent_id].append(content)
+
+    suggestions: list[Memory] = []
     for agent in ungrouped:
         for group in groups:
-            # Sample up to 5 members for affinity estimation to avoid N+1 cost.
-            members = list(Agent.objects.filter(group=group, is_alive=True)[:5])
+            members = members_by_group[group.id]
             if not members:
                 continue
-            avg_affinity = sum(compute_affinity(agent, m, tick) for m in members) / len(members)
-            has_positive_rel = Relationship.objects.filter(
-                Q(agent_from=agent, agent_to__in=members, sentiment__gt=0)
-                | Q(agent_to=agent, agent_from__in=members, sentiment__gt=0)
-            ).exists()
+            # Average over ALL living members (FR-002): the pre-refactor
+            # unordered [:5] sample was both biased and nondeterministic.
+            avg_affinity = sum(
+                compute_affinity(agent, member, tick, context=context) for member in members
+            ) / len(members)
+            has_positive_rel = any(
+                frozenset({agent.id, member.id}) in positive_pairs for member in members
+            )
             if avg_affinity >= threshold and has_positive_rel:
-                already_suggested = Memory.objects.filter(
-                    agent=agent,
-                    content__contains=group.name,
-                    tick_created__gte=max(0, tick - 5),
-                ).exists()
+                already_suggested = any(
+                    group.name in content for content in recent_contents[agent.id]
+                )
                 if not already_suggested:
-                    Memory.objects.create(
-                        agent=agent,
-                        content=(
-                            f"The {group.name} shares my values. "
-                            f"{members[0].name} is a member. I could join them."
-                        ),
-                        emotional_weight=0.2,
-                        source_type=Memory.SourceType.DIRECT,
-                        tick_created=tick,
+                    suggestions.append(
+                        Memory(
+                            agent=agent,
+                            content=(
+                                f"The {group.name} shares my values. "
+                                f"{members[0].name} is a member. I could join them."
+                            ),
+                            emotional_weight=0.2,
+                            source_type=Memory.SourceType.DIRECT,
+                            tick_created=tick,
+                        )
                     )
                 break  # Only one join suggestion per agent per cycle.
+
+    if suggestions:
+        Memory.objects.bulk_create(suggestions)
 
 
 def _process_formation_decisions(simulation, tick: int) -> None:
