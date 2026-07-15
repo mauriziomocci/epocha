@@ -83,9 +83,28 @@ def compute_inflation(
     old_prices: dict[str, float],
     new_prices: dict[str, float],
 ) -> float:
-    """Compute inflation rate as average percentage change in prices.
+    """Compute inflation rate as the unweighted arithmetic mean of price relatives.
 
     Returns a decimal rate (0.10 = 10% inflation, -0.05 = 5% deflation).
+
+    Simplification: this is a Carli index (Carli 1764) - the unweighted
+    arithmetic mean of per-good price relatives (new_price/old_price - 1).
+    It carries a documented UPWARD bias relative to the expenditure- or
+    quantity-weighted indices (Laspeyres, Paasche, Fisher-ideal) and the
+    unweighted geometric-mean (Jevons) index that national statistical
+    agencies adopted specifically to avoid this bias (ILO, IMF, OECD,
+    UNECE, Eurostat & World Bank 2004, "Consumer Price Index Manual:
+    Theory and Practice", ch. 20; the bias follows from the AM-GM
+    inequality, AM(relatives) >= GM(relatives), with equality only when
+    all relatives are equal).
+
+    The fuller model would weight each good's price relative by its
+    expenditure share (Laspeyres/Paasche/Fisher-ideal), or use the
+    geometric mean (Jevons) for unweighted elementary aggregation. What
+    is lost here: the simulation does not feed expenditure-share data
+    into this function, so no weighting is applied, and the arithmetic-
+    mean form retains the known upward formula/substitution bias that
+    the geometric mean avoids.
     """
     if not old_prices or not new_prices:
         return 0.0
@@ -133,7 +152,11 @@ def compute_mood_delta(
     tunable parameter; the qualitative behavior (plateau) is the paper's
     central finding.
 
-    Below poverty: linear mood penalty. Below zero: severe penalty.
+    Below poverty: flat mood penalty (step function, not scaled by
+    wealth). Any wealth in [0, _POVERTY_THRESHOLD) incurs the same
+    constant penalty -_MOOD_PENALTY_POOR regardless of how far below the
+    threshold the agent is. Below zero: a more severe, likewise constant,
+    penalty -_MOOD_PENALTY_DESTITUTE.
     """
     if wealth < 0:
         return -_MOOD_PENALTY_DESTITUTE
