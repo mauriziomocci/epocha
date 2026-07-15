@@ -54,6 +54,20 @@ SUBSISTENCE_NEED_PER_AGENT: float = 1.0
 # 5 units is a reasonable upper bound for a non-essential good in
 # one tick. Tunable design parameter.
 _MAX_DISCRETIONARY_DEMAND = 5.0
+# Fraction of cash an agent allocates to discretionary (non-essential)
+# spending per tick, BEFORE splitting across individual goods. Bounds
+# total discretionary spend at cash * _DISCRETIONARY_SPEND_FRACTION
+# regardless of how many non-essential goods exist in the template
+# (MKT-5 fix: pre-fix this fraction was applied independently to EACH
+# non-essential good against the agent's FULL cash, so total spend
+# across K goods could reach ~0.1*K*cash, exceeding cash). Tunable
+# design parameter; no theoretical derivation for the specific value.
+_DISCRETIONARY_SPEND_FRACTION = 0.1
+# Floor applied to price_elasticity when it is used as a budget-share
+# weight (see _discretionary_budget_shares), preventing a
+# near-zero-elasticity good from claiming an unboundedly large share.
+# Tunable design parameter.
+_MIN_PRICE_ELASTICITY = 0.1
 
 
 def tatonnement_prices(
@@ -95,6 +109,16 @@ def tatonnement_prices(
             supply = max(raw_supply, EPSILON)
             demand = total_demand.get(good, 0.0)
 
+            # Single MAX_PRICE_RATIO ceiling anchor for this good, shared
+            # by BOTH branches below (zero-supply and normal tatonnement).
+            # Prefer base_prices (the template's calibrated reference)
+            # over this tick's starting price so the cross-tick-drift
+            # protection does not depend on which branch updates the
+            # price (MKT-6 fix: previously the zero-supply branch always
+            # anchored to initial_prices, defeating the drift protection
+            # documented below for the normal branch).
+            price_reference = (base_prices or initial_prices).get(good, 1.0)
+
             # If there is no real supply AND no real demand for this good
             # in this zone, skip price adjustment entirely -- there is no
             # local market for it. Price stays at its current level.
@@ -104,11 +128,11 @@ def tatonnement_prices(
                 continue
 
             # If there is demand but zero supply, the good is unavailable
-            # locally. Cap the price at MAX_PRICE_RATIO * initial price
+            # locally. Cap the price at MAX_PRICE_RATIO * price_reference
             # rather than iterating toward infinity. In a real economy,
             # unavailable goods simply aren't traded, not priced at infinity.
             if raw_supply < EPSILON and demand > 0:
-                max_allowed = initial_prices.get(good, 1.0) * MAX_PRICE_RATIO
+                max_allowed = price_reference * MAX_PRICE_RATIO
                 prices[good] = min(prices[good] * 1.1, max_allowed)
                 continue
 
@@ -133,13 +157,12 @@ def tatonnement_prices(
                 elif ratio < 1.0 - MAX_CHANGE_RATIO:
                     new_price = prices[good] * (1.0 - MAX_CHANGE_RATIO)
 
-            # Apply absolute floor then MAX_PRICE_RATIO ceiling.
-            # Use base_prices (from template) as the reference for the cap,
-            # NOT the current tick's starting price. This prevents prices
+            # Apply absolute floor then MAX_PRICE_RATIO ceiling, anchored
+            # to price_reference (base_prices when supplied) rather than
+            # the current tick's starting price. This prevents prices
             # from drifting to astronomical values across multiple ticks
             # when each tick's "initial price" is already inflated.
-            reference = (base_prices or initial_prices).get(good, 1.0)
-            max_price = reference * MAX_PRICE_RATIO
+            max_price = price_reference * MAX_PRICE_RATIO
             prices[good] = min(max(MIN_PRICE, new_price), max_price)
 
         if converged:
@@ -154,6 +177,44 @@ def tatonnement_prices(
     return prices, False
 
 
+def _discretionary_budget_shares(non_essential_cats: list[dict]) -> dict[str, float]:
+    """Split the per-agent discretionary budget across non-essential goods.
+
+    Shares are weighted by inverse price elasticity: share_i =
+    (1/e_i) / sum_j(1/e_j), so shares sum to exactly 1 and a good with
+    lower elasticity (more necessity-like, per the demand heterogeneity
+    documented in Houthakker & Taylor 1970) claims a proportionally
+    larger, more stable slice of the budget.
+
+    This is a documented heuristic, NOT a solved Marshallian demand
+    system. price_elasticity is the dimensionless own-price response
+    dQ/dP * P/Q (e.g. constant-elasticity demand Q = A*P^(-e)); using
+    it here as an inverse-weight on budget SHARES (rather than as a
+    divisor on quantity, MKT-5's original defect) keeps it dimensionally
+    sane without requiring a full numerical solve of a constant-elasticity
+    demand system under a joint budget constraint. A full treatment would
+    jointly estimate cross-price and income elasticities via e.g. an
+    Almost Ideal Demand System (Deaton & Muellbauer 1980); what is lost
+    here is that heterogeneity in demand response is approximated by a
+    single static weight instead of a solved equilibrium allocation.
+
+    Shares summing to 1 is what guarantees total discretionary spend is
+    bounded at cash * _DISCRETIONARY_SPEND_FRACTION regardless of how
+    many non-essential goods the template defines.
+    """
+    if not non_essential_cats:
+        return {}
+    inverse_elasticities = {
+        cat["code"]: 1.0 / max(cat.get("price_elasticity", 1.0), _MIN_PRICE_ELASTICITY)
+        for cat in non_essential_cats
+    }
+    total_inverse_elasticity = sum(inverse_elasticities.values())
+    return {
+        code: inv_elasticity / total_inverse_elasticity
+        for code, inv_elasticity in inverse_elasticities.items()
+    }
+
+
 def collect_supply_and_demand(
     agent_inventories: list[dict],
     good_categories: list[dict],
@@ -162,8 +223,12 @@ def collect_supply_and_demand(
     """Collect supply and demand from all agents in a zone.
 
     Supply: agents offer holdings above subsistence reserve.
-    Demand: agents want essential goods they lack, plus non-essential
-    goods proportional to cash and inverse price elasticity.
+    Demand: agents want essential goods they lack, plus a budget-
+    constrained discretionary demand for non-essential goods -- each
+    agent allocates cash * _DISCRETIONARY_SPEND_FRACTION across all
+    non-essential goods (split by _discretionary_budget_shares), so
+    total discretionary spend never exceeds that budget regardless of
+    how many non-essential goods exist (MKT-5 fix).
 
     Args:
         agent_inventories: list of dicts with keys: agent_id, holdings,
@@ -181,6 +246,8 @@ def collect_supply_and_demand(
     agent_orders: list[dict] = []
 
     essential_codes = {g["code"] for g in good_categories if g["is_essential"]}
+    non_essential_cats = [g for g in good_categories if not g["is_essential"]]
+    discretionary_budget_share = _discretionary_budget_shares(non_essential_cats)
     subsistence_need = SUBSISTENCE_NEED_PER_AGENT
 
     for inv in agent_inventories:
@@ -198,28 +265,31 @@ def collect_supply_and_demand(
                     offers[good_code] = surplus
                     total_supply[good_code] = total_supply.get(good_code, 0.0) + surplus
 
-        # Demand: essential needs + discretionary spending
+        # Demand: essential subsistence needs.
         for cat in good_categories:
+            if not cat["is_essential"]:
+                continue
             code = cat["code"]
             current = inv["holdings"].get(code, 0.0)
+            need = max(0.0, subsistence_need - current)
+            if need > 0:
+                wants[code] = need
+                total_demand[code] = total_demand.get(code, 0.0) + need
 
-            if cat["is_essential"]:
-                need = max(0.0, subsistence_need - current)
-                if need > 0:
-                    wants[code] = need
-                    total_demand[code] = total_demand.get(code, 0.0) + need
-            else:
-                # Non-essential demand proportional to cash / (price * elasticity),
-                # capped at MAX_DISCRETIONARY_DEMAND per agent per tick.
-                # The cap prevents absurdly high demand when prices are very
-                # low relative to cash holdings in small simulations.
+        # Discretionary demand: bounded budget split across non-essential
+        # goods (see _discretionary_budget_shares docstring). The
+        # per-good spend is capped at _MAX_DISCRETIONARY_DEMAND*price,
+        # which can only reduce spend below the allocated share, never
+        # exceed it -- so total spend across all non-essential goods
+        # never exceeds cash * _DISCRETIONARY_SPEND_FRACTION.
+        if non_essential_cats:
+            cash = inv.get("cash_amount", 0.0)
+            discretionary_budget = cash * _DISCRETIONARY_SPEND_FRACTION
+            for cat in non_essential_cats:
+                code = cat["code"]
                 price = max(market_prices.get(code, 1.0), EPSILON)
-                elasticity = max(cat.get("price_elasticity", 1.0), 0.1)
-                cash = inv.get("cash_amount", 0.0)
-                discretionary = min(
-                    _MAX_DISCRETIONARY_DEMAND,
-                    (cash * 0.1) / (price * elasticity),
-                )
+                per_good_budget = discretionary_budget * discretionary_budget_share.get(code, 0.0)
+                discretionary = min(_MAX_DISCRETIONARY_DEMAND, per_good_budget / price)
                 if discretionary > 0.01:
                     wants[code] = discretionary
                     total_demand[code] = total_demand.get(code, 0.0) + discretionary
@@ -241,10 +311,26 @@ def execute_trades(
     total_supply: dict[str, float],
     total_demand: dict[str, float],
 ) -> list[dict]:
-    """Execute trades at equilibrium prices.
+    """Execute trades at equilibrium prices, conserving traded quantity.
 
-    When demand exceeds supply, each buyer gets a proportional share.
-    When supply exceeds demand, each seller sells a proportional share.
+    Realized volume for a good is capped at min(total_supply,
+    total_demand) and rationed on the short side: when demand exceeds
+    supply, every buyer keeps demand_ratio = traded/demand of its want;
+    when supply exceeds demand, every seller gives up supply_ratio =
+    traded/supply of its offer (Walras 1874; Shoven & Whalley 1992
+    ch. 4). These per-agent rationed volumes are the TARGETS matched
+    below -- both sides' targets sum to exactly `traded`.
+
+    Matching uses running totals: a two-pointer sweep decrements each
+    buyer's remaining target and the CURRENT seller's remaining target
+    as matches are made, advancing to the next seller only once it is
+    exhausted (and to the next buyer only once its own target is met).
+    This guarantees sum(trade quantities) == traded, and that no
+    agent's cumulative matched volume exceeds its own rationed target
+    (hence never exceeds its original want/offer, since both ratios are
+    <= 1). Pre-fix, the matching re-matched EVERY buyer against EVERY
+    seller without decrementing running totals, so aggregate matched
+    volume scaled with N*M instead of being capped at `traded` (MKT-2).
 
     Returns list of trade records with keys: buyer_id, seller_id,
     good_code, quantity, price, total.
@@ -266,40 +352,46 @@ def execute_trades(
         demand_ratio = traded / demand if demand > 0 else 0.0
         supply_ratio = traded / supply if supply > 0 else 0.0
 
-        # Collect sellers and buyers
-        sellers = [
-            (o["agent_id"], o["offers"].get(good_code, 0.0))
-            for o in agent_orders
-            if o["offers"].get(good_code, 0.0) > 0
-        ]
-        buyers = [
-            (o["agent_id"], o["wants"].get(good_code, 0.0))
+        # Rationed per-agent targets. remaining_sell entries are mutable
+        # [seller_id, qty] pairs decremented by the sweep below; buyers
+        # only need a read-only target since each buyer is visited once.
+        buyer_targets = [
+            (o["agent_id"], o["wants"].get(good_code, 0.0) * demand_ratio)
             for o in agent_orders
             if o["wants"].get(good_code, 0.0) > 0
         ]
+        remaining_sell = [
+            [o["agent_id"], o["offers"].get(good_code, 0.0) * supply_ratio]
+            for o in agent_orders
+            if o["offers"].get(good_code, 0.0) > 0
+        ]
 
-        # Simple proportional matching
-        for buyer_id, want_qty in buyers:
-            actual_buy = want_qty * demand_ratio
-            if actual_buy < 0.001:
-                continue
-            # Match with sellers proportionally
-            for seller_id, offer_qty in sellers:
-                actual_sell = offer_qty * supply_ratio
-                if actual_sell < 0.001:
+        # Two-pointer running-totals sweep: since sum(buyer_targets) ==
+        # sum(seller targets) == traded, this consumes both sides exactly.
+        seller_idx = 0
+        for buyer_id, buy_target in buyer_targets:
+            buy_left = buy_target
+            while buy_left > EPSILON and seller_idx < len(remaining_sell):
+                seller_entry = remaining_sell[seller_idx]
+                seller_id, sell_left = seller_entry
+                if sell_left <= EPSILON:
+                    seller_idx += 1
                     continue
-                share = min(actual_buy, actual_sell)
-                if share > 0.001:
-                    trades.append(
-                        {
-                            "buyer_id": buyer_id,
-                            "seller_id": seller_id,
-                            "good_code": good_code,
-                            "quantity": share,
-                            "price": price,
-                            "total": share * price,
-                        }
-                    )
+                share = min(buy_left, sell_left)
+                trades.append(
+                    {
+                        "buyer_id": buyer_id,
+                        "seller_id": seller_id,
+                        "good_code": good_code,
+                        "quantity": share,
+                        "price": price,
+                        "total": share * price,
+                    }
+                )
+                buy_left -= share
+                seller_entry[1] -= share
+                if seller_entry[1] <= EPSILON:
+                    seller_idx += 1
 
     return trades
 
