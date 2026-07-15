@@ -551,6 +551,292 @@ class TestJoinExistingGroups:
         assert set1 == set2
 
 
+@pytest.mark.django_db
+class TestLeadershipDeN1:
+    """Round 3 hardening contract for leadership scoring de-N+1 (FR-004).
+
+    Covers SC-002 (constant query budget for compute_legitimacy + succession,
+    independent of group size) and SC-003 (exact numeric equivalence between
+    the self-fetch and members+context prefetched paths of
+    compute_leadership_score).
+    """
+
+    def test_leadership_query_budget(self, simulation, world, django_assert_num_queries):
+        """update_group_leadership runs on a FIXED query budget, independent of group size.
+
+        Query breakdown (no leadership transition happens -- see fixture
+        below, the leader keeps high legitimacy so the election branch
+        never runs and the budget below covers only the legitimacy-check
+        path):
+          1. `group.leader` FK access (fresh Group instance, uncached)
+          2. living members fetch inside compute_legitimacy (order_by id)
+          3. leadership context -- Relationship query
+             (`_build_leadership_context`)
+          4. leadership context -- Memory (join-tick) query
+        Total: 4, independent of member count.
+
+        Pre-fix this scenario costs O(N): compute_legitimacy's own
+        `scores = [(m, compute_leadership_score(m, group, tick)) for m in
+        members]` loop calls compute_leadership_score once per member, and
+        each call independently refetches `group=group` members plus its
+        own Relationship and Memory queries -- three extra queries per
+        member.
+
+        The second scenario doubles the member count and asserts the SAME
+        budget -- the constant-cost contract of SC-002.
+        """
+
+        def _build_legitimate_group(name, member_count):
+            group = Group.objects.create(
+                simulation=simulation, name=name, cohesion=0.7, formed_at_tick=1
+            )
+            members = [
+                _make_join_agent(simulation, f"{name}M{i}", group=group, wealth=50.0 + i)
+                for i in range(member_count)
+            ]
+            leader = members[0]
+            group.leader = leader
+            group.save(update_fields=["leader"])
+            # Strong positive relationships from the leader to every other
+            # member: leader_sentiment stays high (~0.8), keeping legitimacy
+            # comfortably above EPOCHA_FACTION_LEGITIMACY_THRESHOLD (0.3)
+            # regardless of score_rank, so the election branch never runs
+            # and the budget below covers ONLY compute_legitimacy's path.
+            for other in members[1:]:
+                Relationship.objects.create(
+                    agent_from=leader,
+                    agent_to=other,
+                    relation_type="friendship",
+                    strength=0.6,
+                    sentiment=0.6,
+                    since_tick=0,
+                )
+            Memory.objects.create(
+                agent=leader,
+                content=f"I helped found {name}",
+                emotional_weight=0.3,
+                source_type=Memory.SourceType.DIRECT,
+                tick_created=1,
+            )
+            return group
+
+        group8 = _build_legitimate_group("Order8", 8)
+        fresh8 = Group.objects.get(id=group8.id)
+        with django_assert_num_queries(4):
+            update_group_leadership(fresh8, tick=10)
+
+        group16 = _build_legitimate_group("Order16", 16)
+        fresh16 = Group.objects.get(id=group16.id)
+        with django_assert_num_queries(4):
+            update_group_leadership(fresh16, tick=10)
+
+    def test_leadership_score_equivalence(self, simulation, world):
+        """compute_leadership_score's self-fetch and prefetched-context paths agree exactly.
+
+        Heterogeneous fixture: 7 members with distinct wealth/charisma/
+        intelligence, a mix of single- and multi-row (both direction, both
+        relation_type) Relationship pairs, staggered and tied join-memory
+        `tick_created` values, and one member (E6) with NEITHER
+        relationships NOR a join memory (exercises both fallback branches:
+        internal_sentiment=0.3 and join_tick=tick). For every member, the
+        value returned by the no-argument self-fetch path must equal the
+        value returned by the members+context prefetched path EXACTLY
+        (SC-003), downstream of the FR-011 deterministic tie-break and the
+        id-ordered Relationship queries in both compute_leadership_score
+        and _build_leadership_context (identical summation order, so
+        identical floating-point sums -- not just identical row sets).
+
+        RED today: `members`/`context` are not accepted parameters by
+        compute_leadership_score -- TypeError.
+        """
+        group = Group.objects.create(
+            simulation=simulation, name="Round3 Circle", cohesion=0.6, formed_at_tick=1
+        )
+        wealths = [20.0, 35.0, 50.0, 65.0, 80.0, 95.0, 110.0]
+        charismas = [0.9, 0.1, 0.5, 0.3, 0.7, 0.4, 0.6]
+        intelligences = [0.2, 0.8, 0.5, 0.7, 0.3, 0.6, 0.4]
+        members = [
+            _make_join_agent(
+                simulation,
+                f"E{i}",
+                group=group,
+                wealth=wealths[i],
+                charisma=charismas[i],
+                intelligence=intelligences[i],
+            )
+            for i in range(7)
+        ]
+        e0, e1, e2, e3, e4, e5, e6 = members
+
+        # Multi-row pair (both directions, different relation_type): both
+        # rows must be summed for e0 AND for e1.
+        Relationship.objects.create(
+            agent_from=e0,
+            agent_to=e1,
+            relation_type="friendship",
+            strength=0.6,
+            sentiment=0.5,
+            since_tick=0,
+        )
+        Relationship.objects.create(
+            agent_from=e1,
+            agent_to=e0,
+            relation_type="rivalry",
+            strength=0.3,
+            sentiment=-0.2,
+            since_tick=0,
+        )
+        Relationship.objects.create(
+            agent_from=e0,
+            agent_to=e2,
+            relation_type="professional",
+            strength=0.4,
+            sentiment=0.1,
+            since_tick=0,
+        )
+        Relationship.objects.create(
+            agent_from=e2,
+            agent_to=e3,
+            relation_type="friendship",
+            strength=0.5,
+            sentiment=0.3,
+            since_tick=0,
+        )
+        Relationship.objects.create(
+            agent_from=e3,
+            agent_to=e4,
+            relation_type="distrust",
+            strength=0.2,
+            sentiment=-0.6,
+            since_tick=0,
+        )
+        Relationship.objects.create(
+            agent_from=e4,
+            agent_to=e5,
+            relation_type="friendship",
+            strength=0.7,
+            sentiment=0.8,
+            since_tick=0,
+        )
+        Relationship.objects.create(
+            agent_from=e5,
+            agent_to=e0,
+            relation_type="romantic",
+            strength=0.5,
+            sentiment=0.4,
+            since_tick=0,
+        )
+        # e6 deliberately has NO relationship: exercises the
+        # internal_sentiment=0.3 fallback on both paths.
+
+        # Staggered join memories, including a same-agent tie on
+        # tick_created (e1) -- ties resolve to the same tick_created value
+        # regardless of which tied row wins, so they cannot break
+        # equivalence (see _build_leadership_context docstring).
+        Memory.objects.create(
+            agent=e0,
+            content=f"I joined {group.name}",
+            emotional_weight=0.3,
+            source_type=Memory.SourceType.DIRECT,
+            tick_created=1,
+        )
+        Memory.objects.create(
+            agent=e1,
+            content=f"I joined {group.name}",
+            emotional_weight=0.3,
+            source_type=Memory.SourceType.DIRECT,
+            tick_created=5,
+        )
+        Memory.objects.create(
+            agent=e1,
+            content=f"I truly joined {group.name}",
+            emotional_weight=0.3,
+            source_type=Memory.SourceType.DIRECT,
+            tick_created=5,
+        )
+        for i, member in enumerate((e2, e3, e4, e5), start=2):
+            Memory.objects.create(
+                agent=member,
+                content=f"I joined {group.name}",
+                emotional_weight=0.3,
+                source_type=Memory.SourceType.DIRECT,
+                tick_created=i,
+            )
+        # e6 deliberately has NO join memory: exercises the join_tick=tick
+        # fallback on both paths.
+
+        tick = 20
+        prefetched_members = list(Agent.objects.filter(group=group, is_alive=True).order_by("id"))
+        context = factions_module._build_leadership_context(group, prefetched_members)
+
+        for member in members:
+            self_fetch_score = compute_leadership_score(member, group, tick)
+            prefetched_score = compute_leadership_score(
+                member, group, tick, members=prefetched_members, context=context
+            )
+            assert prefetched_score == self_fetch_score, (
+                f"leadership score mismatch for {member.name}: "
+                f"self-fetch={self_fetch_score!r} prefetched={prefetched_score!r}"
+            )
+
+
+@pytest.mark.django_db
+class TestCreateFactionDeN1:
+    """Founder-election de-N+1 in _create_faction (FR-004 scope extension).
+
+    Coordinator-approved extension of FR-004 to the founder-election loop in
+    `_create_faction` (same defect class as the leadership pipeline N+1,
+    caught during T012-T014 and escalated per Exhaustive Bug Analysis).
+    """
+
+    def test_create_faction_founder_election_query_budget(
+        self, simulation, world, mock_llm, django_assert_num_queries
+    ):
+        """_create_faction runs on a FIXED query budget, independent of founder count.
+
+        Query breakdown (the whole function runs inside `transaction.atomic`,
+        which under pytest-django's outer test transaction compiles to a
+        SAVEPOINT / RELEASE SAVEPOINT pair):
+           1. SAVEPOINT (atomic entry)
+           2. Group INSERT
+           3. founder leadership context -- Relationship query
+              (`_build_leadership_context`)
+           4. founder leadership context -- Memory (join-tick) query
+           5. `group.save(update_fields=["leader"])` UPDATE
+           6. founders bulk `update(group=group)`
+           7. founder memories `bulk_create` INSERT (batched -- required for
+              this constant-budget contract; the pre-fix per-founder
+              `Memory.objects.create` loop was the second O(N) term in this
+              function, alongside the election's per-founder member fetch)
+           8. outsiders SELECT (public announcement recipients)
+           9. public memories `bulk_create` INSERT
+          10. RELEASE SAVEPOINT (atomic exit)
+        Total: 10, independent of founder count.
+
+        Pre-fix this costs O(N): the election loop called
+        compute_leadership_score once per founder and each call refetched
+        `group=group` members (one query per founder -- returning EMPTY,
+        see the behavior note in _create_faction), and the founder-memory
+        loop issued one INSERT per founder: 18 queries for 6 founders,
+        30 for 12.
+
+        A persistent outsider guarantees the public-announcement
+        `bulk_create` fires in both scenarios (bulk_create of an empty
+        list issues no query); in the second scenario the first faction's
+        founders are additional outsiders, which changes row counts but
+        not query counts.
+        """
+        _make_join_agent(simulation, "Bystander")
+
+        founders6 = [_make_join_agent(simulation, f"F6_{i}") for i in range(6)]
+        with django_assert_num_queries(10):
+            factions_module._create_faction(simulation, founders6, tick=10)
+
+        founders12 = [_make_join_agent(simulation, f"F12_{i}") for i in range(12)]
+        with django_assert_num_queries(10):
+            factions_module._create_faction(simulation, founders12, tick=10)
+
+
 def _make_hostile_subclique(simulation, group, ally_names, rest_names):
     """Build a group with a hostile sub-clique that `_check_schism` detects.
 
@@ -653,16 +939,16 @@ class TestAtomicityAndWriteDiscipline:
     def test_create_faction_rolls_back_on_failure(self, simulation, world, monkeypatch, mock_llm):
         """An exception in the trailing public-memory bulk_create rolls back the whole faction.
 
-        Monkeypatches `Memory.objects.bulk_create` -- the LAST write
-        `_create_faction` performs (public announcement memories to
-        non-members), executed after the Group insert, the leader
-        assignment, the founders' group migration and their per-founder
-        memories (this exact step is explicitly offered as a valid choice
-        by the task: "e.g. Memory.objects.bulk_create used for public
-        memories"). Failing on the very last statement is the strongest
-        probe of "whole function atomic" (FR-005, "l'intera funzione"): if
-        the atomic block truly wraps the entire function, even a failure
-        here must undo every earlier write.
+        Monkeypatches `Memory.objects.bulk_create` to raise on its SECOND
+        invocation: since the FR-004 scope extension batched the founder
+        memories, `_create_faction` calls bulk_create twice -- founder
+        memories first, then the public announcement to non-members, which
+        remains the LAST write the function performs. Failing on that very
+        last statement (while letting the founder-memory batch through) is
+        the strongest probe of "whole function atomic" (FR-005, "l'intera
+        funzione"): if the atomic block truly wraps the entire function,
+        even a failure here must undo every earlier write, founder
+        memories included.
 
         RED today (pre-T010): the Group, the founders' `Agent.group`
         change and their Memory rows all persist despite the raised
@@ -671,10 +957,16 @@ class TestAtomicityAndWriteDiscipline:
         founders = [_make_join_agent(simulation, n) for n in ("Gino", "Hana", "Ivo")]
         outsider = _make_join_agent(simulation, "Outsider")
 
-        def _raise(*args, **kwargs):
-            raise RuntimeError("boom")
+        real_bulk_create = Memory.objects.bulk_create
+        calls = {"count": 0}
 
-        monkeypatch.setattr(Memory.objects, "bulk_create", _raise)
+        def _raise_on_second(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] >= 2:
+                raise RuntimeError("boom")
+            return real_bulk_create(*args, **kwargs)
+
+        monkeypatch.setattr(Memory.objects, "bulk_create", _raise_on_second)
 
         with pytest.raises(RuntimeError):
             factions_module._create_faction(simulation, founders, tick=10)
