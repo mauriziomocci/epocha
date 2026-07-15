@@ -89,6 +89,30 @@ Known Limitations:
       migration discipline (.update(group=None) does not fire signals while
       per-agent .save() does); and N+1 query patterns in the
       _check_join_existing_groups affinity loop and in compute_legitimacy.
+
+Write discipline (Round 3 hardening, FR-005/FR-006, precondition verified
+2026-07-15): the four group-membership mutation paths (_check_schism,
+_create_faction, _check_dissolution, and the join branch of
+_process_formation_decisions) each wrap their writes in a transaction.atomic
+block scoped to ONE mutation -- one schism, one faction, one dissolution, one
+join decision -- not to the whole tick phase, so the lock window stays narrow
+across independent groups (process_faction_dynamics loops over groups outside
+any of these blocks). Every path moves Agent.group via a queryset `update()`
+call rather than a per-instance `agent.group = x; agent.save(update_fields=
+["group"])`: a bulk `id__in` update for the multi-agent moves in
+_check_schism and _create_faction, and a single-row `id=` filter in the
+_process_formation_decisions join branch (discipline consistency across the
+four paths, not a query-count concern there since it already touches one
+agent). This is safe because, verified repo-wide on 2026-07-15, Agent has no
+custom save() override, no signal receivers connected to it, and no auto_now
+field that a per-instance save() would otherwise refresh -- queryset
+update() and per-instance save() are therefore behaviorally identical for
+this field, and update() costs one query regardless of how many agents move.
+MUST be revisited if signals are ever attached to Agent or Agent.group: a
+queryset update() does not call Model.save() and does not dispatch
+pre_save/post_save signals, so a future signal-based side effect (cache
+invalidation, notification, audit log) would silently stop firing on these
+four paths.
 """
 
 from __future__ import annotations
@@ -97,6 +121,7 @@ import json
 import logging
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 
 from epocha.apps.agents.affinity import build_affinity_context, compute_affinity
@@ -511,16 +536,25 @@ def _check_dissolution(group: Group, tick: int) -> None:
     if group.cohesion >= threshold:
         return
 
-    members = list(Agent.objects.filter(group=group, is_alive=True))
-    Agent.objects.filter(group=group).update(group=None)
-    for member in members:
-        Memory.objects.create(
-            agent=member,
-            content=f"{group.name} has dissolved.",
-            emotional_weight=0.3,
-            source_type=Memory.SourceType.DIRECT,
-            tick_created=tick,
-        )
+    # FR-005 (per-dissolution atomicity): a failure between the bulk
+    # release and the last member memory must leave zero partial rows.
+    # Membership write already used bulk `update()` before Round 3
+    # hardening (FR-006 only had to extend the same discipline to the
+    # other three paths) -- see module docstring "Write discipline".
+    # Audited: no code below reads `member.group`/`member.group_id` off
+    # these in-memory instances or calls `.save()` on them, so no explicit
+    # in-memory refresh is needed.
+    with transaction.atomic():
+        members = list(Agent.objects.filter(group=group, is_alive=True))
+        Agent.objects.filter(group=group).update(group=None)
+        for member in members:
+            Memory.objects.create(
+                agent=member,
+                content=f"{group.name} has dissolved.",
+                emotional_weight=0.3,
+                source_type=Memory.SourceType.DIRECT,
+                tick_created=tick,
+            )
     logger.info(
         "Group '%s' dissolved at tick %d (cohesion=%.2f)",
         group.name,
@@ -592,7 +626,12 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
         if avg_outward >= _SCHISM_OUTWARD_SENTIMENT_THRESHOLD:
             continue
 
-        # Schism condition met: create a splinter group.
+        # Schism condition met: create a splinter group. Identity generation
+        # (LLM call, network I/O) stays OUTSIDE the atomic block below on
+        # purpose -- FR-005 scopes the per-schism transaction to the
+        # mutation itself (splinter creation through the final
+        # remaining-member memories), not to the network round trip that
+        # precedes it.
         name, objective = _generate_faction_identity(
             founders=allies,
             context=f"splitting from {group.name}",
@@ -600,48 +639,60 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
             fallback_objective="Chart our own course",
         )
 
-        splinter = Group.objects.create(
-            simulation=simulation,
-            name=name,
-            objective=objective,
-            # Splinter seed cohesion 0.5: a breakaway group starts less cohesive
-            # than a freshly self-organized faction (0.6 in _create_faction)
-            # because it carries unresolved conflict from the parent. The 0.1
-            # differential is a tunable design parameter. See Known Limitations (e).
-            cohesion=0.5,
-            formed_at_tick=tick,
-            parent_group=group,
-        )
-
-        for ally in allies:
-            ally.group = splinter
-            ally.save(update_fields=["group"])
-            Memory.objects.create(
-                agent=ally,
-                content=f"I left {group.name} and joined {name}.",
-                emotional_weight=0.4,
-                source_type=Memory.SourceType.DIRECT,
-                tick_created=tick,
+        # FR-005 (per-schism atomicity): a failure anywhere in this block
+        # (splinter creation, ally migration, leader election, parent
+        # cohesion update, remaining-member memories) must leave zero
+        # partial rows -- see module docstring "Write discipline".
+        with transaction.atomic():
+            splinter = Group.objects.create(
+                simulation=simulation,
+                name=name,
+                objective=objective,
+                # Splinter seed cohesion 0.5: a breakaway group starts less
+                # cohesive than a freshly self-organized faction (0.6 in
+                # _create_faction) because it carries unresolved conflict
+                # from the parent. The 0.1 differential is a tunable design
+                # parameter. See Known Limitations (e).
+                cohesion=0.5,
+                formed_at_tick=tick,
+                parent_group=group,
             )
 
-        splinter_scores = [(a, compute_leadership_score(a, splinter, tick)) for a in allies]
-        splinter_scores.sort(key=lambda x: x[1], reverse=True)
-        splinter.leader = splinter_scores[0][0]
-        splinter.save(update_fields=["leader"])
-
-        group.cohesion = max(0.0, group.cohesion - 0.1)
-        group.save(update_fields=["cohesion"])
-
-        ally_ids = {a.id for a in allies}
-        for member in members:
-            if member.id not in ally_ids:
+            ally_ids = {a.id for a in allies}
+            # FR-006 write discipline: bulk queryset update instead of a
+            # per-agent `.save(update_fields=["group"])` loop -- see module
+            # docstring "Write discipline". Audited: no code below reads
+            # `ally.group`/`ally.group_id` off these in-memory instances
+            # (the Memory writes reference `ally` only for its id/name, and
+            # compute_leadership_score re-fetches group members from the
+            # database), so no explicit in-memory refresh is needed.
+            Agent.objects.filter(id__in=ally_ids).update(group=splinter)
+            for ally in allies:
                 Memory.objects.create(
-                    agent=member,
-                    content=f"{name} has split from {group.name}.",
-                    emotional_weight=0.3,
+                    agent=ally,
+                    content=f"I left {group.name} and joined {name}.",
+                    emotional_weight=0.4,
                     source_type=Memory.SourceType.DIRECT,
                     tick_created=tick,
                 )
+
+            splinter_scores = [(a, compute_leadership_score(a, splinter, tick)) for a in allies]
+            splinter_scores.sort(key=lambda x: x[1], reverse=True)
+            splinter.leader = splinter_scores[0][0]
+            splinter.save(update_fields=["leader"])
+
+            group.cohesion = max(0.0, group.cohesion - 0.1)
+            group.save(update_fields=["cohesion"])
+
+            for member in members:
+                if member.id not in ally_ids:
+                    Memory.objects.create(
+                        agent=member,
+                        content=f"{name} has split from {group.name}.",
+                        emotional_weight=0.3,
+                        source_type=Memory.SourceType.DIRECT,
+                        tick_created=tick,
+                    )
 
         logger.info(
             "Schism in '%s': '%s' formed with %d members at tick %d",
@@ -932,17 +983,31 @@ def _process_formation_decisions(simulation, tick: int) -> None:
         if not group or group.cohesion <= 0.0:
             continue
         for agent in agents:
-            agent.group = group
-            agent.save(update_fields=["group"])
-            Memory.objects.create(
-                agent=agent,
-                content=f"I joined {group.name}.",
-                emotional_weight=0.3,
-                source_type=Memory.SourceType.DIRECT,
-                tick_created=tick,
-            )
-            group.cohesion = max(0.0, group.cohesion - 0.02)
-            group.save(update_fields=["cohesion"])
+            # FR-005 (per-decision atomicity): a single join decision is
+            # this agent's group move, its join Memory, and the target
+            # group's cohesion decrement -- all three or none. No outer
+            # atomic wraps this loop (each decision is independent; a
+            # failure on one agent must not roll back an already-committed
+            # earlier join for a different agent in the same group_name).
+            with transaction.atomic():
+                # FR-006 write discipline: single-row queryset update
+                # instead of `agent.group = group; agent.save(...)` -- see
+                # module docstring "Write discipline". This branch moves
+                # exactly one agent per iteration, so the gain here is
+                # discipline consistency with the other three paths, not
+                # query count. Audited: no code below reads
+                # `agent.group`/`agent.group_id` off this in-memory
+                # instance, so no explicit in-memory refresh is needed.
+                Agent.objects.filter(id=agent.id).update(group=group)
+                Memory.objects.create(
+                    agent=agent,
+                    content=f"I joined {group.name}.",
+                    emotional_weight=0.3,
+                    source_type=Memory.SourceType.DIRECT,
+                    tick_created=tick,
+                )
+                group.cohesion = max(0.0, group.cohesion - 0.02)
+                group.save(update_fields=["cohesion"])
 
     # Process new group formation: cluster formers by shared proposal memory.
     if len(formers) < min_members:
@@ -984,59 +1049,78 @@ def _create_faction(simulation, founders: list[Agent], tick: int) -> None:
         founders: List of agents who are founding the faction.
         tick: Current tick.
     """
-    roles = {a.role for a in founders if a.role}
-    founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
-    fallback_name = f"The {next(iter(roles), 'Citizens').title()} Alliance"
+    # FR-005 (per-faction atomicity, "l'intera funzione"): unlike
+    # _check_schism, FR-005 scopes this atomic block to the WHOLE function,
+    # including the identity generation (LLM call) that precedes the first
+    # write -- a failure anywhere in faction creation, at any point, must
+    # leave zero partial rows. Entering `atomic()` before any query does
+    # not open a real transaction on PostgreSQL until the first statement
+    # runs, so wrapping the LLM call adds no premature lock.
+    with transaction.atomic():
+        roles = {a.role for a in founders if a.role}
+        founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
+        fallback_name = f"The {next(iter(roles), 'Citizens').title()} Alliance"
 
-    name, objective = _generate_faction_identity(
-        founders=founders,
-        context=f"organized together: {founder_desc}",
-        fallback_name=fallback_name,
-        fallback_objective="Pursue shared interests",
-    )
-
-    group = Group.objects.create(
-        simulation=simulation,
-        name=name,
-        objective=objective,
-        # New-faction seed cohesion 0.6: self-organized factions start more
-        # cohesive than schism splinters (0.5). Tunable design parameter.
-        # See Known Limitations (e).
-        cohesion=0.6,
-        formed_at_tick=tick,
-    )
-
-    scores = [(a, compute_leadership_score(a, group, tick)) for a in founders]
-    scores.sort(key=lambda x: x[1], reverse=True)
-    group.leader = scores[0][0]
-    group.save(update_fields=["leader"])
-
-    other_names_map = {a.id: ", ".join(f.name for f in founders if f.id != a.id) for a in founders}
-    for agent in founders:
-        agent.group = group
-        agent.save(update_fields=["group"])
-        Memory.objects.create(
-            agent=agent,
-            content=f"I helped found {name} with {other_names_map[agent.id]}.",
-            emotional_weight=0.3,
-            source_type=Memory.SourceType.DIRECT,
-            tick_created=tick,
+        name, objective = _generate_faction_identity(
+            founders=founders,
+            context=f"organized together: {founder_desc}",
+            fallback_name=fallback_name,
+            fallback_objective="Pursue shared interests",
         )
 
-    # Public announcement to all living non-members.
-    outsiders = Agent.objects.filter(simulation=simulation, is_alive=True).exclude(group=group)
-    public_memories = [
-        Memory(
-            agent=outsider,
-            content=f"{name} has been formed by {founder_desc}, pursuing: {objective}.",
-            emotional_weight=0.2,
-            source_type=Memory.SourceType.PUBLIC,
-            reliability=1.0,
-            tick_created=tick,
+        group = Group.objects.create(
+            simulation=simulation,
+            name=name,
+            objective=objective,
+            # New-faction seed cohesion 0.6: self-organized factions start
+            # more cohesive than schism splinters (0.5). Tunable design
+            # parameter. See Known Limitations (e).
+            cohesion=0.6,
+            formed_at_tick=tick,
         )
-        for outsider in outsiders
-    ]
-    Memory.objects.bulk_create(public_memories)
+
+        scores = [(a, compute_leadership_score(a, group, tick)) for a in founders]
+        scores.sort(key=lambda x: x[1], reverse=True)
+        group.leader = scores[0][0]
+        group.save(update_fields=["leader"])
+
+        other_names_map = {
+            a.id: ", ".join(f.name for f in founders if f.id != a.id) for a in founders
+        }
+        founder_ids = [a.id for a in founders]
+        # FR-006 write discipline: bulk queryset update instead of a
+        # per-agent `.save(update_fields=["group"])` loop -- see module
+        # docstring "Write discipline". Audited: the `outsiders` query
+        # right below is a fresh database read
+        # (`Agent.objects.filter(...).exclude(group=group)`), so it is
+        # automatically correct against the just-written rows without
+        # needing the in-memory founder instances refreshed; the
+        # per-founder Memory writes below reference `agent` only for its
+        # id/name, never `.group`.
+        Agent.objects.filter(id__in=founder_ids).update(group=group)
+        for agent in founders:
+            Memory.objects.create(
+                agent=agent,
+                content=f"I helped found {name} with {other_names_map[agent.id]}.",
+                emotional_weight=0.3,
+                source_type=Memory.SourceType.DIRECT,
+                tick_created=tick,
+            )
+
+        # Public announcement to all living non-members.
+        outsiders = Agent.objects.filter(simulation=simulation, is_alive=True).exclude(group=group)
+        public_memories = [
+            Memory(
+                agent=outsider,
+                content=f"{name} has been formed by {founder_desc}, pursuing: {objective}.",
+                emotional_weight=0.2,
+                source_type=Memory.SourceType.PUBLIC,
+                reliability=1.0,
+                tick_created=tick,
+            )
+            for outsider in outsiders
+        ]
+        Memory.objects.bulk_create(public_memories)
 
     logger.info("Faction '%s' created at tick %d with %d founders", name, tick, len(founders))
 
