@@ -62,7 +62,7 @@ Chi consulta la memoria di progetto e il whitepaper deve trovare uno stato coere
 **Acceptance Scenarios**:
 
 1. **Given** la memoria `project_audit_repass_batch_2026_04_12_pending`, **When** il branch è chiuso, **Then** dichiara la campagna 6/6 completata con data e afferma che il file traccia ora solo il residuo §8.1/§8.2.
-2. **Given** il whitepaper (EN e IT), **When** il branch è chiuso, **Then** ogni occorrenza del conteggio dei moduli §8 pendenti (inventario in FR-007: §8 intro, §9 intro, §11 intro, §11 corpo EN) dice due (Knowledge Graph, economy base layer) e include factions tra i convergiti, con EN e IT speculari.
+2. **Given** il whitepaper (EN e IT), **When** il branch è chiuso, **Then** ogni occorrenza del conteggio dei moduli §8 pendenti (inventario in FR-007 come emendato in fase 6: abstract, §8 intro, §9 intro, §11 intro, §11 corpo EN, §12 Conclusions) dice due (Knowledge Graph, economy base layer) e include factions tra i convergiti, con EN e IT speculari.
 3. **Given** la retrospettiva di campagna richiesta dal piano F-CAMPAIGN, **When** il branch è chiuso, **Then** esiste `docs/memory-backup/project_audit_repass_2026_04_12_completed.md` con branch, PR, merge SHA e lezioni apprese.
 
 ### Edge Cases
