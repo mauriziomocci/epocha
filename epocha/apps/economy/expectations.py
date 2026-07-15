@@ -28,6 +28,7 @@ import logging
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.economy.models import AgentExpectation, GoodCategory, ZoneEconomy
+from epocha.apps.economy.monetary import aggregate_system_prices
 
 logger = logging.getLogger(__name__)
 
@@ -141,19 +142,24 @@ def update_agent_expectations(simulation, tick: int) -> None:
         return
 
     # Collect actual prices from all zone economies. For multi-zone
-    # simulations, each agent uses their own zone's prices. For
-    # simplicity in the MVP, we aggregate a single price map from
-    # all zones (last-write-wins). Multi-zone price differentiation
-    # will be refined in a future iteration.
-    zone_economies = list(ZoneEconomy.objects.filter(zone__world__simulation=simulation))
-    actual_prices: dict[str, float] = {}
-    for ze in zone_economies:
-        actual_prices.update(ze.market_prices or {})
+    # simulations, each agent should eventually use their own zone's
+    # prices; the MVP aggregates a single system-wide price map. R4 fix
+    # (Round 4 re-audit, run wf_9fb030e4-8a1): the aggregation is the
+    # cross-zone mean via monetary.aggregate_system_prices -- the same
+    # CM-5 fix already applied in engine.py -- replacing the previous
+    # dict.update() merge that kept only the last zone's price in an
+    # unordered (hence nondeterministic) queryset order. Per-zone price
+    # differentiation remains a future refinement.
+    zone_prices = [
+        ze.market_prices or {}
+        for ze in ZoneEconomy.objects.filter(zone__world__simulation=simulation).order_by("id")
+    ]
+    actual_prices: dict[str, float] = aggregate_system_prices(zone_prices)
 
     if not actual_prices:
         return
 
-    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True))
+    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True).order_by("id"))
 
     # Batch-fetch existing expectations to avoid N+1 queries.
     existing_expectations = {

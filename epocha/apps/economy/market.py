@@ -303,6 +303,14 @@ def collect_supply_and_demand(
                 # that nets to zero on its inventory but inflates the
                 # measured transaction volume and hence velocity. An
                 # agent wanting to keep such goods simply hoards them.
+                # Documented trade-off (Round 4 re-audit): the skip
+                # also removes this agent's contribution to the good's
+                # NET excess demand (lowering the tatonnement price
+                # signal versus the pre-fix behavior), and the skipped
+                # per-good budget share is dropped for the tick rather
+                # than reallocated to other goods -- both accepted, as
+                # the pre-fix signal was inflated by demand that could
+                # only ever settle against the agent itself.
                 if code in offers:
                     continue
                 price = max(market_prices.get(code, 1.0), EPSILON)

@@ -199,7 +199,8 @@ class TestLeontiefSeamBound:
     measure the real branch seam, because every weighted power mean
     equals min(X_i) identically at that point. This test bounds the
     ACTUAL seam with heterogeneous inputs: the general CES evaluated
-    just above _LEONTIEF_THRESHOLD (rho = -19 at sigma 0.06 -> 0.0526...)
+    just above _LEONTIEF_THRESHOLD (rho = (sigma-1)/sigma = -19 at the
+    threshold sigma = 0.05 itself; -15.67 at the sigma = 0.06 used here)
     approaches min(X_i) from above, so the branch switch introduces a
     small positive discontinuity that must stay within a realistic
     tolerance (documented in production.py's Leontief-branch comment)."""

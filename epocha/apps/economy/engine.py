@@ -129,7 +129,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     records to exist for the simulation. If no currencies exist, the
     tick is silently skipped (economy not yet initialized).
     """
-    currencies = list(Currency.objects.filter(simulation=simulation))
+    currencies = list(Currency.objects.filter(simulation=simulation).order_by("id"))
     if not currencies:
         logger.debug(
             "Simulation %d has no currencies; skipping economy tick",
@@ -138,7 +138,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         return
 
     primary_currency = next((c for c in currencies if c.is_primary), currencies[0])
-    goods = list(GoodCategory.objects.filter(simulation=simulation))
+    goods = list(GoodCategory.objects.filter(simulation=simulation).order_by("id"))
     good_map = {g.code: g for g in goods}
 
     try:
@@ -146,8 +146,17 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     except TaxPolicy.DoesNotExist:
         tax_policy = None
 
+    # R4-DET-1 fix (Round 4 re-audit, run wf_9fb030e4-8a1): the zone
+    # loop feeds order-sensitive state (the credit/property block runs
+    # after the FIRST non-empty zone; cross-zone factor incomes are
+    # credited zone-by-zone), so zone order must be pinned like every
+    # other iteration order in this tick. Currencies and goods above
+    # are id-ordered for the same reason (goods order feeds the
+    # per-agent wants insertion order).
     zone_economies = list(
-        ZoneEconomy.objects.filter(zone__world__simulation=simulation).select_related("zone")
+        ZoneEconomy.objects.filter(zone__world__simulation=simulation)
+        .select_related("zone")
+        .order_by("id")
     )
     if not zone_economies:
         return
@@ -180,6 +189,10 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     rent_share = prod_template.get("rent_share", 0.15)
 
     total_transaction_volume = 0.0
+    # Factor-income injections (rent + wages + profit) tracked
+    # separately from total turnover: the Fisher diagnostic compares
+    # THIS flow against nominal output (R4-FISH-1 fix, see step 8a).
+    factor_income_volume = 0.0
     total_output = 0.0
     # CM-5 fix (Round 1 audit report, cross-module CM-5): collect one
     # price dict PER ZONE and aggregate them with
@@ -530,6 +543,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 inv.cash[cur_code] = inv.cash.get(cur_code, 0.0) + rent_amount
                 inv.save(update_fields=["cash"])
                 total_transaction_volume += rent_amount
+                factor_income_volume += rent_amount
                 EconomicLedger.objects.create(
                     simulation=simulation,
                     tick=tick,
@@ -568,6 +582,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 inv.cash[cur_code] = current_cash + wage_amount
                 inv.save(update_fields=["cash"])
                 total_transaction_volume += wage_amount
+                factor_income_volume += wage_amount
                 EconomicLedger.objects.create(
                     simulation=simulation,
                     tick=tick,
@@ -587,6 +602,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 inv.cash[cur_code] = current_cash + profit_amount
                 inv.save(update_fields=["cash"])
                 total_transaction_volume += profit_amount
+                factor_income_volume += profit_amount
                 EconomicLedger.objects.create(
                     simulation=simulation,
                     tick=tick,
@@ -697,17 +713,24 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # thresholds (CM-6). Doing this in one query avoids re-fetching
     # the same agent/inventory rows for what were previously two
     # separate steps (N+1 avoidance).
+    # id-ordered (R4-DET fixes): the float accumulations below (M,
+    # median wealth) are summation-order-sensitive at the ULP level,
+    # and bulk_update write order should be reproducible too.
     all_agents = list(
-        Agent.objects.filter(simulation=simulation, is_alive=True).select_related("inventory")
+        Agent.objects.filter(simulation=simulation, is_alive=True)
+        .order_by("id")
+        .select_related("inventory")
     )
 
     # Property values grouped by owner in a single query instead of one
     # query per agent inside the loop below (N+1 avoidance; pre-existing
     # in the code this step replaces, fixed while rewriting the block).
     property_values_by_owner: dict[int, list[float]] = {}
-    for owner_id, value in Property.objects.filter(
-        simulation=simulation, owner_type="agent"
-    ).values_list("owner_id", "value"):
+    for owner_id, value in (
+        Property.objects.filter(simulation=simulation, owner_type="agent")
+        .order_by("id")
+        .values_list("owner_id", "value")
+    ):
         property_values_by_owner.setdefault(owner_id, []).append(value)
 
     agent_wealths: list[tuple[Agent, float]] = []
@@ -749,25 +772,38 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # Fisher MV=PQ consistency check: a DIAGNOSTIC only (logs a warning
     # above 20% divergence; never alters simulation state). Round 1
     # audit report found check_fisher_consistency defined but never
-    # invoked anywhere -- the one check that would have caught the
-    # pre-fix money-supply/conservation defects (CM-1, CM-2) was dead
-    # code. R3-5 fix (Round 3 re-audit): the PQ side is the
-    # output-weighted nominal value sum_g(p_g * q_g), not the unweighted
-    # mean price times the summed heterogeneous physical quantities --
-    # the pre-fix form conflated price-aggregation error with monetary
-    # inconsistency. system_price_level is therefore the output-weighted
-    # (Paasche-type) price index PQ / Q, so price_level * output_level
-    # reproduces the nominal output value exactly. Goods with no quoted
-    # system price (e.g. produced goods lacking a GoodCategory price)
-    # contribute zero nominal value, consistent with the ledger's
-    # zero-price production entries.
+    # invoked anywhere. R3-5 fix: the PQ side is the output-weighted
+    # nominal value sum_g(p_g * q_g); system_price_level is the
+    # output-weighted (Paasche-type) index PQ / Q, so price_level *
+    # output_level reproduces the nominal output value exactly. Goods
+    # with no quoted system price contribute zero nominal value,
+    # consistent with the ledger's zero-price production entries.
+    #
+    # R4-FISH-1 fix (Round 4 re-audit, run wf_9fb030e4-8a1): with a
+    # MEASURED velocity V := volume / M, the identity M*V = volume is
+    # tautological -- M cancels, so no choice of volume can make the
+    # check sensitive to an M error (Fisher's equation of exchange is
+    # an accounting identity, not a testable hypothesis, when V is
+    # residually measured). The pre-fix wiring compounded this by
+    # passing the TURNOVER velocity (trades + factor incomes over M)
+    # against the income-form PQ, firing spurious warnings whenever
+    # trade volume exceeded ~25% of nominal output in a perfectly
+    # conserved economy. The diagnostic now compares the two flows
+    # that ARE independently measured: the factor-income injection
+    # actually credited this tick (income velocity = factor income /
+    # M, so MV = factor income) against nominal output PQ. Divergence
+    # therefore means injected income != produced value -- exactly the
+    # CM-1 defect class this check was resurrected to catch. The
+    # turnover velocity remains reported on Currency.cached_velocity
+    # as a metric; it is no longer fed into this check.
     nominal_output_value = sum(
         qty * new_prices_all.get(good, 0.0) for good, qty in system_output_by_good.items()
     )
     system_price_level = nominal_output_value / total_output if total_output > 0 else 0.0
+    income_velocity = factor_income_volume / live_money_supply if live_money_supply > 0 else 0.0
     check_fisher_consistency(
         money_supply=live_money_supply,
-        velocity=primary_currency.cached_velocity,
+        velocity=income_velocity,
         price_level=system_price_level,
         output_level=total_output,
     )

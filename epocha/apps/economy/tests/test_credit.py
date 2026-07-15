@@ -1103,3 +1103,45 @@ class TestDefaultCascade:
 
         depth = process_default_cascade(simulation, tick=5)
         assert depth == 0
+
+
+@pytest.mark.django_db
+class TestRepaymentLedgerType:
+    """Round 4 re-audit fix (run wf_9fb030e4-8a1): full principal
+    repayment at maturity was ledgered as transaction_type
+    "loan_interest", misclassifying principal as interest in every
+    money-flow analytic. It must be ledgered as "loan_repayment"."""
+
+    def test_full_repayment_ledgered_as_loan_repayment(
+        self,
+        simulation,
+        borrower,
+        currency,
+        banking_state,
+    ):
+        issue_loan(
+            simulation=simulation,
+            lender=None,
+            borrower=borrower,
+            amount=100.0,
+            interest_rate=0.05,
+            collateral=None,
+            tick=0,
+            duration=5,
+            lender_type="banking",
+        )
+
+        process_maturity(simulation, tick=5)
+
+        repayment_entries = EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=5,
+            transaction_type="loan_repayment",
+        )
+        assert repayment_entries.count() == 1
+        assert repayment_entries.first().total_amount == pytest.approx(100.0)
+        assert not EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=5,
+            transaction_type="loan_interest",
+        ).exists()

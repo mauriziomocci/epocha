@@ -792,6 +792,30 @@ class TestFisherDiagnosticAggregation:
         )
         assert abs(realized_pq - expected_pq) < 1e-6
 
+    def test_fisher_mv_equals_factor_income_injection(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        # R4-FISH-1 (Round 4 re-audit, run wf_9fb030e4-8a1): with a
+        # measured velocity the identity MV = volume is tautological in
+        # M, and the pre-fix wiring passed the TURNOVER velocity
+        # (trades + factor incomes) against the income-form PQ, firing
+        # spurious warnings in a conserved economy. The check must now
+        # compare the factor-income injection (MV side) against nominal
+        # output (PQ side): in this conserved fixture the two are equal,
+        # so the diagnostic reads ~zero divergence.
+        with patch(
+            "epocha.apps.economy.engine.check_fisher_consistency",
+            wraps=engine_module.check_fisher_consistency,
+        ) as mock_fisher:
+            process_economy_tick_new(simulation, tick=1)
+
+        kwargs = mock_fisher.call_args.kwargs
+        mv = kwargs["money_supply"] * kwargs["velocity"]
+        pq = kwargs["price_level"] * kwargs["output_level"]
+        assert abs(mv - pq) < 1e-6
+
 
 @pytest.fixture
 def setup_two_zone_economy(simulation):

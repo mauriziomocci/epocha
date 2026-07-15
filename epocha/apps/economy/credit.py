@@ -67,8 +67,13 @@ def _get_credit_config(simulation) -> dict:
     if credit_config:
         return credit_config
 
-    # Fall back to template config
-    templates = EconomyTemplate.objects.all()[:1]
+    # Fall back to template config. Legacy fallback: EconomyTemplate is
+    # a global catalog with no simulation FK, so this picks the lowest-id
+    # template deterministically (R4-DET fix) -- a documented limitation;
+    # the primary path is the per-simulation config written at
+    # initialization, which makes this branch unreachable for
+    # initialize_economy-created simulations.
+    templates = EconomyTemplate.objects.order_by("id")[:1]
     if templates:
         template_config = templates[0].config or {}
         credit_config = template_config.get("credit_config", {})
@@ -340,11 +345,15 @@ def service_loans(simulation, tick: int) -> list[int]:
     Returns:
         List of Loan IDs that could not pay interest (candidates for default).
     """
+    # id-ordered (R4-DET fix): servicing debits cash-constrained
+    # borrowers in iteration order, so the order must be reproducible.
     active_loans = list(
         Loan.objects.filter(
             simulation=simulation,
             status="active",
-        ).select_related("borrower", "lender")
+        )
+        .select_related("borrower", "lender")
+        .order_by("id")
     )
 
     primary_currency = _get_primary_currency(simulation)
@@ -415,12 +424,16 @@ def process_maturity(simulation, tick: int) -> None:
         simulation: The simulation instance.
         tick: Current simulation tick.
     """
+    # id-ordered (R4-DET fix): repay/rollover/default outcomes for a
+    # cash-constrained borrower depend on processing order.
     maturing_loans = list(
         Loan.objects.filter(
             simulation=simulation,
             status="active",
             due_at_tick=tick,
-        ).select_related("borrower", "lender", "collateral")
+        )
+        .select_related("borrower", "lender", "collateral")
+        .order_by("id")
     )
 
     if not maturing_loans:
@@ -474,7 +487,10 @@ def process_maturity(simulation, tick: int) -> None:
                 to_agent=loan.lender,
                 currency=primary_currency,
                 total_amount=balance,
-                transaction_type="loan_interest",
+                # R4 fix (Round 4 re-audit): principal repayment is not
+                # interest -- ledgered with its own transaction type so
+                # money-flow analytics do not misclassify it.
+                transaction_type="loan_repayment",
             )
 
             logger.info("Loan %d repaid by %s", loan.id, loan.borrower.name)
@@ -551,11 +567,15 @@ def process_defaults(simulation, tick: int) -> list[dict]:
     Returns:
         List of dicts with lender loss information for cascade processing.
     """
+    # id-ordered (R4-DET fix): collateral seizure and lender-loss
+    # accumulation are order-sensitive for shared lenders.
     defaulted_loans = list(
         Loan.objects.filter(
             simulation=simulation,
             status="defaulted",
-        ).select_related("borrower", "lender", "collateral")
+        )
+        .select_related("borrower", "lender", "collateral")
+        .order_by("id")
     )
 
     if not defaulted_loans:

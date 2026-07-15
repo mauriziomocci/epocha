@@ -466,3 +466,49 @@ class TestUpdateAgentExpectations:
         exp = AgentExpectation.objects.get(agent=agent, good_code="subsistence")
         # After 20 ticks with lambda=0.3, E should be very close to 5.0
         assert abs(exp.expected_price - 5.0) < 0.01
+
+
+@pytest.mark.django_db
+class TestCrossZonePriceAggregation:
+    """Round 4 re-audit fix (run wf_9fb030e4-8a1): expectations
+    retained the last-zone-wins dict.update() price merge that the
+    CM-5 fix removed from the engine, on an UNORDERED ZoneEconomy
+    queryset -- nondeterministic across identically-seeded runs. The
+    actual prices feeding the Nerlove update must be the cross-zone
+    mean (monetary.aggregate_system_prices)."""
+
+    def test_first_expectation_uses_cross_zone_mean_price(
+        self,
+        simulation,
+        world,
+        goods,
+    ):
+        for idx, price in enumerate([3.0, 9.0], start=1):
+            z = Zone.objects.create(
+                world=world,
+                name=f"AggZone{idx}",
+                zone_type="urban",
+                boundary=Polygon.from_bbox((idx * 100, 0, idx * 100 + 100, 100)),
+                center=Point(idx * 100 + 50, 50),
+            )
+            ZoneEconomy.objects.create(
+                zone=z,
+                market_prices={"subsistence": price},
+            )
+        agent = Agent.objects.create(
+            simulation=simulation,
+            name="Expector",
+            role="farmer",
+            personality={},
+            location=Point(150, 50),
+            zone=Zone.objects.filter(world=world).first(),
+            health=1.0,
+            wealth=50.0,
+        )
+
+        update_agent_expectations(simulation, tick=1)
+
+        exp = AgentExpectation.objects.get(agent=agent, good_code="subsistence")
+        # Mean of 3.0 and 9.0; a last-zone-wins merge would seed 9.0
+        # (or 3.0 depending on queryset order).
+        assert abs(exp.expected_price - 6.0) < 1e-9

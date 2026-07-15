@@ -610,3 +610,59 @@ class TestOwnerlessPropertySaleConservation:
 
         prop.refresh_from_db()
         assert prop.owner is None
+
+
+@pytest.mark.django_db
+class TestListingTiebreakDeterminism:
+    """Round 4 re-audit finding R4-DET-2 (run wf_9fb030e4-8a1): the
+    cheapest-listing lookup ordered by asking_price alone, so equal-
+    priced listings were chosen in implementation-defined order. The
+    id tiebreak pins the winner deterministically."""
+
+    def test_equal_price_listings_resolve_by_lowest_id(self, property_market_setup):
+        setup = property_market_setup
+        sim = setup["simulation"]
+        buyer = setup["buyer"]
+        seller = setup["seller"]
+
+        first_prop = setup["property"]
+        second_prop = Property.objects.create(
+            simulation=sim,
+            owner=seller,
+            owner_type="agent",
+            zone=setup["zone"],
+            property_type="farmland",
+            name="Second Farm",
+            value=500.0,
+            production_bonus={"food": 1.0},
+        )
+        first_listing = PropertyListing.objects.create(
+            property=first_prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=5,
+            status="listed",
+        )
+        PropertyListing.objects.create(
+            property=second_prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=5,
+            status="listed",
+        )
+        DecisionLog.objects.create(
+            simulation=sim,
+            agent=buyer,
+            tick=5,
+            input_context="test",
+            output_decision=json.dumps({"action": "buy_property", "reason": "investment"}),
+            llm_model="test",
+        )
+
+        result = process_property_listings(sim, tick=6)
+
+        assert result["matched"] == 1
+        first_listing.refresh_from_db()
+        assert first_listing.status == "sold"
+        first_prop.refresh_from_db()
+        assert first_prop.owner == buyer

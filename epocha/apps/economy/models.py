@@ -314,6 +314,7 @@ class EconomicLedger(models.Model):
         ("property_sale", "Property Sale"),
         ("loan_issued", "Loan Issued"),
         ("loan_interest", "Loan Interest"),
+        ("loan_repayment", "Loan Repayment"),
         ("expropriation", "Expropriation"),
     ]
 

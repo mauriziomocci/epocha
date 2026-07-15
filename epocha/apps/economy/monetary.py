@@ -114,13 +114,26 @@ def compute_circulating_money_supply(
 
     Reconciliation with BankingState.total_deposits: deposits are NOT
     added on top of this sum. BankingState.recalculate_deposits
-    (banking.py) sets total_deposits to the SAME sum of all agents'
+    (banking.py) sets total_deposits to the same underlying agent
     cash (its own docstring: "this approximation treats all agent
     cash as deposited") -- there is no disjoint reserve pool held by
     the bank in this model, only a shadow-accounting mirror of agent
     cash used for the reserve-ratio and solvency checks. Summing
     circulating cash and total_deposits would therefore double-count
-    the identical money.
+    the same money. Scope caveat (Round 4 re-audit): total_deposits
+    sums ALL currencies while this function aggregates ONE currency,
+    so the two figures coincide numerically only in single-currency
+    simulations; the no-disjoint-pool argument holds regardless.
+
+    Credit money (Round 4 disclosure): banking-type loan issuance
+    credits the borrower's cash with no offsetting agent debit
+    (fractional-reserve credit creation, see credit.issue_loan), and
+    repayment to the banking system debits the borrower with no agent
+    credit (credit destruction). Both flows therefore expand and
+    contract this measured M tick over tick; they are ledgered as
+    loan_issued / loan_repayment and tracked against
+    BankingState.total_loans_outstanding. This is deliberate
+    Diamond-Dybvig-style inside money, not a conservation leak.
 
     Scope of M (R3-4 disclosure, Round 3 re-audit): the aggregate
     covers LIVING agents' cash only. The government treasury and any
@@ -157,9 +170,22 @@ def check_fisher_consistency(
     Returns the relative divergence: |MV - PQ| / max(MV, PQ, 1).
     Values above 0.2 (20%) warrant investigation.
 
-    This is a diagnostic, not an enforcement. The market determines
-    prices; Fisher tells us if the money supply is consistent with
-    the observed price level and output.
+    Scope and limits (R4-FISH-1, Round 4 re-audit): when velocity is
+    MEASURED as a flow divided by M, the product M*V reproduces that
+    flow identically -- M cancels, so this check can never detect an
+    error in the money-supply LEVEL (Fisher 1911's equation of
+    exchange is an accounting identity once V is residually measured).
+    What the check does test is the consistency of two INDEPENDENTLY
+    measured flows: the caller (engine.py step 8a) passes the income
+    velocity (factor income actually credited this tick / M), so
+    MV equals the tick's factor-income injection and PQ the nominal
+    output value -- divergence means income was injected out of
+    proportion to produced value, the CM-1 conservation defect class.
+    A small nonzero divergence is expected when the wage sanity-cap
+    clips (documented "injection <= V" invariant, distribution.py).
+
+    This is a diagnostic, not an enforcement. It logs and returns; it
+    never alters simulation state.
     """
     mv = money_supply * velocity
     pq = price_level * output_level
@@ -169,7 +195,8 @@ def check_fisher_consistency(
     if divergence > 0.2:
         logger.warning(
             "Fisher MV=PQ divergence: %.1f%%. MV=%.1f, PQ=%.1f. "
-            "Money supply may be inconsistent with price level.",
+            "Injected factor income is inconsistent with nominal "
+            "output value (conservation-defect signature).",
             divergence * 100,
             mv,
             pq,

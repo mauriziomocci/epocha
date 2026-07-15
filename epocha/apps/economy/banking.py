@@ -46,8 +46,13 @@ def _get_banking_config(simulation) -> dict:
     if banking_config:
         return banking_config
 
-    # Fall back to template config
-    templates = EconomyTemplate.objects.all()[:1]
+    # Fall back to template config. Legacy fallback: EconomyTemplate is
+    # a global catalog with no simulation FK, so this picks the lowest-id
+    # template deterministically (R4-DET fix) -- a documented limitation;
+    # the primary path is the per-simulation config written at
+    # initialization, which makes this branch unreachable for
+    # initialize_economy-created simulations.
+    templates = EconomyTemplate.objects.order_by("id")[:1]
     if templates:
         template_config = templates[0].config or {}
         banking_config = template_config.get("banking_config", {})
@@ -347,7 +352,10 @@ def broadcast_banking_concern(simulation, tick: int) -> int:
 
     from epocha.apps.agents.models import Agent, Memory
 
-    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True))
+    # id-ordered (R4-DET fix): random.sample draws from this list, so
+    # the pool order must be pinned for the seeded RNG to reproduce the
+    # same broadcast set across identically-seeded runs.
+    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True).order_by("id"))
     if not agents:
         return 0
 

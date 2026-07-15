@@ -224,12 +224,23 @@ def process_property_listings(simulation, tick: int) -> dict:
     ).update(status="withdrawn")
     result["expired"] = stale_count
 
-    # Step 2: Read buy_property intents from DecisionLog at tick-1
-    buy_decisions = DecisionLog.objects.filter(
-        simulation=simulation,
-        tick=tick - 1,
-        output_decision__contains='"buy_property"',
-    ).select_related("agent")
+    # Step 2: Read buy_property intents from DecisionLog at tick-1.
+    # R4-DET-2 fix (Round 4 re-audit, run wf_9fb030e4-8a1): buyers
+    # compete for listings (each sale removes one), so buyer order
+    # decides contested-property winners -- pinned by agent id, then
+    # row id, for seeded reproducibility. The DecisionLog default
+    # ordering ("tick") is constant within this filter and pins
+    # nothing. The cheapest-listing lookup below carries an id
+    # tiebreak for equal asking prices for the same reason.
+    buy_decisions = (
+        DecisionLog.objects.filter(
+            simulation=simulation,
+            tick=tick - 1,
+            output_decision__contains='"buy_property"',
+        )
+        .select_related("agent")
+        .order_by("agent_id", "id")
+    )
 
     buyers = []
     for decision in buy_decisions:
@@ -261,7 +272,7 @@ def process_property_listings(simulation, tick: int) -> dict:
             )
             .exclude(property__owner=buyer)
             .select_related("property", "property__owner")
-            .order_by("asking_price")
+            .order_by("asking_price", "id")
             .first()
         )
 
