@@ -1,6 +1,6 @@
 ---
 name: session-resume-2026-07-15
-description: "READ FIRST. F-CAMPAIGN CHIUSA 6/6: world/economy.py deprecato (path B) via Spec Kit, whitepaper riconciliato (11 conteggi stale corretti), suite 810 verdi. Branch in Draft PR verso develop, merge in attesa di approvazione gate umani. Prossimo: factions Round 3 hardening, poi Demography Plan 4."
+description: "READ FIRST. F-CAMPAIGN CHIUSA 6/6 E MERGIATA: PR#12 merge 4341a7a in develop, gate ratificati dall'utente il 2026-07-15, frozen-pin aggiornato a 4341a7a (20 occorrenze EN+IT). Suite 810 verdi. Prossimo: factions Round 3 hardening (dossier pronto), poi Demography Plan 4."
 metadata: 
   node_type: memory
   type: project
@@ -13,7 +13,7 @@ metadata:
 
 Branch `20260715-094457-world-economy-deprecation` completo: spec+plan+tasks Spec Kit, audit spec 3 round (CONVERGED), implementazione TDD, audit codice fase 6 in 2 round (CONVERGED). Suite container 810 passed (baseline 809 +1 test warning), ruff check/format exit 0. Supersede [[session-resume-2026-06-22]].
 
-**GATE UMANI PENDENTI a inizio prossima sessione (se non gia' dati):** approvazione esplicita spec (fase 2) + approvazione chiusura/merge (fase 6). Il lavoro e' stato svolto in autonomia su carta bianca dell'utente; i due heavy gate restano da ratificare. PR in Draft, NON mergiata.
+**GATE RATIFICATI**: l'utente ha ratificato entrambi gli heavy gate con "procedi" (2026-07-15). PR#12 mergiata in develop, merge SHA `4341a7a5efd59a1438a13603b20eed403ee45b2b`. Frozen-at-commit pin aggiornato a quel SHA in entrambi i whitepaper (frontmatter + 8 header Status par. 4 + Appendice B, 10 occorrenze per lingua). NOTA STORICA: i branch 1-5 non aggiornarono mai il pin (rimasto a 168d90b/PR#4 dal 2026-04-26) pur toccando il whitepaper -- drift di procedura sanato da questa chiusura in avanti.
 
 ## Cosa contiene il branch (5 commit + eventuali successivi)
 

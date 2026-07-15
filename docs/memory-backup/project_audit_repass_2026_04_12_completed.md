@@ -20,7 +20,7 @@ Tutti i branch auditati sono convergiti al Round 2 -- meglio della stima di pian
 | 3 | Political cluster | 2 (2026-05-16) | paragraph 4.5 | PR#7 dfeb709 |
 | 4 | Movement | 2 (2026-05-16) | paragraph 4.6 | PR#8 c543c10 |
 | 5 | Factions | 2 (2026-05-16) | paragraph 4.7 | PR#9 5406b95 |
-| 6 | World economy deprecation | n/a (deprecation, non re-audit) | nessuna (modulo legacy fuori architettura documentata) | Spec Kit `specs/20260715-094457-world-economy-deprecation/` |
+| 6 | World economy deprecation | n/a (deprecation, non re-audit; audit spec 3 round + audit codice 2 round, entrambi CONVERGED) | nessuna (modulo legacy fuori architettura documentata) | PR#12 4341a7a |
 
 Il branch 6 ha scelto il path B del piano (marker di deprecazione) perche' la verifica caller ha trovato il modulo ancora vivo come fallback dell'engine (`simulation/engine.py`, gate su `Currency`) e nel percorso Celery (`simulation/tasks.py:46` -> `run_economy`): la rimozione fisica avrebbe cambiato comportamento ed e' rimandata a un work item di migrazione caller.
 

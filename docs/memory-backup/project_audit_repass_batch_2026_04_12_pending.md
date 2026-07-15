@@ -21,7 +21,7 @@ Piano campagna: `docs/superpowers/plans/2026-05-12-audit-repass-campaign.md` (le
 | 3 | Political cluster (government, gov_types, institutions, stratification, election) | CONVERGED Round 2 (2026-05-16), promosso a paragraph 4.5 | PR#7 | dfeb709 |
 | 4 | Movement | CONVERGED Round 2 (2026-05-16), promosso a paragraph 4.6 | PR#8 | c543c10 |
 | 5 | Factions | CONVERGED Round 2 (2026-05-16), promosso a paragraph 4.7 | PR#9 | 5406b95 |
-| 6 | World economy deprecation (path B: marker, fallback invariato) | Chiuso via Spec Kit `specs/20260715-094457-world-economy-deprecation/` | PR#12 (Draft, merge in attesa di ratifica gate) | vedi git history al merge |
+| 6 | World economy deprecation (path B: marker, fallback invariato) | Chiuso via Spec Kit `specs/20260715-094457-world-economy-deprecation/` | PR#12 | 4341a7a |
 
 ## Residuo tracciato da questo file (fuori scope campagna)
 
