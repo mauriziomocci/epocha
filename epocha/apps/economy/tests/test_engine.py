@@ -257,3 +257,55 @@ class TestProcessEconomyTick:
         process_economy_tick_new(simulation, tick=1)
         setup_economy["currency"].refresh_from_db()
         assert setup_economy["currency"].cached_velocity >= 0.0
+
+
+@pytest.mark.django_db
+class TestConservationOfOutputValue:
+    """CM-1 / distribution PROD-2 conservation rewrite (approach A).
+
+    Round 1 audit report: compute_rent credited the FULL zone output
+    value V as rent, and compute_wages independently credited output
+    value again (full value to owners, wage_share*value to workers),
+    both as brand-new cash (from_agent=None) with no offsetting debit.
+    Every tick therefore injected strictly more money than the output
+    actually produced. The fix partitions V into rent + wages + profit
+    shares that sum to exactly V (Ricardo 1817 / national-accounting
+    factor-income identity), so the net cash injected by the
+    rent/wage/profit steps must equal V, not exceed it.
+    """
+
+    def test_tick_money_injection_equals_output_value(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        process_economy_tick_new(simulation, tick=1)
+
+        ze = setup_economy["zone_economy"]
+        ze.refresh_from_db()
+        # equilibrium_prices used by the rent/wage/profit steps this
+        # tick are exactly what engine.py persists as market_prices at
+        # the end of the zone loop (engine.py: `ze.market_prices =
+        # equilibrium_prices`, written after the factor-income step).
+        prices = ze.market_prices
+
+        production_entries = EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            transaction_type="production",
+        )
+        output_value = sum(
+            entry.quantity * prices.get(entry.good_category.code, 0.0)
+            for entry in production_entries
+            if entry.good_category is not None
+        )
+
+        factor_income_credits = EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            from_agent__isnull=True,
+            transaction_type__in=["rent", "wage", "profit"],
+        )
+        total_injected = sum(entry.total_amount for entry in factor_income_credits)
+
+        assert abs(total_injected - output_value) < 1e-6

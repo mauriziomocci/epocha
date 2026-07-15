@@ -310,6 +310,7 @@ class EconomicLedger(models.Model):
         ("tax", "Tax"),
         ("rent", "Rent"),
         ("wage", "Wage"),
+        ("profit", "Profit"),
         ("property_sale", "Property Sale"),
         ("loan_issued", "Loan Issued"),
         ("loan_interest", "Loan Interest"),

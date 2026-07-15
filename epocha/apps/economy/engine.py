@@ -5,11 +5,20 @@ Executes the 9-step economic cycle each tick:
 1. Production (CES per agent per zone)
 2. Market clearing (Walrasian tatonnement)
 3. Credit market (loan servicing, maturity, defaults, cascade, banking)
-4. Rent (emergent, Ricardian)
-5. Wages (output share)
+4. Rent (land factor share, emergent Ricardian)
+5. Wages (labor factor share)
+5b. Profit (capital/entrepreneurial residual factor share)
 6. Taxation (flat income tax -> treasury)
 7. Essential consumption (1 unit/tick deducted)
 8. Monetary update (Fisher velocity) + wealth/mood/stability feedback
+
+Steps 4, 5 and 5b partition a single zone output value V into factor
+incomes that sum to V (rent + wages + profit = V; Ricardo 1817 /
+national-accounting identity -- see distribution.py's module
+docstring). This replaced the pre-CM-1-fix behavior where rent and
+wages each independently credited the full V as brand-new cash,
+injecting strictly more money than the output actually produced
+(Round 1 audit report, distribution/PROD-2 and cross-module CM-1).
 
 This function replaces world/economy.py:process_economy_tick for
 simulations that have the new economy app models initialized.
@@ -36,7 +45,7 @@ from .credit import (
     process_maturity,
     service_loans,
 )
-from .distribution import compute_rent, compute_taxes, compute_wages
+from .distribution import compute_taxes, partition_output_value
 from .expectations import update_agent_expectations
 from .market import (
     SUBSISTENCE_NEED_PER_AGENT,
@@ -138,7 +147,18 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     default_scale = prod_template.get("default_scale", 1.0)
     role_production = prod_template.get("role_production", _ROLE_PRODUCTION)
     zone_type_resources = prod_template.get("zone_type_resources", _ZONE_TYPE_RESOURCES)
+    # wage_share / rent_share: factor-income shares partitioning the zone
+    # output value V into rent + wages + profit (Ricardo 1817 / national-
+    # accounting identity Y = wages + rent + profit; see distribution.py's
+    # module docstring). profit_share is the residual 1 - wage_share -
+    # rent_share, clamped to 0 if the two shares alone already reach or
+    # exceed 1 (a misconfigured template) -- see
+    # distribution.partition_output_value for the clamp and its warning
+    # log. Defaults match distribution.py's own defaults so callers that
+    # invoke compute_rent/compute_wages/compute_profit directly (e.g.
+    # tests) see the same numbers as the engine.
     wage_share = prod_template.get("wage_share", 0.6)
+    rent_share = prod_template.get("rent_share", 0.15)
 
     total_transaction_volume = 0.0
     total_output = 0.0
@@ -168,7 +188,6 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             continue
 
         properties = list(Property.objects.filter(simulation=simulation, zone=zone))
-        property_owner_ids = {p.owner_id for p in properties if p.owner_id}
 
         old_prices = dict(ze.market_prices)
         old_prices_all.update(old_prices)
@@ -222,12 +241,16 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     transaction_type="production",
                 )
 
+            # Note: no "owns_property" flag here (CM-1 fix). Ownership no
+            # longer affects wage computation -- an owner's land/capital
+            # income is earned through the rent/profit steps below, on
+            # the SAME output value, not through a separate full-value
+            # wage payout (see distribution.compute_wages docstring).
             agent_outputs.append(
                 {
                     "agent_id": agent.id,
                     "good_code": good_code,
                     "quantity": quantity,
-                    "owns_property": agent.id in property_owner_ids,
                 }
             )
 
@@ -345,18 +368,40 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             broadcast_banking_concern(simulation, tick)
             credit_processed = True
 
-        # === STEP 4: RENT (emergent Ricardian) ===
+        # === STEP 4/5/5b: RENT + WAGES + PROFIT (conserved factor-income
+        # partition, approach A / CM-1 fix) ===
+        # zone_production's total value V = sum(zone_production[g] *
+        # equilibrium_prices[g]) is partitioned into rent (land) + wages
+        # (labor) + profit (capital residual) so the three shares sum to
+        # exactly V -- see distribution.partition_output_value and its
+        # module docstring for the Ricardo 1817 / national-accounting
+        # source. This replaces the pre-fix behavior where compute_rent
+        # and compute_wages each independently credited (approximately)
+        # the full V as brand-new cash, injecting strictly more money
+        # than the output actually produced every tick.
         prop_dicts = [
             {"owner_id": p.owner_id, "production_bonus": p.production_bonus}
             for p in properties
             if p.owner_type == "agent" and p.owner_id
         ]
-        rents = compute_rent(zone_production, prop_dicts, equilibrium_prices)
+        factor_shares = partition_output_value(
+            zone_production,
+            prop_dicts,
+            agent_outputs,
+            equilibrium_prices,
+            wage_share=wage_share,
+            rent_share=rent_share,
+        )
+        rents = factor_shares["rent"]
+        wages = factor_shares["wages"]
+        profits = factor_shares["profit"]
 
         cur_code = primary_currency.code
+
+        # === STEP 4: RENT (land factor share, emergent Ricardian) ===
         for owner_id, rent_amount in rents.items():
             inv = inv_cache.get(owner_id)
-            if inv:
+            if inv and rent_amount > 0:
                 inv.cash[cur_code] = inv.cash.get(cur_code, 0.0) + rent_amount
                 inv.save(update_fields=["cash"])
                 total_transaction_volume += rent_amount
@@ -370,14 +415,16 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     transaction_type="rent",
                 )
 
-        # === STEP 5: WAGES (share of output value) ===
-        wages = compute_wages(agent_outputs, equilibrium_prices, wage_share=wage_share)
-
-        # Sanity cap: no single wage exceeds 100x the median wage.
-        # This prevents price-explosion artifacts (from Fix 1-3 residuals or
-        # edge cases) from creating billionaires in a single tick.
-        # The floor of 100.0 ensures the cap is non-trivial even when the
-        # median is very low. Tunable design parameter.
+        # === STEP 5: WAGES (labor factor share) ===
+        # Sanity cap: no single wage exceeds 100x the median wage. This
+        # predates the conservation fix, when it guarded against price-
+        # explosion artifacts creating billionaires in a single tick
+        # (Fix 1-3 residuals / edge cases). With wages now structurally
+        # bounded to wage_share*V (never the full output value), the cap
+        # should rarely bind, but it is kept as a defense-in-depth
+        # safety net -- documented, not removed. The floor of 100.0
+        # ensures the cap is non-trivial even when the median is very
+        # low. Tunable design parameter.
         if wages:
             sorted_wages = sorted(wages.values())
             median_wage = sorted_wages[len(sorted_wages) // 2]
@@ -401,7 +448,30 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     transaction_type="wage",
                 )
 
+        # === STEP 5b: PROFIT (capital/entrepreneurial residual factor
+        # share) ===
+        for agent_id, profit_amount in profits.items():
+            inv = inv_cache.get(agent_id)
+            if inv and profit_amount > 0:
+                current_cash = inv.cash.get(cur_code, 0.0)
+                inv.cash[cur_code] = current_cash + profit_amount
+                inv.save(update_fields=["cash"])
+                total_transaction_volume += profit_amount
+                EconomicLedger.objects.create(
+                    simulation=simulation,
+                    tick=tick,
+                    from_agent=None,
+                    to_agent_id=agent_id,
+                    currency=primary_currency,
+                    total_amount=profit_amount,
+                    transaction_type="profit",
+                )
+
         # === STEP 6: TAXATION (flat rate -> government treasury) ===
+        # Unchanged by the CM-1 conservation fix: taxable income is still
+        # wages + rent only (profit is not yet in the taxable base --
+        # a known scope limitation, not addressed by this fix; taxing
+        # profit would be a separate, deliberate policy change).
         if tax_policy:
             agent_incomes: dict[int, float] = {}
             for agent_id in set(list(wages.keys()) + list(rents.keys())):
