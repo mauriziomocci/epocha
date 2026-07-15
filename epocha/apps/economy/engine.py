@@ -10,7 +10,9 @@ Executes the 9-step economic cycle each tick:
 5b. Profit (capital/entrepreneurial residual factor share)
 6. Taxation (flat income tax -> treasury)
 7. Essential consumption (1 unit/tick deducted)
-8. Monetary update (Fisher velocity) + wealth/mood/stability feedback
+8a. Money supply (live circulating-cash aggregate) + Fisher diagnostic
+8b. Wealth + mood (population-median-relative thresholds) + stability
+9. Deposit recalculation (banking)
 
 Steps 4, 5 and 5b partition a single zone output value V into factor
 incomes that sum to V (rent + wages + profit = V; Ricardo 1817 /
@@ -20,6 +22,18 @@ wages each independently credited the full V as brand-new cash,
 injecting strictly more money than the output actually produced
 (Round 1 audit report, distribution/PROD-2 and cross-module CM-1).
 
+Step 8a recomputes Currency.total_supply (M) as the live aggregate of
+circulating agent cash every tick, instead of leaving it at the
+static template constant set once at initialization, and invokes the
+Fisher MV=PQ diagnostic (previously defined but never called). Step
+8b derives the mood poverty/satiation thresholds from the living
+population's median wealth instead of fixed absolute constants (see
+monetary.derive_mood_thresholds). Both are the CM-2 and CM-6 fixes
+from the Round 1 audit report's cross-module findings; the system
+prices they and the inflation computation consume are themselves a
+genuine cross-zone aggregate (monetary.aggregate_system_prices),
+fixing the last-zone-wins dict.update() merge (CM-5).
+
 This function replaces world/economy.py:process_economy_tick for
 simulations that have the new economy app models initialized.
 """
@@ -27,6 +41,7 @@ simulations that have the new economy app models initialized.
 from __future__ import annotations
 
 import logging
+import statistics
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.world.government import add_to_treasury
@@ -64,9 +79,13 @@ from .models import (
     ZoneEconomy,
 )
 from .monetary import (
+    aggregate_system_prices,
+    check_fisher_consistency,
+    compute_circulating_money_supply,
     compute_inflation,
     compute_mood_delta,
     compute_velocity,
+    derive_mood_thresholds,
     update_agent_wealth,
 )
 from .production import compute_agent_output
@@ -162,8 +181,15 @@ def process_economy_tick_new(simulation, tick: int) -> None:
 
     total_transaction_volume = 0.0
     total_output = 0.0
-    old_prices_all: dict[str, float] = {}
-    new_prices_all: dict[str, float] = {}
+    # CM-5 fix (Round 1 audit report, cross-module CM-5): collect one
+    # price dict PER ZONE and aggregate them with
+    # monetary.aggregate_system_prices after the loop, instead of
+    # merging with dict.update() as the loop runs. The pre-fix
+    # dict.update() approach kept only the LAST zone's price for any
+    # good present in multiple zones, despite the "_all" naming
+    # implying a genuine system-wide aggregate.
+    old_prices_by_zone: list[dict[str, float]] = []
+    new_prices_by_zone: list[dict[str, float]] = []
 
     credit_processed = False
 
@@ -190,7 +216,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         properties = list(Property.objects.filter(simulation=simulation, zone=zone))
 
         old_prices = dict(ze.market_prices)
-        old_prices_all.update(old_prices)
+        old_prices_by_zone.append(old_prices)
 
         # === STEP 1: PRODUCTION (CES per agent) ===
         zone_production: dict[str, float] = {}
@@ -511,7 +537,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         ze.market_supply = total_supply
         ze.market_demand = total_demand
         ze.save(update_fields=["market_prices", "market_supply", "market_demand"])
-        new_prices_all.update(equilibrium_prices)
+        new_prices_by_zone.append(dict(equilibrium_prices))
 
         for good_code, price in equilibrium_prices.items():
             PriceHistory.objects.create(
@@ -533,16 +559,38 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     inv.holdings[code] = max(0.0, current - SUBSISTENCE_NEED_PER_AGENT)
                 inv.save(update_fields=["holdings"])
 
-    # === STEP 8a (global): MONETARY UPDATE (Fisher velocity) ===
-    primary_currency.cached_velocity = compute_velocity(
-        transaction_volume=total_transaction_volume,
-        money_supply=primary_currency.total_supply,
-    )
-    primary_currency.save(update_fields=["cached_velocity"])
+    # CM-5 fix: aggregate the per-zone price snapshots collected during
+    # the loop above into genuine system-wide prices (mean across the
+    # zones quoting each good), replacing the pre-fix last-zone-wins
+    # dict.update() merge. Used below by the money-supply/Fisher step,
+    # the wealth valuation, and the inflation/stability step.
+    old_prices_all = aggregate_system_prices(old_prices_by_zone)
+    new_prices_all = aggregate_system_prices(new_prices_by_zone)
 
-    # === STEP 8b: WEALTH + MOOD + STABILITY FEEDBACK ===
-    all_agents = Agent.objects.filter(simulation=simulation, is_alive=True)
-    agents_to_update = []
+    # === STEP 8: MONEY SUPPLY + WEALTH + MOOD + STABILITY FEEDBACK ===
+    # Single pass over all living agents (with their inventory
+    # prefetched) feeds three things that Round 1 audit found broken:
+    # (a) the live circulating-cash aggregate for Currency.total_supply
+    # (CM-2), (b) each agent's wealth for the mood update, and (c) the
+    # population median wealth used to derive this tick's mood
+    # thresholds (CM-6). Doing this in one query avoids re-fetching
+    # the same agent/inventory rows for what were previously two
+    # separate steps (N+1 avoidance).
+    all_agents = list(
+        Agent.objects.filter(simulation=simulation, is_alive=True).select_related("inventory")
+    )
+
+    # Property values grouped by owner in a single query instead of one
+    # query per agent inside the loop below (N+1 avoidance; pre-existing
+    # in the code this step replaces, fixed while rewriting the block).
+    property_values_by_owner: dict[int, list[float]] = {}
+    for owner_id, value in Property.objects.filter(
+        simulation=simulation, owner_type="agent"
+    ).values_list("owner_id", "value"):
+        property_values_by_owner.setdefault(owner_id, []).append(value)
+
+    agent_wealths: list[tuple[Agent, float]] = []
+    cash_balances: list[dict[str, float]] = []
 
     for agent in all_agents:
         try:
@@ -550,29 +598,82 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         except AgentInventory.DoesNotExist:
             continue
 
-        property_values = list(
-            Property.objects.filter(owner=agent, owner_type="agent").values_list("value", flat=True)
-        )
+        cash_balances.append(inv.cash)
 
-        agent.wealth = update_agent_wealth(
+        property_values = property_values_by_owner.get(agent.id, [])
+        wealth = update_agent_wealth(
             holdings=inv.holdings,
             cash=inv.cash,
             property_values=property_values,
             prices=new_prices_all or old_prices_all,
         )
+        agent_wealths.append((agent, wealth))
 
-        mood_delta = compute_mood_delta(agent.wealth)
+    # === STEP 8a: MONEY SUPPLY (CM-2 fix) + FISHER DIAGNOSTIC ===
+    # total_supply (M) is recomputed every tick as the live aggregate
+    # of circulating cash across all living agents in the primary
+    # currency, replacing the static template constant that was set
+    # once at initialization and never updated (Round 1 audit report,
+    # cross-module CM-2). See compute_circulating_money_supply's
+    # docstring for why BankingState.total_deposits is NOT added on
+    # top (it mirrors the same agent cash, not a disjoint pool).
+    live_money_supply = compute_circulating_money_supply(cash_balances, primary_currency.code)
+    primary_currency.total_supply = live_money_supply
+    primary_currency.cached_velocity = compute_velocity(
+        transaction_volume=total_transaction_volume,
+        money_supply=live_money_supply,
+    )
+    primary_currency.save(update_fields=["total_supply", "cached_velocity"])
+
+    # Fisher MV=PQ consistency check: a DIAGNOSTIC only (logs a warning
+    # above 20% divergence; never alters simulation state). Round 1
+    # audit report found check_fisher_consistency defined but never
+    # invoked anywhere -- the one check that would have caught the
+    # pre-fix money-supply/conservation defects (CM-1, CM-2) was dead
+    # code. system_price_level is the unweighted mean of this tick's
+    # system-aggregated prices (P); total_output is this tick's
+    # aggregate physical output across all zones (Q).
+    system_price_level = (
+        sum(new_prices_all.values()) / len(new_prices_all) if new_prices_all else 0.0
+    )
+    check_fisher_consistency(
+        money_supply=live_money_supply,
+        velocity=primary_currency.cached_velocity,
+        price_level=system_price_level,
+        output_level=total_output,
+    )
+
+    # === STEP 8b: WEALTH + MOOD (CM-6 fix: relative thresholds) ===
+    # Poverty/satiation thresholds are derived from THIS tick's living
+    # population median wealth (monetary.derive_mood_thresholds)
+    # instead of the fixed absolute constants (10.0 / 100.0) that were
+    # disconnected from the era template's wealth scale -- e.g. every
+    # property owner in the pre-industrial template started past the
+    # old satiation=100 threshold from tick 0 (Round 1 audit report,
+    # monetary+initialization cross-module finding).
+    median_wealth = statistics.median([w for _, w in agent_wealths]) if agent_wealths else 0.0
+    poverty_threshold, satiation_threshold = derive_mood_thresholds(median_wealth)
+
+    agents_to_update = []
+    for agent, wealth in agent_wealths:
+        agent.wealth = wealth
+        mood_delta = compute_mood_delta(
+            wealth,
+            satiation_threshold=satiation_threshold,
+            poverty_threshold=poverty_threshold,
+        )
         agent.mood = max(0.0, min(1.0, agent.mood + mood_delta))
-
         agents_to_update.append(agent)
 
     if agents_to_update:
         Agent.objects.bulk_update(agents_to_update, ["wealth", "mood"])
 
-    # Update world stability based on inflation
+    # === STEP 8c: STABILITY FEEDBACK (inflation, system aggregate) ===
     # Alesina & Perotti (1996): political instability and income distribution.
     # High inflation destabilizes; low inflation is neutral-to-positive.
     # Thresholds are tunable design parameters, not derived from the paper.
+    # old_prices_all/new_prices_all are now genuine system-wide
+    # aggregates (CM-5 fix above), not a single zone's prices.
     inflation = compute_inflation(old_prices_all, new_prices_all)
     try:
         world = simulation.world
@@ -584,7 +685,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     except Exception:
         pass
 
-    # === STEP 10: DEPOSIT RECALCULATION ===
+    # === STEP 9: DEPOSIT RECALCULATION ===
     # Recalculate total_deposits from all agent cash after all economic
     # transactions are complete.
     recalculate_deposits(simulation)
