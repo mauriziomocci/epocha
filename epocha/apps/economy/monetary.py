@@ -122,6 +122,17 @@ def compute_circulating_money_supply(
     circulating cash and total_deposits would therefore double-count
     the identical money.
 
+    Scope of M (R3-4 disclosure, Round 3 re-audit): the aggregate
+    covers LIVING agents' cash only. The government treasury and any
+    cash still recorded on dead agents' inventories sit OUTSIDE the
+    measured M -- so taxation, which moves cash from agents to the
+    treasury, shrinks M by design (the treasury is modeled as a sink
+    outside circulation until spent), and an agent's death removes its
+    cash from circulation until inheritance (a demography work item)
+    reassigns it. Both exclusions are deliberate model boundaries, not
+    leaks: conservation of the agent-side flows is audited separately
+    (see engine.py steps 4-6).
+
     Args:
         agent_cash_balances: one {currency_code: amount} dict per
             living agent (e.g. AgentInventory.cash values).

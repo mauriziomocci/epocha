@@ -191,3 +191,39 @@ class TestCESLeontiefLimit:
 
         assert abs(result_skewed_to_a - expected) < 1e-9
         assert abs(result_skewed_to_b - expected) < 1e-9
+
+
+class TestLeontiefSeamBound:
+    """Round 3 re-audit finding R3-DIST-1 (run wf_af84ed13-dc3): the
+    degenerate-point continuity test above (all X_i == 1.0) cannot
+    measure the real branch seam, because every weighted power mean
+    equals min(X_i) identically at that point. This test bounds the
+    ACTUAL seam with heterogeneous inputs: the general CES evaluated
+    just above _LEONTIEF_THRESHOLD (rho = -19 at sigma 0.06 -> 0.0526...)
+    approaches min(X_i) from above, so the branch switch introduces a
+    small positive discontinuity that must stay within a realistic
+    tolerance (documented in production.py's Leontief-branch comment)."""
+
+    def test_ces_leontief_seam_bounded_for_heterogeneous_inputs(self):
+        weights = {"a": 0.9, "b": 0.1}
+        inputs = {"a": 2.0, "b": 5.0}
+        scale = 1.0
+
+        general_branch = ces_production(
+            scale=scale,
+            sigma=0.06,
+            factor_weights=weights,
+            factor_inputs=inputs,
+        )
+        leontief_branch = ces_production(
+            scale=scale,
+            sigma=0.04,
+            factor_weights=weights,
+            factor_inputs=inputs,
+        )
+
+        assert leontief_branch == 2.0  # exact min(X_i)
+        # Power mean converges to the min from above: seam is positive...
+        assert general_branch >= leontief_branch
+        # ...and bounded: below 1% relative at the current threshold.
+        assert (general_branch - leontief_branch) / leontief_branch < 0.01

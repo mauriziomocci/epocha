@@ -107,9 +107,13 @@ def ces_production(
     # X_i**rho overflows/underflows floats, which is exactly why the
     # limit branch exists. The threshold is a tunable numerical-
     # stability parameter; the seam magnitude shrinks as the threshold
-    # is lowered and is covered by the continuity regression test
-    # (test_ces_leontief_limit_continuity, epsilon-agreement across the
-    # threshold).
+    # is lowered. Two regression tests pin this behavior:
+    # test_ces_leontief_limit_continuity guards the pre-fix 10x
+    # min(alpha_i*X_i) bug at the degenerate all-equal-inputs point
+    # (where the seam is zero by construction), and
+    # test_ces_leontief_seam_bounded_for_heterogeneous_inputs bounds
+    # the REAL seam with skewed inputs (positive, below 1% relative at
+    # the current threshold).
     if sigma < _LEONTIEF_THRESHOLD:
         return scale * min(x for _, x in pairs)
 
