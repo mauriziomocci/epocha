@@ -24,7 +24,7 @@ cognizione ricca ma operano su piccoli gruppi, orizzonti brevi e ambienti
 stilizzati senza un sostrato demografico o economico sottostante. Il
 whitepaper documenta l'architettura del sistema (motore di tick, pipeline di
 decisione dell'agente, strategia RNG, adattatore di provider LLM, sostrato
-economico, modello di persistenza, dashboard e strato di chat), sei moduli
+economico, modello di persistenza, dashboard e strato di chat), i moduli
 scientifici auditati — mortalità di Heligman-Pollard, fertilità Hadwiger
 con Becker, formazione di coppia Gale-Shapley con Goode 1963, aspettative
 adattive Cagan-Nerlove, credito e banca Diamond-Dybvig, mercato
@@ -32,9 +32,9 @@ immobiliare ancorato a Gordon, reputazione Castelfranchi-Conte-Paolucci,
 propagazione del passaparola Bartlett-Allport-Postman (information flow,
 distortion, belief filter, affinity), il cluster delle istituzioni
 politiche (government, government_types, institutions, stratification,
-election), e il movimento — e tre sottosistemi implementati in codice
-ma in attesa dell'audit scientifico avversariale di Round 2 (fazioni,
-knowledge graph, layer economico di base). Ogni formula, parametro e
+election), il movimento e le fazioni — e due sottosistemi implementati
+in codice ma in attesa dell'audit scientifico avversariale di Round 2
+(knowledge graph, layer economico di base). Ogni formula, parametro e
 algoritmo nei capitoli auditati è citato a una fonte primaria; le tabelle
 di calibrazione sono presentate per template di era e consolidate
 nell'Appendice A; la metodologia di validazione specifica dataset, metriche
@@ -2227,7 +2227,7 @@ Il seguente catalogo raggruppa le limitazioni aperte per modulo. Ogni voce è de
 
 # 12. Conclusioni
 
-Epocha come documentato al commit pinnato spedisce un substrato demografico auditato che copre mortalità Heligman-Pollard, fertilità Hadwiger-con-Becker e formazione delle coppie Gale-Shapley con Goode 1963 (§4.1), un'economia comportamentale auditata che copre aspettative adattive Cagan-Nerlove, credito e sistema bancario Diamond-Dybvig e un mercato immobiliare ancorato a Gordon (§4.2), una pipeline decisionale di agenti guidata da LLM che consuma lo stato per tick del substrato e riscrive nel layer di persistenza (§3.2), e tre sottosistemi implementati-ma-pre-audit (§8) che coprono fazioni, il Knowledge Graph e il layer base dell'economia. L'infrastruttura runtime copre un tick engine con loop Celery auto-enqueuing, una strategia RNG seedata per fase che rende ogni esecuzione riproducibile attraverso macchine dall'hash di commit, dal seed e dallo stato iniziale del database (§3.4), un adapter di provider LLM che astrae su OpenAI vero e proprio, Groq, Gemini, OpenRouter, Together AI, Mistral, LM Studio e Ollama con rotazione delle chiavi e un limiter sliding-window backed da Redis (§3.5), e una dashboard più un layer di chat WebSocket che esponendo lo stato di simulazione live e la superficie di conversazione agente-per-agente all'operatore (§3.8).
+Epocha come documentato al commit pinnato spedisce un substrato demografico auditato che copre mortalità Heligman-Pollard, fertilità Hadwiger-con-Becker e formazione delle coppie Gale-Shapley con Goode 1963 (§4.1), un'economia comportamentale auditata che copre aspettative adattive Cagan-Nerlove, credito e sistema bancario Diamond-Dybvig e un mercato immobiliare ancorato a Gordon (§4.2), una pipeline decisionale di agenti guidata da LLM che consuma lo stato per tick del substrato e riscrive nel layer di persistenza (§3.2), e due sottosistemi implementati-ma-pre-audit (§8) che coprono il Knowledge Graph e il layer base dell'economia. L'infrastruttura runtime copre un tick engine con loop Celery auto-enqueuing, una strategia RNG seedata per fase che rende ogni esecuzione riproducibile attraverso macchine dall'hash di commit, dal seed e dallo stato iniziale del database (§3.4), un adapter di provider LLM che astrae su OpenAI vero e proprio, Groq, Gemini, OpenRouter, Together AI, Mistral, LM Studio e Ollama con rotazione delle chiavi e un limiter sliding-window backed da Redis (§3.5), e una dashboard più un layer di chat WebSocket che esponendo lo stato di simulazione live e la superficie di conversazione agente-per-agente all'operatore (§3.8).
 
 Ciò che distingue questo codebase dal paesaggio circostante è meno i moduli individuali — la maggior parte ha antecedenti ben noti nella letteratura censita in §2 — e più la disciplina che li produce e li mantiene. Il whitepaper bilingue di §1 è un documento vivente congelato a ogni merge sul branch di sviluppo, con la companion italiana pubblicata accanto all'originale inglese; ogni formula, parametro e algoritmo nei capitoli auditati cita una fonte primaria, e le asserzioni non verificate sono segnalate inline piuttosto che presentate come fatto. Il workflow canonico a sette fasi che governa ogni sottosistema (ideazione, requisiti, plan, task breakdown, implementazione, test generale, chiusura) porta due gate pesanti e due leggeri con approvazione umana esplicita a ciascuno, e la policy di audit avversariale obbligatoria attiva il revisore `critical-analyzer` sia in fase di spec sia in fase di codice con un loop di convergenza che non chiude su "abbastanza vicino". La riproducibilità è incorporata piuttosto che retrofittata: i template per epoca portano i valori di parametro per epoca fuori dal codice sorgente e in artefatti auditabili, gli stream RNG seedati sono partizionati per simulazione, tick e fase in modo che un refactor non possa silenziosamente spostare la sequenza casuale che un sottosistema vede, e l'Appendice B registra i comandi esatti tramite i quali ogni risultato riportato può essere rigenerato da un checkout pulito pinnato all'hash di commit congelato.
 

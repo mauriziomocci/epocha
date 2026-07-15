@@ -23,16 +23,17 @@ endow agents with rich cognition but operate over small groups, short
 horizons, and stylised environments without an underlying demographic or
 economic substrate. The whitepaper documents the system architecture (tick
 engine, agent decision pipeline, RNG strategy, LLM provider adapter,
-economic substrate, persistence model, dashboard and chat layer), eleven
+economic substrate, persistence model, dashboard and chat layer), the
 audited scientific modules — Heligman-Pollard mortality, Hadwiger-with-Becker
 fertility, Gale-Shapley with Goode 1963 couple formation, Cagan-Nerlove
 adaptive expectations, Diamond-Dybvig credit and banking, a
 Gordon-anchored property market, Castelfranchi-Conte-Paolucci reputation,
 Bartlett-Allport-Postman rumor propagation (information flow, distortion,
-belief filter, affinity), and the political-institutions cluster
-(government, government_types, institutions, stratification, election) —
-and four subsystems implemented in code but awaiting Round 2 adversarial
-scientific audit (movement, factions, knowledge graph, economy base layer). Every formula, parameter, and algorithm in the audited
+belief filter, affinity), the political-institutions cluster
+(government, government_types, institutions, stratification, election),
+movement, and factions —
+and two subsystems implemented in code but awaiting Round 2 adversarial
+scientific audit (knowledge graph, economy base layer). Every formula, parameter, and algorithm in the audited
 chapters is cited to a primary source; calibration tables are presented per
 era template and consolidated in Appendix A; the validation methodology
 specifies datasets, metrics, and acceptance thresholds against which Plan 4
@@ -2351,8 +2352,8 @@ audited behavioral economy covering Cagan-Nerlove adaptive expectations,
 Diamond-Dybvig credit and banking, and a Gordon-anchored property market
 (§4.2), an LLM-driven agent decision pipeline that consumes the
 substrate's per-tick state and writes back into the persistence layer
-(§3.2), and three implemented-but-pre-audit subsystems (§8) covering
-factions, the Knowledge Graph, and the economy base layer. The runtime infrastructure
+(§3.2), and two implemented-but-pre-audit subsystems (§8) covering
+the Knowledge Graph and the economy base layer. The runtime infrastructure
 covers a tick engine with self-enqueuing Celery loop, a per-phase seeded
 RNG strategy that makes every run reproducible across machines from the
 commit hash, the seed, and the initial database state (§3.4), an
