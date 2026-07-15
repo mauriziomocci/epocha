@@ -218,6 +218,45 @@ class TestInitializeEconomy:
         assert "default_sigma" in prod_cfg
         assert "role_production" in prod_cfg
 
+    def test_effective_production_scale_is_template_value(self, simulation, world_with_agents):
+        """The CES scale reaching production.compute_agent_output must be the
+        template's calibrated default_scale (2.0 for pre_industrial), not the
+        dead hardcoded per-good 5.0 nor the dead engine fallback 1.0.
+
+        Round 1 audit findings initialization/PROD-1 and initialization/PROD-2
+        (specs/20260715-132752-economy-base-layer-audit/round1-audit-report.md):
+        template_loader.py documents scale=5.0 as unphysical -- it floods a
+        4-agent market -- and calibrates pre_industrial to default_scale=2.0,
+        but both carriers that could deliver 2.0 to production.py were dead:
+        the per-good config always hardcoded "scale": 5.0 (shadowing the
+        default_scale fallback in production.py), and initialize_economy
+        never wrote "default_scale" into sim_config["production_config"], so
+        engine.py:138 fell back to its own conservative default of 1.0.
+        """
+        initialize_economy(simulation, template_name="pre_industrial")
+        simulation.refresh_from_db()
+
+        # Carrier (a): the per-good production config stored on the zone
+        # economy must not force the unphysical 5.0 over the calibrated
+        # value. Either the "scale" key is absent (letting production.py's
+        # default_scale fallback apply) or it already carries 2.0.
+        ze = ZoneEconomy.objects.filter(zone__world__simulation=simulation).first()
+        assert ze is not None
+        for good_code, good_prod in ze.production_config.items():
+            per_good_scale = good_prod.get("scale")
+            assert per_good_scale != 5.0, (
+                f"good '{good_code}' still hardcodes the unphysical scale=5.0 "
+                "documented in template_loader.py as flooding a 4-agent market"
+            )
+            if per_good_scale is not None:
+                assert per_good_scale == 2.0
+
+        # Carrier (b): sim_config["production_config"] must propagate
+        # default_scale so engine.py:138 receives the calibrated value
+        # instead of falling back to 1.0.
+        prod_cfg = simulation.config.get("production_config", {})
+        assert prod_cfg.get("default_scale") == 2.0
+
     def test_overrides_applied(self, simulation, world_with_agents):
         overrides = {
             "tax_config": {"income_tax_rate": 0.40},

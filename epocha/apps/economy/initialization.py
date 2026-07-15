@@ -117,6 +117,12 @@ def initialize_economy(
     default_sigma = prod_cfg.get("default_sigma", 0.5)
     zone_type_resources = prod_cfg.get("zone_type_resources", {})
     role_production = prod_cfg.get("role_production", {})
+    # default_scale: the template's calibrated CES scale (A). See
+    # template_loader.py's pre_industrial production_config for the
+    # calibration note (scale=5.0 floods a 4-agent market; 2.0 keeps
+    # supply/demand ratios reasonable). Falls back to 1.0 (conservative,
+    # matches engine.py's own fallback) only if a template omits it.
+    default_scale = prod_cfg.get("default_scale", 1.0)
 
     # Build initial market prices from goods base_price
     initial_prices = {g.code: g.base_price for g in goods}
@@ -124,13 +130,16 @@ def initialize_economy(
     # Build per-good production config from template defaults.
     # Each good gets a CES function with equal factor weights and the
     # template's default sigma. Zone-specific resource abundances are
-    # stored in natural_resources, not in the per-good config.
+    # stored in natural_resources, not in the per-good config. The
+    # "scale" key is intentionally omitted here so that production.py's
+    # default_scale fallback (good_prod.get("scale", default_scale))
+    # applies and every good uses the template's calibrated value rather
+    # than a hardcoded per-good override.
     factor_codes = [f.code for f in factors]
     n_factors = len(factor_codes) or 1
     default_good_production = {}
     for g in goods:
         default_good_production[g.code] = {
-            "scale": 5.0,  # tunable design parameter: base output multiplier
             "sigma": default_sigma,
             "factors": {fc: 1.0 / n_factors for fc in factor_codes},
         }
@@ -165,6 +174,7 @@ def initialize_economy(
     sim_config = simulation.config or {}
     sim_config["production_config"] = {
         "default_sigma": default_sigma,
+        "default_scale": default_scale,
         "role_production": role_production,
         "zone_type_resources": zone_type_resources,
     }
