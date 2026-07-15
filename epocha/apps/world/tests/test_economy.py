@@ -1,10 +1,13 @@
 """Tests for the basic economy tick processing."""
 
+import importlib
+
 import pytest
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
+from epocha.apps.world import economy
 from epocha.apps.world.economy import process_economy_tick
 from epocha.apps.world.models import World
 
@@ -90,3 +93,9 @@ class TestProcessEconomyTick:
         process_economy_tick(world, tick=1)
         world.refresh_from_db()
         assert isinstance(world.stability_index, float)
+
+
+def test_module_emits_deprecation_warning():
+    """The legacy module is deprecated; importing it must warn (spec FR-002/FR-004)."""
+    with pytest.warns(DeprecationWarning, match="deprecated"):
+        importlib.reload(economy)

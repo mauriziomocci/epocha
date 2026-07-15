@@ -1,25 +1,44 @@
-"""Basic economic logic for the MVP.
+"""DEPRECATED: legacy MVP economy placeholder.
 
-A simplified economy where agents earn income based on their role and pay
-a fixed cost of living each tick. Wealth affects mood, and average mood
-determines world stability.
+Superseded by ``epocha.apps.economy.*`` (adversarial audit CONVERGED
+2026-04-15, whitepaper section 4.2 Economy Behavioral integration).
+Do not extend this module. Callers should be migrated to the new economy
+package and this file removed in a dedicated follow-up work item.
 
-This is a placeholder economy for the MVP. Post-MVP versions will implement
-supply/demand, inflation, trade, and class dynamics as described in the
-design spec (Scientific Models Engine section).
+Verified residual callers (2026-07-15):
+- ``epocha/apps/simulation/engine.py:38`` -- module-level import of
+  ``process_economy_tick``.
+- ``epocha/apps/simulation/engine.py`` -- ``run_economy`` (line ~354) and
+  ``SimulationEngine.run_tick`` (line ~446): runtime fallback used when the
+  simulation has no ``Currency`` rows (new economy data layer not
+  initialized).
+- ``epocha/apps/simulation/tasks.py:46`` -- Celery production path: the tick
+  task calls ``run_economy(simulation)``, which reaches this fallback.
+- ``epocha/apps/world/tests/test_economy.py`` -- unit tests of this module.
 
-Income values are relative (not calibrated to any real currency), designed
-to produce interesting dynamics within 50-100 ticks.
+Legacy model description (unchanged): a simplified economy where agents earn
+income based on their role and pay a fixed cost of living each tick. Wealth
+affects mood, and average mood determines world stability. Income values are
+relative (not calibrated to any real currency), designed to produce
+interesting dynamics within 50-100 ticks. The mood satiation behavior follows
+Kahneman & Deaton (2010) qualitatively; see inline comments.
 """
 
 from __future__ import annotations
 
 import logging
 import math
+import warnings
 
 from epocha.apps.agents.models import Agent
 
 logger = logging.getLogger(__name__)
+
+warnings.warn(
+    "epocha.apps.world.economy is deprecated, use epocha.apps.economy.* instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 # Base income per tick by role. Higher-skilled roles earn more.
 # These values are game-balanced for MVP dynamics, not historically calibrated.
