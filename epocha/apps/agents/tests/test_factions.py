@@ -12,6 +12,7 @@ from epocha.apps.agents.factions import (
     _check_join_existing_groups,
     _check_schism,
     _create_faction,
+    _detect_and_propose_factions,
     compute_leadership_score,
     update_group_cohesion,
     update_group_leadership,
@@ -782,12 +783,91 @@ class TestLeadershipDeN1:
 
 @pytest.mark.django_db
 class TestCreateFactionDeN1:
-    """Founder-election de-N+1 in _create_faction (FR-004 scope extension).
+    """Founder-election de-N+1 and election correctness in _create_faction.
 
     Coordinator-approved extension of FR-004 to the founder-election loop in
     `_create_faction` (same defect class as the leadership pipeline N+1,
     caught during T012-T014 and escalated per Exhaustive Bug Analysis).
+    Covers the constant query budget AND the declared behavior fix that came
+    with it: on develop the election ran before the founders' group FK
+    bulk-update, scored against the EMPTY new group (every founder 0.0) and
+    crowned founders[0] by stable-sort order.
     """
+
+    def test_create_faction_elects_highest_scoring_founder(self, simulation, world, mock_llm):
+        """The faction leader is the founder with the highest leadership score.
+
+        Declared behavior fix (audit F1): on develop, `_create_faction`
+        ran its election BEFORE `Agent.objects.filter(id__in=founder_ids)
+        .update(group=group)`, so `compute_leadership_score`'s self-fetch
+        of `group=group` members returned an EMPTY set, every founder
+        scored 0.0, and the stable sort crowned founders[0] regardless of
+        traits or relationships -- contradicting the function's docstring
+        ("assigns the agent with the highest leadership score as leader").
+        Post-fix the election is fed `members=founders` plus a leadership
+        context, so it operates on the actual founding membership.
+
+        Fixture: the intended winner sits at index 2 (NOT index 0), with
+        dominant charisma/intelligence (0.9 vs 0.1), the top wealth rank
+        (distinct wealths, no rank ties) and strong positive relationships
+        from every other founder (sentiment 0.8). Its score (~0.78) beats
+        every other founder (<= ~0.33) by construction, so the expected
+        ordering is unambiguous. The assertion targets leader IDENTITY:
+        the expected winner is recomputed in-test as the argmax of
+        `compute_leadership_score(..., members=founders, context=...)`
+        over all founders (post-creation scores equal election-time
+        scores: the founding memories created after the election all
+        carry tick_created == tick == formed_at_tick, so seniority is 0.0
+        on both sides, and relationships are untouched by creation).
+        """
+        weak_wealths = [10.0, 20.0, 30.0]
+        founders = [
+            _make_join_agent(
+                simulation, f"Weak{i}", wealth=weak_wealths[i], charisma=0.1, intelligence=0.1
+            )
+            for i in range(2)
+        ]
+        strong = _make_join_agent(
+            simulation, "Strong", wealth=100.0, charisma=0.9, intelligence=0.9
+        )
+        founders.append(strong)
+        founders.append(
+            _make_join_agent(
+                simulation, "Weak2", wealth=weak_wealths[2], charisma=0.1, intelligence=0.1
+            )
+        )
+        assert founders[2] is strong and founders[0] is not strong
+        for weak in founders:
+            if weak is strong:
+                continue
+            Relationship.objects.create(
+                agent_from=weak,
+                agent_to=strong,
+                relation_type="friendship",
+                strength=0.5,
+                sentiment=0.8,
+                since_tick=0,
+            )
+
+        tick = 10
+        _create_faction(simulation, founders, tick=tick)
+
+        group = Group.objects.get(simulation=simulation)
+        recompute_context = factions_module._build_leadership_context(group, founders)
+        expected_winner = max(
+            founders,
+            key=lambda f: compute_leadership_score(
+                f, group, tick, members=founders, context=recompute_context
+            ),
+        )
+        assert expected_winner is strong, "fixture must make the strong founder the argmax"
+        assert group.leader_id == strong.id, (
+            f"leader is {group.leader.name}, expected {strong.name} -- "
+            "the election did not pick the highest-scoring founder"
+        )
+        assert group.leader_id != founders[0].id, (
+            "leader must not be founders[0] by position (pre-fix degenerate behavior)"
+        )
 
     def test_create_faction_founder_election_query_budget(
         self, simulation, world, mock_llm, django_assert_num_queries
@@ -835,6 +915,84 @@ class TestCreateFactionDeN1:
         founders12 = [_make_join_agent(simulation, f"F12_{i}") for i in range(12)]
         with django_assert_num_queries(10):
             factions_module._create_faction(simulation, founders12, tick=10)
+
+
+@pytest.mark.django_db
+class TestDetectClustersQueryBudget:
+    """Query budget contract for _detect_and_propose_factions (FR-003, audit F2)."""
+
+    def test_detect_clusters_query_budget(self, simulation, world, django_assert_num_queries):
+        """_detect_and_propose_factions runs on a FIXED per-tick query budget.
+
+        Contract chosen (documented per the audit instruction): the budget
+        is pinned at the SAME constant for both scenarios by ensuring each
+        scenario creates at least one proposal memory -- `bulk_create` of a
+        non-empty list is ONE query regardless of how many memories or
+        clusters it covers, so the constant holds independent of agent,
+        pair and cluster count; only the degenerate no-proposal tick would
+        cost one query less (the bulk_create is skipped entirely).
+
+        Query breakdown (5, no transaction wrapper -- proposal memories are
+        signals, not one of the four FR-005 mutation paths):
+          1. ungrouped candidates fetch (order_by name, id)
+          2. affinity context -- Relationship superset query
+             (`build_affinity_context`)
+          3. affinity context -- Memory (PUBLIC window) query
+          4. already-proposed dedup -- ALL recent memories of candidates
+             (tick-5 window) in one aggregated query
+          5. `bulk_create` of the proposal memories
+
+        Scenario 1: 8 mutually-affine candidates (pairwise 0.54 >= 0.5
+        threshold via `_make_join_agent` defaults) plus 2 engineered
+        outliers (affinity ~0.18 vs the clusterables; mutually affine with
+        each other but only 2 of them, below EPOCHA_FACTION_MIN_MEMBERS=3,
+        so they can never cluster) -> one cluster of 8 (the
+        MAX_INITIAL_MEMBERS cap). Scenario 2 doubles the clusterable
+        population to 16 (at tick 20, so the tick-5 dedup window has
+        expired for scenario 1's proposals): the cap splits them into TWO
+        clusters of 8 -- same 5 queries, demonstrating independence from
+        both candidate count and cluster count.
+
+        Pre-Round-3 (before commit 5ba7bc9) the affinity loop cost
+        O(pairs) queries (~3 per compute_affinity call) plus one
+        already-proposed exists() per cluster member; this test pins the
+        post-fix contract against regression.
+        """
+        low_traits = {t: 0.1 for t in _BIG_FIVE_TRAITS}
+
+        def _add_clusterables(batch, count):
+            return [_make_join_agent(simulation, f"Kin{batch}_{i}") for i in range(count)]
+
+        # Outliers: opposite personality vs the clusterables' empty-dict
+        # default (which resolves to 0.5 per trait), different class, high
+        # mood, remote wealth quartile, different role -> ~0.18 affinity
+        # with every clusterable, well below the 0.5 threshold.
+        for i in range(2):
+            _make_join_agent(
+                simulation,
+                f"Loner{i}",
+                personality=dict(low_traits),
+                social_class="elite",
+                mood=0.9,
+                wealth=5000.0,
+                role="priest",
+            )
+
+        _add_clusterables(batch=1, count=8)
+        with django_assert_num_queries(5):
+            _detect_and_propose_factions(simulation, tick=10)
+        assert Memory.objects.filter(content__contains="share common ground").exists(), (
+            "scenario 1 must generate at least one proposal (bulk_create must fire)"
+        )
+
+        first_run_proposals = Memory.objects.filter(content__contains="share common ground").count()
+        _add_clusterables(batch=2, count=8)
+        with django_assert_num_queries(5):
+            _detect_and_propose_factions(simulation, tick=20)
+        assert (
+            Memory.objects.filter(content__contains="share common ground").count()
+            > first_run_proposals
+        ), "scenario 2 must generate new proposals (bulk_create must fire)"
 
 
 def _make_hostile_subclique(simulation, group, ally_names, rest_names):

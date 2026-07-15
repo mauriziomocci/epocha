@@ -293,6 +293,15 @@ def _build_leadership_context(group: Group, members: list[Agent]) -> _Leadership
     for rel in Relationship.objects.filter(
         agent_from_id__in=member_ids, agent_to_id__in=member_ids
     ).order_by("id"):
+        if rel.agent_from_id == rel.agent_to_id:
+            # Defensive: no DB constraint forbids a self-relationship row
+            # (agent_from == agent_to). Such a row must not enter any
+            # bucket -- the no-context path excludes it structurally (its
+            # other-member id set never contains the agent's own id), and
+            # the two appends below would otherwise add it TWICE to the
+            # same agent's bucket, double-counting it in the sentiment
+            # average.
+            continue
         relationships_by_agent[rel.agent_from_id].append(rel)
         relationships_by_agent[rel.agent_to_id].append(rel)
 
