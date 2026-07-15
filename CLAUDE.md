@@ -411,5 +411,5 @@ Constitution authoritative at `.specify/memory/constitution.md` — supersedes c
 
 See memory `feedback_speckit_mandatory.md` for the absolute rule.
 
-**Active feature plan**: `specs/20260622-152915-ruff-repo-wide-cleanup/plan.md`
+**Active feature plan**: `specs/20260715-094457-world-economy-deprecation/plan.md`
 <!-- SPECKIT END -->
