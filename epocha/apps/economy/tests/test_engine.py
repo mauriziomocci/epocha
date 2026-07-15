@@ -529,6 +529,59 @@ class TestAbsentOwnerFactorIncomeAndTaxSymmetry:
         ).exists()
 
 
+@pytest.mark.django_db
+class TestSettlementAffordability:
+    """Round 2 re-audit finding MKT-7 (run wf_da2305bc-4cd).
+
+    Wants are sized at pre-clearing prices (and essential needs are not
+    cash-sized at all), while trades settle at equilibrium prices with
+    no guard on the buyer's cash: realized spend could exceed the
+    buyer's cash and drive it negative. The settlement must scale each
+    trade down to what the buyer can actually pay.
+    """
+
+    def test_buyer_trade_spend_bounded_by_cash(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        # A near-broke buyer with an essential-good gap: their demand
+        # (1 unit of subsistence, not sized by cash) settles at an
+        # equilibrium price several times their cash on hand.
+        merchant = setup_economy["merchant"]
+        merchant_inv = merchant.inventory
+        merchant_inv.holdings = {}
+        merchant_inv.cash = {"LVR": 0.5}
+        merchant_inv.save(update_fields=["holdings", "cash"])
+
+        initial_cash = 0.5
+
+        # Pin the equilibrium price above the buyer's cash so the test
+        # exercises the settlement guard deterministically instead of
+        # depending on tatonnement dynamics (with the fixture's excess
+        # supply the price would fall below the buyer's cash and never
+        # trigger the overspend).
+        with patch(
+            "epocha.apps.economy.engine.tatonnement_prices",
+            return_value=({"subsistence": 5.0, "luxury": 50.0}, True),
+        ):
+            process_economy_tick_new(simulation, tick=1)
+
+        trade_spend = sum(
+            entry.total_amount
+            for entry in EconomicLedger.objects.filter(
+                simulation=simulation,
+                tick=1,
+                transaction_type="trade",
+                from_agent=merchant,
+            )
+        )
+        assert trade_spend <= initial_cash + 1e-9
+
+        merchant_inv.refresh_from_db()
+        assert merchant_inv.cash.get("LVR", 0.0) >= -1e-9
+
+
 @pytest.fixture
 def setup_two_zone_economy(simulation):
     """Two zones both quoting 'subsistence', seeded with DIFFERENT

@@ -230,6 +230,15 @@ def collect_supply_and_demand(
     total discretionary spend never exceeds that budget regardless of
     how many non-essential goods exist (MKT-5 fix).
 
+    The budget bound above holds at the SIZING prices (this tick's
+    pre-clearing market_prices). Trades settle at the post-tatonnement
+    equilibrium prices, which can exceed the sizing prices, and
+    essential demand is a physical subsistence gap not sized by cash
+    at all -- so the REALIZED spend bound is enforced at settlement by
+    the engine's affordability guard, which scales each trade down to
+    the buyer's remaining cash (MKT-7 fix; see engine.py's trade
+    application loop).
+
     Args:
         agent_inventories: list of dicts with keys: agent_id, holdings,
             cash_amount, is_hoarding (bool).

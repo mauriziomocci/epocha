@@ -344,11 +344,27 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 qty = trade["quantity"]
                 cost = trade["total"]
 
+                # MKT-7 settlement affordability guard (Round 2
+                # re-audit, run wf_da2305bc-4cd): wants are sized at
+                # pre-clearing prices (essential needs are not
+                # cash-sized at all), while trades settle at equilibrium
+                # prices, so a trade's cost can exceed the buyer's
+                # remaining cash. Scale the trade down to what the buyer
+                # can actually pay (the unsold quantity stays with the
+                # seller, conserving goods), so trading can never drive
+                # a buyer's cash negative.
+                cur_code = primary_currency.code
+                available = buyer_inv.cash.get(cur_code, 0.0)
+                if cost > available:
+                    if available <= 0.0:
+                        continue
+                    qty *= available / cost
+                    cost = available
+
                 buyer_inv.holdings[good] = buyer_inv.holdings.get(good, 0.0) + qty
                 current_hold = seller_inv.holdings.get(good, 0.0)
                 seller_inv.holdings[good] = max(0.0, current_hold - qty)
 
-                cur_code = primary_currency.code
                 buyer_inv.cash[cur_code] = buyer_inv.cash.get(cur_code, 0.0) - cost
                 seller_inv.cash[cur_code] = seller_inv.cash.get(cur_code, 0.0) + cost
 
