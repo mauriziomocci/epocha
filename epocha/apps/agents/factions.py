@@ -81,25 +81,63 @@ Known Limitations:
       0.3 moderate, 0.4 significant) applied to faction-event memories. All are
       part of the simulation's calibration budget tied to tick frequency and the
       desired group-formation timescale.
-  (f) Deferred behavioral hardening (tracked for a future "factions Round 3
-      hardening" work item, out of scope for this doc-only audit re-pass):
-      member-sampling bias from default primary-key ordering in
-      _check_join_existing_groups; missing @transaction.atomic around the
-      multi-row writes in _check_schism and _create_faction; inconsistent agent
-      migration discipline (.update(group=None) does not fire signals while
-      per-agent .save() does); and N+1 query patterns in the
-      _check_join_existing_groups affinity loop and in compute_legitimacy.
+  (f) Behavioral hardening RESOLVED (Round 3, 2026-07-15, branch
+      20260715-111119-factions-round3-hardening). The four findings deferred at
+      the Round 2 audit are closed: the member sampling in
+      _check_join_existing_groups (an unordered queryset slice whose selection
+      was implementation-defined on PostgreSQL -- the original "primary-key
+      ordering" characterization was imprecise) is replaced by averaging over
+      ALL living members with a prefetched affinity context; the multi-row
+      writes of all four mutation paths run inside per-mutation
+      transaction.atomic blocks; the agent migration discipline is unified on
+      queryset update() (see the Write discipline section below); and the N+1
+      query patterns in the join-suggestion loop, the cluster-detection loop,
+      the leadership pipeline and the founder election are removed via
+      once-per-tick aggregated prefetches with pinned query-budget regression
+      tests. The relationship-strength tie-break gained a deterministic id
+      secondary key. Still open by declared choice: the per-member
+      Memory.objects.create loops on rare mutation events (schism, dissolution,
+      leadership change) remain unbatched -- they are O(group size) INSERTs on
+      event, not per-tick SELECT N+1, and are bounded by group size; batching
+      them is a micro-optimization deferred until an event-frequency profile
+      justifies it.
+
+Write discipline (Round 3 hardening, FR-005/FR-006, precondition verified
+2026-07-15): the four group-membership mutation paths (_check_schism,
+_create_faction, _check_dissolution, and the join branch of
+_process_formation_decisions) each wrap their writes in a transaction.atomic
+block scoped to ONE mutation -- one schism, one faction, one dissolution, one
+join decision -- not to the whole tick phase, so the lock window stays narrow
+across independent groups (process_faction_dynamics loops over groups outside
+any of these blocks). Every path moves Agent.group via a queryset `update()`
+call rather than a per-instance `agent.group = x; agent.save(update_fields=
+["group"])`: a bulk `id__in` update for the multi-agent moves in
+_check_schism and _create_faction, and a single-row `id=` filter in the
+_process_formation_decisions join branch (discipline consistency across the
+four paths, not a query-count concern there since it already touches one
+agent). This is safe because, verified repo-wide on 2026-07-15, Agent has no
+custom save() override, no signal receivers connected to it, and no auto_now
+field that a per-instance save() would otherwise refresh -- queryset
+update() and per-instance save() are therefore behaviorally identical for
+this field, and update() costs one query regardless of how many agents move.
+MUST be revisited if signals are ever attached to Agent or Agent.group: a
+queryset update() does not call Model.save() and does not dispatch
+pre_save/post_save signals, so a future signal-based side effect (cache
+invalidation, notification, audit log) would silently stop firing on these
+four paths.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 
-from epocha.apps.agents.affinity import compute_affinity
+from epocha.apps.agents.affinity import build_affinity_context, compute_affinity
 
 from .models import Agent, DecisionLog, Group, Memory, Relationship
 
@@ -167,7 +205,136 @@ def process_faction_dynamics(simulation, tick: int) -> None:
     _process_formation_decisions(simulation, tick)
 
 
-def compute_leadership_score(agent: Agent, group: Group, tick: int) -> float:
+@dataclass
+class _LeadershipContext:
+    """Prefetched Relationship/Memory data for batched leadership scoring.
+
+    Built once per group by `_build_leadership_context` and threaded
+    through `compute_leadership_score` (its optional `context` parameter)
+    to replace its per-member Relationship and Memory queries with
+    in-memory lookups -- the same data-injection pattern as
+    `affinity.AffinityContext`, but a DEDICATED structure rather than a
+    reuse of it (Round 3 hardening, FR-004).
+
+    Why not reuse `affinity.AffinityContext`: its two prefetched maps use
+    filters and aggregation semantics that do not match what leadership
+    scoring needs.
+      - `AffinityContext.relationships` keeps only the SINGLE strongest
+        Relationship per pair (tie-broken by lowest id), for
+        `_relationship_score`'s "best bond wins" formula. Leadership's
+        `internal_sentiment` / `leader_sentiment` instead AVERAGE the
+        sentiment of EVERY Relationship row touching the agent and any
+        other member, across both directions and all `relation_type`
+        values -- a different aggregation over a different row set (a
+        pair can contribute more than one row: both directions, multiple
+        relation types).
+      - `AffinityContext.memories` keeps PUBLIC, active memory CONTENT
+        within a fixed recency window, for shared-crisis detection.
+        Leadership's seniority instead needs the EARLIEST active memory
+        whose content contains the group's name (join-event detection,
+        no source_type or recency filter) -- a different filter, a
+        different purpose.
+    Forcing either reuse would silently change the leadership formula's
+    semantics, so this module keeps its own lightweight context instead of
+    a twin implementation of the scoring formulas themselves (which stay
+    exactly where they are, in `compute_leadership_score`).
+
+    Attributes:
+        relationships_by_agent: maps an agent id to every Relationship row
+            where that agent is `agent_from` or `agent_to` and the other
+            side is any OTHER member of the same group. Equivalent to what
+            `compute_leadership_score`'s no-context path selects per agent
+            via `Q(agent_from=agent, agent_to_id__in=other_member_ids) |
+            Q(agent_to=agent, agent_from_id__in=other_member_ids)`, because
+            every row this context fetches already has both sides within
+            the group's member id set.
+        join_tick_by_agent: maps an agent id to the `tick_created` of the
+            earliest active Memory whose content contains the group's
+            name. Absent for agents with no such memory (the caller falls
+            back to the current tick, unchanged from the no-context path).
+    """
+
+    relationships_by_agent: dict[int, list[Relationship]]
+    join_tick_by_agent: dict[int, int]
+
+
+def _build_leadership_context(group: Group, members: list[Agent]) -> _LeadershipContext:
+    """Prefetch Relationship and Memory data for leadership scoring of `members`.
+
+    Issues exactly two queries regardless of `len(members)`, replacing the
+    per-member Relationship and Memory queries `compute_leadership_score`
+    would otherwise issue once per candidate when called in a loop from
+    `compute_legitimacy`, `_elect_new_leader`, or the splinter-leader
+    election in `_check_schism`. See `_LeadershipContext` for why this is a
+    dedicated structure rather than a reuse of `affinity.AffinityContext`.
+
+    Args:
+        group: The group whose name drives the join-memory filter.
+        members: The member set to prefetch data for. Every Relationship
+            and join-memory query is restricted to this id set, so callers
+            needing the pre-refactor scoring context (the FULL group
+            membership, not an election-candidate subset -- see
+            `_elect_new_leader`) must pass the full set here.
+
+    Returns:
+        A `_LeadershipContext` ready to pass to `compute_leadership_score`.
+    """
+    member_ids = [m.id for m in members]
+
+    # Query 1/2: every Relationship row between any two members, both
+    # directions and every relation_type, in ONE query, explicitly ordered
+    # by id so the per-agent bucket order matches the no-context path's
+    # `.order_by("id")` exactly -- required for the sentiment SUM to be
+    # bit-for-bit identical between the two paths (float addition is not
+    # order-independent), not just for the set of rows to match.
+    relationships_by_agent: dict[int, list[Relationship]] = {
+        agent_id: [] for agent_id in member_ids
+    }
+    for rel in Relationship.objects.filter(
+        agent_from_id__in=member_ids, agent_to_id__in=member_ids
+    ).order_by("id"):
+        if rel.agent_from_id == rel.agent_to_id:
+            # Defensive: no DB constraint forbids a self-relationship row
+            # (agent_from == agent_to). Such a row must not enter any
+            # bucket -- the no-context path excludes it structurally (its
+            # other-member id set never contains the agent's own id), and
+            # the two appends below would otherwise add it TWICE to the
+            # same agent's bucket, double-counting it in the sentiment
+            # average.
+            continue
+        relationships_by_agent[rel.agent_from_id].append(rel)
+        relationships_by_agent[rel.agent_to_id].append(rel)
+
+    # Query 2/2: every active Memory of any member whose content mentions
+    # the group's name, in ONE query, ordered so the first row seen per
+    # agent is the earliest `tick_created` -- the identical selection the
+    # no-context path applies via `.order_by("tick_created").first()`. Rows
+    # tied on `tick_created` for the same agent yield the same downstream
+    # `tick_created` value regardless of which tied row is picked, so no
+    # secondary tie-break key is needed here (unlike the Relationship sum).
+    join_tick_by_agent: dict[int, int] = {}
+    join_memory_rows = Memory.objects.filter(
+        agent_id__in=member_ids,
+        is_active=True,
+        content__contains=group.name,
+    ).order_by("agent_id", "tick_created")
+    for agent_id, tick_created in join_memory_rows.values_list("agent_id", "tick_created"):
+        if agent_id not in join_tick_by_agent:
+            join_tick_by_agent[agent_id] = tick_created
+
+    return _LeadershipContext(
+        relationships_by_agent=relationships_by_agent,
+        join_tick_by_agent=join_tick_by_agent,
+    )
+
+
+def compute_leadership_score(
+    agent: Agent,
+    group: Group,
+    tick: int,
+    members: list[Agent] | None = None,
+    context: _LeadershipContext | None = None,
+) -> float:
     """Compute leadership score for an agent within their group.
 
     Formula (weights sum to 1.0):
@@ -202,11 +369,29 @@ def compute_leadership_score(agent: Agent, group: Group, tick: int) -> float:
         agent: The agent to score.
         group: The group context.
         tick: Current tick.
+        members: Optional prefetched list of the group's living members
+            (Round 3 hardening, FR-004). When provided, skips the internal
+            `Agent.objects.filter(group=group, is_alive=True)` refetch this
+            function would otherwise issue. `members` drives wealth-rank
+            (via `sorted_by_wealth`) and, on the no-`context` path, the
+            other-member id set for the relationship query -- callers that
+            narrow candidacy (e.g. `_elect_new_leader`'s `exclude`) must
+            still pass the FULL, unfiltered group membership here, because
+            the no-`members` self-fetch this replaces was always the full
+            group regardless of any external candidate filtering.
+        context: Optional prefetched `_LeadershipContext` (see
+            `_build_leadership_context`). When provided, `internal_sentiment`
+            and `seniority` are resolved from it with zero queries. Numeric
+            equivalence with the default (`context=None`) query path is
+            exact (SC-003): both paths sum the identical Relationship rows
+            in the identical `id` order, so floating-point summation order
+            -- and therefore the result -- does not diverge between them.
 
     Returns:
         Leadership score in [0.0, 1.0].
     """
-    members = list(Agent.objects.filter(group=group, is_alive=True))
+    if members is None:
+        members = list(Agent.objects.filter(group=group, is_alive=True).order_by("id"))
     if not members:
         return 0.0
 
@@ -220,14 +405,25 @@ def compute_leadership_score(agent: Agent, group: Group, tick: int) -> float:
 
     # Internal sentiment: average sentiment of relationships with other members,
     # normalized from [-1, 1] to [0, 1].
-    other_member_ids = [m.id for m in members if m.id != agent.id]
-    relationships = Relationship.objects.filter(
-        Q(agent_from=agent, agent_to_id__in=other_member_ids)
-        | Q(agent_to=agent, agent_from_id__in=other_member_ids)
-    )
-    if relationships.exists():
+    if context is not None:
+        relationships = context.relationships_by_agent.get(agent.id, [])
+    else:
+        other_member_ids = [m.id for m in members if m.id != agent.id]
+        # Materialized (not a lazily-iterated queryset) and explicitly
+        # ordered by id: matches `_build_leadership_context`'s ordering so
+        # the sentiment SUM below is bit-for-bit identical to the
+        # context-driven path on the same data (see `context` Arg above).
+        # Also collapses the previous exists()+iterate+count() pattern
+        # (three separate query executions) into one.
+        relationships = list(
+            Relationship.objects.filter(
+                Q(agent_from=agent, agent_to_id__in=other_member_ids)
+                | Q(agent_to=agent, agent_from_id__in=other_member_ids)
+            ).order_by("id")
+        )
+    if relationships:
         total_sentiment = sum(r.sentiment for r in relationships)
-        raw_sentiment = total_sentiment / relationships.count()
+        raw_sentiment = total_sentiment / len(relationships)
         internal_sentiment = (raw_sentiment + 1.0) / 2.0
     else:
         # No established relationships: default to a below-neutral internal
@@ -238,16 +434,19 @@ def compute_leadership_score(agent: Agent, group: Group, tick: int) -> float:
 
     # Seniority: fraction of group lifetime the agent has been present.
     group_age = max(tick - group.formed_at_tick, 1)
-    join_memory = (
-        Memory.objects.filter(
-            agent=agent,
-            is_active=True,
-            content__contains=group.name,
+    if context is not None:
+        join_tick = context.join_tick_by_agent.get(agent.id, tick)
+    else:
+        join_memory = (
+            Memory.objects.filter(
+                agent=agent,
+                is_active=True,
+                content__contains=group.name,
+            )
+            .order_by("tick_created")
+            .first()
         )
-        .order_by("tick_created")
-        .first()
-    )
-    join_tick = join_memory.tick_created if join_memory else tick
+        join_tick = join_memory.tick_created if join_memory else tick
     seniority = min((tick - join_tick) / group_age, 1.0)
 
     score = (
@@ -285,20 +484,30 @@ def compute_legitimacy(leader: Agent, group: Group, tick: int) -> float:
 
     Returns:
         Legitimacy score in [0.0, 1.0].
+
+    Query budget (Round 3 hardening, FR-004/SC-002): three queries total,
+    independent of group size -- one member fetch plus the two queries of
+    `_build_leadership_context`. The leadership context built here is
+    reused for both this function's own `leader_sentiment` (below) and
+    every `compute_leadership_score` call in the score_rank loop, instead
+    of each of those calls refetching members, relationships and join
+    memories independently (the pre-Round-3 N+1: 3 queries per member).
     """
-    members = list(Agent.objects.filter(group=group, is_alive=True))
+    members = list(Agent.objects.filter(group=group, is_alive=True).order_by("id"))
     if len(members) <= 1:
         # Solo or empty group: leader is trivially legitimate.
         return 1.0
 
-    # Leader's average sentiment from/to other members.
-    other_ids = [m.id for m in members if m.id != leader.id]
-    relationships = Relationship.objects.filter(
-        Q(agent_from=leader, agent_to_id__in=other_ids)
-        | Q(agent_to=leader, agent_from_id__in=other_ids)
-    )
-    if relationships.exists():
-        raw = sum(r.sentiment for r in relationships) / relationships.count()
+    context = _build_leadership_context(group, members)
+
+    # Leader's average sentiment from/to other members. This is the exact
+    # same query shape `compute_leadership_score` applies to compute
+    # `internal_sentiment` for `leader` specifically (same Q filter, same
+    # member set) -- resolving it from `context` instead of a separate
+    # query is a reuse of identical data, not an approximation.
+    relationships = context.relationships_by_agent.get(leader.id, [])
+    if relationships:
+        raw = sum(r.sentiment for r in relationships) / len(relationships)
         leader_sentiment = (raw + 1.0) / 2.0
     else:
         # No established relationships: below-neutral fallback (0.3 normalized =
@@ -306,8 +515,13 @@ def compute_legitimacy(leader: Agent, group: Group, tick: int) -> float:
         # See module Known Limitations (e).
         leader_sentiment = 0.3
 
-    # Score rank: how the leader compares to all members.
-    scores = [(m, compute_leadership_score(m, group, tick)) for m in members]
+    # Score rank: how the leader compares to all members. `members` and
+    # `context` are threaded into every call so none of them re-fetches
+    # members, relationships or join memories from the database (FR-004).
+    scores = [
+        (m, compute_leadership_score(m, group, tick, members=members, context=context))
+        for m in members
+    ]
     scores.sort(key=lambda x: x[1], reverse=True)
     leader_rank = next(
         (i for i, (m, _) in enumerate(scores) if m.id == leader.id),
@@ -482,13 +696,30 @@ def _elect_new_leader(group: Group, tick: int, exclude: Agent | None = None) -> 
         exclude: Optional agent to exclude from candidacy. Used when a leader
             has lost legitimacy — they cannot immediately win re-election,
             preventing charisma/intelligence from overriding social rejection.
+            `exclude` narrows only the CANDIDATE list below, not the scoring
+            context: every `compute_leadership_score` call still receives
+            the FULL group membership via `members`/`context` (Round 3
+            hardening, FR-004), matching the pre-refactor behavior in which
+            each call's own internal self-fetch queried `group=group`
+            directly and was therefore unaffected by `exclude`.
+
+    Query budget (FR-004/SC-002): three queries total, independent of group
+    size -- one member fetch plus the two queries of
+    `_build_leadership_context`, both built ONCE and threaded into every
+    `compute_leadership_score` call below instead of each call refetching
+    members, relationships and join memories independently.
     """
-    members = list(Agent.objects.filter(group=group, is_alive=True))
+    full_members = list(Agent.objects.filter(group=group, is_alive=True).order_by("id"))
+    candidates = full_members
     if exclude is not None:
-        members = [m for m in members if m.id != exclude.id]
-    if not members:
+        candidates = [m for m in full_members if m.id != exclude.id]
+    if not candidates:
         return
-    scores = [(m, compute_leadership_score(m, group, tick)) for m in members]
+    context = _build_leadership_context(group, full_members)
+    scores = [
+        (m, compute_leadership_score(m, group, tick, members=full_members, context=context))
+        for m in candidates
+    ]
     scores.sort(key=lambda x: x[1], reverse=True)
     group.leader = scores[0][0]
     group.save(update_fields=["leader"])
@@ -511,16 +742,25 @@ def _check_dissolution(group: Group, tick: int) -> None:
     if group.cohesion >= threshold:
         return
 
-    members = list(Agent.objects.filter(group=group, is_alive=True))
-    Agent.objects.filter(group=group).update(group=None)
-    for member in members:
-        Memory.objects.create(
-            agent=member,
-            content=f"{group.name} has dissolved.",
-            emotional_weight=0.3,
-            source_type=Memory.SourceType.DIRECT,
-            tick_created=tick,
-        )
+    # FR-005 (per-dissolution atomicity): a failure between the bulk
+    # release and the last member memory must leave zero partial rows.
+    # Membership write already used bulk `update()` before Round 3
+    # hardening (FR-006 only had to extend the same discipline to the
+    # other three paths) -- see module docstring "Write discipline".
+    # Audited: no code below reads `member.group`/`member.group_id` off
+    # these in-memory instances or calls `.save()` on them, so no explicit
+    # in-memory refresh is needed.
+    with transaction.atomic():
+        members = list(Agent.objects.filter(group=group, is_alive=True))
+        Agent.objects.filter(group=group).update(group=None)
+        for member in members:
+            Memory.objects.create(
+                agent=member,
+                content=f"{group.name} has dissolved.",
+                emotional_weight=0.3,
+                source_type=Memory.SourceType.DIRECT,
+                tick_created=tick,
+            )
     logger.info(
         "Group '%s' dissolved at tick %d (cohesion=%.2f)",
         group.name,
@@ -592,7 +832,12 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
         if avg_outward >= _SCHISM_OUTWARD_SENTIMENT_THRESHOLD:
             continue
 
-        # Schism condition met: create a splinter group.
+        # Schism condition met: create a splinter group. Identity generation
+        # (LLM call, network I/O) stays OUTSIDE the atomic block below on
+        # purpose -- FR-005 scopes the per-schism transaction to the
+        # mutation itself (splinter creation through the final
+        # remaining-member memories), not to the network round trip that
+        # precedes it.
         name, objective = _generate_faction_identity(
             founders=allies,
             context=f"splitting from {group.name}",
@@ -600,48 +845,80 @@ def _check_schism(group: Group, simulation, tick: int) -> None:
             fallback_objective="Chart our own course",
         )
 
-        splinter = Group.objects.create(
-            simulation=simulation,
-            name=name,
-            objective=objective,
-            # Splinter seed cohesion 0.5: a breakaway group starts less cohesive
-            # than a freshly self-organized faction (0.6 in _create_faction)
-            # because it carries unresolved conflict from the parent. The 0.1
-            # differential is a tunable design parameter. See Known Limitations (e).
-            cohesion=0.5,
-            formed_at_tick=tick,
-            parent_group=group,
-        )
-
-        for ally in allies:
-            ally.group = splinter
-            ally.save(update_fields=["group"])
-            Memory.objects.create(
-                agent=ally,
-                content=f"I left {group.name} and joined {name}.",
-                emotional_weight=0.4,
-                source_type=Memory.SourceType.DIRECT,
-                tick_created=tick,
+        # FR-005 (per-schism atomicity): a failure anywhere in this block
+        # (splinter creation, ally migration, leader election, parent
+        # cohesion update, remaining-member memories) must leave zero
+        # partial rows -- see module docstring "Write discipline".
+        with transaction.atomic():
+            splinter = Group.objects.create(
+                simulation=simulation,
+                name=name,
+                objective=objective,
+                # Splinter seed cohesion 0.5: a breakaway group starts less
+                # cohesive than a freshly self-organized faction (0.6 in
+                # _create_faction) because it carries unresolved conflict
+                # from the parent. The 0.1 differential is a tunable design
+                # parameter. See Known Limitations (e).
+                cohesion=0.5,
+                formed_at_tick=tick,
+                parent_group=group,
             )
 
-        splinter_scores = [(a, compute_leadership_score(a, splinter, tick)) for a in allies]
-        splinter_scores.sort(key=lambda x: x[1], reverse=True)
-        splinter.leader = splinter_scores[0][0]
-        splinter.save(update_fields=["leader"])
-
-        group.cohesion = max(0.0, group.cohesion - 0.1)
-        group.save(update_fields=["cohesion"])
-
-        ally_ids = {a.id for a in allies}
-        for member in members:
-            if member.id not in ally_ids:
+            ally_ids = {a.id for a in allies}
+            # FR-006 write discipline: bulk queryset update instead of a
+            # per-agent `.save(update_fields=["group"])` loop -- see module
+            # docstring "Write discipline". Audited: no code below reads
+            # `ally.group`/`ally.group_id` off these in-memory instances
+            # (the Memory writes reference `ally` only for its id/name, and
+            # the leadership scoring below is given `allies` and a
+            # dedicated context explicitly rather than reading group
+            # membership off the ORM instances), so no explicit in-memory
+            # refresh is needed.
+            Agent.objects.filter(id__in=ally_ids).update(group=splinter)
+            for ally in allies:
                 Memory.objects.create(
-                    agent=member,
-                    content=f"{name} has split from {group.name}.",
-                    emotional_weight=0.3,
+                    agent=ally,
+                    content=f"I left {group.name} and joined {name}.",
+                    emotional_weight=0.4,
                     source_type=Memory.SourceType.DIRECT,
                     tick_created=tick,
                 )
+
+            # FR-004: `allies` is already the splinter's full membership --
+            # the queryset update above just wrote it. Pass it directly and
+            # build the leadership context once, instead of letting each
+            # compute_leadership_score call refetch `group=splinter`
+            # members and issue its own Relationship/Memory queries (the
+            # allies list keeps the seed-first iteration order of the
+            # schism detection loop above, not id order -- see module
+            # Known Limitations (d); this only affects wealth-rank ties,
+            # an existing, documented non-determinism, unchanged by FR-004).
+            splinter_context = _build_leadership_context(splinter, allies)
+            splinter_scores = [
+                (
+                    a,
+                    compute_leadership_score(
+                        a, splinter, tick, members=allies, context=splinter_context
+                    ),
+                )
+                for a in allies
+            ]
+            splinter_scores.sort(key=lambda x: x[1], reverse=True)
+            splinter.leader = splinter_scores[0][0]
+            splinter.save(update_fields=["leader"])
+
+            group.cohesion = max(0.0, group.cohesion - 0.1)
+            group.save(update_fields=["cohesion"])
+
+            for member in members:
+                if member.id not in ally_ids:
+                    Memory.objects.create(
+                        agent=member,
+                        content=f"{name} has split from {group.name}.",
+                        emotional_weight=0.3,
+                        source_type=Memory.SourceType.DIRECT,
+                        tick_created=tick,
+                    )
 
         logger.info(
             "Schism in '%s': '%s' formed with %d members at tick %d",
@@ -675,14 +952,47 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
     min_members = getattr(settings, "EPOCHA_FACTION_MIN_MEMBERS", 3)
     max_members = getattr(settings, "EPOCHA_FACTION_MAX_INITIAL_MEMBERS", 8)
 
+    # Seed ordering: name was already the primary key of the sort; the id
+    # tiebreak (FR-011) removes the residual nondeterminism for name
+    # collisions (Agent.name is not unique) WITHOUT changing the seed order
+    # -- the greedy, order-dependent clustering itself is unchanged and
+    # remains work item F-4 (Known Limitations (d)).
     ungrouped = list(
-        Agent.objects.filter(simulation=simulation, is_alive=True, group=None).order_by("name")
+        Agent.objects.filter(simulation=simulation, is_alive=True, group=None).order_by(
+            "name", "id"
+        )
     )
     if len(ungrouped) < min_members:
         return
 
+    # Prefetched affinity context for the candidate set (FR-003): the
+    # clustering loop below evaluates O(candidates^2) pairs; the context
+    # replaces their per-pair Relationship/Memory queries with two aggregate
+    # queries built once per tick.
+    context = build_affinity_context(ungrouped, ungrouped, tick)
+
+    # already_proposed prefetch: one aggregated query over ALL memories of
+    # the candidates in the tick-5 window (same shape as the join-check
+    # dedup in _check_join_existing_groups, but built here on its own: the
+    # two functions run on different agent sets at different points of the
+    # pipeline, so sharing state between them would couple them for no
+    # measurable gain). The content__contains="share common ground" filter
+    # is replicated in-memory as a case-sensitive substring test. Fetching
+    # before the loop is equivalent to the old per-agent exists() because
+    # each agent enters at most one cluster (visited set), so its check runs
+    # at most once and never needs to see memories created in this call.
+    candidate_ids = [agent.id for agent in ungrouped]
+    recent_contents: dict[int, list[str]] = {agent_id: [] for agent_id in candidate_ids}
+    proposal_rows = Memory.objects.filter(
+        agent_id__in=candidate_ids,
+        tick_created__gte=max(0, tick - 5),
+    ).values_list("agent_id", "content")
+    for agent_id, content in proposal_rows:
+        recent_contents[agent_id].append(content)
+
     clusters: list[list[Agent]] = []
     visited: set[int] = set()
+    proposal_memories: list[Memory] = []
 
     # Cluster detection seeds from the first agent in the queryset
     # (order-dependent), same limitation as _check_schism. See module
@@ -697,7 +1007,7 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
             if len(cluster) >= max_members:
                 break
             # Require affinity above threshold with every current cluster member.
-            affinities = [compute_affinity(agent_b, c, tick) for c in cluster]
+            affinities = [compute_affinity(agent_b, c, tick, context=context) for c in cluster]
             if all(a >= threshold for a in affinities):
                 cluster.append(agent_b)
 
@@ -705,23 +1015,26 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
             for agent in cluster:
                 visited.add(agent.id)
                 other_names = ", ".join(a.name for a in cluster if a.id != agent.id)
-                already_proposed = Memory.objects.filter(
-                    agent=agent,
-                    content__contains="share common ground",
-                    tick_created__gte=max(0, tick - 5),
-                ).exists()
+                already_proposed = any(
+                    "share common ground" in content for content in recent_contents[agent.id]
+                )
                 if not already_proposed:
-                    Memory.objects.create(
-                        agent=agent,
-                        content=(
-                            f"I share common ground with {other_names}. "
-                            "We face similar circumstances and could organize together."
-                        ),
-                        emotional_weight=0.2,
-                        source_type=Memory.SourceType.DIRECT,
-                        tick_created=tick,
+                    proposal_memories.append(
+                        Memory(
+                            agent=agent,
+                            content=(
+                                f"I share common ground with {other_names}. "
+                                "We face similar circumstances and could organize together."
+                            ),
+                            emotional_weight=0.2,
+                            source_type=Memory.SourceType.DIRECT,
+                            tick_created=tick,
+                        )
                     )
             clusters.append(cluster)
+
+    if proposal_memories:
+        Memory.objects.bulk_create(proposal_memories)
 
     if clusters:
         logger.info(
@@ -734,48 +1047,121 @@ def _detect_and_propose_factions(simulation, tick: int) -> None:
 def _check_join_existing_groups(simulation, tick: int) -> None:
     """Suggest existing groups to ungrouped agents with high affinity.
 
-    For each ungrouped agent, checks all active groups. If the agent's average
-    affinity with the first 5 group members is above threshold AND the agent
-    has at least one positive relationship with a member, creates a memory
-    suggestion. Only one suggestion per agent per 5-tick window.
+    For each ungrouped agent (iterated in id order), checks all active groups
+    (id order). If the agent's average affinity over ALL living members of a
+    group is above EPOCHA_FACTION_AFFINITY_THRESHOLD AND the agent has at
+    least one positive-sentiment relationship with a member of that group
+    (either direction), a suggestion memory is queued; an agent receives at
+    most one suggestion per cycle (first qualifying group in id order wins).
+
+    Query discipline (Round 3 hardening, FR-002): all data is prefetched in
+    a fixed number of per-tick aggregate queries -- living members of every
+    group in one query (grouped in-memory by group id), Relationship and
+    PUBLIC-Memory data for the affinity formula via `build_affinity_context`,
+    positive-sentiment pairs in one query, and the dedup memories in one
+    query -- then the (agent, group) loop runs with zero queries per pair.
+    Suggestions are written with a single `bulk_create`.
+
+    Dedup semantics (preserved exactly from the pre-refactor code): a
+    suggestion for a group is suppressed when the agent has ANY memory in
+    the `tick_created >= tick - 5` window whose content contains the group
+    name as a case-sensitive substring -- regardless of source type or
+    whether the memory is itself a suggestion (joins, dissolutions, schisms
+    and broadcasts all count), including the pre-existing quirk of group
+    names that contain each other.
 
     Args:
         simulation: The Simulation instance.
         tick: Current tick.
     """
     threshold = getattr(settings, "EPOCHA_FACTION_AFFINITY_THRESHOLD", 0.5)
-    ungrouped = list(Agent.objects.filter(simulation=simulation, is_alive=True, group=None))
-    groups = list(Group.objects.filter(simulation=simulation, cohesion__gt=0.0))
+    # Explicit id ordering on every iterated queryset (FR-011): Agent and
+    # Group have no Meta.ordering, so unordered iteration would be
+    # implementation-defined on Postgres.
+    ungrouped = list(
+        Agent.objects.filter(simulation=simulation, is_alive=True, group=None).order_by("id")
+    )
+    if not ungrouped:
+        return
+    groups = list(Group.objects.filter(simulation=simulation, cohesion__gt=0.0).order_by("id"))
+    if not groups:
+        return
 
+    # Living members of ALL groups fetched once per tick in a SINGLE query,
+    # grouped in-memory by group id. Chosen over one query per group because
+    # the rows are needed in full anyway and a single scan keeps the budget
+    # flat in the number of groups.
+    members_by_group: dict[int, list[Agent]] = {group.id: [] for group in groups}
+    all_members = list(Agent.objects.filter(group__in=groups, is_alive=True).order_by("id"))
+    for member in all_members:
+        members_by_group[member.group_id].append(member)
+
+    context = build_affinity_context(ungrouped, all_members, tick)
+
+    # Positive-relationship prefetch. `context.relationships` holds only ONE
+    # selected row per pair (the (-strength, id) tie-break winner used by the
+    # affinity formula), while the pre-refactor has_positive_rel check
+    # matched ANY Relationship row with sentiment > 0 between the agent and
+    # a member -- if a non-winner row is positive but the winner is not, the
+    # two semantics diverge. One extra fixed query over the raw rows
+    # preserves the original semantics exactly.
+    ungrouped_ids = [agent.id for agent in ungrouped]
+    member_ids = [member.id for member in all_members]
+    positive_pairs: set[frozenset[int]] = set()
+    positive_rows = Relationship.objects.filter(
+        Q(agent_from_id__in=ungrouped_ids, agent_to_id__in=member_ids, sentiment__gt=0)
+        | Q(agent_from_id__in=member_ids, agent_to_id__in=ungrouped_ids, sentiment__gt=0)
+    ).values_list("agent_from_id", "agent_to_id")
+    for from_id, to_id in positive_rows:
+        positive_pairs.add(frozenset({from_id, to_id}))
+
+    # Dedup prefetch: ALL memories of the ungrouped agents in the tick-5
+    # window, with no type or content pre-filter, in ONE query. The
+    # per-(agent, group) content__contains check is replicated in-memory as
+    # a case-sensitive substring test (see docstring, "Dedup semantics").
+    recent_contents: dict[int, list[str]] = {agent_id: [] for agent_id in ungrouped_ids}
+    dedup_rows = Memory.objects.filter(
+        agent_id__in=ungrouped_ids,
+        tick_created__gte=max(0, tick - 5),
+    ).values_list("agent_id", "content")
+    for agent_id, content in dedup_rows:
+        recent_contents[agent_id].append(content)
+
+    suggestions: list[Memory] = []
     for agent in ungrouped:
         for group in groups:
-            # Sample up to 5 members for affinity estimation to avoid N+1 cost.
-            members = list(Agent.objects.filter(group=group, is_alive=True)[:5])
+            members = members_by_group[group.id]
             if not members:
                 continue
-            avg_affinity = sum(compute_affinity(agent, m, tick) for m in members) / len(members)
-            has_positive_rel = Relationship.objects.filter(
-                Q(agent_from=agent, agent_to__in=members, sentiment__gt=0)
-                | Q(agent_to=agent, agent_from__in=members, sentiment__gt=0)
-            ).exists()
+            # Average over ALL living members (FR-002): the pre-refactor
+            # unordered [:5] sample was both biased and nondeterministic.
+            avg_affinity = sum(
+                compute_affinity(agent, member, tick, context=context) for member in members
+            ) / len(members)
+            has_positive_rel = any(
+                frozenset({agent.id, member.id}) in positive_pairs for member in members
+            )
             if avg_affinity >= threshold and has_positive_rel:
-                already_suggested = Memory.objects.filter(
-                    agent=agent,
-                    content__contains=group.name,
-                    tick_created__gte=max(0, tick - 5),
-                ).exists()
+                already_suggested = any(
+                    group.name in content for content in recent_contents[agent.id]
+                )
                 if not already_suggested:
-                    Memory.objects.create(
-                        agent=agent,
-                        content=(
-                            f"The {group.name} shares my values. "
-                            f"{members[0].name} is a member. I could join them."
-                        ),
-                        emotional_weight=0.2,
-                        source_type=Memory.SourceType.DIRECT,
-                        tick_created=tick,
+                    suggestions.append(
+                        Memory(
+                            agent=agent,
+                            content=(
+                                f"The {group.name} shares my values. "
+                                f"{members[0].name} is a member. I could join them."
+                            ),
+                            emotional_weight=0.2,
+                            source_type=Memory.SourceType.DIRECT,
+                            tick_created=tick,
+                        )
                     )
                 break  # Only one join suggestion per agent per cycle.
+
+    if suggestions:
+        Memory.objects.bulk_create(suggestions)
 
 
 def _process_formation_decisions(simulation, tick: int) -> None:
@@ -823,17 +1209,31 @@ def _process_formation_decisions(simulation, tick: int) -> None:
         if not group or group.cohesion <= 0.0:
             continue
         for agent in agents:
-            agent.group = group
-            agent.save(update_fields=["group"])
-            Memory.objects.create(
-                agent=agent,
-                content=f"I joined {group.name}.",
-                emotional_weight=0.3,
-                source_type=Memory.SourceType.DIRECT,
-                tick_created=tick,
-            )
-            group.cohesion = max(0.0, group.cohesion - 0.02)
-            group.save(update_fields=["cohesion"])
+            # FR-005 (per-decision atomicity): a single join decision is
+            # this agent's group move, its join Memory, and the target
+            # group's cohesion decrement -- all three or none. No outer
+            # atomic wraps this loop (each decision is independent; a
+            # failure on one agent must not roll back an already-committed
+            # earlier join for a different agent in the same group_name).
+            with transaction.atomic():
+                # FR-006 write discipline: single-row queryset update
+                # instead of `agent.group = group; agent.save(...)` -- see
+                # module docstring "Write discipline". This branch moves
+                # exactly one agent per iteration, so the gain here is
+                # discipline consistency with the other three paths, not
+                # query count. Audited: no code below reads
+                # `agent.group`/`agent.group_id` off this in-memory
+                # instance, so no explicit in-memory refresh is needed.
+                Agent.objects.filter(id=agent.id).update(group=group)
+                Memory.objects.create(
+                    agent=agent,
+                    content=f"I joined {group.name}.",
+                    emotional_weight=0.3,
+                    source_type=Memory.SourceType.DIRECT,
+                    tick_created=tick,
+                )
+                group.cohesion = max(0.0, group.cohesion - 0.02)
+                group.save(update_fields=["cohesion"])
 
     # Process new group formation: cluster formers by shared proposal memory.
     if len(formers) < min_members:
@@ -875,59 +1275,115 @@ def _create_faction(simulation, founders: list[Agent], tick: int) -> None:
         founders: List of agents who are founding the faction.
         tick: Current tick.
     """
-    roles = {a.role for a in founders if a.role}
-    founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
-    fallback_name = f"The {next(iter(roles), 'Citizens').title()} Alliance"
+    # FR-005 (per-faction atomicity, "l'intera funzione"): unlike
+    # _check_schism, FR-005 scopes this atomic block to the WHOLE function,
+    # including the identity generation (LLM call) that precedes the first
+    # write -- a failure anywhere in faction creation, at any point, must
+    # leave zero partial rows. Entering `atomic()` before any query does
+    # not open a real transaction on PostgreSQL until the first statement
+    # runs, so wrapping the LLM call adds no premature lock.
+    with transaction.atomic():
+        roles = {a.role for a in founders if a.role}
+        founder_desc = ", ".join(f"{a.name} ({a.role})" for a in founders)
+        fallback_name = f"The {next(iter(roles), 'Citizens').title()} Alliance"
 
-    name, objective = _generate_faction_identity(
-        founders=founders,
-        context=f"organized together: {founder_desc}",
-        fallback_name=fallback_name,
-        fallback_objective="Pursue shared interests",
-    )
-
-    group = Group.objects.create(
-        simulation=simulation,
-        name=name,
-        objective=objective,
-        # New-faction seed cohesion 0.6: self-organized factions start more
-        # cohesive than schism splinters (0.5). Tunable design parameter.
-        # See Known Limitations (e).
-        cohesion=0.6,
-        formed_at_tick=tick,
-    )
-
-    scores = [(a, compute_leadership_score(a, group, tick)) for a in founders]
-    scores.sort(key=lambda x: x[1], reverse=True)
-    group.leader = scores[0][0]
-    group.save(update_fields=["leader"])
-
-    other_names_map = {a.id: ", ".join(f.name for f in founders if f.id != a.id) for a in founders}
-    for agent in founders:
-        agent.group = group
-        agent.save(update_fields=["group"])
-        Memory.objects.create(
-            agent=agent,
-            content=f"I helped found {name} with {other_names_map[agent.id]}.",
-            emotional_weight=0.3,
-            source_type=Memory.SourceType.DIRECT,
-            tick_created=tick,
+        name, objective = _generate_faction_identity(
+            founders=founders,
+            context=f"organized together: {founder_desc}",
+            fallback_name=fallback_name,
+            fallback_objective="Pursue shared interests",
         )
 
-    # Public announcement to all living non-members.
-    outsiders = Agent.objects.filter(simulation=simulation, is_alive=True).exclude(group=group)
-    public_memories = [
-        Memory(
-            agent=outsider,
-            content=f"{name} has been formed by {founder_desc}, pursuing: {objective}.",
-            emotional_weight=0.2,
-            source_type=Memory.SourceType.PUBLIC,
-            reliability=1.0,
-            tick_created=tick,
+        group = Group.objects.create(
+            simulation=simulation,
+            name=name,
+            objective=objective,
+            # New-faction seed cohesion 0.6: self-organized factions start
+            # more cohesive than schism splinters (0.5). Tunable design
+            # parameter. See Known Limitations (e).
+            cohesion=0.6,
+            formed_at_tick=tick,
         )
-        for outsider in outsiders
-    ]
-    Memory.objects.bulk_create(public_memories)
+
+        # FR-004 (founder election de-N+1, coordinator-approved scope
+        # extension): thread the in-memory founder list and a leadership
+        # context built once, instead of letting each
+        # compute_leadership_score call issue its own member fetch.
+        # DECLARED BEHAVIOR FIX (verified pre-change): this election runs
+        # BEFORE the founders' group FK bulk-update below, so the old
+        # self-fetch path (`Agent.objects.filter(group=group)`) always saw
+        # an EMPTY member set -- every founder scored 0.0 and the "winner"
+        # was simply founders[0] by stable-sort order, contradicting this
+        # function's documented contract ("assigns the agent with the
+        # highest leadership score as leader"). Passing `members=founders`
+        # makes the election operate on the actual founding membership --
+        # the same row set a post-update refetch would return -- aligning
+        # it with the splinter election in _check_schism (which migrates
+        # allies first, then elects).
+        founders_context = _build_leadership_context(group, founders)
+        scores = [
+            (
+                a,
+                compute_leadership_score(
+                    a, group, tick, members=founders, context=founders_context
+                ),
+            )
+            for a in founders
+        ]
+        scores.sort(key=lambda x: x[1], reverse=True)
+        group.leader = scores[0][0]
+        group.save(update_fields=["leader"])
+
+        other_names_map = {
+            a.id: ", ".join(f.name for f in founders if f.id != a.id) for a in founders
+        }
+        founder_ids = [a.id for a in founders]
+        # FR-006 write discipline: bulk queryset update instead of a
+        # per-agent `.save(update_fields=["group"])` loop -- see module
+        # docstring "Write discipline". Audited: the `outsiders` query
+        # right below is a fresh database read
+        # (`Agent.objects.filter(...).exclude(group=group)`), so it is
+        # automatically correct against the just-written rows without
+        # needing the in-memory founder instances refreshed; the
+        # per-founder Memory writes below reference `agent` only for its
+        # id/name, never `.group`.
+        Agent.objects.filter(id__in=founder_ids).update(group=group)
+        # Batched like the public announcement below: ONE INSERT for all
+        # founder memories instead of one per founder, so _create_faction's
+        # total query count is independent of the founder count (FR-004
+        # scope extension -- this loop was the second O(N) term in this
+        # function, alongside the election's per-founder member fetch).
+        # Safe under the same verified precondition as the write-discipline
+        # policy: Memory has no custom save() override and no signal
+        # receivers, so bulk_create and per-instance create() are
+        # behaviorally identical here.
+        Memory.objects.bulk_create(
+            [
+                Memory(
+                    agent=agent,
+                    content=f"I helped found {name} with {other_names_map[agent.id]}.",
+                    emotional_weight=0.3,
+                    source_type=Memory.SourceType.DIRECT,
+                    tick_created=tick,
+                )
+                for agent in founders
+            ]
+        )
+
+        # Public announcement to all living non-members.
+        outsiders = Agent.objects.filter(simulation=simulation, is_alive=True).exclude(group=group)
+        public_memories = [
+            Memory(
+                agent=outsider,
+                content=f"{name} has been formed by {founder_desc}, pursuing: {objective}.",
+                emotional_weight=0.2,
+                source_type=Memory.SourceType.PUBLIC,
+                reliability=1.0,
+                tick_created=tick,
+            )
+            for outsider in outsiders
+        ]
+        Memory.objects.bulk_create(public_memories)
 
     logger.info("Faction '%s' created at tick %d with %d founders", name, tick, len(founders))
 
