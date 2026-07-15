@@ -462,6 +462,87 @@ class TestAbsentOwnerFactorIncomeAndTaxSymmetry:
         injected = self._factor_income_injected(simulation)
         assert abs(injected - output_value) < 1e-6
 
+    def test_dead_owner_share_renormalizes_to_surviving_claimant(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        # R3-ENG-1 coverage (Round 3 re-audit): when a LIVING property
+        # also claims the same good, a dead owner's share does NOT go
+        # through the no-landlord fallback -- it renormalizes to the
+        # surviving claimant(s) inside _distribute_proportional_to_bonus.
+        # The partition must still sum to V and the survivor must
+        # receive rent.
+        landlord = Agent.objects.create(
+            simulation=simulation,
+            name="SurvivingLandlord",
+            role="noble",
+            personality={"openness": 0.5},
+            location=Point(50, 50),
+            zone=setup_economy["zone"],
+            health=1.0,
+            wealth=100.0,
+        )
+        AgentInventory.objects.create(
+            agent=landlord,
+            holdings={},
+            cash={"LVR": 100.0},
+        )
+        Property.objects.create(
+            simulation=simulation,
+            owner=landlord,
+            owner_type="agent",
+            zone=setup_economy["zone"],
+            property_type="farm",
+            name="Surviving Farm",
+            value=100.0,
+            production_bonus={"subsistence": 1.0},
+        )
+        dead_owner = Agent.objects.create(
+            simulation=simulation,
+            name="DeadCoOwner",
+            role="noble",
+            personality={"openness": 0.5},
+            location=Point(50, 50),
+            zone=setup_economy["zone"],
+            health=0.0,
+            wealth=100.0,
+            is_alive=False,
+        )
+        Property.objects.create(
+            simulation=simulation,
+            owner=dead_owner,
+            owner_type="agent",
+            zone=setup_economy["zone"],
+            property_type="farm",
+            name="Dead Co-Owner Farm",
+            value=100.0,
+            production_bonus={"subsistence": 2.0},
+        )
+
+        process_economy_tick_new(simulation, tick=1)
+
+        # The survivor collects rent (the whole rent slice for the
+        # good, since the dead co-owner's bonus renormalized away).
+        assert EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            transaction_type="rent",
+            to_agent=landlord,
+        ).exists()
+        assert not EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            transaction_type__in=["rent", "profit"],
+            to_agent=dead_owner,
+        ).exists()
+
+        ze = setup_economy["zone_economy"]
+        ze.refresh_from_db()
+        output_value = self._output_value(simulation, ze.market_prices)
+        injected = self._factor_income_injected(simulation)
+        assert abs(injected - output_value) < 1e-6
+
     def test_treasury_credit_equals_agent_tax_debits(
         self,
         simulation,
@@ -580,6 +661,136 @@ class TestSettlementAffordability:
 
         merchant_inv.refresh_from_db()
         assert merchant_inv.cash.get("LVR", 0.0) >= -1e-9
+
+
+@pytest.mark.django_db
+class TestSettlementDeterminismAndPriority:
+    """Round 3 re-audit findings R3-MON-NEW-1 / R3-MKT-8 / R3-MKT-9
+    (run wf_af84ed13-dc3).
+
+    The MKT-7 affordability guard makes final allocations depend on the
+    order trades are applied, and that order was hash-seed
+    nondeterministic (goods iterated via an unordered set, agents via
+    an unordered queryset): identically-seeded runs could diverge, and
+    a cash-constrained buyer's access to the essential subsistence good
+    was a hash-order lottery. Settlement must be deterministic and give
+    essential goods explicit priority. Demand sizing must also count
+    only the primary currency that settlement actually debits (R3-MKT-9).
+    """
+
+    def test_settlement_prioritizes_essentials_for_cash_constrained_buyer(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        merchant = setup_economy["merchant"]
+        farmer = setup_economy["farmer"]
+        merchant_inv = merchant.inventory
+        merchant_inv.holdings = {}
+        merchant_inv.cash = {"LVR": 3.0}
+        merchant_inv.save(update_fields=["holdings", "cash"])
+
+        # Force an adversarial application order: the non-essential
+        # luxury trade arrives FIRST and would consume the buyer's
+        # whole cash before the essential subsistence trade settles.
+        adversarial_trades = [
+            {
+                "buyer_id": merchant.id,
+                "seller_id": farmer.id,
+                "good_code": "luxury",
+                "quantity": 1.0,
+                "price": 50.0,
+                "total": 50.0,
+            },
+            {
+                "buyer_id": merchant.id,
+                "seller_id": farmer.id,
+                "good_code": "subsistence",
+                "quantity": 1.0,
+                "price": 3.0,
+                "total": 3.0,
+            },
+        ]
+        with patch(
+            "epocha.apps.economy.engine.execute_trades",
+            return_value=adversarial_trades,
+        ):
+            process_economy_tick_new(simulation, tick=1)
+
+        # The essential subsistence trade must have settled in full:
+        # settlement re-orders trades essentials-first, so the 3.0 cash
+        # buys 1 unit of subsistence and the luxury trade gets whatever
+        # remains (nothing), not the other way around.
+        subsistence_trades = EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            transaction_type="trade",
+            from_agent=merchant,
+            good_category=setup_economy["subsistence"],
+        )
+        assert subsistence_trades.exists()
+        assert abs(sum(e.total_amount for e in subsistence_trades) - 3.0) < 1e-9
+
+    def test_demand_sized_on_primary_currency_cash(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        # R3-MKT-9: demand was sized on the sum of ALL currencies while
+        # settlement debits only the primary one -- an agent holding
+        # only secondary-currency cash projected demand it could never
+        # settle, distorting the price signal.
+        merchant = setup_economy["merchant"]
+        merchant_inv = merchant.inventory
+        merchant_inv.cash = {"GLD": 200.0}
+        merchant_inv.save(update_fields=["cash"])
+
+        with patch(
+            "epocha.apps.economy.engine.collect_supply_and_demand",
+            wraps=engine_module.collect_supply_and_demand,
+        ) as mock_collect:
+            process_economy_tick_new(simulation, tick=1)
+
+        agent_inventories = mock_collect.call_args.args[0]
+        merchant_entry = next(e for e in agent_inventories if e["agent_id"] == merchant.id)
+        assert merchant_entry["cash_amount"] == 0.0
+
+
+@pytest.mark.django_db
+class TestFisherDiagnosticAggregation:
+    """Round 3 re-audit finding R3-5 (run wf_af84ed13-dc3): the Fisher
+    PQ side used the unweighted mean price times the summed
+    heterogeneous physical quantities, conflating aggregation error
+    with monetary inconsistency. PQ must be the output-weighted nominal
+    value sum(p_g * q_g)."""
+
+    def test_fisher_pq_is_output_weighted_nominal_value(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        with patch(
+            "epocha.apps.economy.engine.check_fisher_consistency",
+            wraps=engine_module.check_fisher_consistency,
+        ) as mock_fisher:
+            process_economy_tick_new(simulation, tick=1)
+
+        kwargs = mock_fisher.call_args.kwargs
+        realized_pq = kwargs["price_level"] * kwargs["output_level"]
+
+        ze = setup_economy["zone_economy"]
+        ze.refresh_from_db()
+        prices = ze.market_prices
+        expected_pq = sum(
+            entry.quantity * prices.get(entry.good_category.code, 0.0)
+            for entry in EconomicLedger.objects.filter(
+                simulation=simulation,
+                tick=1,
+                transaction_type="production",
+            )
+            if entry.good_category is not None
+        )
+        assert abs(realized_pq - expected_pq) < 1e-6
 
 
 @pytest.fixture

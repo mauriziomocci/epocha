@@ -203,17 +203,26 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # Their goods will not be offered to the market (is_hoarding=True).
     hoarding_ids = _get_hoarding_agent_ids(simulation, tick)
 
+    # R3-MKT-8 fix (Round 3 re-audit, run wf_af84ed13-dc3): every
+    # iteration order that feeds the order-sensitive settlement below
+    # must be deterministic for seeded reproducibility -- agents and
+    # properties are ordered by id (unordered querysets are
+    # implementation-defined on PostgreSQL), and execute_trades
+    # iterates goods in sorted order (see market.py).
+    essential_good_codes = {g.code for g in goods if g.is_essential}
+    system_output_by_good: dict[str, float] = {}
+
     for ze in zone_economies:
         zone = ze.zone
         agents = list(
-            Agent.objects.filter(simulation=simulation, zone=zone, is_alive=True).select_related(
-                "inventory"
-            )
+            Agent.objects.filter(simulation=simulation, zone=zone, is_alive=True)
+            .order_by("id")
+            .select_related("inventory")
         )
         if not agents:
             continue
 
-        properties = list(Property.objects.filter(simulation=simulation, zone=zone))
+        properties = list(Property.objects.filter(simulation=simulation, zone=zone).order_by("id"))
 
         old_prices = dict(ze.market_prices)
         old_prices_by_zone.append(old_prices)
@@ -238,6 +247,11 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 current = zone_production.get(good_code, 0.0)
                 zone_production[good_code] = current + quantity
                 total_output += quantity
+                # Per-good system output, used by the Fisher PQ side
+                # (R3-5 fix: output-weighted nominal value, see step 8a).
+                system_output_by_good[good_code] = (
+                    system_output_by_good.get(good_code, 0.0) + quantity
+                )
 
                 # Add produced goods to agent inventory
                 try:
@@ -291,7 +305,14 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 {
                     "agent_id": agent.id,
                     "holdings": dict(inv.holdings),
-                    "cash_amount": sum(inv.cash.values()),
+                    # R3-MKT-9 fix (Round 3 re-audit): demand is sized
+                    # on the PRIMARY currency only, matching what the
+                    # settlement below actually debits. Sizing on the
+                    # sum of all currencies let an agent holding only
+                    # secondary-currency cash project demand it could
+                    # never settle, distorting the price signal.
+                    # Multi-currency trading is not modeled.
+                    "cash_amount": inv.cash.get(primary_currency.code, 0.0),
                     "is_hoarding": agent.id in hoarding_ids,
                 }
             )
@@ -326,6 +347,23 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             equilibrium_prices,
             total_supply,
             total_demand,
+        )
+
+        # R3-MON-NEW-1 fix (Round 3 re-audit, run wf_af84ed13-dc3):
+        # settlement is order-sensitive because the affordability guard
+        # consumes the buyer's cash as trades apply. Two guarantees:
+        # (1) determinism -- trades arrive good-by-good in sorted order
+        # from execute_trades and agents are id-ordered, so the order
+        # is reproducible across identically-seeded runs; (2) explicit
+        # priority -- essential goods settle FIRST, so a
+        # cash-constrained buyer secures subsistence before any
+        # discretionary purchase consumes its cash. The sort is stable,
+        # preserving the two-pointer matching order within each good.
+        trades.sort(
+            key=lambda t: (
+                0 if t["good_code"] in essential_good_codes else 1,
+                t["good_code"],
+            )
         )
 
         # Apply trades to inventories
@@ -426,9 +464,13 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         # in another zone, while the payee lookup below (inv_cache) only
         # holds this zone's living agents. Owners are therefore resolved
         # against the SIMULATION-WIDE living-agent set: dead owners are
-        # excluded from the partition entirely (their bonus share is
-        # reallocated by compute_profit's no-landlord fallback, keeping
-        # the partition summing to V), and living out-of-zone owners are
+        # excluded from the partition entirely -- their bonus share
+        # renormalizes to the surviving claimants of the same good
+        # inside _distribute_proportional_to_bonus, or, when NO living
+        # property claims the good, routes to the producing agents via
+        # compute_profit's no-landlord fallback; either path keeps the
+        # partition summing to V (R3-ENG-1 precision fix, Round 3
+        # re-audit) -- and living out-of-zone owners are
         # paid through the extended payee lookup built after the
         # partition instead of being silently dropped. Properties not
         # owned by an agent at all (owner_type != "agent", e.g.
@@ -709,12 +751,20 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # audit report found check_fisher_consistency defined but never
     # invoked anywhere -- the one check that would have caught the
     # pre-fix money-supply/conservation defects (CM-1, CM-2) was dead
-    # code. system_price_level is the unweighted mean of this tick's
-    # system-aggregated prices (P); total_output is this tick's
-    # aggregate physical output across all zones (Q).
-    system_price_level = (
-        sum(new_prices_all.values()) / len(new_prices_all) if new_prices_all else 0.0
+    # code. R3-5 fix (Round 3 re-audit): the PQ side is the
+    # output-weighted nominal value sum_g(p_g * q_g), not the unweighted
+    # mean price times the summed heterogeneous physical quantities --
+    # the pre-fix form conflated price-aggregation error with monetary
+    # inconsistency. system_price_level is therefore the output-weighted
+    # (Paasche-type) price index PQ / Q, so price_level * output_level
+    # reproduces the nominal output value exactly. Goods with no quoted
+    # system price (e.g. produced goods lacking a GoodCategory price)
+    # contribute zero nominal value, consistent with the ledger's
+    # zero-price production entries.
+    nominal_output_value = sum(
+        qty * new_prices_all.get(good, 0.0) for good, qty in system_output_by_good.items()
     )
+    system_price_level = nominal_output_value / total_output if total_output > 0 else 0.0
     check_fisher_consistency(
         money_supply=live_money_supply,
         velocity=primary_currency.cached_velocity,

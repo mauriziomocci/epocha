@@ -296,6 +296,15 @@ def collect_supply_and_demand(
             discretionary_budget = cash * _DISCRETIONARY_SPEND_FRACTION
             for cat in non_essential_cats:
                 code = cat["code"]
+                # R3-2 fix (Round 3 re-audit, run wf_af84ed13-dc3): an
+                # agent must not project discretionary demand for a
+                # good it is itself offering this tick -- the matching
+                # sweep could pair the agent with itself, a wash trade
+                # that nets to zero on its inventory but inflates the
+                # measured transaction volume and hence velocity. An
+                # agent wanting to keep such goods simply hoards them.
+                if code in offers:
+                    continue
                 price = max(market_prices.get(code, 1.0), EPSILON)
                 per_good_budget = discretionary_budget * discretionary_budget_share.get(code, 0.0)
                 discretionary = min(_MAX_DISCRETIONARY_DEMAND, per_good_budget / price)
@@ -346,7 +355,12 @@ def execute_trades(
     """
     trades: list[dict] = []
 
-    for good_code in set(list(total_supply.keys()) + list(total_demand.keys())):
+    # R3-MKT-8 fix (Round 3 re-audit, run wf_af84ed13-dc3): iterate
+    # goods in SORTED order. A plain set of str keys iterates in a
+    # PYTHONHASHSEED-dependent order, and the engine's settlement
+    # (affordability guard) is order-sensitive, so identically-seeded
+    # runs could diverge. Sorting pins a deterministic trade order.
+    for good_code in sorted(set(total_supply) | set(total_demand)):
         supply = total_supply.get(good_code, 0.0)
         demand = total_demand.get(good_code, 0.0)
         price = equilibrium_prices.get(good_code, 1.0)

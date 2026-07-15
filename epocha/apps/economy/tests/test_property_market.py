@@ -503,3 +503,110 @@ class TestProcessExpropriation:
         memory = memories.first()
         assert "expropriated" in memory.content.lower()
         assert memory.emotional_weight >= 0.8
+
+
+@pytest.mark.django_db
+class TestOwnerlessPropertySaleConservation:
+    """Round 3 re-audit finding R3-3 (run wf_af84ed13-dc3): the sale
+    branch for a property with no agent owner debited the buyer
+    unconditionally but credited nobody (the seller guard skipped the
+    transfer leg), destroying money -- the same defect class as the
+    fixed CM-TAX-2. The sale price of an ownerless (government/public)
+    property must be credited to the government treasury, and without
+    a Government the sale must not happen at all."""
+
+    def _setup_gov_listing(self, setup, asking_price=300.0):
+        from epocha.apps.world.models import Government
+
+        gov = Government.objects.create(
+            simulation=setup["simulation"],
+            government_type="monarchy",
+            government_treasury={},
+        )
+        prop = Property.objects.create(
+            simulation=setup["simulation"],
+            owner=None,
+            owner_type="government",
+            zone=setup["zone"],
+            property_type="farmland",
+            name="Crown Land",
+            value=500.0,
+            production_bonus={"food": 1.0},
+        )
+        listing = PropertyListing.objects.create(
+            property=prop,
+            asking_price=asking_price,
+            fundamental_value=asking_price,
+            listed_at_tick=5,
+            status="listed",
+        )
+        return gov, prop, listing
+
+    def _buy_decision(self, sim, agent):
+        DecisionLog.objects.create(
+            simulation=sim,
+            agent=agent,
+            tick=5,
+            input_context="test",
+            output_decision=json.dumps({"action": "buy_property", "reason": "investment"}),
+            llm_model="test",
+        )
+
+    def test_ownerless_sale_credits_treasury(self, property_market_setup):
+        setup = property_market_setup
+        sim = setup["simulation"]
+        buyer = setup["buyer"]
+        currency = setup["currency"]
+
+        gov, prop, listing = self._setup_gov_listing(setup)
+        self._buy_decision(sim, buyer)
+
+        result = process_property_listings(sim, tick=6)
+
+        assert result["matched"] == 1
+
+        buyer_inv = setup["buyer_inv"]
+        buyer_inv.refresh_from_db()
+        assert buyer_inv.cash[currency.code] == pytest.approx(800.0 - 300.0)
+
+        gov.refresh_from_db()
+        assert gov.government_treasury.get(currency.code, 0.0) == pytest.approx(300.0)
+
+        prop.refresh_from_db()
+        assert prop.owner == buyer
+
+    def test_ownerless_sale_skipped_without_government(self, property_market_setup):
+        setup = property_market_setup
+        sim = setup["simulation"]
+        buyer = setup["buyer"]
+        currency = setup["currency"]
+
+        prop = Property.objects.create(
+            simulation=sim,
+            owner=None,
+            owner_type="government",
+            zone=setup["zone"],
+            property_type="farmland",
+            name="Ownerless Land",
+            value=500.0,
+            production_bonus={"food": 1.0},
+        )
+        PropertyListing.objects.create(
+            property=prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=5,
+            status="listed",
+        )
+        self._buy_decision(sim, buyer)
+
+        result = process_property_listings(sim, tick=6)
+
+        assert result["matched"] == 0
+
+        buyer_inv = setup["buyer_inv"]
+        buyer_inv.refresh_from_db()
+        assert buyer_inv.cash[currency.code] == pytest.approx(800.0)
+
+        prop.refresh_from_db()
+        assert prop.owner is None

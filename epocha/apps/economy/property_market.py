@@ -26,6 +26,8 @@ import logging
 from django.db.models import Sum
 
 from epocha.apps.agents.models import Agent, DecisionLog, Memory
+from epocha.apps.world.government import add_to_treasury
+from epocha.apps.world.models import Government
 
 from .models import (
     AgentInventory,
@@ -283,11 +285,27 @@ def process_property_listings(simulation, tick: int) -> dict:
         seller = listing.property.owner
         prop = listing.property
 
+        # R3-3 fix (Round 3 re-audit, run wf_af84ed13-dc3): a sale is a
+        # TRANSFER, so the buyer's debit must always have a matching
+        # credit. Pre-fix, an ownerless (government/public) listing
+        # debited the buyer while the seller guard skipped the credit,
+        # destroying money -- the same defect class as the fixed
+        # CM-TAX-2. The sale price of an ownerless property is credited
+        # to the government treasury; without a Government the sale
+        # cannot settle and is skipped before any debit.
+        treasury_gov = None
+        if seller is None:
+            try:
+                treasury_gov = Government.objects.get(simulation=simulation)
+            except Government.DoesNotExist:
+                result["failed"] += 1
+                continue
+
         # Deduct cash from buyer
         buyer_inv.cash[cur_code] = buyer_cash - listing.asking_price
         buyer_inv.save(update_fields=["cash"])
 
-        # Credit seller (if agent)
+        # Credit seller (agent) or the treasury (ownerless property)
         if seller:
             try:
                 seller_inv = seller.inventory
@@ -295,6 +313,8 @@ def process_property_listings(simulation, tick: int) -> dict:
                 seller_inv = AgentInventory.objects.create(agent=seller, holdings={}, cash={})
             seller_inv.cash[cur_code] = seller_inv.cash.get(cur_code, 0.0) + listing.asking_price
             seller_inv.save(update_fields=["cash"])
+        else:
+            add_to_treasury(treasury_gov, cur_code, listing.asking_price)
 
         # Transfer property ownership
         prop.owner = buyer

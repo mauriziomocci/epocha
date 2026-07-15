@@ -211,3 +211,60 @@ class TestCollectSupplyAndDemandDiscretionary:
         total_spend = sum(qty * market_prices[code] for code, qty in wants.items())
         budget = 1000.0 * market._DISCRETIONARY_SPEND_FRACTION
         assert total_spend <= budget + 1e-6
+
+
+class TestSettlementDeterminismUnits:
+    """Round 3 re-audit findings R3-MON-NEW-1 / R3-MKT-8 / R3-2
+    (run wf_af84ed13-dc3): the goods loop of execute_trades iterated a
+    set of str keys (hash-seed nondeterministic order), and an agent
+    could be matched against itself for a good it both offered and
+    wanted, inflating measured transaction volume (wash trade)."""
+
+    def test_execute_trades_iterates_goods_in_sorted_order(self):
+        goods = ["gamma", "alpha", "delta", "beta", "zeta", "epsilon"]
+        agent_orders = [
+            {
+                "agent_id": 1,
+                "offers": {},
+                "wants": dict.fromkeys(goods, 1.0),
+            },
+            {
+                "agent_id": 2,
+                "offers": dict.fromkeys(goods, 1.0),
+                "wants": {},
+            },
+        ]
+        prices = dict.fromkeys(goods, 1.0)
+        supply = dict.fromkeys(goods, 1.0)
+        demand = dict.fromkeys(goods, 1.0)
+
+        trades = execute_trades(agent_orders, prices, supply, demand)
+
+        trade_goods = [t["good_code"] for t in trades]
+        assert trade_goods == sorted(trade_goods)
+
+    def test_agent_does_not_demand_good_it_offers(self):
+        # R3-2: an agent offering its luxury holdings must not also
+        # project discretionary demand for the same good -- the
+        # two-pointer sweep could then match the agent against itself,
+        # a wash trade that nets to zero on inventory but inflates
+        # transaction volume and hence measured velocity.
+        good_categories = [
+            {"code": "luxury", "is_essential": False, "price_elasticity": 2.0},
+        ]
+        agent_inventories = [
+            {
+                "agent_id": 1,
+                "holdings": {"luxury": 5.0},
+                "cash_amount": 100.0,
+                "is_hoarding": False,
+            }
+        ]
+        market_prices = {"luxury": 10.0}
+
+        _, _, agent_orders = collect_supply_and_demand(
+            agent_inventories, good_categories, market_prices
+        )
+
+        assert "luxury" in agent_orders[0]["offers"]
+        assert "luxury" not in agent_orders[0]["wants"]
