@@ -84,12 +84,19 @@ def ces_production(
     if all(x == 0.0 for _, x in pairs):
         return 0.0
 
-    # Leontief limit (sigma -> 0): Q = A * min(alpha_i * X_i)
-    # As sigma approaches 0, the CES function converges to a fixed-proportions
-    # technology where the bottleneck factor determines output.
+    # Leontief limit (sigma -> 0): Q = A * min(X_i)
+    # The general branch below is a weighted power mean, normalized so the
+    # alpha_i sum to 1. As rho = (sigma-1)/sigma -> -inf (sigma -> 0), any
+    # such weighted power mean converges to min(X_i): the distribution
+    # weights alpha_i only need to be strictly positive to select which
+    # factors participate, and they vanish from the limit itself (Arrow,
+    # Chenery, Minhas & Solow 1961). min(alpha_i * X_i) is neither this
+    # limit nor the standard fixed-coefficients Leontief form
+    # min(X_i / a_i) under an explicit per-factor coefficient a_i; it is
+    # not implemented here since factor_weights are already normalized to
+    # sum to 1, not treated as fixed input-output coefficients.
     if sigma < _LEONTIEF_THRESHOLD:
-        min_val = min(alpha * x if x > 0 else 0.0 for alpha, x in pairs)
-        return scale * min_val
+        return scale * min(x for _, x in pairs)
 
     # Cobb-Douglas limit (sigma -> 1): Q = A * prod(X_i^alpha_i)
     # Using log-form for numerical stability near the singularity at rho=0.
@@ -187,6 +194,10 @@ def compute_agent_output(
 
     # Capital: zone base + sum of production bonuses from properties
     # The zone provides a baseline capital level; properties augment it.
+    # 0.5 fallback used only when neither zone_resources nor the zone_type
+    # template supplies a value -- tunable design parameter, no calibration
+    # source; feeds the CES aggregator directly so it materially scales
+    # output whenever it is the active fallback.
     capital_base = zone_resources.get("capital", zone_res.get("capital", 0.5))
     capital_from_properties = sum(
         p.production_bonus.get(good_code, 0.0) for p in properties_in_zone
@@ -195,9 +206,13 @@ def compute_agent_output(
     factor_inputs = {
         "labor": skill_weight,
         "capital": capital_base + capital_from_properties,
+        # 0.5 fallback -- tunable design parameter, no calibration source
+        # (same caveat as capital_base above).
         "natural_resources": zone_resources.get(
             "natural_resources", zone_res.get("natural_resources", 0.5)
         ),
+        # 0.5 fallback -- tunable design parameter, no calibration source
+        # (same caveat as capital_base above).
         "knowledge": zone_resources.get("knowledge", zone_res.get("knowledge", 0.5)),
     }
 
