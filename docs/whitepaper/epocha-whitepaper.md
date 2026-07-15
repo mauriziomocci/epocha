@@ -23,16 +23,17 @@ endow agents with rich cognition but operate over small groups, short
 horizons, and stylised environments without an underlying demographic or
 economic substrate. The whitepaper documents the system architecture (tick
 engine, agent decision pipeline, RNG strategy, LLM provider adapter,
-economic substrate, persistence model, dashboard and chat layer), eleven
+economic substrate, persistence model, dashboard and chat layer), the
 audited scientific modules — Heligman-Pollard mortality, Hadwiger-with-Becker
 fertility, Gale-Shapley with Goode 1963 couple formation, Cagan-Nerlove
 adaptive expectations, Diamond-Dybvig credit and banking, a
 Gordon-anchored property market, Castelfranchi-Conte-Paolucci reputation,
 Bartlett-Allport-Postman rumor propagation (information flow, distortion,
-belief filter, affinity), and the political-institutions cluster
-(government, government_types, institutions, stratification, election) —
-and four subsystems implemented in code but awaiting Round 2 adversarial
-scientific audit (movement, factions, knowledge graph, economy base layer). Every formula, parameter, and algorithm in the audited
+belief filter, affinity), the political-institutions cluster
+(government, government_types, institutions, stratification, election),
+movement, and factions —
+and two subsystems implemented in code but awaiting Round 2 adversarial
+scientific audit (knowledge graph, economy base layer). Every formula, parameter, and algorithm in the audited
 chapters is cited to a primary source; calibration tables are presented per
 era template and consolidated in Appendix A; the validation methodology
 specifies datasets, metrics, and acceptance thresholds against which Plan 4
@@ -2060,7 +2061,7 @@ Validation experiments are specified, not yet executed. The full execution of th
 
 # 8. Designed Subsystems (implemented, audit pending)
 
-Chapter 8 covers the three Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation converged on round 2 (2026-05-12) and was promoted to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity per the audit's IF-1 fix) converged on round 2 (2026-05-16) and was promoted to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) converged on round 2 (2026-05-16) and was promoted to §4.5, and movement converged on round 2 (2026-05-16) and was promoted to §4.6, and factions converged on round 2 (2026-05-16) and was promoted to §4.7, leaving the remaining two modules in this chapter pending. The resolution pass and the convergence re-audit on those three are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
+Chapter 8 covers the two Epocha clusters that are implemented in code and exercised by unit tests but have not yet completed the Round 2 adversarial scientific audit that gates promotion to Chapter 4 status. The 2026-04-12 batch audit (`docs/scientific-audit-2026-04-12.md`) opened a list of INCORRECT, UNJUSTIFIED, INCONSISTENT, and MISSING findings against eight of the modules below; reputation converged on round 2 (2026-05-12) and was promoted to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity per the audit's IF-1 fix) converged on round 2 (2026-05-16) and was promoted to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) converged on round 2 (2026-05-16) and was promoted to §4.5, and movement converged on round 2 (2026-05-16) and was promoted to §4.6, and factions converged on round 2 (2026-05-16) and was promoted to §4.7, leaving the remaining two modules in this chapter pending. The resolution pass and the convergence re-audit on those two are tracked as the highest-priority item of the roadmap of Chapter 9. Each subsection therefore restates the cluster scope, the literature pointers carried by the spec and the module docstrings, and the code path, then closes with a status line that names the spec under which the audit will resume. Literature pointers in this chapter are attributions recorded by the spec or the source rather than primary-source-verified Methods-grade citations of the Chapter 4 kind.
 
 ## 8.1 Knowledge Graph
 
@@ -2078,7 +2079,7 @@ The economy base layer is the substrate that turns agent activity into productio
 
 # 9. Roadmap
 
-The roadmap is ordered by priority rather than by chronology: the audit re-pass on the three modules still pending from the 2026-04-12 batch (reputation converged on round 2 in 2026-05-12 and was promoted to §4.3; the rumor-propagation cluster — information flow, distortion, belief filter, plus affinity — converged on round 2 in 2026-05-16 and was promoted to §4.4; the political-institutions cluster converged on round 2 in 2026-05-16 and was promoted to §4.5; movement converged on round 2 in 2026-05-16 and was promoted to §4.6) is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
+The roadmap is ordered by priority rather than by chronology: the audit re-pass on the two modules still pending from the 2026-04-12 batch (reputation converged on round 2 in 2026-05-12 and was promoted to §4.3; the rumor-propagation cluster — information flow, distortion, belief filter, plus affinity — converged on round 2 in 2026-05-16 and was promoted to §4.4; the political-institutions cluster converged on round 2 in 2026-05-16 and was promoted to §4.5; movement converged on round 2 in 2026-05-16 and was promoted to §4.6; factions converged on round 2 in 2026-05-16 and was promoted to §4.7) is the gating item because every subsequent calibration and validation effort depends on the audited subset being closed first. The remaining items are listed in a coarse expected-effort order and are tracked in the long-form memory backup under `docs/memory-backup/`; cross-references to the relevant memory note are inlined where they exist.
 
 - **HIGH PRIORITY — Round 2 adversarial audit re-pass on the 2026-04-12 batch.** The Knowledge Graph and the economy base layer remain in §8 pending their first scientific audit pass. Five clusters have already converged and been promoted: reputation on round 2 (2026-05-12) to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity) on round 2 (2026-05-16) to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) on round 2 (2026-05-16) to §4.5, movement on round 2 (2026-05-16) to §4.6, and factions on round 2 (2026-05-16) to §4.7. Resolution and convergence re-audit on the remaining modules are the gating item before any of these can be promoted from §8 to §4 status, before their parameters can be added to the parameter tables of §6, and before they can enter the validation campaign of §7.
 - **Demography Plan 3 (Inheritance + Migration).** The demography spec of §4.1 covers mortality, fertility, and couple formation; Plan 3 extends the same audit-first methodology to inheritance (transfer of property and debt to surviving kin on death of an agent) and to demographic migration (the long-horizon zone-to-zone migration that complements the per-tick movement of §4.6 with a generational-scale flow). Spec is `docs/superpowers/specs/2026-04-18-demography-design.md` Plan 3 section.
@@ -2218,7 +2219,7 @@ deliberately short — the substantive context lives in the corresponding §4
 Simplifications paragraph or §8 status line — and exists here as a single
 authoritative inventory for the reader who needs the project-wide view in
 one place. Two cross-cutting follow-ups underlie most of the entries: the
-audit re-pass on the four §8 modules still pending tracked under
+audit re-pass on the two §8 modules still pending tracked under
 `project_audit_repass_batch_2026_04_12_pending.md` and the validation
 campaign tracked under `project_validation_experiments_pending.md`.
 
@@ -2302,16 +2303,17 @@ campaign tracked under `project_validation_experiments_pending.md`.
   §3.2 rather than by the property market itself; this subsection treats
   the asking price as exogenous.
 
-**Designed subsystems pending Round 2 audit (§8).** Three modules across
-three clusters still carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and
-MISSING findings from the 2026-04-12 batch audit: factions; the Knowledge
-Graph; the economy base layer. Four clusters from the original batch have
+**Designed subsystems pending Round 2 audit (§8).** Two modules across
+two clusters still carry open INCORRECT, UNJUSTIFIED, INCONSISTENT, and
+MISSING findings from the 2026-04-12 batch audit: the Knowledge
+Graph; the economy base layer. Five clusters from the original batch have
 already converged and been promoted — reputation on round 2 (2026-05-12)
 to §4.3, the rumor-propagation cluster (information flow, distortion,
 belief filter, plus affinity) on round 2 (2026-05-16) to §4.4, the
 political-institutions cluster (government, government_types,
 institutions, stratification, election) on round 2 (2026-05-16) to §4.5,
-and movement on round 2 (2026-05-16) to §4.6. Resolution and convergence
+movement on round 2 (2026-05-16) to §4.6, and factions on round 2
+(2026-05-16) to §4.7. Resolution and convergence
 re-audit on the remaining modules are tracked under
 `project_audit_repass_batch_2026_04_12_pending.md` and gate the promotion
 of these modules from §8 to §4 status, the inclusion of their parameters
@@ -2350,8 +2352,8 @@ audited behavioral economy covering Cagan-Nerlove adaptive expectations,
 Diamond-Dybvig credit and banking, and a Gordon-anchored property market
 (§4.2), an LLM-driven agent decision pipeline that consumes the
 substrate's per-tick state and writes back into the persistence layer
-(§3.2), and three implemented-but-pre-audit subsystems (§8) covering
-factions, the Knowledge Graph, and the economy base layer. The runtime infrastructure
+(§3.2), and two implemented-but-pre-audit subsystems (§8) covering
+the Knowledge Graph and the economy base layer. The runtime infrastructure
 covers a tick engine with self-enqueuing Celery loop, a per-phase seeded
 RNG strategy that makes every run reproducible across machines from the
 commit hash, the seed, and the initial database state (§3.4), an

@@ -1,16 +1,7 @@
 - [Spec Kit mandatory absolute](feedback_speckit_mandatory.md) -- REGOLA PERMANENTE dal 2026-05-16: tutti i nuovi work item via Spec Kit, branch <timestamp>-<slug>, layout .specify/specs/<branch>/{spec,plan,tasks}.md. Niente nuovi file sotto docs/superpowers/. Legacy artifacts archiviati.
-- [SESSION RESUME 2026-06-22](project_session_resume_2026_06_22.md) -- READ FIRST: Ruff repo-wide cleanup CHIUSO (PR#10, merge ed5e9e1). CI lint gate ora VERDE su develop. Resta Branch 6 (world economy deprecation, ultimo F-CAMPAIGN) + factions Round 3 hardening + Demography Plan 4. Nota gh aliasato a git hist + bug bashism create-new-feature.sh.
+- [SESSION RESUME 2026-07-15](project_session_resume_2026_07_15.md) -- READ FIRST: F-CAMPAIGN CHIUSA 6/6, world/economy.py deprecato via Spec Kit, whitepaper riconciliato (11 conteggi stale), suite 810. Branch in Draft PR, merge in attesa ratifica gate umani. Prossimo: factions Round 3 hardening, poi Demography Plan 4.
 - [Ruff cleanup pending](project_ruff_cleanup_pending.md) -- CLOSED 2026-06-22 (PR#10, merge ed5e9e1). CI lint gate verde. ruff check . e ruff format --check . exit 0 su develop.
-- [SESSION RESUME 2026-06-13](project_session_resume_2026_06_13.md) -- SUPERSEDED da 2026-06-22. Branch 5 factions CHIUSO (PR#9, merge 5406b95). Catalogo 5 deferred factions Round 3.
-- [SESSION RESUME 2026-05-16 factions](project_session_resume_2026_05_16_factions.md) -- SUPERSEDED da 2026-06-13. Branch 5 factions era IN FLIGHT, ora CHIUSO. Catalogo originale 16 findings Round 2 (4 R1 + 12 NEW) e split 11+5.
-- [SESSION RESUME 2026-05-16 movement](project_session_resume_2026_05_16_movement.md) -- Branch 4 movement CHIUSO. Vedi factions variant per stato corrente.
-- [SESSION RESUME 2026-05-16 political](project_session_resume_2026_05_16_political.md) -- Branch 3 political-cluster CHIUSO. Vedi movement variant per stato corrente.
-- [SESSION RESUME 2026-05-16](project_session_resume_2026_05_16.md) -- Spec Kit adottato (19279a1) + Branch 2 rumor-cluster CHIUSO. Vedi political variant per stato corrente Branch 3.
-- [SESSION RESUME 2026-05-12](project_session_resume_2026_05_12.md) -- F-CAMPAIGN stato pre-speckit. 16 findings rumor-cluster Round 2 catalogati qui (da migrare in spec.md retrofittato).
-- [SESSION RESUME 2026-04-26](project_session_resume_2026_04_26.md) -- catchup README+whitepaper CLOSED. Pre-campagna stato. Vedi 2026-05-12 per stato corrente.
-- [SESSION RESUME 2026-04-20](project_session_resume_2026_04_20.md) -- READ FIRST se 2026-04-26 mancante: riepilogo sessione precedente + prossimi step obbligati (README + whitepaper prima di Plan 3)
 - [FULL CONTEXT](project_full_context.md) -- complete project state (parziale/obsoleto, priorita' al session resume)
-- [Italian language](feedback_italian_language.md) -- Comunicare in italiano, codice in inglese
 - [Scientific rigor priority](feedback_scientific_rigor_priority.md) -- Ogni design privilegia il massimo rigore scientifico
 - [Optimization always priority](feedback_optimization_priority.md) -- Ottimizzazione non negoziabile fin da subito, mai "dopo"
 - [Extensible architecture](feedback_extensible_architecture.md) -- Sempre aperto a estensioni future senza riscrittura
@@ -36,11 +27,10 @@
 - [Narrative generator](project_narrative_generator.md) -- Romanzo storico/geopolitico generato dalla simulazione, rigoroso e multilingue
 - [Hegemonic cascade](project_hegemonic_cascade.md) -- Perdita rotte commerciali innesca cascata di declino (Kindleberger, Arrighi, Kennedy)
 - [MiroFish comparison](reference_mirofish_comparison.md) -- Gap analysis vs MiroFish: knowledge graph, report agent, grafo
-- [Behavioral integration WIP](project_behavioral_integration_progress.md) -- Spec 2 Part 3: Plan 3a+3b COMPLETATI (306 test), manca solo Plan 3c (integration test)
 - [Demography Plan 1 complete](project_demography_plan1_complete.md) -- Plan 1 mergiata in develop 2026-04-19, commit 41bf508. Audit CONVERGED.
 - [Demography Plan 2 complete](project_demography_plan2_complete.md) -- Plan 2 (Fertility + Couple + LLM Actions) mergiata in develop 2026-04-19, commit 715d5fa. Audit CONVERGED round 2. PROSSIMO: README + whitepaper rewrite PRIMA di Plan 3.
-- [README rewrite todo](project_readme_rewrite_todo.md) -- FOLLOW-UP one-shot: riscrivere README.md e README.it.md (molto obsoleti) al termine del Plan 2.
-- [Audit re-pass batch 2026-04-12 pending](project_audit_repass_batch_2026_04_12_pending.md) -- HIGH-PRIORITY post-Plan 3: Round 2 re-audit per 8 moduli (reputation, distortion, info_flow, belief, government, stratification, movement, factions). Stato attuale: remediation done, Round 2 pending = NON CONVERGED.
+- [Audit re-pass batch 2026-04-12 -- residuo](project_audit_repass_batch_2026_04_12_pending.md) -- F-CAMPAIGN CHIUSA 6/6 (2026-07-15). Il file traccia ora solo il residuo Round 2 fuori campagna: par. 8.1 Knowledge Graph + par. 8.2 economy base layer. Nome file storico mantenuto perche' citato dal whitepaper.
+- [Retrospettiva F-CAMPAIGN](project_audit_repass_2026_04_12_completed.md) -- Retrospettiva campagna 2026-05-12 -> 2026-07-15: 5 promozioni a par. 4 (tutte Round 2), world/economy.py deprecato (path B), lezioni su conteggi whitepaper stale (11 punti, grep stretto = falso verde) e memorie tracker.
 - [Validation experiments pending](project_validation_experiments_pending.md) -- FOLLOW-UP scheduled: esecuzione benchmark validation (HMD fit, Wrigley-Schofield, Irish Famine, Hajnal) -- prerequisito per submission paper, non blocca sviluppo.
 - [Whitepaper doc-sync rule](feedback_whitepaper_doc_sync.md) -- REGOLA PERMANENTE: PR su modulo cap. 4 aggiorna whitepaper nello stesso commit. Mapping vivo, enforce via PR checklist (no hook finche' mapping piccolo + dev singolo).
 - [Whitepaper promotion pipeline](project_whitepaper_promotion_pipeline.md) -- Procedura standard per promuovere modulo da cap. 8 (audit pending) a cap. 4 (Methods) dopo CONVERGED. Branch dedicato whitepaper-promote/<modulo>.

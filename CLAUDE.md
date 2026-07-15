@@ -202,15 +202,15 @@ Every new subsystem, major feature, or spec MUST follow this workflow. Skipping 
 
 | Phase | Model | Rationale |
 |-------|-------|-----------|
-| 1. Ideation | Opus 4.7 | Conceptual exploration |
-| 2. Requirements (brainstorming, spec, adversarial audit, convergence) | **Opus 4.7 with extended thinking** | Scientific rigor, heavy gate — errors here propagate everywhere |
-| 3. Architectural plan design | Opus 4.7 | Architecture, cross-module trade-offs |
-| 4. Task breakdown + post-validation review | Opus 4.7 | Accurate decomposition, hidden gap detection |
-| 5. Implementation (per-task) | **Sonnet 4.6** | Fully-specified tasks; 3-5× faster, ~5× cheaper |
-| 5-bis. Per-task code review | Sonnet 4.6 | 8-point review on atomic task |
-| 5-ter. Final cross-task integration review | Opus 4.7 | Architectural judgment, coherence across tasks |
-| 6. General test + final adversarial code audit | **Opus 4.7** | Heavy final gate; hostile in-depth auditor |
-| 7. Closure | Sonnet 4.6 | Mechanical, deterministic operations |
+| 1. Ideation | Opus | Conceptual exploration |
+| 2. Requirements (brainstorming, spec, adversarial audit, convergence) | **Opus with extended thinking** | Scientific rigor, heavy gate — errors here propagate everywhere |
+| 3. Architectural plan design | Opus | Architecture, cross-module trade-offs |
+| 4. Task breakdown + post-validation review | Opus | Accurate decomposition, hidden gap detection |
+| 5. Implementation (per-task) | **Sonnet** | Fully-specified tasks; 3-5× faster, ~5× cheaper |
+| 5-bis. Per-task code review | Sonnet | 8-point review on atomic task |
+| 5-ter. Final cross-task integration review | Opus | Architectural judgment, coherence across tasks |
+| 6. General test + final adversarial code audit | **Opus** | Heavy final gate; hostile in-depth auditor |
+| 7. Closure | Sonnet | Mechanical, deterministic operations |
 
 **Escalation protocol (non-negotiable)**: during phase 5, if a task reveals an unforeseen edge case, wrong spec assumption, required undeclared refactor, incoherence with existing code, or scientific doubt — Sonnet does NOT invent a solution. It escalates to Opus. Sonnet resumes only after Opus revises the spec/plan/task.
 
@@ -411,5 +411,5 @@ Constitution authoritative at `.specify/memory/constitution.md` — supersedes c
 
 See memory `feedback_speckit_mandatory.md` for the absolute rule.
 
-**Active feature plan**: `specs/20260622-152915-ruff-repo-wide-cleanup/plan.md`
+**Active feature plan**: `specs/20260715-094457-world-economy-deprecation/plan.md`
 <!-- SPECKIT END -->
