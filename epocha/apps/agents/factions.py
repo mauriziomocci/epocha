@@ -81,14 +81,26 @@ Known Limitations:
       0.3 moderate, 0.4 significant) applied to faction-event memories. All are
       part of the simulation's calibration budget tied to tick frequency and the
       desired group-formation timescale.
-  (f) Deferred behavioral hardening (tracked for a future "factions Round 3
-      hardening" work item, out of scope for this doc-only audit re-pass):
-      member-sampling bias from default primary-key ordering in
-      _check_join_existing_groups; missing @transaction.atomic around the
-      multi-row writes in _check_schism and _create_faction; inconsistent agent
-      migration discipline (.update(group=None) does not fire signals while
-      per-agent .save() does); and N+1 query patterns in the
-      _check_join_existing_groups affinity loop and in compute_legitimacy.
+  (f) Behavioral hardening RESOLVED (Round 3, 2026-07-15, branch
+      20260715-111119-factions-round3-hardening). The four findings deferred at
+      the Round 2 audit are closed: the member sampling in
+      _check_join_existing_groups (an unordered queryset slice whose selection
+      was implementation-defined on PostgreSQL -- the original "primary-key
+      ordering" characterization was imprecise) is replaced by averaging over
+      ALL living members with a prefetched affinity context; the multi-row
+      writes of all four mutation paths run inside per-mutation
+      transaction.atomic blocks; the agent migration discipline is unified on
+      queryset update() (see the Write discipline section below); and the N+1
+      query patterns in the join-suggestion loop, the cluster-detection loop,
+      the leadership pipeline and the founder election are removed via
+      once-per-tick aggregated prefetches with pinned query-budget regression
+      tests. The relationship-strength tie-break gained a deterministic id
+      secondary key. Still open by declared choice: the per-member
+      Memory.objects.create loops on rare mutation events (schism, dissolution,
+      leadership change) remain unbatched -- they are O(group size) INSERTs on
+      event, not per-tick SELECT N+1, and are bounded by group size; batching
+      them is a micro-optimization deferred until an event-frequency profile
+      justifies it.
 
 Write discipline (Round 3 hardening, FR-005/FR-006, precondition verified
 2026-07-15): the four group-membership mutation paths (_check_schism,
