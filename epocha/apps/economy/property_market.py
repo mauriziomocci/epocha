@@ -23,8 +23,6 @@ from __future__ import annotations
 import json
 import logging
 
-from django.db.models import Sum
-
 from epocha.apps.agents.models import Agent, DecisionLog, Memory
 from epocha.apps.world.government import add_to_treasury
 from epocha.apps.world.models import Government
@@ -97,12 +95,19 @@ def compute_gordon_valuation(prop: Property, simulation) -> float:
     if latest_rent:
         latest_tick = latest_rent.tick
         # Sum rent for the property's zone at the latest tick
-        zone_rent_agg = EconomicLedger.objects.filter(
-            simulation=simulation,
-            transaction_type="rent",
-            tick=latest_tick,
-        ).aggregate(total=Sum("total_amount"))
-        rental_income = zone_rent_agg["total"] or 0.0
+        # id-ordered Python sum (R7-DET-1 determinism pin): SQL
+        # SUM(float8) accumulates in scan order, which is heap-order
+        # dependent -- the same ULP pinning applied to Python-side
+        # accumulations applies to aggregates feeding persisted state.
+        rental_income = sum(
+            EconomicLedger.objects.filter(
+                simulation=simulation,
+                transaction_type="rent",
+                tick=latest_tick,
+            )
+            .order_by("id")
+            .values_list("total_amount", flat=True)
+        )
     else:
         rental_income = 0.0
 
@@ -161,19 +166,26 @@ def _compute_rent_growth(simulation, num_ticks: int = 5) -> float:
     if span <= 0:
         return 0.0
 
-    latest_rent_agg = EconomicLedger.objects.filter(
-        simulation=simulation,
-        transaction_type="rent",
-        tick=latest_tick,
-    ).aggregate(total=Sum("total_amount"))
-    latest_rent = latest_rent_agg["total"] or 0.0
-
-    earliest_rent_agg = EconomicLedger.objects.filter(
-        simulation=simulation,
-        transaction_type="rent",
-        tick=earliest_tick,
-    ).aggregate(total=Sum("total_amount"))
-    earliest_rent = earliest_rent_agg["total"] or 0.0
+    # id-ordered Python sums (R7-DET-1 determinism pin, see
+    # compute_gordon_valuation).
+    latest_rent = sum(
+        EconomicLedger.objects.filter(
+            simulation=simulation,
+            transaction_type="rent",
+            tick=latest_tick,
+        )
+        .order_by("id")
+        .values_list("total_amount", flat=True)
+    )
+    earliest_rent = sum(
+        EconomicLedger.objects.filter(
+            simulation=simulation,
+            transaction_type="rent",
+            tick=earliest_tick,
+        )
+        .order_by("id")
+        .values_list("total_amount", flat=True)
+    )
 
     if earliest_rent <= 0:
         return 0.0
@@ -459,11 +471,17 @@ def process_expropriation(
             status="listed",
         ).update(status="withdrawn")
 
-        # Default loans collateralized by this property
+        # Default loans collateralized by this property. R7-PROP-2 fix
+        # (Round 7 re-audit): the collateral FK is CLEARED -- the state
+        # has taken the security, so the later default settlement must
+        # not re-seize the nationalized property for the lender
+        # (silently reversing the expropriation); the lender's loss is
+        # the gross remaining balance, which is exactly right since the
+        # collateral is gone.
         Loan.objects.filter(
             collateral=prop,
             status="active",
-        ).update(status="defaulted")
+        ).update(status="defaulted", collateral=None)
 
         # Transfer ownership to government
         prop.owner = None

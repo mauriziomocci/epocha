@@ -1140,11 +1140,16 @@ class TestRepaymentLedgerType:
         )
         assert repayment_entries.count() == 1
         assert repayment_entries.first().total_amount == pytest.approx(100.0)
-        assert not EconomicLedger.objects.filter(
+        # R7-NEW-1: the final period accrues on repayment too -- the
+        # interest portion is ledgered separately as loan_interest
+        # (the principal above stays a pure loan_repayment).
+        interest_entries = EconomicLedger.objects.filter(
             simulation=simulation,
             tick=5,
             transaction_type="loan_interest",
-        ).exists()
+        )
+        assert interest_entries.count() == 1
+        assert interest_entries.first().total_amount == pytest.approx(5.0)
 
 
 @pytest.mark.django_db
@@ -1648,3 +1653,158 @@ class TestPendingDefaultCollateralLock:
         )
 
         assert find_best_unpledged_property(borrower) is None
+
+
+@pytest.mark.django_db
+class TestMaturityFinalPeriodInterest:
+    """Round 7 re-audit finding R7-NEW-1 (run wf_d98bd880-53e): the
+    R6-NEW-1 fix removed the maturity-tick servicing for ALL maturing
+    loans, so full repayment collected only the balance with no
+    final-period interest while the rollover branch charged it -- the
+    same period was interest-bearing in one branch of the same event
+    and interest-free in the other. The final period accrues in BOTH
+    branches: repayment collects balance*(1+rate)."""
+
+    def test_full_repayment_collects_final_period_interest(
+        self,
+        simulation,
+        borrower,
+        lender,
+        currency,
+    ):
+        inv = borrower.inventory
+        inv.cash = {currency.code: 500.0}
+        inv.save(update_fields=["cash"])
+        Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            due_at_tick=5,
+            status="active",
+        )
+
+        process_maturity(simulation, tick=5)
+
+        interest_rows = EconomicLedger.objects.filter(
+            simulation=simulation, tick=5, transaction_type="loan_interest", from_agent=borrower
+        )
+        repay_rows = EconomicLedger.objects.filter(
+            simulation=simulation, tick=5, transaction_type="loan_repayment", from_agent=borrower
+        )
+        assert interest_rows.count() == 1
+        assert interest_rows.first().total_amount == pytest.approx(20.0)
+        assert repay_rows.count() == 1
+        assert repay_rows.first().total_amount == pytest.approx(200.0)
+
+        inv.refresh_from_db()
+        assert inv.cash[currency.code] == pytest.approx(500.0 - 220.0)
+
+    def test_open_ended_loans_still_serviced(
+        self,
+        simulation,
+        borrower,
+        lender,
+        currency,
+    ):
+        # Pinning test closing the Round 7 false positive: the
+        # .exclude(due_at_tick=tick) maturing-loan exclusion must KEEP
+        # open-ended loans (due_at_tick NULL) in the servicing set --
+        # Django's exclude() on a nullable field retains NULL rows.
+        Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            due_at_tick=None,
+            status="active",
+        )
+
+        service_loans(simulation, tick=5)
+
+        assert EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=5,
+            transaction_type="loan_interest",
+            from_agent=borrower,
+        ).exists()
+
+
+@pytest.mark.django_db
+class TestBorrowAmountValidation:
+    """Round 7 re-audit finding R7-VAL-1 (run wf_d98bd880-53e,
+    INCORRECT): the borrow amount reached evaluate_credit_request and
+    issue_loan with no positivity/finiteness guard -- a negative
+    amount decremented total_loans_outstanding (phantom capacity) and
+    a NaN permanently poisoned cash, deposits, money supply, the
+    solvency check and the Fisher diagnostic. LLM output is a system
+    boundary and must be validated like any external input."""
+
+    @pytest.mark.parametrize("bad_amount", [-100.0, 0.0, float("nan"), float("inf")])
+    def test_invalid_amounts_rejected(
+        self,
+        simulation,
+        borrower,
+        currency,
+        collateral_property,
+        banking_state,
+        bad_amount,
+    ):
+        approved, _ = evaluate_credit_request(
+            borrower=borrower,
+            amount=bad_amount,
+            collateral_property=collateral_property,
+            simulation=simulation,
+        )
+        assert approved is False
+
+
+@pytest.mark.django_db
+class TestIssueLoanCollateralExclusivity:
+    """Round 7 re-audit finding R7-COLL-1 (run wf_d98bd880-53e): the
+    loan-creation API accepted any Property as collateral -- the
+    double-pledge exclusion lived only in the engine's borrow path
+    helper. issue_loan itself must refuse already-pledged collateral."""
+
+    def test_issue_loan_refuses_pledged_collateral(
+        self,
+        simulation,
+        borrower,
+        lender,
+        currency,
+        collateral_property,
+        banking_state,
+    ):
+        Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=100.0,
+            interest_rate=0.10,
+            remaining_balance=100.0,
+            issued_at_tick=0,
+            collateral=collateral_property,
+            status="active",
+        )
+
+        loan = issue_loan(
+            simulation=simulation,
+            lender=None,
+            borrower=borrower,
+            amount=50.0,
+            interest_rate=0.05,
+            collateral=collateral_property,
+            tick=1,
+            duration=5,
+            lender_type="banking",
+        )
+        assert loan is None

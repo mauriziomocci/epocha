@@ -421,3 +421,22 @@ class TestInitializationDeterminism:
         primaries = Currency.objects.filter(simulation=simulation, is_primary=True)
         assert primaries.count() == 1
         assert primaries.first().code == "LVR"
+
+
+@pytest.mark.django_db
+class TestRngStreamNamespacing:
+    """Round 7 re-audit finding R7-RNG-1 (run wf_d98bd880-53e): the
+    economy RNG helper derived its seed from the same
+    sim:seed:tick:phase key as demography's helper, and both apps
+    reserve the phase label "initialization" -- two independent model
+    domains would consume the IDENTICAL stream, correlating their
+    draws. The economy key must be namespaced."""
+
+    def test_economy_and_demography_streams_differ(self, simulation):
+        from epocha.apps.demography.rng import get_seeded_rng as demography_rng
+        from epocha.apps.economy.rng import get_seeded_rng as economy_rng
+
+        eco = economy_rng(simulation, tick=0, phase="initialization")
+        demo = demography_rng(simulation, tick=0, phase="initialization")
+
+        assert [eco.random() for _ in range(4)] != [demo.random() for _ in range(4)]

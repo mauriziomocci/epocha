@@ -24,6 +24,7 @@ tasks (production path). This avoids duplicating logic across execution modes.
 from __future__ import annotations
 
 import logging
+import math
 
 from epocha.apps.agents.decision import process_agent_decision
 from epocha.apps.agents.factions import process_faction_dynamics
@@ -195,6 +196,14 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
                 try:
                     amount = float(target_str)
                 except (ValueError, TypeError):
+                    amount = collateral.value * 0.5
+                # R7-VAL-1 fix (Round 7 re-audit): the LLM-supplied
+                # amount is an external input -- float() accepts
+                # "nan", "inf" and negatives, which would poison the
+                # monetary aggregates downstream. Non-finite or
+                # non-positive requests fall back to the collateral
+                # heuristic (the same default as an unparsable target).
+                if not math.isfinite(amount) or amount <= 0:
                     amount = collateral.value * 0.5
 
                 approved, result = evaluate_credit_request(

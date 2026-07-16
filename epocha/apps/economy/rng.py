@@ -45,7 +45,12 @@ def get_seeded_rng(simulation, tick: int, phase: str) -> random.Random:
         )
     base_seed = simulation.seed or 0
     simulation_id = getattr(simulation, "id", 0) or 0
-    key = f"{simulation_id}:{base_seed}:{tick}:{phase}".encode()
+    # "economy:" namespace (R7-RNG-1 fix, Round 7 re-audit): without
+    # it, this helper and demography/rng.py derive the IDENTICAL
+    # stream for the same (simulation, tick, phase) -- both apps
+    # reserve the phase label "initialization" -- correlating draws
+    # across independent model domains.
+    key = f"economy:{simulation_id}:{base_seed}:{tick}:{phase}".encode()
     digest = hashlib.sha256(key).digest()
     derived_seed = int.from_bytes(digest[:8], "big")
     return random.Random(derived_seed)

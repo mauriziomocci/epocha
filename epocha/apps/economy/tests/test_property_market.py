@@ -716,3 +716,86 @@ class TestCollateralLien:
         assert result["matched"] == 0
         prop.refresh_from_db()
         assert prop.owner == seller
+
+
+@pytest.mark.django_db
+class TestSeizureAndExpropriationListingConsistency:
+    """Round 7 re-audit findings R7-PROP-1 / R7-PROP-2 (run
+    wf_d98bd880-53e): collateral seizure left the seized property's
+    active listings alive (a stale listing could later sell the
+    property from under its new owner), and expropriation nationalized
+    a pledged property while leaving the collateral FK on the
+    defaulted loan -- the next tick's settlement re-seized the
+    nationalized property FOR the lender, silently reversing the
+    expropriation."""
+
+    def test_seizure_withdraws_active_listing(self, property_market_setup):
+        from epocha.apps.economy.credit import process_defaults
+
+        setup = property_market_setup
+        sim = setup["simulation"]
+        prop = setup["property"]
+        seller = setup["seller"]
+        lender_agent = setup["buyer"]  # reuse as the loan's lender
+
+        listing = PropertyListing.objects.create(
+            property=prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=4,
+            status="listed",
+        )
+        Loan.objects.create(
+            simulation=sim,
+            lender=lender_agent,
+            borrower=seller,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=prop,
+            status="defaulted",
+        )
+
+        process_defaults(sim, tick=5)
+
+        prop.refresh_from_db()
+        assert prop.owner == lender_agent
+        listing.refresh_from_db()
+        assert listing.status == "withdrawn"
+
+    def test_expropriation_clears_collateral_claim(self, property_market_setup):
+        from epocha.apps.economy.credit import process_defaults
+
+        setup = property_market_setup
+        sim = setup["simulation"]
+        prop = setup["property"]
+        seller = setup["seller"]
+
+        loan = Loan.objects.create(
+            simulation=sim,
+            lender=None,
+            borrower=seller,
+            lender_type="banking",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=prop,
+            status="active",
+        )
+
+        transferred = process_expropriation(sim, old_type="monarchy", new_type="communist", tick=5)
+        assert transferred >= 1
+
+        prop.refresh_from_db()
+        assert prop.owner_type == "government"
+
+        # The next tick's settlement must NOT re-seize the nationalized
+        # property away from the state.
+        process_defaults(sim, tick=6)
+        prop.refresh_from_db()
+        assert prop.owner_type == "government"
+        loan.refresh_from_db()
+        assert loan.collateral is None

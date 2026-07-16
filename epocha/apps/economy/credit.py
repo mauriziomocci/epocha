@@ -23,9 +23,8 @@ References:
 from __future__ import annotations
 
 import logging
+import math
 from collections import deque
-
-from django.db.models import Sum
 
 from epocha.apps.agents.models import Agent, Memory
 from epocha.apps.agents.reputation import (
@@ -42,6 +41,7 @@ from .models import (
     EconomyTemplate,
     Loan,
     Property,
+    PropertyListing,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,19 +140,23 @@ def classify_minsky_stage(agent: Agent, simulation, tick: int) -> str:
         One of "hedge", "speculative", or "ponzi".
     """
     prev_tick = max(tick - 1, 0)
-    income_agg = EconomicLedger.objects.filter(
-        simulation=simulation,
-        to_agent=agent,
-        tick=prev_tick,
-        transaction_type__in=["wage", "rent"],
-    ).aggregate(total=Sum("total_amount"))
-    income = income_agg["total"] or 0.0
+    # id-ordered Python sums (R7-DET-1 determinism pin).
+    income = sum(
+        EconomicLedger.objects.filter(
+            simulation=simulation,
+            to_agent=agent,
+            tick=prev_tick,
+            transaction_type__in=["wage", "rent"],
+        )
+        .order_by("id")
+        .values_list("total_amount", flat=True)
+    )
 
     active_loans = Loan.objects.filter(
         simulation=simulation,
         borrower=agent,
         status="active",
-    )
+    ).order_by("id")
 
     interest_due = sum(loan.remaining_balance * loan.interest_rate for loan in active_loans)
     principal_due = sum(loan.remaining_balance for loan in active_loans.filter(due_at_tick=tick))
@@ -195,6 +199,17 @@ def evaluate_credit_request(
     Returns:
         (True, interest_rate) if approved, or (False, rejection_reason).
     """
+    # R7-VAL-1 fix (Round 7 re-audit, run wf_d98bd880-53e): the amount
+    # arrives from the LLM decision boundary and must be validated like
+    # any external input -- a negative amount passed the credit-limit
+    # gate trivially (and DECREMENTED total_loans_outstanding at
+    # issuance), zero created a degenerate loan, and NaN/inf poisoned
+    # cash, deposits, money supply, the solvency check and the Fisher
+    # diagnostic irreversibly (NaN comparisons are all False, so every
+    # guard downstream silently passed).
+    if not math.isfinite(amount) or amount <= 0:
+        return (False, "invalid amount")
+
     credit_config = _get_credit_config(simulation)
     loan_to_value_ratio = credit_config.get("loan_to_value", 0.5)
     # Risk premium: multiplier applied to debt ratio to compute the
@@ -206,12 +221,18 @@ def evaluate_credit_request(
     collateral_value = collateral_property.value if collateral_property else 0.0
     credit_limit = collateral_value * loan_to_value_ratio
 
-    existing_debt_agg = Loan.objects.filter(
-        simulation=simulation,
-        borrower=borrower,
-        status="active",
-    ).aggregate(total=Sum("remaining_balance"))
-    existing_debt = existing_debt_agg["total"] or 0.0
+    # id-ordered Python sum (R7-DET-1 determinism pin): SQL SUM(float8)
+    # accumulates in heap-scan order, so ULP-level results vary with
+    # physical row order; the interest rate derived below is persisted.
+    existing_debt = sum(
+        Loan.objects.filter(
+            simulation=simulation,
+            borrower=borrower,
+            status="active",
+        )
+        .order_by("id")
+        .values_list("remaining_balance", flat=True)
+    )
 
     if existing_debt + amount > credit_limit:
         return (False, "exceeds credit limit")
@@ -244,7 +265,7 @@ def issue_loan(
     tick: int,
     duration: int | None = None,
     lender_type: str = "banking",
-) -> Loan:
+) -> Loan | None:
     """Create a loan and transfer funds to the borrower.
 
     For banking-system loans, increments BankingState.total_loans_outstanding
@@ -269,6 +290,24 @@ def issue_loan(
     Returns:
         The created Loan instance.
     """
+    # R7-VAL-1 / R7-COLL-1 guards (Round 7 re-audit): the creation API
+    # itself validates its inputs -- callers other than the engine
+    # borrow path (which already runs evaluate_credit_request and
+    # find_best_unpledged_property) must not be able to create
+    # economically impossible loans or double-pledge collateral.
+    if not math.isfinite(amount) or amount <= 0:
+        logger.warning("issue_loan rejected: invalid amount %r", amount)
+        return None
+    if (
+        collateral is not None
+        and collateral.collateralized_loans.filter(status__in=["active", "defaulted"]).exists()
+    ):
+        logger.warning(
+            "issue_loan rejected: collateral %s already pledged",
+            collateral.name,
+        )
+        return None
+
     credit_config = _get_credit_config(simulation)
     if duration is None:
         duration = credit_config.get("default_loan_duration_ticks", 20)
@@ -463,16 +502,29 @@ def process_maturity(simulation, tick: int) -> None:
         borrower_inv = _get_or_create_inventory(loan.borrower)
         borrower_cash = borrower_inv.cash.get(cur_code, 0.0)
         balance = loan.remaining_balance
+        # R7-NEW-1 fix (Round 7 re-audit, run wf_d98bd880-53e): the
+        # final period ACCRUES in both maturity branches. The R6-NEW-1
+        # exclusion of maturing loans from service_loans removed the
+        # rollover double-charge but also silently removed the
+        # final-period interest from the repayment path, making the
+        # same period interest-bearing on rollover and interest-free on
+        # repayment. Full repayment now collects balance * (1 + rate):
+        # the principal ledgered as loan_repayment, the interest as
+        # loan_interest -- exactly one interest charge per loan-tick in
+        # every branch.
+        final_interest = balance * loan.interest_rate
 
-        if borrower_cash >= balance:
-            # Full repayment
-            borrower_inv.cash[cur_code] = borrower_cash - balance
+        if borrower_cash >= balance + final_interest:
+            # Full repayment: principal + final-period interest.
+            borrower_inv.cash[cur_code] = borrower_cash - balance - final_interest
             borrower_inv.save(update_fields=["cash"])
 
             # Credit lender
             if loan.lender_type == "agent" and loan.lender:
                 lender_inv = _get_or_create_inventory(loan.lender)
-                lender_inv.cash[cur_code] = lender_inv.cash.get(cur_code, 0.0) + balance
+                lender_inv.cash[cur_code] = (
+                    lender_inv.cash.get(cur_code, 0.0) + balance + final_interest
+                )
                 lender_inv.save(update_fields=["cash"])
 
             # Update banking state
@@ -503,6 +555,16 @@ def process_maturity(simulation, tick: int) -> None:
                 # money-flow analytics do not misclassify it.
                 transaction_type="loan_repayment",
             )
+            if final_interest > 0:
+                EconomicLedger.objects.create(
+                    simulation=simulation,
+                    tick=tick,
+                    from_agent=loan.borrower,
+                    to_agent=loan.lender,
+                    currency=primary_currency,
+                    total_amount=final_interest,
+                    transaction_type="loan_interest",
+                )
 
             logger.info("Loan %d repaid by %s", loan.id, loan.borrower.name)
 
@@ -635,6 +697,13 @@ def process_defaults(simulation, tick: int) -> list[dict]:
                 prop.owner = None
                 prop.owner_type = "government"
             prop.save(update_fields=["owner", "owner_type"])
+            # R7-PROP-1 fix (Round 7 re-audit): withdraw any live
+            # listing of the seized property -- a stale listing could
+            # otherwise sell it from under its new owner once the loan
+            # settles and the lien exclusion no longer applies.
+            PropertyListing.objects.filter(property=prop, status="listed").update(
+                status="withdrawn"
+            )
 
             # Reduce loss by collateral value
             loss = max(0.0, loss - prop.value)

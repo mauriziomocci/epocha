@@ -24,8 +24,6 @@ from __future__ import annotations
 
 import logging
 
-from django.db.models import Sum
-
 from .models import (
     BankingState,
     EconomyTemplate,
@@ -159,12 +157,19 @@ def adjust_interest_rate(simulation, tick: int) -> None:
 
     credit_demand = 0.0
     for agent in agents:
-        agent_debt_agg = Loan.objects.filter(
-            simulation=simulation,
-            borrower=agent,
-            status="active",
-        ).aggregate(total=Sum("remaining_balance"))
-        agent_debt = agent_debt_agg["total"] or 0.0
+        # id-ordered Python sum (R7-DET-1 determinism pin): SQL
+        # SUM(float8) accumulates in heap-scan order, and this value
+        # feeds the persisted base rate through a multiplicative
+        # per-tick update that compounds any ULP difference.
+        agent_debt = sum(
+            Loan.objects.filter(
+                simulation=simulation,
+                borrower=agent,
+                status="active",
+            )
+            .order_by("id")
+            .values_list("remaining_balance", flat=True)
+        )
         wealth = max(agent.wealth, 1.0)
         debt_ratio = agent_debt / wealth
 
