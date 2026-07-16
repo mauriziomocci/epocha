@@ -477,10 +477,19 @@ def process_expropriation(
         # not re-seize the nationalized property for the lender
         # (silently reversing the expropriation); the lender's loss is
         # the gross remaining balance, which is exactly right since the
-        # collateral is gone.
+        # collateral is gone. R8-NEW-1/R8-PROP-1 fix (Round 8 re-audit,
+        # run wf_75faf0db-ad2): the filter must reach the pending
+        # "defaulted" state too -- a loan cascade-marked defaulted at
+        # tick t but settled by process_defaults only at t+1 retains its
+        # collateral claim through the pending-default window, so an
+        # active-only filter left that claim live and the next-tick
+        # settlement re-seized the nationalized property. This is the
+        # same status pair ["active", "defaulted"] every other lien gate
+        # uses (find_best_unpledged_property, issue_loan, the listing
+        # match gate, sell_property).
         Loan.objects.filter(
             collateral=prop,
-            status="active",
+            status__in=["active", "defaulted"],
         ).update(status="defaulted", collateral=None)
 
         # Transfer ownership to government

@@ -799,3 +799,57 @@ class TestSeizureAndExpropriationListingConsistency:
         assert prop.owner_type == "government"
         loan.refresh_from_db()
         assert loan.collateral is None
+
+    def test_expropriation_clears_pending_default_collateral(self, property_market_setup):
+        """Round 8 re-audit finding R8-NEW-1/R8-PROP-1 (run
+        wf_75faf0db-ad2): the R7-PROP-2 fix cleared the collateral FK
+        only on loans in status "active". A loan already in the pending
+        "defaulted" state (cascade-marked at tick t, settled at t+1)
+        collateralized by an expropriated property kept its collateral
+        claim, so the next tick's process_defaults re-seized the
+        nationalized property FOR the agent lender -- silently reversing
+        the nationalization through the pending-default window. Every
+        other lien gate in the codebase uses the status pair
+        ["active", "defaulted"]; expropriation was the one site still on
+        the bare "active"."""
+        from epocha.apps.economy.credit import process_defaults
+
+        setup = property_market_setup
+        sim = setup["simulation"]
+        prop = setup["property"]
+        seller = setup["seller"]
+        lender_agent = setup["buyer"]  # reuse as the loan's lender
+
+        # Loan already in the pending-default window (cascade-forced at a
+        # prior tick, not yet settled) with an AGENT lender, so a
+        # re-seizure would flip the property back out of government hands.
+        loan = Loan.objects.create(
+            simulation=sim,
+            lender=lender_agent,
+            borrower=seller,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=prop,
+            status="defaulted",
+            cascade_origin=True,
+        )
+
+        transferred = process_expropriation(sim, old_type="monarchy", new_type="communist", tick=5)
+        assert transferred >= 1
+
+        prop.refresh_from_db()
+        assert prop.owner_type == "government"
+
+        # The pending-default loan must have had its collateral claim
+        # cleared, so the next tick's settlement does not re-seize the
+        # nationalized property for the agent lender.
+        loan.refresh_from_db()
+        assert loan.collateral is None
+
+        process_defaults(sim, tick=6)
+        prop.refresh_from_db()
+        assert prop.owner_type == "government"
+        assert prop.owner != lender_agent
