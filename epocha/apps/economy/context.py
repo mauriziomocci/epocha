@@ -44,7 +44,9 @@ def build_economic_context(agent, tick: int) -> str | None:
     simulation = agent.simulation
 
     # Get primary currency
-    currency = Currency.objects.filter(simulation=simulation, is_primary=True).first()
+    currency = (
+        Currency.objects.filter(simulation=simulation, is_primary=True).order_by("id").first()
+    )
     if not currency:
         return None
 

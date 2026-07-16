@@ -11,7 +11,6 @@ starts with a fully configured economy layer.
 from __future__ import annotations
 
 import logging
-import random
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.world.models import Zone
@@ -26,6 +25,7 @@ from .models import (
     TaxPolicy,
     ZoneEconomy,
 )
+from .rng import get_seeded_rng
 from .template_loader import get_template, load_default_templates
 
 logger = logging.getLogger(__name__)
@@ -63,16 +63,19 @@ def initialize_economy(
             if hasattr(template, key):
                 setattr(template, key, value)
 
-    # 1. Currencies
+    # 1. Currencies. R6-DET-3 fix (Round 6 re-audit): only the FIRST
+    # template currency is primary -- the pre-fix loop marked every
+    # currency is_primary=True, leaving the primary resolution to an
+    # unordered .first() elsewhere.
     currencies = []
-    for cur_cfg in template.currencies_config:
+    for idx, cur_cfg in enumerate(template.currencies_config):
         currencies.append(
             Currency.objects.create(
                 simulation=simulation,
                 code=cur_cfg["code"],
                 name=cur_cfg["name"],
                 symbol=cur_cfg["symbol"],
-                is_primary=True,
+                is_primary=(idx == 0),
                 total_supply=cur_cfg["initial_supply"],
             )
         )
@@ -201,7 +204,12 @@ def initialize_economy(
     dist_cfg = template.initial_distribution
     wealth_ranges = dist_cfg.get("wealth_range", {})
 
-    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True))
+    # R6-DET-2 fix (Round 6 re-audit): the cash draws below consume a
+    # seeded RNG in agent-id order -- the pre-fix module-global
+    # random.uniform over an unordered queryset made identically-seeded
+    # simulations diverge at tick 0 (whitepaper 3.4 contract).
+    rng = get_seeded_rng(simulation, tick=0, phase="initialization")
+    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True).order_by("id"))
     inventories_created = 0
 
     for agent in agents:
@@ -217,7 +225,7 @@ def initialize_economy(
             else:
                 wrange = wealth_ranges.get("poor", [5, 30])
 
-        initial_cash = random.uniform(wrange[0], wrange[1])
+        initial_cash = rng.uniform(wrange[0], wrange[1])
 
         # Start with 2 units of each essential good
         holdings = {code: 2.0 for code in essential_codes}

@@ -94,8 +94,13 @@ def _get_banking_config(simulation) -> dict:
 
 
 def _get_primary_currency(simulation) -> Currency | None:
-    """Return the primary currency for the simulation, or None."""
-    return Currency.objects.filter(simulation=simulation, is_primary=True).first()
+    """Return the primary currency for the simulation, or None.
+
+    id-ordered tiebreak (R6-DET-3, Round 6 re-audit): initialization
+    now marks a single currency primary, but legacy rows may carry
+    several -- the lowest id wins deterministically.
+    """
+    return Currency.objects.filter(simulation=simulation, is_primary=True).order_by("id").first()
 
 
 def _get_or_create_inventory(agent: Agent) -> AgentInventory:
@@ -347,11 +352,17 @@ def service_loans(simulation, tick: int) -> list[int]:
     """
     # id-ordered (R4-DET fix): servicing debits cash-constrained
     # borrowers in iteration order, so the order must be reproducible.
+    # R6-NEW-1 fix (Round 6 re-audit, run wf_6b5ea862-41e): loans
+    # maturing THIS tick are excluded -- process_maturity charges the
+    # period's interest itself on the rollover path (or collects the
+    # full balance on repayment), so servicing them here too charged
+    # one period's interest twice on every rollover tick.
     active_loans = list(
         Loan.objects.filter(
             simulation=simulation,
             status="active",
         )
+        .exclude(due_at_tick=tick)
         .select_related("borrower", "lender")
         .order_by("id")
     )
@@ -495,32 +506,44 @@ def process_maturity(simulation, tick: int) -> None:
 
             logger.info("Loan %d repaid by %s", loan.id, loan.borrower.name)
 
-        elif loan.times_rolled_over < max_rollover:
-            # Rollover: create new loan with higher rate (Minsky fragility)
+        elif (
+            loan.times_rolled_over < max_rollover and borrower_cash >= balance * loan.interest_rate
+        ):
+            # Rollover: create new loan with higher rate (Minsky
+            # fragility). R6-ROLL-1 fix (Round 6 re-audit): the rollover
+            # is GRANTED only when the borrower can actually pay the
+            # period's interest -- the Minsky "speculative" position
+            # (income covers interest but not principal). Pre-fix the
+            # affordability check gated only the payment while the
+            # rollover proceeded regardless, contradicting the
+            # documented semantics; an unaffordable interest now falls
+            # through to the default branch below.
             interest = balance * loan.interest_rate
-            if borrower_cash >= interest:
-                # Pay the interest portion
-                borrower_inv.cash[cur_code] = borrower_cash - interest
-                borrower_inv.save(update_fields=["cash"])
+            # Pay the interest portion
+            borrower_inv.cash[cur_code] = borrower_cash - interest
+            borrower_inv.save(update_fields=["cash"])
 
-                if loan.lender_type == "agent" and loan.lender:
-                    lender_inv = _get_or_create_inventory(loan.lender)
-                    lender_inv.cash[cur_code] = lender_inv.cash.get(cur_code, 0.0) + interest
-                    lender_inv.save(update_fields=["cash"])
+            if loan.lender_type == "agent" and loan.lender:
+                lender_inv = _get_or_create_inventory(loan.lender)
+                lender_inv.cash[cur_code] = lender_inv.cash.get(cur_code, 0.0) + interest
+                lender_inv.save(update_fields=["cash"])
 
-                # R5-LED-1 fix (Round 5 re-audit): the rollover interest
-                # payment is a real cash movement and must be ledgered
-                # like the identical flow in service_loans; pre-fix it
-                # was invisible to money-flow analytics.
-                EconomicLedger.objects.create(
-                    simulation=simulation,
-                    tick=tick,
-                    from_agent=loan.borrower,
-                    to_agent=loan.lender,
-                    currency=primary_currency,
-                    total_amount=interest,
-                    transaction_type="loan_interest",
-                )
+            # R5-LED-1 fix (Round 5 re-audit): the rollover interest
+            # payment is a real cash movement and must be ledgered
+            # like the identical flow in service_loans; pre-fix it
+            # was invisible to money-flow analytics. This is the ONLY
+            # interest charge for a maturing loan this tick:
+            # service_loans excludes loans with due_at_tick == tick
+            # (R6-NEW-1 fix).
+            EconomicLedger.objects.create(
+                simulation=simulation,
+                tick=tick,
+                from_agent=loan.borrower,
+                to_agent=loan.lender,
+                currency=primary_currency,
+                total_amount=interest,
+                transaction_type="loan_interest",
+            )
 
             # Mark old loan as rolled over
             loan.status = "rolled_over"
@@ -553,13 +576,14 @@ def process_maturity(simulation, tick: int) -> None:
                 new_rate,
             )
         else:
-            # Cannot repay and max rollovers exceeded: will be handled by
-            # process_defaults. Mark status stays "active" for now; the
-            # default processor picks up loans that could not be serviced.
+            # Cannot repay the balance and either the rollover budget is
+            # exhausted or the period's interest is unaffordable
+            # (R6-ROLL-1): the loan defaults and process_defaults
+            # settles it this tick.
             loan.status = "defaulted"
             loan.save(update_fields=["status"])
             logger.info(
-                "Loan %d defaulted at maturity (max rollovers exceeded)",
+                "Loan %d defaulted at maturity (rollover unavailable or interest unaffordable)",
                 loan.id,
             )
 
@@ -650,6 +674,10 @@ def process_defaults(simulation, tick: int) -> list[dict]:
                     "lender_type": "agent",
                     "loss": loss,
                     "loan_id": loan.id,
+                    # R6-CASC-1: cascade-forced defaults were already
+                    # threshold-evaluated in-tick by the BFS; the seed
+                    # filter in process_default_cascade skips them.
+                    "cascade_origin": loan.cascade_origin,
                 }
             )
         else:
@@ -660,6 +688,7 @@ def process_defaults(simulation, tick: int) -> list[dict]:
                     "lender_type": "banking",
                     "loss": loss,
                     "loan_id": loan.id,
+                    "cascade_origin": loan.cascade_origin,
                 }
             )
 
@@ -791,7 +820,11 @@ def find_best_unpledged_property(agent: Agent) -> Property | None:
     """
     return (
         Property.objects.filter(owner=agent, owner_type="agent")
-        .exclude(collateralized_loans__status="active")
+        # R6-COLL-1 fix (Round 6 re-audit): a loan in the pending
+        # "defaulted" state (cascade-marked at tick t, settled at t+1)
+        # still holds its collateral claim -- excluding only "active"
+        # loans allowed double-pledging that collateral in the gap.
+        .exclude(collateralized_loans__status__in=["active", "defaulted"])
         .order_by("-value")
         .first()
     )
@@ -840,6 +873,15 @@ def process_default_cascade(
     lender_losses: dict[int, float] = {}
     if loss_records is not None:
         for record in loss_records:
+            # R6-CASC-1 fix (Round 6 re-audit): records of loans the
+            # BFS itself force-defaulted on a PREVIOUS tick do not
+            # re-seed the cascade -- their loss was already
+            # threshold-evaluated in-tick when the BFS marked them, and
+            # re-seeding would evaluate one loss event twice (instantly
+            # defaulting any fresh loan issued to an already-cascaded
+            # lender in between).
+            if record.get("cascade_origin"):
+                continue
             if record.get("lender_type") == "agent" and record.get("lender_id"):
                 lender_id = record["lender_id"]
                 lender_losses[lender_id] = lender_losses.get(lender_id, 0.0) + record["loss"]
@@ -896,19 +938,31 @@ def process_default_cascade(
                 borrower_id=agent_id,
                 status="active",
             )
-            .select_related("lender")
+            .select_related("lender", "collateral")
             .order_by("id")
         )
 
         cascade_losses: dict[int, float] = {}
         for loan in agent_loans:
+            # cascade_origin marks the default as BFS-forced so its
+            # settlement records do not re-seed a later cascade
+            # (R6-CASC-1 fix, see the seed filter above).
             loan.status = "defaulted"
-            loan.save(update_fields=["status"])
+            loan.cascade_origin = True
+            loan.save(update_fields=["status", "cascade_origin"])
 
             if loan.lender_type == "agent" and loan.lender_id:
-                cascade_losses[loan.lender_id] = (
-                    cascade_losses.get(loan.lender_id, 0.0) + loan.remaining_balance
+                # R6-NEW-2 fix (Round 6 re-audit): interior levels use
+                # the SAME net-of-collateral loss measure as the seed
+                # level (R5-CRED-2, the Allen-Gale loss actually borne
+                # by the lender) -- pre-fix the gross remaining balance
+                # systematically overstated interior losses and
+                # over-triggered the threshold at depth >= 2.
+                net_loss = max(
+                    0.0,
+                    loan.remaining_balance - (loan.collateral.value if loan.collateral else 0.0),
                 )
+                cascade_losses[loan.lender_id] = cascade_losses.get(loan.lender_id, 0.0) + net_loss
 
         # Check if cascade lenders should also default
         for next_lender_id, loss in cascade_losses.items():

@@ -369,3 +369,55 @@ class TestInitializationBehavioralConfig:
 
         sim = simulation_with_economy
         assert BankingState.objects.filter(simulation=sim).exists()
+
+
+@pytest.mark.django_db
+class TestInitializationDeterminism:
+    """Round 6 re-audit findings R6-DET-2 / R6-INIT-1 / R6-DET-3 (run
+    wf_6b5ea862-41e): initial agent cash was drawn with the
+    module-global random.uniform over an unordered Agent queryset --
+    identically-seeded simulations diverged at tick 0, falsifying the
+    whitepaper 3.4 seeded-RNG claim -- and every template currency was
+    created with is_primary=True, leaving the primary-currency
+    resolution to an unordered .first()."""
+
+    def test_initial_cash_does_not_consume_global_random(
+        self,
+        simulation,
+        world_with_agents,
+    ):
+        import random as global_random
+        from unittest.mock import patch
+
+        # The module-global RNG must not be consumed: the draw must
+        # come from an RNG derived from the simulation seed.
+        with patch.object(
+            global_random,
+            "uniform",
+            side_effect=AssertionError("module-global random.uniform consumed"),
+        ):
+            initialize_economy(simulation, "pre_industrial")
+
+        inv = AgentInventory.objects.filter(agent__simulation=simulation).first()
+        assert inv is not None
+        assert sum(inv.cash.values()) > 0.0
+
+    def test_only_first_template_currency_is_primary(
+        self,
+        simulation,
+        world_with_agents,
+    ):
+        initialize_economy(
+            simulation,
+            "pre_industrial",
+            overrides={
+                "currencies_config": [
+                    {"code": "LVR", "name": "Livre", "symbol": "L", "initial_supply": 10000.0},
+                    {"code": "GLD", "name": "Gold", "symbol": "G", "initial_supply": 500.0},
+                ]
+            },
+        )
+
+        primaries = Currency.objects.filter(simulation=simulation, is_primary=True)
+        assert primaries.count() == 1
+        assert primaries.first().code == "LVR"

@@ -456,6 +456,17 @@ class Loan(models.Model):
         choices=STATUS_CHOICES,
         default="active",
     )
+    cascade_origin = models.BooleanField(
+        default=False,
+        help_text=(
+            "True when the default was forced by the contagion cascade "
+            "(Allen and Gale 2000) rather than by servicing/maturity "
+            "failure. R6-CASC-1 fix: the loss of a cascade-defaulted "
+            "loan is threshold-evaluated in-tick by the BFS, so its "
+            "settlement records must not re-seed the next tick's "
+            "cascade (double evaluation of one loss event)."
+        ),
+    )
 
     class Meta:
         indexes = [

@@ -135,9 +135,12 @@ def compute_circulating_money_supply(
     banking counterpart is a system aggregate, not an agent, so
     banking interest also contracts measured M each tick. All these
     flows are ledgered as loan_issued / loan_interest /
-    loan_repayment and tracked against
-    BankingState.total_loans_outstanding. This is deliberate
-    Diamond-Dybvig-style inside money, not a conservation leak.
+    loan_repayment; issuance and principal repayment are additionally
+    tracked against BankingState.total_loans_outstanding (interest is
+    a pure M-contracting flow and does not touch the outstanding
+    principal aggregate -- R6-DOC-1 precision, Round 6 re-audit). This
+    is deliberate Diamond-Dybvig-style inside money, not a
+    conservation leak.
 
     Scope of M (R3-4 disclosure, Round 3 re-audit): the aggregate
     covers LIVING agents' cash only. The government treasury and any

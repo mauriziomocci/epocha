@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 def _get_primary_currency(simulation) -> Currency | None:
     """Return the primary currency for the simulation, or None."""
-    return Currency.objects.filter(simulation=simulation, is_primary=True).first()
+    return Currency.objects.filter(simulation=simulation, is_primary=True).order_by("id").first()
 
 
 def compute_gordon_valuation(prop: Property, simulation) -> float:
@@ -271,6 +271,14 @@ def process_property_listings(simulation, tick: int) -> dict:
                 status="listed",
             )
             .exclude(property__owner=buyer)
+            # R6-PROP-1 fix (Round 6 re-audit): a property pledged as
+            # collateral for an active (or pending-default) loan is
+            # under lien -- selling it would strip the lender's
+            # security while the loan stays outstanding. Such listings
+            # are unmatchable until the loan is repaid or the default
+            # settles (seizure transfers ownership through the credit
+            # pipeline, not the market).
+            .exclude(property__collateralized_loans__status__in=["active", "defaulted"])
             .select_related("property", "property__owner")
             .order_by("asking_price", "id")
             .first()

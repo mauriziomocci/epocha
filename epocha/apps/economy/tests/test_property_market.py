@@ -666,3 +666,53 @@ class TestListingTiebreakDeterminism:
         assert first_listing.status == "sold"
         first_prop.refresh_from_db()
         assert first_prop.owner == buyer
+
+
+@pytest.mark.django_db
+class TestCollateralLien:
+    """Round 6 re-audit finding R6-PROP-1 (run wf_6b5ea862-41e): nothing
+    prevented listing and selling a property pledged as collateral for
+    an active loan -- the lender's security could vanish through the
+    property market while the loan stayed active. Pledged properties
+    must not be matchable."""
+
+    def test_pledged_property_cannot_be_sold(self, property_market_setup):
+        setup = property_market_setup
+        sim = setup["simulation"]
+        prop = setup["property"]
+        seller = setup["seller"]
+        buyer = setup["buyer"]
+
+        Loan.objects.create(
+            simulation=sim,
+            lender=None,
+            borrower=seller,
+            lender_type="banking",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=prop,
+            status="active",
+        )
+        PropertyListing.objects.create(
+            property=prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=5,
+            status="listed",
+        )
+        DecisionLog.objects.create(
+            simulation=sim,
+            agent=buyer,
+            tick=5,
+            input_context="test",
+            output_decision=json.dumps({"action": "buy_property", "reason": "investment"}),
+            llm_model="test",
+        )
+
+        result = process_property_listings(sim, tick=6)
+
+        assert result["matched"] == 0
+        prop.refresh_from_db()
+        assert prop.owner == seller

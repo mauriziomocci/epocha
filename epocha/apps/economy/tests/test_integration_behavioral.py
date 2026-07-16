@@ -164,6 +164,22 @@ def behavioral_economy(db):
             "production_bonus": {"luxury": 0.3},
         },
     )
+    # Higher-value estate: find_best_unpledged_property pledges this
+    # one when the elite borrows, leaving the mansion lien-free so the
+    # full-scenario test can sell it (R6-PROP-1: a property pledged as
+    # collateral for an active loan can no longer be listed or sold).
+    Property.objects.get_or_create(
+        simulation=sim,
+        owner=elite,
+        owner_type="agent",
+        zone=z_urban,
+        property_type="estate",
+        defaults={
+            "name": "Country Estate",
+            "value": 800.0,
+            "production_bonus": {},
+        },
+    )
 
     return {
         "sim": sim,

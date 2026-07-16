@@ -23,7 +23,6 @@ References:
 from __future__ import annotations
 
 import logging
-import random
 
 from django.db.models import Sum
 
@@ -32,6 +31,7 @@ from .models import (
     EconomyTemplate,
     Loan,
 )
+from .rng import get_seeded_rng
 
 logger = logging.getLogger(__name__)
 
@@ -365,12 +365,14 @@ def broadcast_banking_concern(simulation, tick: int) -> int:
         return 0
 
     # Sample agents for broadcast. R5-2 fix (Round 5 re-audit): the
-    # sample comes from an RNG derived from (simulation seed, tick),
-    # NOT the module-global random, whose state depends on every prior
-    # consumer of the global stream -- with the global RNG the
-    # broadcast set was not a pure function of the seeded simulation
-    # state and identically-seeded runs could diverge.
-    rng = random.Random(f"{simulation.seed}:{tick}:banking-concern")
+    # sample comes from an RNG derived from (simulation, tick, phase)
+    # via the shared economy rng helper (R6-RNG-1: same sha256 scheme
+    # as demography/rng.py), NOT the module-global random, whose state
+    # depends on every prior consumer of the global stream -- with the
+    # global RNG the broadcast set was not a pure function of the
+    # seeded simulation state and identically-seeded runs could
+    # diverge.
+    rng = get_seeded_rng(simulation, tick, "banking_concern")
     sample_size = max(1, int(len(agents) * _CONCERN_BROADCAST_RATIO))
     sampled = rng.sample(agents, min(sample_size, len(agents)))
 

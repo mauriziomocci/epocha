@@ -235,10 +235,17 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
             from epocha.apps.economy.property_market import compute_gordon_valuation
 
             target_type = action.get("target", "")
-            props = Property.objects.filter(owner=agent, owner_type="agent")
+            # R6-PROP-1 fix (Round 6 re-audit): a property under lien
+            # (collateral of an active or pending-default loan) cannot
+            # be listed for sale -- the matching side enforces the same
+            # exclusion (see economy/property_market.py). id-ordered
+            # for seeded reproducibility of which property gets listed.
+            props = Property.objects.filter(owner=agent, owner_type="agent").exclude(
+                collateralized_loans__status__in=["active", "defaulted"]
+            )
             if target_type:
                 props = props.filter(property_type__icontains=target_type)
-            prop = props.first()
+            prop = props.order_by("id").first()
 
             if prop:
                 # Skip if already actively listed

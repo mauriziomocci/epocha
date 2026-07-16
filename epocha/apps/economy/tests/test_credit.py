@@ -1370,3 +1370,281 @@ class TestRolloverInterestLedger:
         )
         assert rollover_interest.count() == 1
         assert rollover_interest.first().total_amount == pytest.approx(20.0)
+
+
+@pytest.mark.django_db
+class TestMaturityInterestSingleCharge:
+    """Round 6 re-audit findings R6-NEW-1 / R6-ROLL-1 (run
+    wf_6b5ea862-41e): on a maturity tick service_loans charged one
+    period's interest and the rollover branch charged the identical
+    amount again (double charge, double ledger row), and the rollover
+    proceeded even when the borrower could not pay the rollover
+    interest, contradicting the documented Minsky semantics (rollover
+    only when the interest portion is affordable)."""
+
+    def _maturing_loan(self, simulation, borrower, lender, cash, currency):
+        inv = borrower.inventory
+        inv.cash = {currency.code: cash}
+        inv.save(update_fields=["cash"])
+        return Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            due_at_tick=5,
+            times_rolled_over=0,
+            status="active",
+        )
+
+    def test_interest_charged_once_on_rollover_tick(
+        self,
+        simulation,
+        borrower,
+        lender,
+        currency,
+    ):
+        # Cash 50: covers interest (20), not the balance (200) -> rollover.
+        self._maturing_loan(simulation, borrower, lender, 50.0, currency)
+
+        service_loans(simulation, tick=5)
+        process_maturity(simulation, tick=5)
+
+        interest_rows = EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=5,
+            transaction_type="loan_interest",
+            from_agent=borrower,
+        )
+        assert interest_rows.count() == 1
+        assert sum(e.total_amount for e in interest_rows) == pytest.approx(20.0)
+
+        inv = borrower.inventory
+        inv.refresh_from_db()
+        assert inv.cash[currency.code] == pytest.approx(30.0)
+
+    def test_rollover_denied_when_interest_unaffordable(
+        self,
+        simulation,
+        borrower,
+        lender,
+        currency,
+    ):
+        # Cash 5: cannot pay the 20 interest -> the loan must default,
+        # not roll over with a silently skipped payment.
+        loan = self._maturing_loan(simulation, borrower, lender, 5.0, currency)
+
+        service_loans(simulation, tick=5)
+        process_maturity(simulation, tick=5)
+
+        loan.refresh_from_db()
+        assert loan.status == "defaulted"
+        assert not Loan.objects.filter(
+            simulation=simulation,
+            borrower=borrower,
+            status="active",
+        ).exists()
+
+
+@pytest.mark.django_db
+class TestCascadeLossMeasure:
+    """Round 6 re-audit findings R6-NEW-2 / R6-CASC-1 (run
+    wf_6b5ea862-41e): interior BFS levels propagated the GROSS
+    remaining balance ignoring collateral (inconsistent with the
+    net-of-collateral seed measure R5-CRED-2 established), and a
+    cascade-defaulted loan's loss was threshold-evaluated twice --
+    in-tick by the BFS and again at t+1 when its settlement records
+    re-seeded the cascade."""
+
+    def test_interior_cascade_loss_nets_collateral(
+        self,
+        simulation,
+        world_and_zone,
+        borrower,
+        lender,
+        currency,
+    ):
+        _, zone = world_and_zone
+        # Fragile middleman: seed loss 200 > 0.5 * 100 wealth.
+        lender.wealth = 100.0
+        lender.save(update_fields=["wealth"])
+
+        upstream = Agent.objects.create(
+            simulation=simulation,
+            name="UpstreamLender",
+            role="merchant",
+            social_class="elite",
+            zone=zone,
+            wealth=500.0,
+            personality={"openness": 0.5},
+            location=Point(50, 50),
+            health=1.0,
+        )
+        # Seed default: borrower owes the fragile lender 200, no collateral.
+        Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            status="defaulted",
+        )
+        # The fragile lender's own borrowing from upstream is FULLY
+        # collateralized: net loss to upstream is 0, so upstream
+        # (wealth 500, threshold 250) must NOT be pushed past the
+        # threshold by a gross 300 measure.
+        collateral = Property.objects.create(
+            simulation=simulation,
+            owner=lender,
+            owner_type="agent",
+            zone=zone,
+            property_type="land",
+            name="Middleman Land",
+            value=300.0,
+            production_bonus={},
+        )
+        Loan.objects.create(
+            simulation=simulation,
+            lender=upstream,
+            borrower=lender,
+            lender_type="agent",
+            principal=300.0,
+            interest_rate=0.10,
+            remaining_balance=300.0,
+            issued_at_tick=0,
+            collateral=collateral,
+            status="active",
+        )
+        # Upstream's own borrowing that a spurious depth-2 default
+        # would force-default.
+        upstream_own_loan = Loan.objects.create(
+            simulation=simulation,
+            lender=None,
+            borrower=upstream,
+            lender_type="banking",
+            principal=100.0,
+            interest_rate=0.05,
+            remaining_balance=100.0,
+            issued_at_tick=0,
+            status="active",
+        )
+
+        records = process_defaults(simulation, tick=5)
+        process_default_cascade(simulation, tick=5, loss_records=records)
+
+        upstream_own_loan.refresh_from_db()
+        assert upstream_own_loan.status == "active"
+
+    def test_cascade_defaulted_loan_does_not_reseed_next_tick(
+        self,
+        simulation,
+        world_and_zone,
+        borrower,
+        lender,
+        currency,
+    ):
+        _, zone = world_and_zone
+        lender.wealth = 100.0
+        lender.save(update_fields=["wealth"])
+
+        upstream = Agent.objects.create(
+            simulation=simulation,
+            name="UpstreamFragile",
+            role="merchant",
+            social_class="elite",
+            zone=zone,
+            wealth=100.0,
+            personality={"openness": 0.5},
+            location=Point(50, 50),
+            health=1.0,
+        )
+        Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            status="defaulted",
+        )
+        # Uncollateralized middleman borrowing: in-tick BFS already
+        # evaluates upstream at depth 2 with this loss.
+        Loan.objects.create(
+            simulation=simulation,
+            lender=upstream,
+            borrower=lender,
+            lender_type="agent",
+            principal=300.0,
+            interest_rate=0.10,
+            remaining_balance=300.0,
+            issued_at_tick=0,
+            status="active",
+        )
+
+        records5 = process_defaults(simulation, tick=5)
+        process_default_cascade(simulation, tick=5, loss_records=records5)
+
+        # A NEW loan issued to upstream between the ticks: the t+1
+        # settlement of the cascade-defaulted middleman loan must NOT
+        # re-evaluate upstream (its loss was already propagated
+        # in-tick) and instantly default the fresh loan.
+        fresh_loan = Loan.objects.create(
+            simulation=simulation,
+            lender=None,
+            borrower=upstream,
+            lender_type="banking",
+            principal=100.0,
+            interest_rate=0.05,
+            remaining_balance=100.0,
+            issued_at_tick=5,
+            status="active",
+        )
+
+        records6 = process_defaults(simulation, tick=6)
+        process_default_cascade(simulation, tick=6, loss_records=records6)
+
+        fresh_loan.refresh_from_db()
+        assert fresh_loan.status == "active"
+
+
+@pytest.mark.django_db
+class TestPendingDefaultCollateralLock:
+    """Round 6 re-audit finding R6-COLL-1 (run wf_6b5ea862-41e):
+    find_best_unpledged_property excluded only collateral of ACTIVE
+    loans, so the collateral of a loan sitting in the pending
+    "defaulted" state (cascade-marked at t, settled at t+1) could be
+    double-pledged for a fresh loan in the gap."""
+
+    def test_collateral_of_pending_default_not_offered(
+        self,
+        simulation,
+        world_and_zone,
+        borrower,
+        lender,
+        currency,
+        collateral_property,
+    ):
+        from epocha.apps.economy.credit import find_best_unpledged_property
+
+        Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=collateral_property,
+            status="defaulted",
+        )
+
+        assert find_best_unpledged_property(borrower) is None

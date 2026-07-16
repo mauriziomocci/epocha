@@ -481,6 +481,27 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             broadcast_banking_concern(simulation, tick)
             credit_processed = True
 
+            # R6-ENG-1 fix (Round 6 re-audit, run wf_6b5ea862-41e,
+            # INCORRECT/high): the credit/property block above reloads
+            # and saves the SAME AgentInventory rows that this zone's
+            # inv_cache instances (loaded before the block) point to.
+            # Steps 4/5/5b/6 below mutate and save those instances: a
+            # stale instance would OVERWRITE the block's cash changes
+            # (interest debits, property-sale transfers) -- a classic
+            # lost update that silently created or destroyed money
+            # outside every ledgered flow, and the one leak the Fisher
+            # diagnostic is residually blind to (it checks flows, not
+            # the M base). Re-read the rows so downstream writes build
+            # on the block's committed state. R6-ENG-2: the properties
+            # list feeding the rent/profit partition is re-read for the
+            # same reason (a sale or collateral seizure in the block
+            # changes owners).
+            for inv in AgentInventory.objects.filter(agent_id__in=list(inv_cache.keys())):
+                inv_cache[inv.agent_id] = inv
+            properties = list(
+                Property.objects.filter(simulation=simulation, zone=zone).order_by("id")
+            )
+
         # === STEP 4/5/5b: RENT + WAGES + PROFIT (conserved factor-income
         # partition, approach A / CM-1 fix) ===
         # zone_production's total value V = sum(zone_production[g] *
@@ -563,6 +584,19 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 agent_id__in=missing_payee_ids, agent__is_alive=True
             ):
                 payee_invs[inv.agent_id] = inv
+            # R6-MISS-1 fix (Round 6 re-audit): a LIVING payee with no
+            # inventory row yet was silently skipped by the credit
+            # loops' `if inv` guard, dropping factor income the NEW-3
+            # fix promised to pay. Create the row so the payee is
+            # creditable (and taxable) like every other living earner.
+            still_missing = missing_payee_ids - set(payee_invs)
+            if still_missing:
+                for agent_id in Agent.objects.filter(
+                    id__in=still_missing, is_alive=True
+                ).values_list("id", flat=True):
+                    payee_invs[agent_id] = AgentInventory.objects.create(
+                        agent_id=agent_id, holdings={}, cash={}
+                    )
 
         # === STEP 4: RENT (land factor share, emergent Ricardian) ===
         for owner_id, rent_amount in rents.items():

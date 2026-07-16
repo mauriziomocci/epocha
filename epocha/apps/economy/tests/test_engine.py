@@ -965,6 +965,119 @@ class TestLiveMoneySupply:
 
 
 @pytest.mark.django_db
+class TestCreditBlockInventoryConsistency:
+    """Round 6 re-audit finding R6-ENG-1 (run wf_6b5ea862-41e,
+    INCORRECT/high): the first zone's factor-income and tax writes
+    (steps 4/5/5b/6) mutated AgentInventory instances loaded BEFORE
+    the step-3 credit/property block, which reloads and saves the SAME
+    rows -- the stale in-memory instances then overwrote the credit
+    block's cash changes (lost update), silently creating or
+    destroying money outside every ledgered flow. Verified against
+    the ledger-based conservation identity."""
+
+    def test_credit_debits_survive_factor_income_writes(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        from epocha.apps.economy.models import Loan
+
+        farmer = setup_economy["farmer"]
+        # Serviceable banking loan: interest 100 * 0.05 = 5.0, well
+        # within the farmer's cash (50), no default path.
+        Loan.objects.create(
+            simulation=simulation,
+            lender=None,
+            borrower=farmer,
+            lender_type="banking",
+            principal=100.0,
+            interest_rate=0.05,
+            remaining_balance=100.0,
+            issued_at_tick=0,
+            status="active",
+        )
+
+        initial_cash = sum(
+            agent.inventory.cash.get("LVR", 0.0)
+            for agent in Agent.objects.filter(simulation=simulation, is_alive=True)
+        )
+
+        process_economy_tick_new(simulation, tick=1)
+
+        final_cash = sum(
+            agent.inventory.cash.get("LVR", 0.0)
+            for agent in Agent.objects.filter(simulation=simulation, is_alive=True)
+        )
+
+        entries = EconomicLedger.objects.filter(simulation=simulation, tick=1)
+        injected = sum(
+            e.total_amount
+            for e in entries
+            if e.transaction_type in ("rent", "wage", "profit") and e.from_agent_id is None
+        )
+        taxes = sum(e.total_amount for e in entries if e.transaction_type == "tax")
+        banking_interest = sum(
+            e.total_amount
+            for e in entries
+            if e.transaction_type == "loan_interest" and e.to_agent_id is None
+        )
+
+        # Conservation identity: every agent-cash change must be a
+        # ledgered flow. Trades are internal transfers; rent/wage/profit
+        # inject; taxes and banking interest drain to non-agent sinks.
+        expected = initial_cash + injected - taxes - banking_interest
+        assert abs(final_cash - expected) < 1e-6
+
+    def test_out_of_zone_owner_without_inventory_row_is_paid(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        # R6-MISS-1: a living payee with no AgentInventory row was
+        # silently skipped by the extended payee lookup, reintroducing
+        # a silent income drop for a payee the NEW-3 fix promised to pay.
+        other_zone = Zone.objects.create(
+            world=setup_economy["world"],
+            name="Hinterland",
+            zone_type="rural",
+            boundary=Polygon.from_bbox((300, 0, 400, 100)),
+            center=Point(350, 50),
+        )
+        landlord = Agent.objects.create(
+            simulation=simulation,
+            name="NoInventoryLandlord",
+            role="noble",
+            personality={"openness": 0.5},
+            location=Point(350, 50),
+            zone=other_zone,
+            health=1.0,
+            wealth=100.0,
+        )
+        # Deliberately NO AgentInventory row.
+        Property.objects.create(
+            simulation=simulation,
+            owner=landlord,
+            owner_type="agent",
+            zone=setup_economy["zone"],
+            property_type="farm",
+            name="Remote Farm",
+            value=100.0,
+            production_bonus={"subsistence": 1.0},
+        )
+
+        process_economy_tick_new(simulation, tick=1)
+
+        assert EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=1,
+            transaction_type="rent",
+            to_agent=landlord,
+        ).exists()
+        landlord.refresh_from_db()
+        assert landlord.inventory.cash.get("LVR", 0.0) > 0.0
+
+
+@pytest.mark.django_db
 class TestMissedInterestDefault:
     """Round 5 re-audit finding R5-CRED-3 (run wf_62d071a6-289):
     service_loans returns the loan ids whose borrower could not pay
