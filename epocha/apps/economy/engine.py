@@ -73,6 +73,7 @@ from .models import (
     Currency,
     EconomicLedger,
     GoodCategory,
+    Loan,
     PriceHistory,
     Property,
     TaxPolicy,
@@ -455,7 +456,18 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             process_property_listings(simulation, tick)
 
             default_dead_agent_loans(simulation)
-            service_loans(simulation, tick)
+            # R5-CRED-3 fix (Round 5 re-audit): service_loans returns
+            # the loans whose borrower could not pay this tick's
+            # interest ("candidates for default"); pre-fix the list was
+            # discarded, so missed interest had zero consequence until
+            # maturity, contradicting the documented pipeline. Those
+            # loans are marked defaulted here and handled by
+            # process_defaults in the SAME tick.
+            defaulting_ids = service_loans(simulation, tick)
+            if defaulting_ids:
+                Loan.objects.filter(id__in=defaulting_ids, status="active").update(
+                    status="defaulted"
+                )
             process_maturity(simulation, tick)
             # R5-CRED-2 fix (Round 5 re-audit): the cascade consumes the
             # loss records of the defaults processed THIS tick (net of

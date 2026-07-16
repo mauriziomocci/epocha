@@ -965,6 +965,44 @@ class TestLiveMoneySupply:
 
 
 @pytest.mark.django_db
+class TestMissedInterestDefault:
+    """Round 5 re-audit finding R5-CRED-3 (run wf_62d071a6-289):
+    service_loans returns the loan ids whose borrower could not pay
+    interest ("candidates for default", per its docstring and the
+    whitepaper 4.2.2 pipeline description), but the engine discarded
+    the return value -- missed interest had zero consequence until
+    maturity. The engine must route those loans into the default
+    pipeline of the same tick."""
+
+    def test_missed_interest_defaults_same_tick(
+        self,
+        simulation,
+        setup_economy,
+    ):
+        from epocha.apps.economy.models import Loan
+
+        farmer = setup_economy["farmer"]
+        # Interest (10000 * 0.1 = 1000) far exceeds any cash the farmer
+        # can hold at the credit step (fixture seeds 50).
+        loan = Loan.objects.create(
+            simulation=simulation,
+            lender=None,
+            borrower=farmer,
+            lender_type="banking",
+            principal=10000.0,
+            interest_rate=0.10,
+            remaining_balance=10000.0,
+            issued_at_tick=0,
+            status="active",
+        )
+
+        process_economy_tick_new(simulation, tick=1)
+
+        loan.refresh_from_db()
+        assert loan.status == "default_settled"
+
+
+@pytest.mark.django_db
 class TestFisherMultiZoneAggregation:
     """Round 5 re-audit finding R5-FISH-2 (run wf_62d071a6-289): the
     rewired Fisher diagnostic valued MV at per-zone equilibrium prices

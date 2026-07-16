@@ -129,9 +129,13 @@ def compute_circulating_money_supply(
     credits the borrower's cash with no offsetting agent debit
     (fractional-reserve credit creation, see credit.issue_loan), and
     repayment to the banking system debits the borrower with no agent
-    credit (credit destruction). Both flows therefore expand and
-    contract this measured M tick over tick; they are ledgered as
-    loan_issued / loan_repayment and tracked against
+    credit (credit destruction). The same applies to per-tick INTEREST
+    paid on banking-type loans (R5-DISC-1 disclosure, Round 5
+    re-audit): service_loans debits the borrower's cash while the
+    banking counterpart is a system aggregate, not an agent, so
+    banking interest also contracts measured M each tick. All these
+    flows are ledgered as loan_issued / loan_interest /
+    loan_repayment and tracked against
     BankingState.total_loans_outstanding. This is deliberate
     Diamond-Dybvig-style inside money, not a conservation leak.
 

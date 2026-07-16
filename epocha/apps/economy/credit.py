@@ -508,6 +508,20 @@ def process_maturity(simulation, tick: int) -> None:
                     lender_inv.cash[cur_code] = lender_inv.cash.get(cur_code, 0.0) + interest
                     lender_inv.save(update_fields=["cash"])
 
+                # R5-LED-1 fix (Round 5 re-audit): the rollover interest
+                # payment is a real cash movement and must be ledgered
+                # like the identical flow in service_loans; pre-fix it
+                # was invisible to money-flow analytics.
+                EconomicLedger.objects.create(
+                    simulation=simulation,
+                    tick=tick,
+                    from_agent=loan.borrower,
+                    to_agent=loan.lender,
+                    currency=primary_currency,
+                    total_amount=interest,
+                    transaction_type="loan_interest",
+                )
+
             # Mark old loan as rolled over
             loan.status = "rolled_over"
             loan.save(update_fields=["status"])
@@ -832,12 +846,18 @@ def process_default_cascade(
     else:
         # Legacy path: unsettled defaults only. process_defaults moves
         # loans to "default_settled", so this never re-reads history.
-        defaulted_loans = Loan.objects.filter(
-            simulation=simulation,
-            status="defaulted",
-            lender_type="agent",
-            lender__isnull=False,
-        ).select_related("lender")
+        # id-ordered (R5 determinism pin): loss accumulation is a float
+        # sum and the BFS seed order follows insertion order.
+        defaulted_loans = (
+            Loan.objects.filter(
+                simulation=simulation,
+                status="defaulted",
+                lender_type="agent",
+                lender__isnull=False,
+            )
+            .select_related("lender")
+            .order_by("id")
+        )
         for loan in defaulted_loans:
             lender_id = loan.lender_id
             lender_losses[lender_id] = lender_losses.get(lender_id, 0.0) + loan.principal
@@ -867,12 +887,18 @@ def process_default_cascade(
 
         max_depth_reached = max(max_depth_reached, depth)
 
-        # Default this agent's loans as borrower
-        agent_loans = Loan.objects.filter(
-            simulation=simulation,
-            borrower_id=agent_id,
-            status="active",
-        ).select_related("lender")
+        # Default this agent's loans as borrower. id-ordered (R5
+        # determinism pin): the cascade-loss accumulation below is a
+        # float sum whose order must be reproducible.
+        agent_loans = (
+            Loan.objects.filter(
+                simulation=simulation,
+                borrower_id=agent_id,
+                status="active",
+            )
+            .select_related("lender")
+            .order_by("id")
+        )
 
         cascade_losses: dict[int, float] = {}
         for loan in agent_loans:

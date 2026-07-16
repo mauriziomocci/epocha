@@ -150,10 +150,12 @@ def adjust_interest_rate(simulation, tick: int) -> None:
     # and sum their potential borrowing needs.
     from epocha.apps.agents.models import Agent
 
+    # id-ordered (R5 determinism pin): the demand accumulation below is
+    # a float sum whose last ULPs depend on iteration order.
     agents = Agent.objects.filter(
         simulation=simulation,
         is_alive=True,
-    )
+    ).order_by("id")
 
     credit_demand = 0.0
     for agent in agents:
@@ -301,10 +303,13 @@ def recalculate_deposits(simulation) -> None:
 
     from .models import AgentInventory
 
+    # agent_id-ordered (R5 determinism pin): float summation order
+    # affects the last ULPs of the aggregate; pin it so identically-
+    # seeded runs produce bit-identical deposits.
     inventories = AgentInventory.objects.filter(
         agent__simulation=simulation,
         agent__is_alive=True,
-    )
+    ).order_by("agent_id")
     total_cash = sum(sum(inv.cash.values()) for inv in inventories)
     bs.total_deposits = total_cash
     bs.save(update_fields=["total_deposits"])
@@ -352,16 +357,22 @@ def broadcast_banking_concern(simulation, tick: int) -> int:
 
     from epocha.apps.agents.models import Agent, Memory
 
-    # id-ordered (R4-DET fix): random.sample draws from this list, so
-    # the pool order must be pinned for the seeded RNG to reproduce the
-    # same broadcast set across identically-seeded runs.
+    # id-ordered (R4-DET fix): the sample draws from this list, so
+    # the pool order must be pinned for the derived RNG to reproduce
+    # the same broadcast set across identically-seeded runs.
     agents = list(Agent.objects.filter(simulation=simulation, is_alive=True).order_by("id"))
     if not agents:
         return 0
 
-    # Sample agents for broadcast
+    # Sample agents for broadcast. R5-2 fix (Round 5 re-audit): the
+    # sample comes from an RNG derived from (simulation seed, tick),
+    # NOT the module-global random, whose state depends on every prior
+    # consumer of the global stream -- with the global RNG the
+    # broadcast set was not a pure function of the seeded simulation
+    # state and identically-seeded runs could diverge.
+    rng = random.Random(f"{simulation.seed}:{tick}:banking-concern")
     sample_size = max(1, int(len(agents) * _CONCERN_BROADCAST_RATIO))
-    sampled = random.sample(agents, min(sample_size, len(agents)))
+    sampled = rng.sample(agents, min(sample_size, len(agents)))
 
     content = (
         "The banking system is under stress. Some depositors "

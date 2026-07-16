@@ -325,3 +325,68 @@ class TestActualMultiplier:
         )
         result = compute_actual_multiplier(bs)
         assert result == pytest.approx(100.0)
+
+
+@pytest.mark.django_db
+class TestBankingConcernBroadcastReproducibility:
+    """Round 5 re-audit finding R5-2 (run wf_62d071a6-289): the concern
+    broadcast sampled agents with the module-global random.sample,
+    whose state depends on every prior consumer of the global RNG --
+    identically-seeded runs could broadcast to different agents. The
+    sample must come from an RNG derived from (simulation, tick) so
+    the broadcast set is a pure function of the seeded state."""
+
+    def test_broadcast_sample_is_reproducible(
+        self,
+        simulation,
+        world_and_zone,
+        currency,
+    ):
+        from epocha.apps.agents.models import Agent as AgentModel
+        from epocha.apps.agents.models import Memory
+        from epocha.apps.economy.banking import broadcast_banking_concern
+        from epocha.apps.economy.models import BankingState
+
+        _, zone = world_and_zone
+        BankingState.objects.create(
+            simulation=simulation,
+            total_deposits=10000.0,
+            total_loans_outstanding=9500.0,
+            reserve_ratio=0.10,
+            base_interest_rate=0.05,
+            is_solvent=False,
+            confidence_index=0.3,
+        )
+        for idx in range(16):
+            AgentModel.objects.create(
+                simulation=simulation,
+                name=f"Depositor{idx}",
+                role="merchant",
+                zone=zone,
+                wealth=100.0,
+                personality={"openness": 0.5},
+                location=Point(50, 50),
+                health=1.0,
+            )
+
+        created = broadcast_banking_concern(simulation, tick=5)
+        assert created > 0
+        first_recipients = set(
+            Memory.objects.filter(
+                tick_created=5,
+                content__contains="banking system",
+            ).values_list("agent_id", flat=True)
+        )
+
+        # Wipe and re-run at the SAME tick: the broadcast set must be
+        # identical, not a fresh draw from the global RNG stream.
+        Memory.objects.filter(tick_created=5).delete()
+        broadcast_banking_concern(simulation, tick=5)
+        second_recipients = set(
+            Memory.objects.filter(
+                tick_created=5,
+                content__contains="banking system",
+            ).values_list("agent_id", flat=True)
+        )
+
+        assert first_recipients == second_recipients

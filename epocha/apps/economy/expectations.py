@@ -137,7 +137,9 @@ def update_agent_expectations(simulation, tick: int) -> None:
     c_mod = exp_config.get("conscientiousness_mod", 0.10)
     threshold = exp_config.get("trend_threshold", 0.05)
 
-    goods = list(GoodCategory.objects.filter(simulation=simulation))
+    # id-ordered (R5 determinism pin): the per-agent expectation rows
+    # are created/updated in goods iteration order.
+    goods = list(GoodCategory.objects.filter(simulation=simulation).order_by("id"))
     if not goods:
         return
 

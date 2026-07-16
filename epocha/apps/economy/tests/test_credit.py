@@ -1323,3 +1323,50 @@ class TestDefaultTerminalState:
         records7 = process_defaults(simulation, tick=7)
         assert records7 == []
         assert process_default_cascade(simulation, tick=7, loss_records=records7) == 0
+
+
+@pytest.mark.django_db
+class TestRolloverInterestLedger:
+    """Round 5 re-audit finding R5-LED-1 (run wf_62d071a6-289): the
+    rollover branch of process_maturity moved the interest payment in
+    cash with no EconomicLedger row, while the identical flow in
+    service_loans is ledgered -- money-flow analytics silently lost
+    every rollover interest payment."""
+
+    def test_rollover_interest_is_ledgered(
+        self,
+        simulation,
+        borrower,
+        lender,
+        currency,
+    ):
+        Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            due_at_tick=5,
+            times_rolled_over=0,
+            status="active",
+        )
+        # Borrower cash (200 fixture) covers the interest (20) but the
+        # engine-side maturity handler sees remaining_balance 200 --
+        # set cash below the balance so the rollover branch fires.
+        inv = borrower.inventory
+        inv.cash = {currency.code: 50.0}
+        inv.save(update_fields=["cash"])
+
+        process_maturity(simulation, tick=5)
+
+        rollover_interest = EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=5,
+            transaction_type="loan_interest",
+            from_agent=borrower,
+        )
+        assert rollover_interest.count() == 1
+        assert rollover_interest.first().total_amount == pytest.approx(20.0)

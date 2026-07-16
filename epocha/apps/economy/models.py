@@ -20,11 +20,16 @@ class Currency(models.Model):
     """A monetary unit in the simulation.
 
     The total_supply field represents M in Fisher's equation MV=PQ
-    (Fisher, I. 1911. The Purchasing Power of Money).
-    The cached_velocity field is V, recomputed each tick from actual
-    transaction volume -- it is NOT a stored constant. The equation
-    is used as a diagnostic check, not as a price-determination
-    mechanism: prices are set by Walrasian market clearing.
+    (Fisher, I. 1911. The Purchasing Power of Money), recomputed each
+    tick as the live circulating-cash aggregate.
+    The cached_velocity field is the measured TURNOVER velocity
+    (total transaction volume / M), recomputed each tick -- it is NOT
+    a stored constant, and, since the R4-FISH-1 rewire, it is a
+    reported metric only: the Fisher consistency diagnostic uses the
+    income velocity (factor income / M) computed in the engine, not
+    this field (see engine.py step 8a). The equation is used as a
+    diagnostic check, not as a price-determination mechanism: prices
+    are set by Walrasian market clearing.
     """
 
     simulation = models.ForeignKey(
@@ -41,8 +46,9 @@ class Currency(models.Model):
     )
     cached_velocity = models.FloatField(
         default=1.0,
-        help_text="V in Fisher's MV=PQ: recomputed each tick from "
-        "transaction volume, NOT a stored constant",
+        help_text="Measured turnover velocity (transaction volume / M), "
+        "recomputed each tick; reported metric only -- the Fisher "
+        "diagnostic uses the engine-computed income velocity",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
