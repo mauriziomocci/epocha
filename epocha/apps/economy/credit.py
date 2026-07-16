@@ -396,12 +396,19 @@ def service_loans(simulation, tick: int) -> list[int]:
     # period's interest itself on the rollover path (or collects the
     # full balance on repayment), so servicing them here too charged
     # one period's interest twice on every rollover tick.
+    # R8-NEW-5 fix (Round 8 re-audit, run wf_75faf0db-ad2): exclude
+    # every loan due at OR BEFORE this tick, not only exactly at it.
+    # process_maturity (which runs after servicing) matures the whole
+    # due_at_tick__lte set and charges its one final period, so an
+    # overdue loan must be kept out of servicing to avoid double-charging
+    # the final period. Django's exclude() on the nullable due_at_tick
+    # still retains NULL (open-ended) loans, which stay serviced.
     active_loans = list(
         Loan.objects.filter(
             simulation=simulation,
             status="active",
         )
-        .exclude(due_at_tick=tick)
+        .exclude(due_at_tick__lte=tick)
         .select_related("borrower", "lender")
         .order_by("id")
     )
@@ -476,11 +483,19 @@ def process_maturity(simulation, tick: int) -> None:
     """
     # id-ordered (R4-DET fix): repay/rollover/default outcomes for a
     # cash-constrained borrower depend on processing order.
+    # R8-NEW-5 fix (Round 8 re-audit, run wf_75faf0db-ad2): match every
+    # loan due at OR BEFORE this tick (due_at_tick__lte), a catch-up
+    # sweep. The credit block runs only for the first zone with a living
+    # agent, so a fully agent-empty tick skips maturity; exact-equality
+    # matching stranded any loan that fell due during the skip. The
+    # normal path is unchanged -- a loan due at tick t first satisfies
+    # due_at_tick <= t at tick t -- and each loan is charged exactly one
+    # final period whether settled on time or caught up later.
     maturing_loans = list(
         Loan.objects.filter(
             simulation=simulation,
             status="active",
-            due_at_tick=tick,
+            due_at_tick__lte=tick,
         )
         .select_related("borrower", "lender", "collateral")
         .order_by("id")

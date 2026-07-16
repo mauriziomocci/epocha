@@ -1739,6 +1739,88 @@ class TestMaturityFinalPeriodInterest:
 
 
 @pytest.mark.django_db
+class TestMaturityCatchUp:
+    """Round 8 re-audit finding R8-NEW-5 (run wf_75faf0db-ad2): both
+    process_maturity and service_loans matched the maturity tick with
+    exact equality (due_at_tick == tick). The credit block runs only
+    for the first zone with a living agent, so a tick in which every
+    zone is agent-empty skips maturity entirely; the loan that fell due
+    that tick was then stranded -- exact-equality maturity never matched
+    it again. The robust fix is a catch-up: process_maturity matures
+    every loan due at OR BEFORE the current tick (due_at_tick__lte), and
+    service_loans excludes the same set so the final period is charged
+    exactly once by the maturity step, never double-charged. The normal
+    path is unchanged (a loan due at tick t only satisfies
+    due_at_tick <= t at tick t)."""
+
+    def test_overdue_loan_matures_on_catch_up(
+        self,
+        simulation,
+        borrower,
+        currency,
+        banking_state,
+    ):
+        inv = borrower.inventory
+        inv.cash = {currency.code: 500.0}
+        inv.save(update_fields=["cash"])
+        loan = Loan.objects.create(
+            simulation=simulation,
+            borrower=borrower,
+            lender_type="banking",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            due_at_tick=5,
+            status="active",
+        )
+
+        # Maturity was skipped at tick 5 (a fully agent-empty credit
+        # tick); the next executed credit tick must catch it up.
+        process_maturity(simulation, tick=6)
+
+        loan.refresh_from_db()
+        assert loan.status == "repaid"
+        assert loan.remaining_balance == 0.0
+
+    def test_service_loans_skips_overdue_from_interest(
+        self,
+        simulation,
+        borrower,
+        currency,
+        banking_state,
+    ):
+        inv = borrower.inventory
+        inv.cash = {currency.code: 500.0}
+        inv.save(update_fields=["cash"])
+        Loan.objects.create(
+            simulation=simulation,
+            borrower=borrower,
+            lender_type="banking",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            due_at_tick=5,
+            status="active",
+        )
+
+        service_loans(simulation, tick=6)
+
+        # An overdue loan belongs to the maturity catch-up, not
+        # servicing: charging it interest here would double the final
+        # period once process_maturity also charges it.
+        inv.refresh_from_db()
+        assert inv.cash[currency.code] == pytest.approx(500.0)
+        assert not EconomicLedger.objects.filter(
+            simulation=simulation,
+            tick=6,
+            transaction_type="loan_interest",
+            from_agent=borrower,
+        ).exists()
+
+
+@pytest.mark.django_db
 class TestBorrowAmountValidation:
     """Round 7 re-audit finding R7-VAL-1 (run wf_d98bd880-53e,
     INCORRECT): the borrow amount reached evaluate_credit_request and
