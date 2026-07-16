@@ -267,7 +267,17 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
                     # Expectation-based asking price multiplier.
                     # Tunable design parameters: 1.1 premium on rising, 0.9 discount on falling.
                     multiplier = 1.0
-                    exp = AgentExpectation.objects.filter(agent=agent).first()
+                    # R11-DET-1 fix (Round 11 re-audit, run wf_185858f4-372):
+                    # order_by("good_code") pins the selection. An agent
+                    # holds one expectation per good, so an unordered
+                    # .first() returned a DB-heap-order row -- an arbitrary
+                    # good's trend set the persisted asking_price and drove
+                    # the order-sensitive property settlement, breaking
+                    # reproducibility across identically-seeded runs. The
+                    # multiplier uses the agent's first good expectation as a
+                    # generic price-sentiment proxy (a documented
+                    # simplification, not the property's specific good).
+                    exp = AgentExpectation.objects.filter(agent=agent).order_by("good_code").first()
                     if exp:
                         if exp.trend_direction == "rising":
                             multiplier = 1.1

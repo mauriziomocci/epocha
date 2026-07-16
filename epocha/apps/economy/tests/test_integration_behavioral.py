@@ -336,6 +336,57 @@ class TestBehavioralIntegration:
         assert math.isfinite(loan.principal)
         assert loan.principal == pytest.approx(collateral.value * 0.5, rel=1e-6)
 
+    def test_sell_property_asking_price_deterministic_on_expectation(self, behavioral_economy):
+        """Round 11 re-audit finding R11-DET-1 (run wf_185858f4-372): the
+        sell_property handler read the trend multiplier from
+        AgentExpectation.objects.filter(agent=agent).first() with no
+        order_by. An agent holds one expectation per good, so .first()
+        returned a DB-heap-order row -- an arbitrary good's trend set the
+        persisted asking_price and drove the order-sensitive property
+        settlement, so identically-seeded runs could ledger different sale
+        prices. The selection must be pinned by good_code. Here the
+        alphabetically-first good ("barley", falling -> 0.9) is created
+        SECOND while a rising good ("wheat" -> 1.1) is created first, so a
+        pre-fix insertion-order .first() and the post-fix good_code order
+        diverge, making this a genuine RED-first pin."""
+        from epocha.apps.economy.property_market import compute_gordon_valuation
+
+        s = behavioral_economy
+        sim = s["sim"]
+        elite = s["elite"]
+
+        AgentExpectation.objects.filter(agent=elite).delete()
+        AgentExpectation.objects.create(
+            agent=elite,
+            good_code="wheat",
+            expected_price=10.0,
+            trend_direction="rising",
+            confidence=0.8,
+            lambda_rate=0.3,
+            updated_at_tick=0,
+        )
+        AgentExpectation.objects.create(
+            agent=elite,
+            good_code="barley",
+            expected_price=10.0,
+            trend_direction="falling",
+            confidence=0.8,
+            lambda_rate=0.3,
+            updated_at_tick=0,
+        )
+
+        mansion = Property.objects.get(simulation=sim, owner=elite, property_type="mansion")
+        fundamental = compute_gordon_valuation(mansion, sim)
+
+        apply_agent_action(
+            elite, {"action": "sell_property", "target": "mansion", "reason": "cash"}, tick=1
+        )
+
+        listing = PropertyListing.objects.get(property=mansion, status="listed")
+        # good_code-ordered selection -> "barley" (falling) wins the pick,
+        # so the multiplier is 0.9, NOT "wheat"'s rising 1.1.
+        assert listing.asking_price == pytest.approx(fundamental * 0.9, rel=1e-6)
+
     def test_property_cycle_sell_then_buy(self, behavioral_economy):
         """sell_property creates a listing; buy_property intent matches at tick+1."""
         s = behavioral_economy
