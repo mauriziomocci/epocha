@@ -280,6 +280,61 @@ class TestDebtBlock:
         assert "up to 100" in ctx
         assert "Agent Workshop" in ctx
 
+    def test_no_phantom_credit_for_pending_default_pledged_property(self, behavioral_setup):
+        """Round 8 re-audit finding R8-NEW-2/R8-CTX-1 (run
+        wf_75faf0db-ad2): the debt block's 'best unpledged property'
+        lookup was a stale DRY twin of find_best_unpledged_property that
+        the R6-COLL-1 fix never reached -- it excluded only
+        collateralized_loans__status="active". A property pledged to a
+        loan in the pending "defaulted" state (cascade-marked at tick t,
+        settled at t+1) was therefore advertised to the LLM as available
+        collateral with a computed credit line, though the real borrow
+        path (which excludes ["active", "defaulted"]) would refuse it.
+        The context must apply the same lien exclusion."""
+        agent = behavioral_setup["agent"]
+        sim = behavioral_setup["simulation"]
+        BankingState.objects.get_or_create(
+            simulation=sim,
+            defaults={
+                "total_deposits": 10000.0,
+                "total_loans_outstanding": 0.0,
+                "reserve_ratio": 0.10,
+                "base_interest_rate": 0.05,
+                "is_solvent": True,
+                "confidence_index": 0.9,
+            },
+        )
+        Property.objects.filter(owner=agent).delete()
+        prop = Property.objects.create(
+            simulation=sim,
+            owner=agent,
+            owner_type="agent",
+            zone=behavioral_setup["zone"],
+            property_type="workshop",
+            name="Pledged Workshop",
+            value=200.0,
+        )
+        # Loan already defaulted (pending settlement) but still pledged.
+        Loan.objects.create(
+            simulation=sim,
+            borrower=agent,
+            lender_type="banking",
+            principal=100.0,
+            interest_rate=0.05,
+            remaining_balance=100.0,
+            collateral=prop,
+            issued_at_tick=0,
+            due_at_tick=10,
+            status="defaulted",
+        )
+
+        ctx = build_economic_context(agent, tick=1)
+        # No active loans and the only property is pledged to a pending
+        # default: nothing to report, so no debt block and no phantom
+        # credit line the engine would refuse to honor.
+        assert "Your debt situation:" not in ctx
+        assert "Credit available" not in ctx
+
 
 @pytest.mark.django_db
 class TestBankingBlock:

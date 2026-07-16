@@ -18,6 +18,7 @@ directly to simulate decided-upon outcomes.
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
@@ -306,6 +307,34 @@ class TestBehavioralIntegration:
         # Minsky classification should return a valid stage
         stage = classify_minsky_stage(elite, sim, tick=2)
         assert stage in {"hedge", "speculative", "ponzi"}
+
+    def test_borrow_action_falls_back_on_nonfinite_target(self, behavioral_economy):
+        """Round 8 re-audit finding R8-NEW-4 (run wf_75faf0db-ad2): pins
+        the THIRD defense-in-depth layer against a poisoned borrow
+        amount. The orchestrator borrow handler validates the
+        LLM-supplied target with math.isfinite/positivity (R7-VAL-1) and
+        falls back to collateral.value * 0.5 for a malformed target, so a
+        'nan'/'inf'/negative target never reaches issue_loan or the
+        monetary aggregates. Previously untested at the simulation
+        level."""
+        s = behavioral_economy
+        sim = s["sim"]
+        elite = s["elite"]
+
+        collateral = find_best_unpledged_property(elite)
+        assert collateral is not None
+
+        action = {"action": "borrow", "target": "nan", "reason": "invest"}
+        apply_agent_action(elite, action, tick=1)
+
+        loan = Loan.objects.filter(
+            simulation=sim,
+            borrower=elite,
+            status="active",
+        ).first()
+        assert loan is not None, "Borrow with a malformed target must fall back, not abort"
+        assert math.isfinite(loan.principal)
+        assert loan.principal == pytest.approx(collateral.value * 0.5, rel=1e-6)
 
     def test_property_cycle_sell_then_buy(self, behavioral_economy):
         """sell_property creates a listing; buy_property intent matches at tick+1."""

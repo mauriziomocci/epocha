@@ -1848,6 +1848,33 @@ class TestBorrowAmountValidation:
         )
         assert approved is False
 
+    @pytest.mark.parametrize("bad_amount", [-100.0, 0.0, float("nan"), float("inf")])
+    def test_issue_loan_rejects_invalid_amount(
+        self,
+        simulation,
+        borrower,
+        currency,
+        banking_state,
+        bad_amount,
+    ):
+        # R8-NEW-4 (Round 8 re-audit, run wf_75faf0db-ad2): pins the
+        # SECOND defense-in-depth layer. evaluate_credit_request rejecting
+        # invalid amounts was already tested; issue_loan's own guard --
+        # which protects non-engine callers that skip evaluate -- was not.
+        # A future refactor dropping it must break a test.
+        loan = issue_loan(
+            simulation=simulation,
+            lender=None,
+            borrower=borrower,
+            amount=bad_amount,
+            interest_rate=0.05,
+            collateral=None,
+            tick=0,
+            duration=5,
+            lender_type="banking",
+        )
+        assert loan is None
+
 
 @pytest.mark.django_db
 class TestIssueLoanCollateralExclusivity:

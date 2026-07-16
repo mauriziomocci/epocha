@@ -468,10 +468,14 @@ def process_maturity(simulation, tick: int) -> None:
     """Handle loans reaching maturity at the current tick.
 
     Three outcomes are possible:
-    1. Repayment: borrower has enough cash to repay the remaining balance.
-    2. Rollover: borrower can pay interest but not principal. A new loan
-       is created with potentially higher interest rate (Minsky fragility).
-       The rollover count is incremented.
+    1. Repayment: borrower has enough cash to cover the remaining balance
+       PLUS the final-period interest, i.e. remaining_balance * (1 + rate)
+       (R7-NEW-1: the final period accrues on repayment as well as on
+       rollover, so it is charged exactly once per loan-tick in every
+       branch).
+    2. Rollover: borrower can pay the final-period interest but not the
+       principal. A new loan is created with potentially higher interest
+       rate (Minsky fragility). The rollover count is incremented.
     3. Default: borrower cannot pay either. Handled by process_defaults.
 
     Rollover is capped by credit_config.max_rollover. Exceeding the cap
