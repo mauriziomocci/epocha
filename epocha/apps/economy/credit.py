@@ -913,7 +913,16 @@ def find_best_unpledged_property(agent: Agent) -> Property | None:
         # still holds its collateral claim -- excluding only "active"
         # loans allowed double-pledging that collateral in the gap.
         .exclude(collateralized_loans__status__in=["active", "defaulted"])
-        .order_by("-value")
+        # R9-NEW-1 fix (Round 9 re-audit, run wf_6a4ff6e6-e80): break
+        # exact value ties on id. Without a total-order tiebreak,
+        # Postgres returned tied properties in unspecified physical
+        # order, so the pledged collateral -- and the default-seizure
+        # path it drives -- was not reproducible across identically
+        # seeded runs, and could disagree with the property the context
+        # block (context.py, pinned to (-value, id)) advertises to the
+        # LLM. This matches the id-tiebreak convention of every sibling
+        # gate (sell_property, the listing match).
+        .order_by("-value", "id")
         .first()
     )
 

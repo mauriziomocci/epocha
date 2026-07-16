@@ -880,6 +880,61 @@ class TestDoublePledgeProtection:
         assert best is not None
         assert best.id == prop1.id  # prop2 is pledged, prop1 is free
 
+    def test_find_unpledged_property_deterministic_on_value_tie(
+        self, simulation, world_and_zone, currency
+    ):
+        """Round 9 re-audit finding R9-NEW-1 (run wf_6a4ff6e6-e80): the
+        canonical borrow-path collateral selector sorted `.order_by("-value")`
+        with no id tiebreak, while its context twin (context.py, pinned to
+        `("-value", "id")` in commit 98da17e) and every sibling gate
+        (sell_property, the listing match) are id-pinned. On an exact value
+        tie Postgres returns rows in unspecified physical order, so the
+        pledged collateral -- and the entire default-seizure path it drives
+        -- was not reproducible across identically-seeded runs, and the
+        property the LLM context advertised as "best" could differ from the
+        one actually pledged. The selector must break value ties on id,
+        matching the twin and the module convention. This pins the
+        deterministic contract (the pre-fix behavior is DB-order dependent,
+        which is the defect itself)."""
+        _, zone = world_and_zone
+        agent = Agent.objects.create(
+            simulation=simulation,
+            name="TieOwner",
+            role="merchant",
+            personality={},
+            zone=zone,
+            wealth=500.0,
+            mood=0.5,
+            health=1.0,
+        )
+        AgentInventory.objects.create(agent=agent, holdings={}, cash={currency.code: 200.0})
+        # Two unpledged properties with EXACTLY equal value.
+        prop_a = Property.objects.create(
+            simulation=simulation,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="farmland",
+            name="Farm A",
+            value=250.0,
+        )
+        prop_b = Property.objects.create(
+            simulation=simulation,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="farmland",
+            name="Farm B",
+            value=250.0,
+        )
+        from epocha.apps.economy.credit import find_best_unpledged_property
+
+        best = find_best_unpledged_property(agent)
+        assert best is not None
+        # Deterministic: the lowest id wins the tie, matching the id-pinned
+        # context twin and the (-value, id) module convention.
+        assert best.id == min(prop_a.id, prop_b.id)
+
     def test_no_unpledged_property(self, simulation, world_and_zone, currency):
         """Returns None when all properties are pledged as active collateral."""
         _, zone = world_and_zone
