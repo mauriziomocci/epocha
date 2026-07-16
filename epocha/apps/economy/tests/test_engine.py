@@ -965,6 +965,69 @@ class TestLiveMoneySupply:
 
 
 @pytest.mark.django_db
+class TestFisherMultiZoneAggregation:
+    """Round 5 re-audit finding R5-FISH-2 (run wf_62d071a6-289): the
+    rewired Fisher diagnostic valued MV at per-zone equilibrium prices
+    but PQ at the unweighted cross-zone MEAN price, so a perfectly
+    conserved multi-zone economy with price dispersion produced
+    spurious divergence. PQ must be the sum of the per-zone nominal
+    output values V_z -- the same quantities the factor-income
+    partition injects -- so divergence signals a genuine
+    conservation defect in every regime."""
+
+    def test_fisher_pq_sums_per_zone_nominal_output(
+        self,
+        simulation,
+        setup_two_zone_economy,
+    ):
+        # Make output ASYMMETRIC across the two zones (extra farmers in
+        # Zone1): with symmetric output the mean-price form coincides
+        # with the per-zone sum by algebraic accident and the defect is
+        # invisible. Asymmetry + price dispersion is the auditor's
+        # counterexample regime.
+        zone1 = Zone.objects.get(world__simulation=simulation, name="Zone1")
+        for idx in range(3):
+            extra = Agent.objects.create(
+                simulation=simulation,
+                name=f"ExtraFarmer{idx}",
+                role="farmer",
+                personality={"openness": 0.5},
+                location=Point(150, 50),
+                zone=zone1,
+                health=1.0,
+                wealth=50.0,
+            )
+            AgentInventory.objects.create(
+                agent=extra,
+                holdings={"subsistence": 3.0},
+                cash={"LVR": 50.0},
+            )
+
+        with patch(
+            "epocha.apps.economy.engine.check_fisher_consistency",
+            wraps=engine_module.check_fisher_consistency,
+        ) as mock_fisher:
+            process_economy_tick_new(simulation, tick=1)
+
+        kwargs = mock_fisher.call_args.kwargs
+        realized_pq = kwargs["price_level"] * kwargs["output_level"]
+
+        expected_pq = 0.0
+        for ze in ZoneEconomy.objects.filter(zone__world__simulation=simulation):
+            prices = ze.market_prices
+            for entry in EconomicLedger.objects.filter(
+                simulation=simulation,
+                tick=1,
+                transaction_type="production",
+                to_agent__zone=ze.zone,
+            ):
+                if entry.good_category is not None:
+                    expected_pq += entry.quantity * prices.get(entry.good_category.code, 0.0)
+
+        assert abs(realized_pq - expected_pq) < 1e-6
+
+
+@pytest.mark.django_db
 class TestMoodThresholdReconciliation:
     """CM-6 fix (Round 1 audit report, monetary+initialization
     cross-module finding): mood thresholds are derived from the living

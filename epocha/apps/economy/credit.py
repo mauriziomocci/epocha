@@ -601,9 +601,18 @@ def process_defaults(simulation, tick: int) -> list[dict]:
             # Reduce loss by collateral value
             loss = max(0.0, loss - prop.value)
 
-        # Write off remaining debt
+        # Write off remaining debt and move the loan to its TERMINAL
+        # state (R5-CRED-1 fix, Round 5 re-audit): "defaulted" is the
+        # to-be-processed state, "default_settled" the processed one.
+        # Without the transition, this loop re-processed every
+        # historical default on every subsequent tick -- decrementing
+        # total_loans_outstanding again, re-seizing collateral (clawing
+        # back legitimately resold properties), and re-firing the
+        # reputation damage as an unbounded stream of duplicate
+        # memories.
         loan.remaining_balance = 0.0
-        loan.save(update_fields=["remaining_balance"])
+        loan.status = "default_settled"
+        loan.save(update_fields=["remaining_balance", "status"])
 
         # Update banking state
         if loan.lender_type == "banking":
@@ -778,6 +787,7 @@ def process_default_cascade(
     simulation,
     tick: int,
     max_depth: int = 3,
+    loss_records: list[dict] | None = None,
 ) -> int:
     """Propagate defaults through the debt graph using BFS.
 
@@ -797,23 +807,40 @@ def process_default_cascade(
         tick: Current simulation tick.
         max_depth: Maximum cascade depth. Tunable design parameter;
             default 3 based on typical financial network diameter.
+        loss_records: the CURRENT tick's loss records as returned by
+            process_defaults (R5-CRED-2 fix, Round 5 re-audit). When
+            provided, lender losses are seeded from these records --
+            the actual net losses of defaults processed THIS tick
+            (remaining balance minus seized collateral value) -- as
+            the Allen-Gale contagion mechanism intends. The pre-fix
+            behavior re-queried status="defaulted" and re-seeded the
+            cascade from the gross principal of ALL-TIME defaults on
+            every tick, force-defaulting fragile lenders forever.
+            When None (legacy/direct callers), losses are seeded from
+            the not-yet-settled defaulted loans still in the queue.
 
     Returns:
         The maximum cascade depth reached.
     """
-    # Compute per-agent losses from defaults processed in this tick
-    defaulted_loans = Loan.objects.filter(
-        simulation=simulation,
-        status="defaulted",
-        lender_type="agent",
-        lender__isnull=False,
-    ).select_related("lender")
-
-    # Aggregate losses per lender
+    # Seed per-lender losses for this tick.
     lender_losses: dict[int, float] = {}
-    for loan in defaulted_loans:
-        lender_id = loan.lender_id
-        lender_losses[lender_id] = lender_losses.get(lender_id, 0.0) + loan.principal
+    if loss_records is not None:
+        for record in loss_records:
+            if record.get("lender_type") == "agent" and record.get("lender_id"):
+                lender_id = record["lender_id"]
+                lender_losses[lender_id] = lender_losses.get(lender_id, 0.0) + record["loss"]
+    else:
+        # Legacy path: unsettled defaults only. process_defaults moves
+        # loans to "default_settled", so this never re-reads history.
+        defaulted_loans = Loan.objects.filter(
+            simulation=simulation,
+            status="defaulted",
+            lender_type="agent",
+            lender__isnull=False,
+        ).select_related("lender")
+        for loan in defaulted_loans:
+            lender_id = loan.lender_id
+            lender_losses[lender_id] = lender_losses.get(lender_id, 0.0) + loan.principal
 
     if not lender_losses:
         return 0

@@ -223,7 +223,15 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # implementation-defined on PostgreSQL), and execute_trades
     # iterates goods in sorted order (see market.py).
     essential_good_codes = {g.code for g in goods if g.is_essential}
-    system_output_by_good: dict[str, float] = {}
+    # Nominal output value accumulated as the sum of per-zone V_z =
+    # sum_g(zone_production_zg * equilibrium_price_zg) -- the SAME
+    # quantity the factor-income partition of steps 4/5/5b distributes.
+    # R5-FISH-2 fix (Round 5 re-audit): repricing system output at the
+    # unweighted cross-zone mean made the Fisher PQ side diverge
+    # spuriously from MV in multi-zone runs with price dispersion and
+    # asymmetric output; valuing PQ at each zone's own equilibrium
+    # prices keeps MV == PQ exactly whenever conservation holds.
+    nominal_output_value = 0.0
 
     for ze in zone_economies:
         zone = ze.zone
@@ -260,11 +268,6 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 current = zone_production.get(good_code, 0.0)
                 zone_production[good_code] = current + quantity
                 total_output += quantity
-                # Per-good system output, used by the Fisher PQ side
-                # (R3-5 fix: output-weighted nominal value, see step 8a).
-                system_output_by_good[good_code] = (
-                    system_output_by_good.get(good_code, 0.0) + quantity
-                )
 
                 # Add produced goods to agent inventory
                 try:
@@ -454,8 +457,13 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             default_dead_agent_loans(simulation)
             service_loans(simulation, tick)
             process_maturity(simulation, tick)
-            process_defaults(simulation, tick)
-            process_default_cascade(simulation, tick)
+            # R5-CRED-2 fix (Round 5 re-audit): the cascade consumes the
+            # loss records of the defaults processed THIS tick (net of
+            # seized collateral), not a re-query over all-time defaults.
+            # Loans cascade-defaulted here are settled by
+            # process_defaults on the NEXT tick, exactly once.
+            default_loss_records = process_defaults(simulation, tick)
+            process_default_cascade(simulation, tick, loss_records=default_loss_records)
             adjust_interest_rate(simulation, tick)
             check_solvency(simulation)
             broadcast_banking_concern(simulation, tick)
@@ -507,6 +515,14 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             for p in properties
             if p.owner_type == "agent" and p.owner_id in alive_owner_ids
         ]
+        # V_z: this zone's nominal output value at its OWN equilibrium
+        # prices -- the base of the factor-income partition below and
+        # this zone's contribution to the Fisher PQ side (R5-FISH-2
+        # fix; see the accumulator's comment above the zone loop).
+        nominal_output_value += sum(
+            qty * equilibrium_prices.get(good, 0.0) for good, qty in zone_production.items()
+        )
+
         factor_shares = partition_output_value(
             zone_production,
             prop_dicts,
@@ -773,11 +789,16 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # above 20% divergence; never alters simulation state). Round 1
     # audit report found check_fisher_consistency defined but never
     # invoked anywhere. R3-5 fix: the PQ side is the output-weighted
-    # nominal value sum_g(p_g * q_g); system_price_level is the
-    # output-weighted (Paasche-type) index PQ / Q, so price_level *
-    # output_level reproduces the nominal output value exactly. Goods
-    # with no quoted system price contribute zero nominal value,
-    # consistent with the ledger's zero-price production entries.
+    # nominal value; R5-FISH-2 fix: it is accumulated as the sum of the
+    # PER-ZONE nominal output values V_z at each zone's own equilibrium
+    # prices (see the zone loop), NOT system output repriced at the
+    # cross-zone mean -- the mean form diverged spuriously from MV in
+    # multi-zone runs with price dispersion and asymmetric output.
+    # system_price_level is the output-weighted (Paasche-type) index
+    # PQ / Q, so price_level * output_level reproduces the nominal
+    # output value exactly. Goods with no quoted price contribute zero
+    # nominal value, consistent with the ledger's zero-price
+    # production entries.
     #
     # R4-FISH-1 fix (Round 4 re-audit, run wf_9fb030e4-8a1): with a
     # MEASURED velocity V := volume / M, the identity M*V = volume is
@@ -796,9 +817,6 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # CM-1 defect class this check was resurrected to catch. The
     # turnover velocity remains reported on Currency.cached_velocity
     # as a metric; it is no longer fed into this check.
-    nominal_output_value = sum(
-        qty * new_prices_all.get(good, 0.0) for good, qty in system_output_by_good.items()
-    )
     system_price_level = nominal_output_value / total_output if total_output > 0 else 0.0
     income_velocity = factor_income_volume / live_money_supply if live_money_supply > 0 else 0.0
     check_fisher_consistency(

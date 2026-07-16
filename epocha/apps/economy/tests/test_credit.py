@@ -1145,3 +1145,181 @@ class TestRepaymentLedgerType:
             tick=5,
             transaction_type="loan_interest",
         ).exists()
+
+
+@pytest.mark.django_db
+class TestDefaultTerminalState:
+    """Round 5 re-audit findings R5-CRED-1 / R5-CRED-2 (run
+    wf_62d071a6-289): defaulted loans never reached a terminal state, so
+    process_defaults re-processed EVERY historical default on every tick
+    (banking total_loans_outstanding decremented again each tick,
+    duplicate borrower memories and repeated reputation hits, collateral
+    re-seized even after a legitimate resale), and process_default_cascade
+    re-seeded lender losses from all-time defaults forever. A processed
+    default must reach the terminal status "default_settled", and the
+    cascade must consume the CURRENT tick's loss records."""
+
+    def test_default_processed_exactly_once(
+        self,
+        simulation,
+        borrower,
+        currency,
+        collateral_property,
+        banking_state,
+    ):
+        banking_state.total_loans_outstanding = 500.0
+        banking_state.save(update_fields=["total_loans_outstanding"])
+
+        loan = Loan.objects.create(
+            simulation=simulation,
+            lender=None,
+            borrower=borrower,
+            lender_type="banking",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=collateral_property,
+            status="defaulted",
+        )
+
+        first = process_defaults(simulation, tick=5)
+        assert len(first) == 1
+
+        loan.refresh_from_db()
+        assert loan.status == "default_settled"
+
+        banking_state.refresh_from_db()
+        assert banking_state.total_loans_outstanding == pytest.approx(300.0)
+
+        # A second tick must be a no-op: no re-decrement, no duplicate
+        # borrower memory, no new loss records.
+        second = process_defaults(simulation, tick=6)
+        assert second == []
+
+        banking_state.refresh_from_db()
+        assert banking_state.total_loans_outstanding == pytest.approx(300.0)
+
+        default_memories = Memory.objects.filter(
+            agent=borrower,
+            content__contains="Defaulted",
+        )
+        assert default_memories.count() == 1
+
+    def test_seized_collateral_not_clawed_back_after_resale(
+        self,
+        simulation,
+        world_and_zone,
+        borrower,
+        lender,
+        currency,
+        collateral_property,
+    ):
+        _, zone = world_and_zone
+        Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=collateral_property,
+            status="defaulted",
+        )
+
+        process_defaults(simulation, tick=5)
+        collateral_property.refresh_from_db()
+        assert collateral_property.owner == lender
+
+        # The lender legitimately resells the seized property.
+        new_owner = Agent.objects.create(
+            simulation=simulation,
+            name="NewOwner",
+            role="merchant",
+            social_class="middle",
+            zone=zone,
+            wealth=800.0,
+            personality={"openness": 0.5},
+            location=Point(50, 50),
+            health=1.0,
+        )
+        collateral_property.owner = new_owner
+        collateral_property.save(update_fields=["owner"])
+
+        # The next tick must NOT claw the property back to the lender.
+        process_defaults(simulation, tick=6)
+        collateral_property.refresh_from_db()
+        assert collateral_property.owner == new_owner
+
+    def test_cascade_consumes_current_tick_loss_records(
+        self,
+        simulation,
+        world_and_zone,
+        borrower,
+        lender,
+        currency,
+    ):
+        _, zone = world_and_zone
+        # The lender is fragile: the defaulted loan's loss (200) exceeds
+        # CASCADE_LOSS_THRESHOLD * wealth (0.5 * 100), so the cascade
+        # must force-default the lender's own borrowing.
+        lender.wealth = 100.0
+        lender.save(update_fields=["wealth"])
+
+        upstream = Agent.objects.create(
+            simulation=simulation,
+            name="Upstream",
+            role="merchant",
+            social_class="elite",
+            zone=zone,
+            wealth=5000.0,
+            personality={"openness": 0.5},
+            location=Point(50, 50),
+            health=1.0,
+        )
+        Loan.objects.create(
+            simulation=simulation,
+            lender=lender,
+            borrower=borrower,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            status="defaulted",
+        )
+        lender_own_loan = Loan.objects.create(
+            simulation=simulation,
+            lender=upstream,
+            borrower=lender,
+            lender_type="agent",
+            principal=300.0,
+            interest_rate=0.10,
+            remaining_balance=300.0,
+            issued_at_tick=0,
+            status="active",
+        )
+
+        records = process_defaults(simulation, tick=5)
+        depth = process_default_cascade(simulation, tick=5, loss_records=records)
+        assert depth >= 1
+
+        lender_own_loan.refresh_from_db()
+        assert lender_own_loan.status == "defaulted"
+
+        # Next tick: the cascade-defaulted loan is settled once, and the
+        # cascade driven by the NEW tick's records must not re-trigger
+        # from the all-time default history.
+        records6 = process_defaults(simulation, tick=6)
+        assert len(records6) == 1  # only the lender's own loan, once
+
+        depth6 = process_default_cascade(simulation, tick=6, loss_records=records6)
+        # Upstream is wealthy (5000): loss 300 < 0.5*5000, no propagation.
+        assert depth6 == 0
+
+        # Nothing left to re-process on a third tick.
+        records7 = process_defaults(simulation, tick=7)
+        assert records7 == []
+        assert process_default_cascade(simulation, tick=7, loss_records=records7) == 0

@@ -391,6 +391,11 @@ class Loan(models.Model):
         ("active", "Active"),
         ("repaid", "Repaid"),
         ("defaulted", "Defaulted"),
+        # Terminal state reached after process_defaults has handled a
+        # defaulted loan (collateral seized, losses recorded, reputation
+        # damaged). R5-CRED-1 fix (Round 5 re-audit): without a terminal
+        # state, every historical default was re-processed on every tick.
+        ("default_settled", "Default settled"),
         ("rolled_over", "Rolled over"),
     ]
 
