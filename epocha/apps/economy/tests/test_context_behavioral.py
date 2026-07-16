@@ -170,6 +170,50 @@ class TestExpectationsBlock:
 
 
 @pytest.mark.django_db
+class TestPropertyEnumerationDeterminism:
+    """Round 10 re-audit finding R10-DET-1 (run wf_9a6a807f-a41): the
+    agent's owned-property list was read with values_list(...) and no
+    order_by, then joined straight into the LLM prompt, while the sibling
+    holdings and market-price enumerations in the same function are
+    sorted. On an agent owning two or more properties the prompt's
+    property enumeration was DB-scan-order dependent, so an
+    identically-seeded run could hand the LLM a different enumeration and
+    diverge. The list must be pinned like its siblings. This pins the
+    deterministic contract (the pre-fix behavior was DB-order dependent,
+    which is the defect itself)."""
+
+    def test_property_enumeration_is_id_ordered(self, behavioral_setup):
+        agent = behavioral_setup["agent"]
+        sim = behavioral_setup["simulation"]
+        zone = behavioral_setup["zone"]
+        Property.objects.filter(owner=agent).delete()
+        # Created in this order -> ascending id.
+        Property.objects.create(
+            simulation=sim,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="farmland",
+            name="Farm",
+            value=100.0,
+        )
+        Property.objects.create(
+            simulation=sim,
+            owner=agent,
+            owner_type="agent",
+            zone=zone,
+            property_type="workshop",
+            name="Shop",
+            value=100.0,
+        )
+
+        ctx = build_economic_context(agent, tick=1)
+        # Deterministic id-ordered enumeration, matching the sorted
+        # holdings and market-price siblings in the same builder.
+        assert "- Properties: 2 (farmland, workshop)" in ctx
+
+
+@pytest.mark.django_db
 class TestDebtBlock:
     """Tests for the debt situation context block."""
 

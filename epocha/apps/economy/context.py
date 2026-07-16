@@ -68,12 +68,19 @@ def build_economic_context(agent, tick: int) -> str | None:
 
     holdings_text = ", ".join(holdings_lines) if holdings_lines else "nothing"
 
-    # Properties
+    # Properties. R10-DET-1 fix (Round 10 re-audit, run wf_9a6a807f-a41):
+    # order_by("id") pins the enumeration joined into the LLM prompt
+    # below, matching the sorted holdings and market-price siblings in
+    # this builder -- an unordered values_list left the prompt's property
+    # list in unspecified DB scan order, so identically-seeded runs could
+    # hand the LLM a different enumeration and diverge.
     properties = list(
         Property.objects.filter(
             owner=agent,
             owner_type="agent",
-        ).values_list("property_type", flat=True)
+        )
+        .order_by("id")
+        .values_list("property_type", flat=True)
     )
     property_count = len(properties)
     property_text = f"{property_count} ({', '.join(properties)})" if properties else "none"

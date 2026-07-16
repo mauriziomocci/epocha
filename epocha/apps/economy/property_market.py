@@ -454,8 +454,12 @@ def process_expropriation(
         )
         return 0
 
-    # Materialize the queryset to iterate with side effects
-    properties_to_transfer = list(target_properties)
+    # Materialize the queryset to iterate with side effects.
+    # R10-DET-2 fix (Round 10 re-audit, run wf_9a6a807f-a41): pin the
+    # transfer order by id so the seizure side effects (and the Memory
+    # rows created below) are allocated in a reproducible order, matching
+    # the create-order pinning convention of broadcast_banking_concern.
+    properties_to_transfer = list(target_properties.order_by("id"))
     if not properties_to_transfer:
         return 0
 
@@ -499,11 +503,13 @@ def process_expropriation(
 
         transferred += 1
 
-    # Create negative memories for affected agents
+    # Create negative memories for affected agents. R10-DET-2 fix:
+    # id-order the queryset so the Memory rows are created in a
+    # reproducible order (same convention as broadcast_banking_concern).
     affected_agents = Agent.objects.filter(
         id__in=affected_agent_ids,
         is_alive=True,
-    )
+    ).order_by("id")
     for agent in affected_agents:
         Memory.objects.create(
             agent=agent,
