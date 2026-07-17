@@ -1,5 +1,5 @@
 ---
-name: project_ruff_cleanup_pending
+name: ruff-cleanup-pending
 description: "CLOSED 2026-06-22. Ruff repo-wide cleanup completato e mergiato (PR#10, merge ed5e9e1). CI lint gate ora VERDE su develop (ruff check . e ruff format --check . exit 0)."
 metadata: 
   node_type: memory
