@@ -22,6 +22,9 @@ h^2 values consumed by the birth pipeline.
 from __future__ import annotations
 
 import ast
+from typing import Any
+
+from django.core.exceptions import FieldDoesNotExist
 
 
 class FormulaError(ValueError):
@@ -228,3 +231,181 @@ def inherit_trait(
     noise = rng.gauss(era_mean, era_sd)
     result = h2 * midparent + (1 - h2) * noise
     return max(lo, min(hi, result))
+
+
+# Environmental-noise prior applied when neither the era template nor a
+# caller-supplied noise spec provides era_mean/era_sd for a trait. The
+# design spec (Sezione 4) calls for era_mean_T / era_sd_T estimated from the
+# tick-0 population and frozen thereafter (Falconer & Mackay 1996, ch. 8 --
+# environmental deviation estimated at the population level); no era
+# template (verified: none of the five templates under
+# epocha/apps/demography/templates/ declare a trait_inheritance.era_noise
+# section) and no population-statistics module currently supply that
+# estimate. DEFAULT_ERA_MEAN = 0.5 and DEFAULT_ERA_SD = 0.15 are a
+# documented, explicitly tunable interim substitute: mean at the scale
+# midpoint and a moderate spread for a generic [0, 1]-bounded trait. This is
+# a deliberate simplification of the tick-0-population-estimation mechanism,
+# scoped out of `apply_trait_inheritance` because it requires a
+# population-statistics snapshot this function's signature does not carry;
+# a later task must thread real per-trait era_mean/era_sd values through
+# once that machinery exists.
+DEFAULT_ERA_MEAN = 0.5
+DEFAULT_ERA_SD = 0.15
+
+
+def _agent_has_field(model_cls: type, name: str) -> bool:
+    """Return True when `model_cls` has a concrete field named `name`.
+
+    Used to route a heritable trait name to either a scalar Agent FloatField
+    (e.g. `intelligence`) or an `Agent.personality` JSONB entry (e.g.
+    `openness`, or an unpublished-h2 trait like `humor_style`). "Concrete"
+    excludes reverse relations and many-to-many descriptors, which have no
+    column on `model_cls` itself and are never valid inheritance
+    destinations. No trait name is special-cased: a template change
+    (renaming or adding a heritability key) is picked up automatically the
+    next time this function runs.
+    """
+    try:
+        field = model_cls._meta.get_field(name)
+    except FieldDoesNotExist:
+        return False
+    return bool(getattr(field, "concrete", False))
+
+
+def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict, rng: Any) -> None:
+    """Apply polygenic additive inheritance, then evaluate derived-trait formulas.
+
+    Birth-pipeline orchestrator (design spec Sezione 4, "Responsibility
+    contract"). Two passes, strictly ordered:
+
+    1. Every heritable trait -- scalar Agent fields (e.g. `intelligence`)
+       and `Agent.personality` JSONB entries alike (the Big Five, or
+       unpublished-h2 traits like `humor_style`) -- is drawn through the
+       polygenic additive kernel `inherit_trait` (Falconer & Mackay 1996,
+       ch. 8).
+    2. `derived_trait_formulas` (e.g. `cunning`, a Machiavellism proxy) are
+       evaluated against the freshly inherited values from step 1, never
+       against the parents' values directly. `cunning` has no published
+       heritability and is therefore never drawn from the polygenic kernel.
+
+    Trait set for step 1: every key in
+    `template["trait_inheritance"]["heritability"]` except the "default"
+    sentinel, plus any key present in `mother.personality` or
+    `father.personality` that has no published h2 entry -- those inherit at
+    `heritability["default"]` (0.30 in every current era template),
+    documented in the design spec as a tunable default for personality
+    traits without a primary-study h2 (e.g. `humor_style`,
+    `attachment_style`). `social_class` is never included here: it carries
+    no heritability entry in any era template and is governed by the
+    social-inheritance rules (design spec Sezione 5), a separate mechanism.
+
+    Trait names are collected in a deterministic order -- heritability
+    dict order first (JSON insertion order, stable), then any extra
+    personality-only names sorted lexicographically -- rather than via an
+    unordered Python `set`. `rng.gauss` is drawn exactly once per trait
+    (see `inherit_trait`), so an unordered iteration would make the RNG
+    draw sequence depend on the interpreter's per-process string hash seed,
+    breaking the bit-for-bit reproducibility the demography subsystem
+    requires for identically seeded runs.
+
+    era_mean / era_sd: read per-trait from
+    `template["trait_inheritance"].get("era_noise", {})[name]` when
+    present; otherwise `DEFAULT_ERA_MEAN` / `DEFAULT_ERA_SD` are used (see
+    their docstring for the full rationale -- this is a documented interim
+    substitute for the design spec's tick-0-population-estimated
+    era_mean_T / era_sd_T, no era template currently declares an
+    `era_noise` section).
+
+    This function mutates `child` in place -- scalar attributes via
+    `setattr`, personality entries via `child.personality[name] = value` --
+    but never calls `child.save()`; persistence is the caller's
+    responsibility, keeping this composable with however Plan 4 sequences
+    the birth pipeline. All randomness is drawn from the passed `rng`; no
+    global state, no hidden ORM writes, no calls to `inherit_trait` or
+    `evaluate_derived_formula` outside their published contracts.
+
+    Args:
+        child: the newborn Agent instance (need not be saved yet).
+        mother: the mother Agent instance, or None if unresolved.
+        father: the father Agent instance, or None if unresolved.
+        template: a demography era template dict as returned by
+            `template_loader.load_template`, or an equivalent dict carrying
+            at least `trait_inheritance.heritability` (and optionally
+            `trait_inheritance.derived_trait_formulas` /
+            `trait_inheritance.era_noise`).
+        rng: a random.Random-compatible instance (see
+            `demography.rng.get_seeded_rng`), consumed in the deterministic
+            trait order described above.
+    """
+    trait_inheritance = template["trait_inheritance"]
+    heritability = trait_inheritance["heritability"]
+    default_h2 = heritability.get("default", 0.30)
+    era_noise = trait_inheritance.get("era_noise", {})
+
+    trait_names = [name for name in heritability if name != "default"]
+    covered = set(trait_names)
+    extra_names: set[str] = set()
+    for parent in (mother, father):
+        if parent is not None and parent.personality:
+            extra_names.update(parent.personality.keys())
+    extra_names -= covered
+    trait_names.extend(sorted(extra_names))
+
+    child_model = type(child)
+    symbols: dict[str, float] = {}
+
+    for name in trait_names:
+        h2 = heritability.get(name, default_h2)
+        noise_spec = era_noise.get(name, {})
+        era_mean = noise_spec.get("era_mean", DEFAULT_ERA_MEAN)
+        era_sd = noise_spec.get("era_sd", DEFAULT_ERA_SD)
+
+        is_scalar = _agent_has_field(child_model, name)
+        if is_scalar:
+            mother_val = getattr(mother, name, None) if mother is not None else None
+            father_val = getattr(father, name, None) if father is not None else None
+        else:
+            mother_val = (mother.personality or {}).get(name) if mother is not None else None
+            father_val = (father.personality or {}).get(name) if father is not None else None
+
+        value = inherit_trait(mother_val, father_val, h2, era_mean, era_sd, rng)
+
+        if is_scalar:
+            setattr(child, name, value)
+        else:
+            child.personality[name] = value
+        symbols[name] = value
+
+    _apply_derived_traits(child, trait_inheritance.get("derived_trait_formulas", {}), symbols)
+
+
+def _apply_derived_traits(
+    child: Any, derived_trait_formulas: dict, symbols: dict[str, float]
+) -> None:
+    """Evaluate each derived-trait formula and write the result onto `child`.
+
+    Called strictly after the polygenic pass in `apply_trait_inheritance`
+    (design spec Sezione 4, "Responsibility contract"). `symbols` is the
+    trait-name-to-value map already computed by that pass -- scoped to the
+    traits `apply_trait_inheritance` actually just inherited, never the raw
+    set of every Agent field, so a formula cannot accidentally resolve
+    against an unrelated Agent attribute (e.g. `wealth`, `mood`) that
+    happens to share a name. Each result is clamped to the formula's
+    declared `range` and written to the matching Agent field or
+    `Agent.personality` entry via the same scalar/personality routing used
+    for inherited traits (currently `cunning` is the only derived trait,
+    and it is a scalar field).
+    """
+    if not derived_trait_formulas:
+        return
+
+    child_model = type(child)
+    for name, spec in derived_trait_formulas.items():
+        raw_value = evaluate_derived_formula(spec["formula"], symbols)
+        lo, hi = spec["range"]
+        value = max(lo, min(hi, raw_value))
+
+        if _agent_has_field(child_model, name):
+            setattr(child, name, value)
+        else:
+            child.personality[name] = value
