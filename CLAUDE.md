@@ -85,6 +85,16 @@ It is **not a snapshot**. Keeping it current is mandatory, not optional, and not
 3. **Republish to the SAME URL**: call the Artifact tool with `file_path` set to the repo file and `url` set to the URL above. Omitting `url`, or publishing from a different path (e.g. a scratchpad copy), mints a NEW URL and forks the source of truth into two competing boards. This is the main failure mode — guard against it.
 4. **Commit the file** together with the work it describes, never in a trailing "update the map" commit.
 
+**How to view it.** The file is fully self-contained — inline CSS and JS, no external resources, no network calls. Open it directly, no server and no login required:
+
+```bash
+open docs/build-map/epocha-build-map.html
+```
+
+The artifact URL above is a shareable mirror of the same file, not a second source.
+
+**Why it is not served by Django.** Considered and rejected on 2026-07-17. Serving it from the `dashboard` app would put the board behind a login (18 of the app's 25 views are auth-gated) and would couple project-level documentation to the simulation operator UI, whose single responsibility is operating and observing simulations — the dependency would point the wrong way, the DVT-544 anti-pattern. A project-level HTTP route was also rejected: it would buy a stable `localhost` URL at the cost of requiring the container to be up, for a file that already opens on its own. Do not re-propose either without a new reason.
+
 **Precedence.** On any conflict about build status, the map wins over memory notes and over handoffs. The whitepaper remains authoritative for scientific content and for the audit status of its own chapters; the map records project-level progress across the 13 phases. The roadmap memory `project_roadmap_post_mvp.md` carries the phase scope, dependency order, and literature sources, and points AT the map for status — it must not duplicate status, or the two will drift.
 
 **Why**: formalized 2026-07-17 at the user's explicit request ("è imperativo"). The roadmap memory had gone 94 days stale and misreported two load-bearing facts at once — it implied demography was unstarted when its models were audited but never wired into the tick loop, and it implied the economy integration was outstanding when it had shipped. The user lost sight of the project as a whole. A single verified board, updated as a matter of course, is the remedy.

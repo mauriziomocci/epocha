@@ -22,6 +22,10 @@ La **build map** e' la fonte di verita' di cosa e' costruito e cosa no in Epocha
 3. **Ripubblica sullo STESSO URL**: tool Artifact con `file_path` = il file nel repo e `url` = l'URL sopra. Senza `url`, o pubblicando da un path diverso (es. una copia nello scratchpad), si conia un URL NUOVO e la fonte di verita' si biforca in due board concorrenti. E' il failure mode principale.
 4. **Committa il file** insieme al lavoro che descrive, mai in un commit di coda "aggiorno la mappa".
 
+**Come si apre**: il file e' autoconsistente (CSS e JS inline, zero risorse esterne, zero chiamate di rete). `open docs/build-map/epocha-build-map.html` -- niente server, niente login, niente container. L'artifact e' uno specchio condivisibile dello stesso file, non una seconda fonte.
+
+**Perche' NON e' servita da Django** (valutato e scartato il 2026-07-17, decisione dell'utente): dentro l'app `dashboard` finirebbe dietro login (18 view su 25 sono auth-gated) e accoppierebbe documentazione di progetto all'UI operatore delle simulazioni, la cui unica responsabilita' e' operare/osservare simulazioni -- dipendenza nel verso sbagliato, anti-pattern DVT-544. Anche una rotta HTTP a livello progetto e' stata scartata: comprerebbe un URL `localhost` stabile al costo di richiedere il container su, per un file che si apre da solo. **Non riproporre nessuna delle due senza una ragione nuova.**
+
 **Precedenza**: sui conflitti di stato di build la mappa vince su memorie e handoff. Il whitepaper resta autoritativo per il contenuto scientifico e per lo stato di audit dei suoi capitoli. [[post-mvp-roadmap]] porta scope, ordine delle dipendenze e fonti bibliografiche delle 13 fasi e **punta** alla mappa per lo stato: non deve duplicarlo, o le due divergono.
 
 Correlate: [[whitepaper-doc-sync-rule]], [[whitepaper-promotion-pipeline]].
