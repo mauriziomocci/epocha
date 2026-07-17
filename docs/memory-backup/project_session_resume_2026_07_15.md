@@ -1,6 +1,6 @@
 ---
 name: session-resume-2026-07-15
-description: "READ FIRST insieme alla HANDOFF `handoff-economy-audit-2026-07-17.md` nella ROOT DEL REPO. AGGIORNAMENTO 2026-07-17 (sezione in cima a questo file): branch 20260715-132752-economy-base-layer-audit, tip `d353de2`, 27 commit su develop. Promozione whitepaper §4.8 COMMITTATA (d353de2, docs-only). Audit fase 6 ESEGUITO: codice CONVERGED (conservazione/determinismo/credit lifecycle/Fisher/eq 4.42-4.45/parita EN-IT tutti VERIFIED, 382 test economy+simulation verdi, nessun bug nuovo). UNICO BLOCCO: il pin §4.8 è ancora il placeholder `7ec6548` (commit round 7) — l'auditor ha PROVATO che quel frame non contiene R7-NEW-1/R8-NEW-5 e sposta l'anchor banking a 288. Si risolve allo step merge sostituendo 8a2bc71 E 7ec6548 → merge SHA (4 posizioni §4.8: EN 1884/1959, IT 1951/2026). `git diff a50358c..HEAD -- epocha/` è VUOTO (a50358c = frame codice shipped). Suite 911 verdi, ruff pulito. Fatti anche: fix R12-NEW-1 (banking:293-320), dicitura round 6→12 su 8 punti per lingua (non 3: contaminava anche §3.6/§8/§9/§11), R12-DET-1 flaggato come work item separato, mappa 13 fasi + roadmap memory rinfrescata contro codice. RIMANE: push, Draft PR, ratifica esplicita heavy gate fase 2+6 (BLOCCANTE), poi merge --no-ff + frozen-pin + sync backup. Storia Round 1-12 sotto."
+description: "CHIUSO 2026-07-17: economy base layer CONVERGED round 12, promosso a whitepaper §4.8, MERGIATO in develop (merge SHA 368e972, PR#14). Frozen-pin risolto (9893bba: 8a2bc71 E 7ec6548 -> 368e972, 12 posizioni per lingua). Suite 911 verdi, ruff pulito su develop post-merge. Residuo §8 = solo 8.1 Knowledge Graph. Frontiera progetto: cablaggio demografia Plan 4 (i modelli §4.1 sono auditati ma il tick loop NON li chiama) + audit KG. STATO DI BUILD: non leggerlo qui, la fonte di verita' e' la build map -- vedi [[build-map-source-of-truth]]. Decisioni ratificate dell'economia (non rilitigare): [[economy-ratified-decisions]]. Gli handoff handoff-economy-audit-2026-07-15/17.md sono stati RIMOSSI a lavoro chiuso: il loro contenuto durevole vive nella spec committata specs/20260715-132752-economy-base-layer-audit/ e in [[economy-ratified-decisions]]. Storia Round 1-12 sotto."
 metadata: 
   node_type: memory
   type: project
@@ -9,7 +9,7 @@ metadata:
 
 # Sessione 2026-07-17 -- Chiusura economy base layer (promozione committata, fase 6 fatta)
 
-Handoff autorevole: `handoff-economy-audit-2026-07-17.md` nella root del repo.
+Lavoro CHIUSO e mergiato (`368e972`, PR#14). Gli handoff di sessione sono stati rimossi: il contenuto durevole vive nella spec committata `specs/20260715-132752-economy-base-layer-audit/` e le decisioni ratificate in [[economy-ratified-decisions]].
 
 ## Stato
 
@@ -52,7 +52,7 @@ Branch `20260715-132752-economy-base-layer-audit`, 16 commit avanti su develop, 
 - **PROMOZIONE WHITEPAPER §4.8 GIÀ SCRITTA nel working tree (uncommitted, EN+IT)**: capitolo completo (eq. 4.42-4.45, tabella parametri, Simplifications), §8.2 rimossa, conteggio §8 residuo = solo Knowledge Graph riconciliato ovunque, 5 riferimenti §13 nuovi/lingua, Tabella 6.1 + §7.1/7.2. ATTENZIONE: reca "round 6/sei round" — al CONVERGED aggiornare al round reale prima di committare.
 - Suite completa container **899 passed**, 0 failed (tip `21f503b`). Ruff check + format --check exit 0. Nessuna azione autonoma schedulata.
 
-RIPRESA: leggere `handoff-economy-audit-2026-07-15.md` (root repo, prompt di ripresa in fondo) -> recuperare verdetto Round 8 dal journal `wf_75faf0db-ad2` -> se NOT CONVERGED chiudere test-first e Round 9 fino a CONVERGED -> a CONVERGED ritoccare la dicitura round nel §4.8 e committare la promozione -> fase 6 audit finale sul diff -> Draft PR -> ratifica esplicita heavy gate fase 2+6 -> merge + frozen-pin (vecchio SHA 8a2bc71) + sync memoria. Decisioni ratificate da NON rilitigare: elencate per esteso nella handoff.
+STORICO: questa sezione descrive lo stato al 2026-07-15, quando il loop di audit era ancora in volo. Tutto CHIUSO il 2026-07-17 (Round 12 CONVERGED, merge `368e972`) -- vedi la sezione in cima. Decisioni ratificate da NON rilitigare: [[economy-ratified-decisions]].
 
 ---
 

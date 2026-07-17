@@ -109,7 +109,7 @@ Questo permette a un reviewer esterno di clonare il repo a un commit specifico e
 
 ## Quando creare / aggiornare
 
-**Creazione**: la prima stesura dei due whitepaper e' un task one-shot in follow-up al Plan 2 demografia, insieme alla riscrittura dei README. Vedi `project_readme_rewrite_todo` — da estendere a whitepaper_todo.
+**Creazione**: FATTA. I due whitepaper esistono e sono living document maturi (`docs/whitepaper/epocha-whitepaper.md` ~329KB, `.it.md` ~354KB, capitoli §4.1-§4.8 promossi). Il vecchio follow-up `project_readme_rewrite_todo` e' assorbito e rimosso: restava aperta solo la copertura Spec Kit nei README, tracciata come work item a se'.
 
 **Aggiornamento**: ogni merge a `develop` di una PR che tocchi un qualsiasi aspetto scientifico del sistema triggera l'aggiornamento. La regola CLAUDE.md `### Documentation Sync` e' estesa per includere i whitepaper accanto ai README.
 

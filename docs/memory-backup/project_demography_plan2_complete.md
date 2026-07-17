@@ -62,6 +62,6 @@ Verificato matematicamente: peak f(26) con T=3.5 H=5 = 0.380; integrale [12,50] 
 1. **Riscrivere README.md + README.it.md** (entrambi molto obsoleti per user feedback)
 2. **Creare whitepaper bilingue**: `docs/whitepaper/epocha-whitepaper.md` (EN) + `docs/whitepaper/epocha-whitepaper.it.md` (IT) linkati dai rispettivi README, publication-grade con struttura paper scientifico (Abstract/Methods/Validation/References/Appendices/reproducibility notes), living documents da sincronizzare sempre col codice merged
 
-Vedi `feedback_readme_bilingual_maintenance`, `feedback_whitepaper_bilingual`, `project_readme_rewrite_todo` per le regole.
+Vedi [[readme-bilingual-maintenance]] e [[whitepaper-bilingual]] per le regole. (Il vecchio `project_readme_rewrite_todo` e' assorbito e rimosso: i whitepaper sono stati creati, i README mantenuti.)
 
 **DOPO follow-up doc**: Plan 3 (Inheritance + Migration) parte da `develop` al commit `715d5fa`.
