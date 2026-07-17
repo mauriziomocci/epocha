@@ -42,9 +42,12 @@ algoritmo nei capitoli auditati è citato a una fonte primaria; le tabelle
 di calibrazione sono presentate per template di era e consolidate
 nell'Appendice A; la metodologia di validazione specifica dataset, metriche
 e soglie di accettazione contro cui il Plan 4 eseguirà la campagna
-empirica. L'infrastruttura di riproducibilità si fonda su template di era,
-stream RNG seedati per fase, riferimenti frozen-at-commit e un whitepaper
-scientifico bilingue mantenuto come documento vivente. Il progetto è
+empirica. L'infrastruttura di riproducibilità copre la parte
+non-LLM del sistema — template di era, stream RNG seedati per fase per i
+servizi demografici ed economici, riferimenti frozen-at-commit e un
+whitepaper scientifico bilingue mantenuto come documento vivente; le
+decisioni d'agente guidate dall'LLM e la generazione del mondo non sono
+riproducibili dal seme. Il progetto è
 rilasciato sotto Apache 2.0, con un workflow di sviluppo canonico in sette
 fasi e audit avversariali obbligatori che gattano ogni merge sul branch di
 sviluppo.
@@ -147,8 +150,8 @@ che distingue il decision-making umano. Epocha mira al divario fra queste
 due tradizioni. Il suo obiettivo è la simulazione multi-scala e di lungo
 orizzonte di popolazioni i cui agenti individuali combinano dinamiche
 demografiche ed economiche pubblicate con cognizione guidata da LLM ricca
-di personalità, restando al contempo auditabile, riproducibile e fondata
-su fonti scientifiche primarie.
+di personalità, restando al contempo auditabile, riproducibile nella sua
+parte non-LLM e fondata su fonti scientifiche primarie.
 
 ## 1.3 Contributi
 
@@ -165,9 +168,11 @@ quanto segue:
   avversariali obbligatori che devono raggiungere convergenza esplicita
   prima che qualunque modulo scientifico sia mergiato.
 - Un'infrastruttura di riproducibilità costruita su template di era,
-  generazione pseudo-casuale di numeri seedata e riferimenti
-  frozen-at-commit, in modo che ogni risultato riportato possa essere
-  rigenerato da uno stato noto.
+  generazione pseudo-casuale di numeri seedata per i servizi non-LLM e
+  riferimenti frozen-at-commit, in modo che ogni risultato riportato che
+  dipenda solo dalla parte seedata possa essere rigenerato da uno stato
+  noto; i risultati che dipendono dalle decisioni LLM d'agente o dalla
+  generazione del mondo non sono riproducibili dal seme.
 - Un'architettura modulare in cui moduli auditati (attualmente mortalità,
   fertilità e formazione di coppia demografiche) e moduli
   progettati-ma-non-auditati coesistono dietro header di stato espliciti,
@@ -284,10 +289,12 @@ gestite da servizi rule-based auditati descritti nel Capitolo 4. Una cache
 di reputazione e memoria (Castelfranchi et al. 1998) riduce la deriva di
 contesto attraverso i tick fornendo agli agenti un sostrato episodico
 strutturato a cui possono fare riferimento invece di ri-derivare da zero
-le informazioni sociali. La riproducibilità è imposta al confine della
-simulazione attraverso generazione pseudo-casuale di numeri seedata,
-template di era congelati al commit e logging delle chiamate a livello di
-provider documentato nel Capitolo 3.
+le informazioni sociali. La riproducibilità della parte non-LLM
+è imposta al confine della simulazione attraverso generazione
+pseudo-casuale di numeri seedata, template di era congelati al commit e
+logging delle chiamate a livello di provider documentato nel Capitolo 3; le
+decisioni LLM stesse, campionate a temperatura non nulla senza seme,
+restano la parte fragile menzionata sopra.
 
 ## 2.3 Microsimulazione demografica
 
@@ -440,8 +447,8 @@ per tick documentati in §3.4, mai dallo scheduling. Un design real-time
 event-driven è stato rifiutato perché i tick discreti sono la granularità
 naturale della letteratura demografica ed economica da cui la calibrazione
 attinge (Heligman e Pollard 1980, Hadwiger 1940), perché la riproducibilità
-per tick è il contratto su cui dipende la suite di validazione del
-Capitolo 7, e perché il parallelismo basato su chord scala orizzontalmente
+per tick dei servizi non-LLM è il contratto su cui dipende la suite di
+validazione del Capitolo 7, e perché il parallelismo basato su chord scala orizzontalmente
 sui worker Celery senza lockare stato condiviso.
 
 ```
@@ -532,8 +539,14 @@ di stream. L'isolamento per stream è deliberato: riordinare o sopprimere la
 routine di mortalità in un refactor non deve spostare la sequenza casuale
 che fertilità, formazione di coppia o eredità vedono allo stesso tick,
 altrimenti la riproducibilità fra refactor collassa. Dato l'hash del commit
-della codebase, il `simulation.seed` e lo stato iniziale del database, ogni
-tick di una run è deterministico e riproducibile fra macchine. Un debito
+della codebase, il `simulation.seed` e lo stato iniziale del database, la
+parte non-LLM di ogni tick — i servizi demografici ed economici seedati — è
+deterministica e riproducibile fra macchine. Le decisioni per-agente non lo
+sono: ciascuna è una chiamata LLM a `temperature=0.7` senza seme
+(`agents/decision.py:381`), quindi la decisione che un agente prende a un
+dato tick non è riproducibile nemmeno da un seme e uno stato del database
+identici. Il seme governa ciò che `simulation/models.py:35` chiama la
+"parte non-LLM", non il campionamento dell'LLM. Un debito
 noto è tracciato come A-5 per il Plan 4: quando sia `simulation.seed` sia
 `simulation.id` sono `None`, l'helper RNG ricade su `0` per entrambi, per
 cui due simulazioni non salvate senza seed esplicito che eseguono lo
@@ -1386,6 +1399,14 @@ l'osservazione narrativa secondo cui i colpi di stato richiedono coesione
 interna organizzata, un leader focale e un militare non impegnato con
 l'incumbent; i pesi esatti sono parametri di design regolabili.
 
+**Riproducibilità dell'RNG (gemello del finding N-8 di §4.6)**:
+l'estrazione `random.random()` a `government.py:618` usa l'RNG globale di
+Python, non il `get_seeded_rng` seedato dalla simulazione. Come per lo
+scatter d'arrivo del movimento di §4.6, l'esito del colpo di stato non è
+quindi riproducibile dal seme della simulazione — due run con seme identico
+possono differire sul fatto che un colpo di stato riesca. Lavoro futuro:
+propagare l'RNG della simulazione in `government.py`.
+
 Equazione (4.27) — Indice di stabilità:
 
   stability = w_economy·economy + w_legitimacy·legitimacy + w_military·military_loyalty
@@ -2004,7 +2025,7 @@ dove la velocità passata al check è la velocità del reddito (reddito da fatto
 
 ### Algoritmo
 
-1. `process_economy_tick_new(simulation, tick)` (`epocha/apps/economy/engine.py`) orchestra i nove step; ogni ordine di iterazione che alimenta stato sensibile all'ordine è fissato (queryset ordinati per id, beni in ordine alfabetico, sort stabile degli scambi essenziali-prima, RNG derivato dal seed della simulazione e dal tick), così che run con seed identico riproducano stato bit-identico.
+1. `process_economy_tick_new(simulation, tick)` (`epocha/apps/economy/engine.py`) orchestra i nove step; ogni ordine di iterazione che alimenta stato sensibile all'ordine è fissato (queryset ordinati per id, beni in ordine alfabetico, sort stabile degli scambi essenziali-prima, RNG derivato dal seed della simulazione e dal tick), così che lo step economico è deterministico dati i suoi input. Quegli input includono le decisioni degli agenti e i valori di ricchezza e zona derivati dall'LLM che esse producono, i quali non sono riproducibili dal seme (§3.4); due run con seme identico quindi non riproducono stato bit-identico — solo un'aritmetica economica bit-identica su qualunque input le decisioni LLM di ciascuna run abbiano generato.
 2. Per zona: `compute_agent_output` (equazione 4.42) aggiunge la produzione agli inventari e al ledger; `collect_supply_and_demand` + `tatonnement_prices` (4.43) fanno il clearing del mercato; `execute_trades` raziona proporzionalmente il lato corto con running totals e l'engine regola per primi i beni essenziali sotto una guardia di affordability sulla cassa del compratore.
 3. `partition_output_value` (4.44) calcola rendita, salari e profitto che sommano a `V_z`; l'engine accredita i beneficiari risolti a livello di simulazione (inclusi i proprietari vivi fuori zona, esclusi i morti) e registra a ledger ciascun reddito da fattori; la tassazione addebita i percettori e accredita il tesoro con il totale corrente effettivamente riscosso, solo quando esiste un Government.
 4. Lo step 8 ricalcola `M` dalla cassa circolante degli agenti vivi, valuta la diagnostica di Fisher (4.45), aggiorna la ricchezza e le soglie di umore relative alla mediana, e il layer bancario ricalcola i depositi (§4.2.2).
@@ -2183,7 +2204,7 @@ Tabella 7.2 — Soglie di accettazione per modulo auditato.
 | Fertilità (fit Hadwiger) | Total Fertility Rate `TFR ∈ [4.5, 6.5]` per l'epoca pre-industriale dopo il fit di `H`, `R`, `T` contro il profilo ASFR di Wrigley-Schofield | L'intervallo racchiude il range TFR storicamente attestato per l'Inghilterra early-modern (Wrigley e Schofield 1981) |
 | Mortalità di crisi (analogo Carestia Irlandese) | Mortalità in eccesso coerente con circa il `12%` cumulativo su cinque anni quando la simulazione è forzata con uno shock di carestia di magnitudine comparabile | La cifra del `12%` è l'ordine di grandezza della perdita di popolazione riportata da Mokyr (1985) per la Carestia Irlandese del 1846-1851 combinando morti in eccesso ed emigrazione forzata |
 | Formazione delle coppie (European marriage pattern) | Singulate Mean Age at Marriage `SMAM ∈ [25, 28]` anni e frazione mai-sposata all'età 50 in `[10%, 20%]` dopo l'esecuzione del builder di popolazione fondatrice e l'invecchiamento della coorte | I due intervalli sono la firma canonica dell'European Marriage Pattern riportata in Hajnal (1965) |
-| Economia (layer base, §4.8) | Criteri di accettazione rimandati al Plan 4 insieme alla selezione dei dataset di §7.1; gli invarianti auditati (iniezione di reddito da fattori uguale a V, conservazione dei beni, simmetria di trasferimento della tassa, determinismo seedato) sono presidiati dalla suite di regressione anziché da soglie empiriche | Nessun dataset target empirico è stato specificato al momento della scrittura |
+| Economia (layer base, §4.8) | Criteri di accettazione rimandati al Plan 4 insieme alla selezione dei dataset di §7.1; gli invarianti auditati (iniezione di reddito da fattori uguale a V, conservazione dei beni, simmetria di trasferimento della tassa, determinismo seedato dello step economico non-LLM) sono presidiati dalla suite di regressione anziché da soglie empiriche | Nessun dataset target empirico è stato specificato al momento della scrittura |
 | Economia (integrazione comportamentale) | Criteri di accettazione rimandati al Plan 4 insieme alla selezione dei dataset di §7.1 | Nessun dataset target empirico è stato specificato al momento della scrittura |
 
 Un fit che fallisce la sua soglia non invalida il modello; innesca un loop di debug che esamina prima i valori seed del template per epoca, poi i bound dell'helper di fit, e solo infine la formulazione del modello stessa. L'ordine è quello standard per qualsiasi loop di calibrazione: il modo di fallimento più probabile è un template mal-seedato, il successivo è un bound troppo stretto o troppo largo, e il meno probabile è un difetto strutturale del modello che ha già passato l'audit scientifico avversariale alla fase di spec.
@@ -2245,7 +2266,7 @@ I limiti scientifici del lavoro presente vanno oltre le semplificazioni dentro i
 
 Dove Epocha si colloca nel paesaggio più ampio si legge meglio rispetto a tre tradizioni vicine. Le piattaforme ABM puramente rule-based (NetLogo, Mesa, Repast HPC, EURACE) eccellono nella scalabilità a popolazioni di milioni di agenti sotto regole individuali pienamente specificate, sulla forza di decenni di lavoro di ottimizzazione e una toolchain matura; il costo di quella scala è che la cognizione del singolo agente è vincolata a tutto ciò che la grammatica delle regole può esprimere, e il comportamento emergente che richiederebbe ragionamento in linguaggio naturale, memoria narrativa o deliberazione modulata dalla personalità deve essere approssimato da euristiche tarate a mano. Le simulazioni di agenti puramente LLM (Park et al. 2023 e la famiglia di esperimenti di agenti generativi che ne sono seguiti) eccellono all'estremo opposto: dozzine di agenti in un ambiente stilizzato possono esibire dinamiche sociali credibili senza alcuna grammatica comportamentale tarata a mano, sulla forza della cognizione in linguaggio naturale dell'LLM; il costo è che i substrati demografici ed economici che questi esperimenti ereditano dall'ambiente circostante sono troppo sottili per portare orizzonti pluridecennali o statistiche a livello di popolazione che la letteratura delle scienze sociali riconoscerebbe come ben formate. Il contributo di Epocha è l'ibrido: un substrato rule-based (engine economico di §3.6, engine demografico di §4.1, integrazione comportamentale di §4.2) che porta le dinamiche di popolazione sui timescale su cui la letteratura demografica ed economica opera, con la cognizione LLM stratificata in cima al substrato allo step di decisione per agente (§3.2) dove personalità, memoria e deliberazione in linguaggio naturale portano il peso esplicativo. L'ibrido paga un costo in token LLM per tick che le piattaforme puramente rule-based non pagano, ed eredita un costo in disciplina di audit che le piattaforme puramente LLM storicamente non hanno sostenuto, ma in cambio rende esplicita l'aggregazione multi-scala (individuo, fazione, stato) e ammette esperimenti di lungo orizzonte che nessuno dei due vicini può eseguire con un ancoraggio scientifico comparabile.
 
-La classe di domande di ricerca che Epocha è progettata per abilitare segue direttamente dall'ibrido. Esperimenti di emergenza di lungo orizzonte — uno specifico assetto istituzionale, uno specifico pattern di shock, o una specifica distribuzione di personalità producono le traiettorie qualitative che il record storico esibisce nei secoli — diventano trattabili perché il substrato demografico ed economico auditato porta le dinamiche pluridecennali mentre il layer di cognizione LLM porta la variazione per agente. Esperimenti controfattuali e di intervento — cosa sarebbe successo se la Carestia Irlandese di §7.1 avesse innescato una risposta istituzionale anteriore, cosa sarebbe successo se il crollo del mercato immobiliare di §4.2.3 fosse stato preceduto da una traiettoria di confidenza bancaria differente — diventano trattabili perché la macchineria dei template per epoca rende esplicito l'intervento di parametro e l'RNG seedato di §3.4 rende l'esecuzione riproducibile. L'aggregazione multi-scala — dalla cognizione individuale attraverso il coordinamento a livello di fazione alla policy a livello di stato — diventa trattabile perché il modello di persistenza di §3.7 porta sia le righe individuali di agente sia le righe istituzionali come entità di prima classe piuttosto che come aggregati derivati. E la riproducibilità narrativa tra esecuzioni — lo stesso scenario rieseguito con lo stesso seed produce lo stesso log di decisione per agente e lo stesso arco narrativo emergente — diventa la base per il paper scientifico publication-grade che la roadmap del progetto del Capitolo 9 nomina come deliverable finale.
+La classe di domande di ricerca che Epocha è progettata per abilitare segue direttamente dall'ibrido. Esperimenti di emergenza di lungo orizzonte — uno specifico assetto istituzionale, uno specifico pattern di shock, o una specifica distribuzione di personalità producono le traiettorie qualitative che il record storico esibisce nei secoli — diventano trattabili perché il substrato demografico ed economico auditato porta le dinamiche pluridecennali mentre il layer di cognizione LLM porta la variazione per agente. Esperimenti controfattuali e di intervento — cosa sarebbe successo se la Carestia Irlandese di §7.1 avesse innescato una risposta istituzionale anteriore, cosa sarebbe successo se il crollo del mercato immobiliare di §4.2.3 fosse stato preceduto da una traiettoria di confidenza bancaria differente — diventano trattabili perché la macchineria dei template per epoca rende esplicito l'intervento di parametro e l'RNG seedato di §3.4 rende riproducibile la parte non-LLM dell'esecuzione. L'aggregazione multi-scala — dalla cognizione individuale attraverso il coordinamento a livello di fazione alla policy a livello di stato — diventa trattabile perché il modello di persistenza di §3.7 porta sia le righe individuali di agente sia le righe istituzionali come entità di prima classe piuttosto che come aggregati derivati. E la piena auditabilità di un'esecuzione — ogni decisione per agente e l'arco narrativo emergente che essa produce è integralmente registrato e tracciabile fino allo stato della simulazione che l'ha guidato — diventa la base per il paper scientifico publication-grade che la roadmap del progetto del Capitolo 9 nomina come deliverable finale. La traccia decisionale è auditabile, non riproducibile: poiché ogni decisione è output LLM a temperatura non nulla senza seme, rieseguire lo stesso scenario con lo stesso seed non riproduce lo stesso log di decisione per agente.
 
 ---
 
@@ -2302,9 +2323,9 @@ Il seguente catalogo raggruppa le limitazioni aperte per modulo. Ogni voce è de
 
 # 12. Conclusioni
 
-Epocha come documentato al commit pinnato spedisce un substrato demografico auditato che copre mortalità Heligman-Pollard, fertilità Hadwiger-con-Becker e formazione delle coppie Gale-Shapley con Goode 1963 (§4.1), un'economia comportamentale auditata che copre aspettative adattive Cagan-Nerlove, credito e sistema bancario Diamond-Dybvig e un mercato immobiliare ancorato a Gordon (§4.2), una pipeline decisionale di agenti guidata da LLM che consuma lo stato per tick del substrato e riscrive nel layer di persistenza (§3.2), un layer base dell'economia auditato che copre la produzione CES, il clearing con tâtonnement, la partizione conservativa dei redditi da fattori e la diagnostica di conservazione di Fisher (§4.8), e un sottosistema implementato-ma-pre-audit (§8): il Knowledge Graph. L'infrastruttura runtime copre un tick engine con loop Celery auto-enqueuing, una strategia RNG seedata per fase che rende ogni esecuzione riproducibile attraverso macchine dall'hash di commit, dal seed e dallo stato iniziale del database (§3.4), un adapter di provider LLM che astrae su OpenAI vero e proprio, Groq, Gemini, OpenRouter, Together AI, Mistral, LM Studio e Ollama con rotazione delle chiavi e un limiter sliding-window backed da Redis (§3.5), e una dashboard più un layer di chat WebSocket che esponendo lo stato di simulazione live e la superficie di conversazione agente-per-agente all'operatore (§3.8).
+Epocha come documentato al commit pinnato spedisce un substrato demografico auditato che copre mortalità Heligman-Pollard, fertilità Hadwiger-con-Becker e formazione delle coppie Gale-Shapley con Goode 1963 (§4.1), un'economia comportamentale auditata che copre aspettative adattive Cagan-Nerlove, credito e sistema bancario Diamond-Dybvig e un mercato immobiliare ancorato a Gordon (§4.2), una pipeline decisionale di agenti guidata da LLM che consuma lo stato per tick del substrato e riscrive nel layer di persistenza (§3.2), un layer base dell'economia auditato che copre la produzione CES, il clearing con tâtonnement, la partizione conservativa dei redditi da fattori e la diagnostica di conservazione di Fisher (§4.8), e un sottosistema implementato-ma-pre-audit (§8): il Knowledge Graph. L'infrastruttura runtime copre un tick engine con loop Celery auto-enqueuing, una strategia RNG seedata per fase che rende riproducibile la parte non-LLM di ogni esecuzione attraverso macchine dall'hash di commit, dal seed e dallo stato iniziale del database — le decisioni LLM d'agente e la generazione del mondo non sono riproducibili dal seme (§3.4) — un adapter di provider LLM che astrae su OpenAI vero e proprio, Groq, Gemini, OpenRouter, Together AI, Mistral, LM Studio e Ollama con rotazione delle chiavi e un limiter sliding-window backed da Redis (§3.5), e una dashboard più un layer di chat WebSocket che esponendo lo stato di simulazione live e la superficie di conversazione agente-per-agente all'operatore (§3.8).
 
-Ciò che distingue questo codebase dal paesaggio circostante è meno i moduli individuali — la maggior parte ha antecedenti ben noti nella letteratura censita in §2 — e più la disciplina che li produce e li mantiene. Il whitepaper bilingue di §1 è un documento vivente congelato a ogni merge sul branch di sviluppo, con la companion italiana pubblicata accanto all'originale inglese; ogni formula, parametro e algoritmo nei capitoli auditati cita una fonte primaria, e le asserzioni non verificate sono segnalate inline piuttosto che presentate come fatto. Il workflow canonico a sette fasi che governa ogni sottosistema (ideazione, requisiti, plan, task breakdown, implementazione, test generale, chiusura) porta due gate pesanti e due leggeri con approvazione umana esplicita a ciascuno, e la policy di audit avversariale obbligatoria attiva il revisore `critical-analyzer` sia in fase di spec sia in fase di codice con un loop di convergenza che non chiude su "abbastanza vicino". La riproducibilità è incorporata piuttosto che retrofittata: i template per epoca portano i valori di parametro per epoca fuori dal codice sorgente e in artefatti auditabili, gli stream RNG seedati sono partizionati per simulazione, tick e fase in modo che un refactor non possa silenziosamente spostare la sequenza casuale che un sottosistema vede, e l'Appendice B registra i comandi esatti tramite i quali ogni risultato riportato può essere rigenerato da un checkout pulito pinnato all'hash di commit congelato.
+Ciò che distingue questo codebase dal paesaggio circostante è meno i moduli individuali — la maggior parte ha antecedenti ben noti nella letteratura censita in §2 — e più la disciplina che li produce e li mantiene. Il whitepaper bilingue di §1 è un documento vivente congelato a ogni merge sul branch di sviluppo, con la companion italiana pubblicata accanto all'originale inglese; ogni formula, parametro e algoritmo nei capitoli auditati cita una fonte primaria, e le asserzioni non verificate sono segnalate inline piuttosto che presentate come fatto. Il workflow canonico a sette fasi che governa ogni sottosistema (ideazione, requisiti, plan, task breakdown, implementazione, test generale, chiusura) porta due gate pesanti e due leggeri con approvazione umana esplicita a ciascuno, e la policy di audit avversariale obbligatoria attiva il revisore `critical-analyzer` sia in fase di spec sia in fase di codice con un loop di convergenza che non chiude su "abbastanza vicino". La riproducibilità è incorporata piuttosto che retrofittata: i template per epoca portano i valori di parametro per epoca fuori dal codice sorgente e in artefatti auditabili, gli stream RNG seedati sono partizionati per simulazione, tick e fase in modo che un refactor non possa silenziosamente spostare la sequenza casuale che un sottosistema vede, e l'Appendice B registra i comandi esatti tramite i quali ogni risultato riportato che dipenda solo dalla parte seedata non-LLM può essere rigenerato da un checkout pulito pinnato all'hash di commit congelato.
 
 Il codebase è open source sotto licenza Apache 2.0 a https://github.com/mauriziomocci/epocha, e i contributi sono benvenuti attraverso il workflow canonico a sette fasi descritto in questo paper. I lettori che desiderano estendere un modulo auditato in §4 dovrebbero aspettarsi un percorso di contribuzione spec-first con audit scientifico avversariale obbligatorio prima che qualsiasi codice venga mergiato; i lettori che desiderano avanzare il modulo rimanente di §8 (il Knowledge Graph) attraverso il suo audit troveranno i finding aperti catalogati in `docs/scientific-audit-2026-04-12.md` e tracciati sotto `project_audit_repass_batch_2026_04_12_pending.md`. La roadmap del Capitolo 9 nomina le priorità immediate — l'audit del Knowledge Graph, demografia Plan 3 (eredità e migrazione), demografia Plan 4 (integrazione engine e validazione storica) e la prossima spec di economia che estende §4.2 a mercati obbligazionari ed azionari — e funge da entry point per i nuovi contributori che cercano un item di lavoro ben definito.
 
@@ -2884,8 +2905,11 @@ sono codificati fuori dai template.
 ## Appendice B — Riproducibilità
 
 L'Appendice B registra i passi operativi tramite i quali ogni risultato
-riportato in questo whitepaper può essere rigenerato da un checkout
-pulito. Il riferimento che pinna lo stato del codebase per la presente
+riportato in questo whitepaper che dipenda solo dalla parte seedata non-LLM
+può essere rigenerato da un checkout pulito; i risultati che dipendono dalle
+decisioni LLM d'agente o dalla generazione del mondo non sono riproducibili
+dal seme e possono essere ri-osservati ma non rigenerati identici. Il
+riferimento che pinna lo stato del codebase per la presente
 revisione è il valore del campo `frozen-at-commit` nel front matter,
 popolato al momento del merge sotto la fase 7 del workflow canonico;
 l'esecuzione su un commit diverso produrrà risultati che possono
