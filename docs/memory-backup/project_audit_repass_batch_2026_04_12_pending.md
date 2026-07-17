@@ -1,6 +1,6 @@
 ---
 name: audit-repass-batch-2026-04-12-pending
-description: F-CAMPAIGN chiusa 6/6 (2026-07-15). Questo file traccia ora SOLO il residuo Round 2 fuori campagna -- paragraph 8.1 Knowledge Graph e paragraph 8.2 economy base layer, audit Round 2 pendente.
+description: F-CAMPAIGN chiusa 6/6 (2026-07-15). Economy base layer CONVERGED round 12 (2026-07-16) e promosso a paragraph 4.8. Questo file traccia ora SOLO il residuo -- paragraph 8.1 Knowledge Graph, audit pendente. E' l'ULTIMO modulo in paragraph 8.
 type: project
 originSessionId: b165274d-a708-4e8c-abed-b28a018c163f
 ---
@@ -25,14 +25,16 @@ Piano campagna: `docs/superpowers/plans/2026-05-12-audit-repass-campaign.md` (le
 
 ## Residuo tracciato da questo file (fuori scope campagna)
 
-Due moduli restano in paragraph 8 del whitepaper con Round 2 pendente. NON erano nei 6 branch della campagna:
+**Aggiornamento 2026-07-17: resta UN SOLO modulo in paragraph 8.**
 
 | Modulo | Whitepaper | Stato |
 |--------|-----------|-------|
-| Knowledge Graph | paragraph 8.1 | Round 2 pendente; findings originali in `docs/scientific-audit-2026-04-12.md` |
-| Economy base layer (`epocha/apps/economy/*` substrato di paragraph 3.6) | paragraph 8.2 | Round 2 pendente; findings originali in `docs/scientific-audit-2026-04-12.md` |
+| Knowledge Graph | paragraph 8.1 | Audit PENDENTE -- unico residuo; findings originali in `docs/scientific-audit-2026-04-12.md`. E' l'item HIGH PRIORITY della roadmap paragraph 9. Codice in `epocha/apps/knowledge/` (19 moduli), **zero chiamate dal tick engine** (verificato 2026-07-17). |
+| ~~Economy base layer~~ | ~~paragraph 8.2~~ -> **paragraph 4.8** | **CHIUSO**: CONVERGED round 12 (2026-07-16), 7/7 moduli, unresolved=0, money=BOUNDED_INJECTION_ONLY, goods=YES, tax=YES, deterministic=YES. Promosso a paragraph 4.8 sul branch `20260715-132752-economy-base-layer-audit` (commit promozione `d353de2`). Suite 911 verdi. |
 
-Gate: la promozione da paragraph 8 a paragraph 4.x, l'ingresso dei parametri nelle tabelle di calibrazione paragraph 6 e l'ingresso nella campagna di validazione paragraph 7 dipendono dal Round 2 CONVERGED di ciascun modulo (procedura in [[project_whitepaper_promotion_pipeline]]).
+Gate: la promozione da paragraph 8 a paragraph 4.x, l'ingresso dei parametri nelle tabelle di calibrazione paragraph 6 e l'ingresso nella campagna di validazione paragraph 7 dipendono dall'audit CONVERGED del modulo (procedura in [[project_whitepaper_promotion_pipeline]]).
+
+Nota sul numero di round: l'economy base layer NON era nel batch 2026-04-12, quindi ha fatto il suo PRIMO audit (non un Round 2) e ha richiesto 12 round di convergenza -- molto piu' dei 2 round tipici dei moduli della campagna, perche' l'implementazione pre-audit aveva difetti strutturali di conservazione (iniettava piu' del doppio del valore prodotto come cassa nuova, fabbricava beni al settlement, M scollegata dalla cassa circolante).
 
 ## Storia (sintesi)
 

@@ -59,3 +59,9 @@ Decisione utente esplicita 2026-05-16. Spec Kit:
 - Heavy gate phase 2: adversarial audit del spec.md (CONVERGED required)
 - Heavy gate phase 6: adversarial audit del codice (CONVERGED required) + final pytest
 - Closure: merge to develop, frozen-at-commit pin se whitepaper toccato, memoria aggiornata
+
+## Note operative (dalla sessione 2026-05-16, riverificare se cambiate)
+
+- **`/speckit-plan` potrebbe NON essere invocabile via Skill tool.** Nella sessione 2026-05-16 risultava una procedura da seguire inline: eseguire `.specify/scripts/bash/setup-plan.sh --json` e poi riempire il template a mano, invece di chiamare la skill. Lo stesso potrebbe valere per altre `/speckit-*`. Verificare al momento dell'uso; questa nota corregge il punto 3 "Authoring path" sopra, dove le `/speckit-*` sono elencate come skill.
+- **Dopo aver esteso keyword/parameter tables, fare sempre un grep o un runtime check per collisioni di substring.** Origine: la regex senza word-boundary faceva matchare `avoid` dentro `avoid_conception` (regressione introdotta da un fix doc-only del Round 1, intercettata solo dalla self-review dell'implementer). Usare word-boundary `\b` quando si matchano keyword.
+- **I fix doc-only del Round 1 spesso lasciano problemi sostanziali**: dopo un giro di sole correzioni documentali, rifare grep/runtime check sul codice toccato prima di dichiararlo chiuso.

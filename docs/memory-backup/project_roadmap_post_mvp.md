@@ -1,6 +1,6 @@
 ---
 name: post-mvp-roadmap
-description: Roadmap completa per l'evoluzione sociale, economica, militare, culturale di Epocha -- ogni fase con massimo rigore scientifico
+description: Roadmap completa per l'evoluzione sociale, economica, militare, culturale di Epocha -- ogni fase con massimo rigore scientifico. STATO per fase VERIFICATO contro codice/whitepaper il 2026-07-17.
 type: project
 originSessionId: 0a27799c-3d4b-4995-b144-424ee45e5764
 ---
@@ -9,17 +9,64 @@ brainstorming -> three-step design -> spec con FAQ -> adversarial audit ->
 implementation -> re-audit fino a CONVERGED. Massimo rigore scientifico
 su tutto, senza eccezioni.
 
+## STATO VERIFICATO 2026-07-17 (fonte: codice + whitepaper, non memoria)
+
+Verifica fatta contro `epocha/apps/` e `docs/whitepaper/epocha-whitepaper.md`.
+I marcatori `STATO:` per fase qui sotto sono aggiornati a questa data. La
+legenda dei simboli:
+
+- [DONE] audited e cablato nel tick engine
+- [PROG] parziale (modello esiste ma non cablato, oppure scope coperto solo in parte)
+- [TODO] non iniziato (nessun modello)
+
+Sintesi one-line:
+- **Fase 1a economia base** [DONE] -- audit CONVERGED round 12 (2026-07-16),
+  whitepaper §4.8, cablato via `process_economy_tick_new` (`simulation/engine.py:394,486`).
+  In chiusura sul branch `20260715-132752-economy-base-layer-audit` (merge pendente).
+- **Fase 1b economia comportamentale** [DONE] -- §4.2 (aspettative adattive,
+  credito/banca, mercato immobiliare) audited e live. NON costruiti dallo scope
+  originale: prospect theory, labor market matching.
+- **Fase 1c economia finanziaria** [TODO] -- Spec 3 non ancora scritta.
+- **Fase 2 demografia** [PROG] -- modelli mortality/fertility/couple auditati
+  (§4.1, Plan 1+2 CONVERGED) e unit-tested MA **non cablati nel tick loop**
+  (solo `set_avoid_conception_flag` viene chiamato da engine.py). Manca Plan 4
+  (wiring engine + init + validation storica) e Plan 3 (eredita' + migrazione zona).
+- **Fasi 3-12** [TODO] -- nessun modello. Infrastruttura parziale isolata:
+  `world.government` (fase 4), campo `belief` (fase 6), `urbanization_index`
+  (fase 9), FK `parent_agent` (fase 12). Nessuna meccanica.
+- **Fase 13 piattaforma/tooling** [PROG] -- `dashboard/` renderizza 8 viste
+  (stato, chat, grafo sociale, analytics) + report on-demand. Deferred: web
+  scraping, branching/what-if, narrative generator, interview mode, mappa 2D
+  Pixi.js, analytics avanzati.
+
+**Substrato gia' costruito e auditato (capitoli §4, NON fasi forward)**, su cui
+poggia tutta la spina: §3.2 agent decision pipeline (Big Five + memory + LLM),
+§4.3 reputazione (R2, 2026-05-12), §4.4 rumor propagation (info flow/distortion/
+belief/affinity, R2), §4.5 istituzioni politiche (R2), §4.6 movimento (R2),
+§4.7 fazioni (R2). **§8.1 Knowledge Graph**: costruito (`epocha/apps/knowledge/`,
+19 moduli) ma **zero chiamate dal tick engine** e audit PENDENTE -- e' il
+prossimo gate dopo l'economia (unico residuo §8).
+
+**Sei qui**: chiusura fase 1a economia base (§4.8). Frontiera successiva:
+cablaggio demografia (Plan 4) + audit KG (§8.1). Mappa visuale one-page
+pubblicata come artifact il 2026-07-17.
+
+Note: quanto segue mantiene le fonti e la struttura originale del 2026-04-12;
+gli STATO: inline erano stale (~94 giorni) e sono sostituiti dalla sintesi sopra.
+
 ## Fase 1 -- Economia (IN CORSO)
 
 **1a. Economia base (neoclassica)** -- CES production, Walrasian tatonnement,
 multi-currency, property, flat tax, template per era.
-STATO: Part 1 data layer DONE, Part 2 engine DONE, Part 3 integration DA FARE.
+STATO (2026-07-17): [DONE] audit CONVERGED round 12, §4.8, cablato nel tick.
+Merge pendente sul branch economy-base-layer-audit.
 Fonti: Arrow (1961), Walras (1874), Fisher (1911), Ricardo (1817).
 
 **1b. Economia comportamentale** -- property transfers, debito/credito,
 labor market matching, prospect theory distortions, friction informativa,
 aspettative.
-STATO: da fare dopo 1a.
+STATO (2026-07-17): [DONE] core §4.2 (aspettative, credito/banca, mercato
+immobiliare) audited e live. Prospect theory + labor matching NON costruiti.
 Fonti: Minsky (1986), Kahneman & Tversky (1979), Stiglitz (2000),
 Mortensen & Pissarides (2010), Krugman (1991).
 
@@ -35,7 +82,9 @@ Allen & Gale (2000), Arthur (1994).
 **2. Demografia** -- nascita, morte, invecchiamento, eredita' (proprieta'
 e tratti), migrazione tra zone. Prerequisito per tutto il resto temporale:
 senza generazioni non c'e' evoluzione sociale.
-STATO: da fare dopo Fase 1.
+STATO (2026-07-17): [PROG] modelli mortality/fertility/couple auditati §4.1
+(Plan 1+2 CONVERGED) e unit-tested ma NON cablati nel tick loop. Manca Plan 4
+(wiring engine + init + validation) e Plan 3 (eredita' + migrazione).
 Fonti: Lotka (1925) demographic models, Lee & Carter (1992) mortality
 modeling, Becker (1991) fertility economics, modelli ABM di demografia
 (Billari et al. 2006).

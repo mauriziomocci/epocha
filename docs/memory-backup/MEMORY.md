@@ -1,5 +1,5 @@
 - [Spec Kit mandatory absolute](feedback_speckit_mandatory.md) -- REGOLA PERMANENTE dal 2026-05-16: tutti i nuovi work item via Spec Kit, branch <timestamp>-<slug>, layout .specify/specs/<branch>/{spec,plan,tasks}.md. Niente nuovi file sotto docs/superpowers/. Legacy artifacts archiviati.
-- [SESSION RESUME 2026-07-15](project_session_resume_2026_07_15.md) -- READ FIRST: F-CAMPAIGN CHIUSA 6/6 E MERGIATA (PR#12, merge 4341a7a, gate ratificati). Frozen-pin aggiornato. Suite 810. Prossimo: factions Round 3 hardening (dossier pronto), poi Demography Plan 4.
+- [SESSION RESUME (agg. 2026-07-17)](project_session_resume_2026_07_15.md) -- READ FIRST insieme alla HANDOFF `handoff-economy-audit-2026-07-17.md` nella ROOT DEL REPO. Economy base layer CONVERGED round 12 e promosso a par. 4.8 (commit d353de2, 27 commit su develop, tip d353de2). Fase 6 audit ESEGUITO: codice CONVERGED, unico blocco = pin par. 4.8 ancora placeholder 7ec6548, si risolve al merge (8a2bc71 E 7ec6548 -> merge SHA). Suite 911 verdi. RIMANE: push, Draft PR, ratifica esplicita heavy gate (BLOCCANTE), merge --no-ff + frozen-pin + sync backup. Residuo par. 8 = solo 8.1 Knowledge Graph.
 - [Ruff cleanup pending](project_ruff_cleanup_pending.md) -- CLOSED 2026-06-22 (PR#10, merge ed5e9e1). CI lint gate verde. ruff check . e ruff format --check . exit 0 su develop.
 - [FULL CONTEXT](project_full_context.md) -- complete project state (parziale/obsoleto, priorita' al session resume)
 - [Scientific rigor priority](feedback_scientific_rigor_priority.md) -- Ogni design privilegia il massimo rigore scientifico
@@ -12,7 +12,7 @@
 - [Model selection policy](feedback_model_selection_policy.md) -- REGOLA PERMANENTE: Opus 4.7 fasi 1-4 e 6-7 (critiche/scientifiche), Sonnet 4.6 fase 5 (implementazione), mai Haiku, con escalation protocol
 - [Italian specs](feedback_italian_specs.md) -- REGOLA PERMANENTE: spec file solo in italiano per approvazione. Code/commit/plan/docstring/README restano solo inglese. Traduzione inglese solo al momento del paper
 - [Verify assertions](feedback_verify_assertions.md) -- Mai dare per scontate asserzioni scientifiche, verificarle sempre
-- [Post-MVP roadmap](project_roadmap_post_mvp.md) -- Roadmap aggiornata con stato di ogni feature
+- [Post-MVP roadmap](project_roadmap_post_mvp.md) -- Roadmap 13 fasi, STATO per fase VERIFICATO contro codice/whitepaper 2026-07-17 (sintesi in testa al file). Sei qui: chiusura fase 1a economia base §4.8; frontiera = demografia Plan 4 wiring + audit KG §8.1. Mappa visuale artifact pubblicata.
 - [Analytics deferred](project_analytics_deferred.md) -- Branch comparison, pattern detection, temporal zoom, export rinviati
 - [LLM distortion deferred](project_info_flow_llm_distortion.md) -- Info flow: distorsione LLM rinviata, rule-based per ora
 - [Paolucci reference](reference_paolucci_social_simulation.md) -- Paper CNR su reputazione, gossip, simulazione sociale
