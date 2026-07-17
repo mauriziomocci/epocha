@@ -26,8 +26,13 @@ Ogni PR che modifica codice di un modulo descritto nel cap. 4 del whitepaper bil
 | `epocha/apps/world/election.py` | §4.5.5 (EN) | §4.5.5 (IT) |
 | `epocha/apps/agents/movement.py` | §4.6 (EN) | §4.6 (IT) |
 | `epocha/apps/agents/factions.py` | §4.7 (EN) | §4.7 (IT) |
+| `epocha/apps/economy/production.py`, `market.py`, `distribution.py`, `monetary.py`, `initialization.py`, `engine.py` | §4.8 (EN) | §4.8 (IT) |
 
-Quando un modulo del cap. 8 viene promosso a cap. 4 dopo re-audit CONVERGED, aggiungerlo a questa tabella.
+Quando un modulo del cap. 8 viene promosso a cap. 4 dopo re-audit CONVERGED, aggiungerlo a questa tabella. Residuo: solo il Knowledge Graph (§8.1).
+
+Due trappole verificate contro il source tree il 2026-07-17, da non "correggere" a intuito: il belief filter del §4.4.3 sta in `agents/belief.py`, non `belief_filter.py`; il Movement del §4.6 sta in `agents/movement.py`, non sotto `world/`.
+
+La tabella vive in quattro copie che cambiano insieme: questa memoria, `docs/memory-backup/feedback_whitepaper_doc_sync.md`, la sezione Documentation Sync del `CLAUDE.md` di progetto, e la sezione Contributing di `README.md` + `README.it.md`.
 
 ## Why
 
@@ -37,8 +42,8 @@ Il versioning per-sezione del whitepaper ha header `> Status: implemented as of 
 
 ## How to apply
 
-- **Ora (2 mapping)**: enforce via PR review checklist + sezione "Contributing" del README. Una riga in CLAUDE.md sotto "Documentation Sync".
-- **Quando il mapping cresce a 6-8 entry** (dopo re-audit batch 2026-04-12): introdurre script diagnostico `make whitepaper-staleness` o equivalente che lista moduli con commit piu' recenti del whitepaper section.
+- **Ora (2026-07-17, mapping a 8 capitoli / ~20 moduli)**: enforce via PR review checklist + sezione "Contributing" dei README + tabella in CLAUDE.md sotto "Documentation Sync".
+- **La soglia dello script diagnostico e' stata superata.** La versione precedente di questa memoria diceva "quando il mapping cresce a 6-8 entry (dopo re-audit batch 2026-04-12): introdurre `make whitepaper-staleness`". Il batch e' chiuso e il mapping copre tutti gli 8 capitoli del par. 4: il trigger e' scattato, lo script non esiste ancora. E' un work item aperto, non un rinvio implicito -- va via Spec Kit come tutto il resto. Lo script dovrebbe listare i moduli il cui ultimo commit e' piu' recente del commit pinnato nell'header `> Status: implemented as of commit <hash>` della loro sezione.
 - **Quando si aggiungono contributor esterni**: promuovere a pre-commit hook bloccante.
 
-NON costruire il hook ora -- YAGNI per un mapping di 2 entry e developer singolo.
+NON costruire il hook ora -- YAGNI finche' il developer e' singolo. Lo script diagnostico invece non e' piu' YAGNI: quattro copie della tabella e otto capitoli sono oltre quello che una checklist manuale regge.

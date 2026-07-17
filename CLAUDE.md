@@ -320,16 +320,20 @@ After any code change, update documentation in the same commit:
 - **README.md** (English, primary) AND **README.it.md** (Italian, companion) — both must stay in sync. README-relevant changes: architecture, stack, project rules, roadmap, setup/operational instructions, scientific references, validation benchmarks, public integration surface. Plain bug fixes, internal refactors, test-only commits do NOT trigger README update.
 - **Scientific whitepapers**: **`docs/whitepaper/epocha-whitepaper.md`** (English) AND **`docs/whitepaper/epocha-whitepaper.it.md`** (Italian) — living documents. Scientific paper structure: numbered sections (Abstract, Introduction, Background, Methods, Implementation, Calibration, Validation, Discussion, Known Limitations, Conclusions, References, Appendices), numbered equations and figures, Author-Date citations, bibliography with DOI/URL, reproducibility notes. Every merge to develop touching scientific models, parameters, algorithms, calibration, or integration surface must update both whitepapers.
 
-**Whitepaper-code doc-sync rule**: PRs that modify code under
-`epocha/apps/demography/` or
-`epocha/apps/economy/{expectations,credit,banking,property_market}.py`
-must update the corresponding chapter of the bilingual whitepaper
-(`docs/whitepaper/epocha-whitepaper.md` and `.it.md`, chapters §4.1
-and §4.2 respectively) in the same commit, or explain in the PR
-description why the change does not affect the model. The mapping is
-maintained in the project memory `feedback_whitepaper_doc_sync.md` and
-will be expanded as modules in §8 are promoted to §4 after their
-Round 2 audits converge.
+**Whitepaper-code doc-sync rule**: a PR that modifies code in any module listed below must update that module's chapter in **both** whitepapers (`docs/whitepaper/epocha-whitepaper.md` and `.it.md`) in the same commit, or state in the PR description why the change does not affect the model. Every chapter of §4 (Methods) is covered: a module reaches §4 only by converging its adversarial audit, and an audited chapter that drifts from its code is worse than an unaudited one, because it is trusted while being wrong.
+
+| Whitepaper chapter | Code |
+|---|---|
+| §4.1 Demography | `epocha/apps/demography/{mortality,fertility,couple}.py` |
+| §4.2 Economy — behavioral | `epocha/apps/economy/{expectations,credit,banking,property_market}.py` |
+| §4.3 Reputation | `epocha/apps/agents/reputation.py` |
+| §4.4 Rumor propagation | `epocha/apps/agents/{information_flow,distortion,belief,affinity}.py` |
+| §4.5 Political institutions | `epocha/apps/world/{government,government_types,institutions,stratification,election}.py` |
+| §4.6 Movement | `epocha/apps/agents/movement.py` |
+| §4.7 Factions | `epocha/apps/agents/factions.py` |
+| §4.8 Economy — base layer | `epocha/apps/economy/{production,market,distribution,monetary,initialization,engine}.py` |
+
+Note the two traps in this mapping, both verified against the source tree on 2026-07-17: the §4.4 belief filter lives in `agents/belief.py`, not `belief_filter.py`, and §4.6 Movement lives in `agents/movement.py`, not under `world/`. The mapping is mirrored in the project memory `feedback_whitepaper_doc_sync.md` and in the Contributing section of both READMEs; all four copies change together. Extend the table whenever a module in §8 is promoted to §4 — the Knowledge Graph (§8.1) is the only one still pending.
 
 ### Mandatory Code Review — Epocha Overrides
 
@@ -360,7 +364,7 @@ Scope: `simulation`, `agents`, `world`, `chat`, `llm-adapter`, `config`
 
 ### Git Workflow
 
-**Branch naming**: `feature/<short-description>`, `fix/<short-description>`, `refactor/<short-description>`
+**Branch naming**: ALWAYS the timestamped form `<YYYYMMDD-HHMMSS>-<slug>` produced by `.specify/scripts/bash/create-new-feature.sh` through `/speckit-specify` — for example `20260715-132752-economy-base-layer-audit`. Never hand-craft a branch name, and never the legacy `feature/<short-description>` form. See **Spec-Driven Development MANDATORY** below, which is the authority on this.
 
 | Work item type | Base branch | PR target |
 |----------------|-------------|-----------|
@@ -375,9 +379,9 @@ Scope: `simulation`, `agents`, `world`, `chat`, `llm-adapter`, `config`
 
 ### Work Item Lifecycle
 
-1. Analyze and plan — explore codebase, produce plan with architecture, trade-offs, task list
-2. Get user approval
-3. Create branch in English (e.g. `feature/agent-decision-pipeline`)
+1. `/speckit-specify "<description>"` — creates the timestamped branch and the `specs/<branch>/spec.md` scaffold
+2. Analyze and plan — explore codebase, draft the spec, then `/speckit-plan` and `/speckit-tasks` for architecture, trade-offs, task list
+3. Get user approval (heavy gate on the spec)
 4. Create Draft PR on GitHub — title and description in English
 5. Write code following all Agent Rules
 6. 8-point code review before every commit

@@ -21,8 +21,9 @@ galattica nell'arco di secoli di tempo simulato.
 
 ## Documentazione autoritativa
 
-- **Whitepaper (italiano)**: [`docs/whitepaper/epocha-whitepaper.it.md`](docs/whitepaper/epocha-whitepaper.it.md) — riferimento scientifico: motivazione, metodi (Demografia ed Economia Comportamentale audited), implementazione, calibrazione, metodologia di validazione, sottosistemi progettati ma in attesa di audit.
+- **Whitepaper (italiano)**: [`docs/whitepaper/epocha-whitepaper.it.md`](docs/whitepaper/epocha-whitepaper.it.md) — riferimento scientifico: motivazione, metodi (§4.1–§4.8, tutti convergenti all'audit), implementazione, calibrazione, metodologia di validazione, sottosistemi progettati ma in attesa di audit (§8).
 - **Whitepaper (inglese)**: [`docs/whitepaper/epocha-whitepaper.md`](docs/whitepaper/epocha-whitepaper.md) — versione inglese, mantenuta in sincrono.
+- **Build map**: [`docs/build-map/epocha-build-map.html`](docs/build-map/epocha-build-map.html) — la lavagna di progetto e la fonte di verità sullo stato di avanzamento: cosa è fatto, in corso o non iniziato lungo le 13 fasi, e in quale ordine di dipendenza. È autonoma, non serve alcun server: si apre direttamente nel browser.
 - **Convenzioni di progetto**: [`CLAUDE.md`](CLAUDE.md) — workflow, checklist di code review, regole di rigore scientifico.
 - **Letture consigliate**: [`docs/letture-consigliate.md`](docs/letture-consigliate.md) — bibliografia curata per contributori.
 
@@ -83,9 +84,9 @@ docs/                  Spec, piani, whitepaper, backup di memoria
 
 | Modulo | Implementato | Audited |
 |---|---|---|
-| Demografia (Plan 1+2): mortalità, fertilità, coppia | sì | sì (CONVERGED 2026-04-18 round 4) |
-| Economia Comportamentale (aspettative, credito, proprietà) | sì | sì (CONVERGED 2026-04-15) |
-| Economia base (produzione, monetario, mercato, distribuzione) | sì | audit della spec in attesa |
+| Demografia (Plan 1+2): mortalità, fertilità, coppia | sì — modelli testati in isolamento, non ancora invocati dal tick loop (Plan 4) | sì (CONVERGENTE 2026-04-18 round 4) |
+| Economia Comportamentale (aspettative, credito, proprietà) | sì | sì (CONVERGENTE 2026-04-15) |
+| Economia base (produzione, monetario, mercato, distribuzione) | sì | sì (CONVERGENTE 2026-07-16 round 12) |
 | Reputazione (Castelfranchi-Conte-Paolucci 1998) | sì | sì (CONVERGENTE 2026-05-12 round 2) |
 | Flusso di informazioni (Bartlett 1932; Granovetter 1973 citato non implementato) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
 | Distorsione (assimilazione Allport-Postman 1947) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
@@ -102,20 +103,34 @@ docs/                  Spec, piani, whitepaper, backup di memoria
 | Demografia Plan 3+4 (Eredità + Migrazione + Integrazione Engine + Esecuzione validazione) | non ancora | n/a |
 | Mercati finanziari Economia (Spec 3) | non ancora | n/a |
 
-Il re-pass di audit sul batch del 2026-04-12 è il follow-up a priorità più alta; 2 moduli (knowledge graph, layer base dell'economia) ancora in attesa dopo la convergenza dei cluster reputazione, passaparola, politico, movimento e fazioni. Vedi whitepaper §9 Roadmap.
+Il Knowledge Graph è l'unico modulo ancora in attesa del suo primo audit scientifico. Il layer base dell'economia è convergente sul round 12 (2026-07-16) ed è stato promosso a §4.8 del whitepaper, il che ha chiuso il re-pass di audit del batch del 2026-04-12 su tutti gli altri moduli. La lavagna aggiornata è la [build map](docs/build-map/epocha-build-map.html); il dettaglio scientifico sta nel whitepaper §9 Roadmap.
 
 ## Roadmap
 
-Priorità più alta: re-audit pass sui restanti moduli del batch del 2026-04-12 (Knowledge Graph, Layer base dell'economia); la reputazione è convergente sul round 2 (2026-05-12) ed è documentata nel whitepaper §4.3, il cluster del passaparola (Information Flow, Distortion, Belief Filter, Affinity) è convergente sul round 2 (2026-05-16) ed è documentato in §4.4, il cluster politico (Governo, Tipi di Governo, Istituzioni, Stratificazione, Elezioni) è convergente sul round 2 (2026-05-16) ed è documentato in §4.5, il Movimento è convergente sul round 2 (2026-05-16) ed è documentato in §4.6, e le Fazioni sono convergenti sul round 2 (2026-05-16) e documentate in §4.7. Poi Demografia Plan 3 (Eredità + Migrazione), Plan 4 (Init + Integrazione Engine + Validazione storica), mercati finanziari Economia, esecuzione esperimenti di validazione. Lista completa nel whitepaper §9.
+La priorità più alta è l'audit scientifico avversariale del Knowledge Graph, l'unico modulo rimasto nel §8 del whitepaper e l'elemento bloccante prima che calibrazione e validazione possano chiudersi. Sei cluster sono già convergenti e promossi a Metodi: la reputazione sul round 2 (2026-05-12) come §4.3, il cluster del passaparola — information flow, distortion, belief filter, affinity — sul round 2 (2026-05-16) come §4.4, il cluster politico — governo, tipi di governo, istituzioni, stratificazione, elezioni — sul round 2 (2026-05-16) come §4.5, il movimento sul round 2 (2026-05-16) come §4.6, le fazioni sul round 2 (2026-05-16) come §4.7 e il layer base dell'economia sul round 12 del suo primo audit (2026-07-16) come §4.8.
+
+Seguono la Demografia Plan 3 (eredità + migrazione) e la Plan 4, che cabla i modelli auditati di §4.1 dentro il tick loop dal vivo in cui ancora non entrano, semina la popolazione iniziale dal template dell'era ed esegue la campagna di validazione storica. Poi i mercati finanziari dell'economia (Spec 3, non ancora redatta) e l'esecuzione degli esperimenti di validazione. Lista completa nel whitepaper §9; stato corrente per fase nella [build map](docs/build-map/epocha-build-map.html).
 
 ## Contribuire
 
-- **Workflow**: canonico a 7 fasi (ideazione → requisiti con audit avversariale → piano architetturale → task breakdown → implementazione per task atomico → test generale con audit avversariale del codice → chiusura). Vedi `CLAUDE.md`.
-- **Naming dei branch**: `feature/<short-description>`, `fix/<short-description>`, `refactor/<short-description>`.
+- **Spec-driven development (obbligatorio dal 2026-05-16)**: ogni work item — feature, campagna di fix, refactor, deprecazione — si scrive attraverso [GitHub Spec Kit](https://github.com/github/spec-kit), senza eccezioni. Si parte da `/speckit-specify "<descrizione>"`, che crea il branch e lo scaffold della spec, poi `/speckit-plan` e `/speckit-tasks`. I tre artefatti vivono in `specs/<branch>/{spec,plan,tasks}.md`. La costituzione di progetto è [`.specify/memory/constitution.md`](.specify/memory/constitution.md) e prevale sulle regole di qualità del codice di `CLAUDE.md` dove le due confliggono. File di spec o piano ad hoc non sono accettati: `docs/superpowers/specs/` e `docs/superpowers/plans/` sono archivi in sola lettura del lavoro precedente alla regola.
+- **Workflow**: Spec Kit è il framework di scrittura; il workflow canonico a 7 fasi è la procedura di gating che lo racchiude (ideazione → requisiti con audit avversariale → piano architetturale → task breakdown → implementazione per task atomico → test generale con audit avversariale del codice → chiusura). Gate pesanti ai requisiti e alla validazione finale, gate leggeri al piano e al task breakdown. Vedi `CLAUDE.md`.
+- **Naming dei branch**: `<YYYYMMDD-HHMMSS>-<slug>`, prodotto da `.specify/scripts/bash/create-new-feature.sh` tramite `/speckit-specify` — per esempio `20260715-132752-economy-base-layer-audit`. Non comporre i nomi dei branch a mano.
 - **Commit**: Conventional Commits (`type(scope): brief description` + riga `CHANGE:`). No attribuzione AI, no emoji.
 - **Stile del codice**: `ruff check . && ruff format --check .`
 - **Test**: `pytest --cov=epocha -v`. Zero test falliti.
-- **Regola di doc-sync whitepaper-codice**: le PR che modificano codice in `epocha/apps/demography/` o `epocha/apps/economy/{expectations,credit,banking,property_market}.py` devono aggiornare il capitolo corrispondente del whitepaper bilingue (`docs/whitepaper/epocha-whitepaper.md` e `.it.md`, capitoli §4.1 e §4.2 rispettivamente) nello stesso commit, oppure spiegare nella descrizione della PR perché la modifica non incide sul modello. Vedi sezione Documentation Sync di `CLAUDE.md`.
+- **Regola di doc-sync whitepaper-codice**: una PR che modifica codice in uno qualunque dei moduli elencati sotto deve aggiornare il capitolo corrispondente in entrambi i whitepaper (`docs/whitepaper/epocha-whitepaper.md` e `.it.md`) nello stesso commit, oppure dichiarare nella descrizione della PR perché la modifica non incide sul modello. Un modulo arriva al §4 solo facendo convergere il proprio audit avversariale, quindi un capitolo auditato che diverge dal suo codice è peggio di uno non auditato: viene creduto pur essendo sbagliato. Mappa completa nella sezione Documentation Sync di `CLAUDE.md`.
+
+  | Capitolo whitepaper | Codice |
+  |---|---|
+  | §4.1 Demografia | `epocha/apps/demography/{mortality,fertility,couple}.py` |
+  | §4.2 Economia — comportamentale | `epocha/apps/economy/{expectations,credit,banking,property_market}.py` |
+  | §4.3 Reputazione | `epocha/apps/agents/reputation.py` |
+  | §4.4 Propagazione del passaparola | `epocha/apps/agents/{information_flow,distortion,belief,affinity}.py` |
+  | §4.5 Istituzioni politiche | `epocha/apps/world/{government,government_types,institutions,stratification,election}.py` |
+  | §4.6 Movimento | `epocha/apps/agents/movement.py` |
+  | §4.7 Fazioni | `epocha/apps/agents/factions.py` |
+  | §4.8 Economia — layer base | `epocha/apps/economy/{production,market,distribution,monetary,initialization,engine}.py` |
 
 ## Licenza
 
