@@ -119,7 +119,18 @@ Next come Demography Plan 3 (inheritance + migration) and Plan 4, which wires th
 - **Commits**: Conventional Commits (`type(scope): brief description` + `CHANGE:` line). No AI attribution, no emoji.
 - **Code style**: `ruff check . && ruff format --check .`
 - **Tests**: `pytest --cov=epocha -v`. Zero failing tests.
-- **Whitepaper-code doc-sync rule**: PRs that modify code under `epocha/apps/demography/` or `epocha/apps/economy/{expectations,credit,banking,property_market}.py` must update the corresponding chapter of the bilingual whitepaper (`docs/whitepaper/epocha-whitepaper.md` and `.it.md`, chapters §4.1 and §4.2 respectively) in the same commit, or explain in the PR description why the change does not affect the model. See `CLAUDE.md` Documentation Sync section.
+- **Whitepaper-code doc-sync rule**: a PR that modifies code in any module below must update that module's chapter in both whitepapers (`docs/whitepaper/epocha-whitepaper.md` and `.it.md`) in the same commit, or state in the PR description why the change does not affect the model. A module reaches §4 only by converging its adversarial audit, so an audited chapter that drifts from its code is worse than an unaudited one: it is trusted while being wrong. Full mapping in the `CLAUDE.md` Documentation Sync section.
+
+  | Whitepaper chapter | Code |
+  |---|---|
+  | §4.1 Demography | `epocha/apps/demography/{mortality,fertility,couple}.py` |
+  | §4.2 Economy — behavioral | `epocha/apps/economy/{expectations,credit,banking,property_market}.py` |
+  | §4.3 Reputation | `epocha/apps/agents/reputation.py` |
+  | §4.4 Rumor propagation | `epocha/apps/agents/{information_flow,distortion,belief,affinity}.py` |
+  | §4.5 Political institutions | `epocha/apps/world/{government,government_types,institutions,stratification,election}.py` |
+  | §4.6 Movement | `epocha/apps/agents/movement.py` |
+  | §4.7 Factions | `epocha/apps/agents/factions.py` |
+  | §4.8 Economy — base layer | `epocha/apps/economy/{production,market,distribution,monetary,initialization,engine}.py` |
 
 ## License
 

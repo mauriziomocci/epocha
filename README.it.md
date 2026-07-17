@@ -119,7 +119,18 @@ Seguono la Demografia Plan 3 (eredità + migrazione) e la Plan 4, che cabla i mo
 - **Commit**: Conventional Commits (`type(scope): brief description` + riga `CHANGE:`). No attribuzione AI, no emoji.
 - **Stile del codice**: `ruff check . && ruff format --check .`
 - **Test**: `pytest --cov=epocha -v`. Zero test falliti.
-- **Regola di doc-sync whitepaper-codice**: le PR che modificano codice in `epocha/apps/demography/` o `epocha/apps/economy/{expectations,credit,banking,property_market}.py` devono aggiornare il capitolo corrispondente del whitepaper bilingue (`docs/whitepaper/epocha-whitepaper.md` e `.it.md`, capitoli §4.1 e §4.2 rispettivamente) nello stesso commit, oppure spiegare nella descrizione della PR perché la modifica non incide sul modello. Vedi sezione Documentation Sync di `CLAUDE.md`.
+- **Regola di doc-sync whitepaper-codice**: una PR che modifica codice in uno qualunque dei moduli elencati sotto deve aggiornare il capitolo corrispondente in entrambi i whitepaper (`docs/whitepaper/epocha-whitepaper.md` e `.it.md`) nello stesso commit, oppure dichiarare nella descrizione della PR perché la modifica non incide sul modello. Un modulo arriva al §4 solo facendo convergere il proprio audit avversariale, quindi un capitolo auditato che diverge dal suo codice è peggio di uno non auditato: viene creduto pur essendo sbagliato. Mappa completa nella sezione Documentation Sync di `CLAUDE.md`.
+
+  | Capitolo whitepaper | Codice |
+  |---|---|
+  | §4.1 Demografia | `epocha/apps/demography/{mortality,fertility,couple}.py` |
+  | §4.2 Economia — comportamentale | `epocha/apps/economy/{expectations,credit,banking,property_market}.py` |
+  | §4.3 Reputazione | `epocha/apps/agents/reputation.py` |
+  | §4.4 Propagazione del passaparola | `epocha/apps/agents/{information_flow,distortion,belief,affinity}.py` |
+  | §4.5 Istituzioni politiche | `epocha/apps/world/{government,government_types,institutions,stratification,election}.py` |
+  | §4.6 Movimento | `epocha/apps/agents/movement.py` |
+  | §4.7 Fazioni | `epocha/apps/agents/factions.py` |
+  | §4.8 Economia — layer base | `epocha/apps/economy/{production,market,distribution,monetary,initialization,engine}.py` |
 
 ## Licenza
 
