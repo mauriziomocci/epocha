@@ -1,6 +1,6 @@
 ---
 name: post-mvp-roadmap
-description: Roadmap completa per l'evoluzione sociale, economica, militare, culturale di Epocha -- ogni fase con massimo rigore scientifico. STATO per fase VERIFICATO contro codice/whitepaper il 2026-07-17.
+description: Scope, ordine delle dipendenze e fonti bibliografiche delle 13 fasi di Epocha. ATTENZIONE -- lo STATO non vive qui: la fonte di verita' e' la build map [[build-map-source-of-truth]]. Questo file da' il contesto delle fasi, la mappa da' lo stato.
 type: project
 originSessionId: 0a27799c-3d4b-4995-b144-424ee45e5764
 ---
@@ -9,17 +9,25 @@ brainstorming -> three-step design -> spec con FAQ -> adversarial audit ->
 implementation -> re-audit fino a CONVERGED. Massimo rigore scientifico
 su tutto, senza eccezioni.
 
-## STATO VERIFICATO 2026-07-17 (fonte: codice + whitepaper, non memoria)
+## LO STATO VIVE NELLA BUILD MAP, NON QUI
 
-Verifica fatta contro `epocha/apps/` e `docs/whitepaper/epocha-whitepaper.md`.
-I marcatori `STATO:` per fase qui sotto sono aggiornati a questa data. La
-legenda dei simboli:
+**Dal 2026-07-17 la fonte di verita' dello stato e' la build map**, non questo
+file: `docs/build-map/epocha-build-map.html`, artifact
+https://claude.ai/code/artifact/c81c0d24-313c-474b-8440-c22275e1cb15
+Regola imperativa: [[build-map-source-of-truth]].
 
-- [DONE] audited e cablato nel tick engine
-- [PROG] parziale (modello esiste ma non cablato, oppure scope coperto solo in parte)
-- [TODO] non iniziato (nessun modello)
+**Questo file porta lo SCOPE, l'ORDINE DELLE DIPENDENZE e le FONTI
+bibliografiche delle 13 fasi. Per lo stato aggiornato, guarda la mappa.**
+Se i due divergono, vince la mappa. Non duplicare qui lo stato: e' esattamente
+il meccanismo che ha fatto invecchiare questo file di 94 giorni.
 
-Sintesi one-line:
+La sintesi sotto e' la foto al 2026-07-17, tenuta come contesto di lettura
+delle fasi -- se stai decidendo cosa fare, apri la mappa.
+
+Legenda: [DONE] auditato e cablato nel tick engine | [PROG] parziale (modello
+esiste ma non cablato, o scope coperto solo in parte) | [TODO] non iniziato.
+
+Sintesi al 2026-07-17:
 - **Fase 1a economia base** [DONE] -- audit CONVERGED round 12 (2026-07-16),
   whitepaper §4.8, cablato via `process_economy_tick_new` (`simulation/engine.py:394,486`).
   In chiusura sul branch `20260715-132752-economy-base-layer-audit` (merge pendente).

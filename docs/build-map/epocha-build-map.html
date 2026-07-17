@@ -1,0 +1,605 @@
+<title>Epocha — Build Map</title>
+<style>
+  :root {
+    --paper: #eef0f6;
+    --surface: #ffffff;
+    --surface-2: #f6f7fb;
+    --ink: #171a26;
+    --ink-soft: #4a4f63;
+    --ink-faint: #767c93;
+    --hair: #dcdfea;
+    --hair-strong: #c6cadb;
+    --accent: #4a5cc4;
+    --accent-soft: #e7e9f8;
+    --done: #2f9e6f;
+    --done-bg: #e6f4ee;
+    --prog: #c8841a;
+    --prog-bg: #fbeecf;
+    --todo: #7c8399;
+    --todo-bg: #eceef4;
+    --found: #2f8b95;
+    --found-bg: #e2f0f1;
+    --here: #d4441f;
+
+    --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", "Roboto Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0d0f16;
+      --surface: #161926;
+      --surface-2: #1c2030;
+      --ink: #e7e9f2;
+      --ink-soft: #b0b5c8;
+      --ink-faint: #838aa2;
+      --hair: #2a2f42;
+      --hair-strong: #3a4058;
+      --accent: #8b97ee;
+      --accent-soft: #23284a;
+      --done: #4bbd8c;
+      --done-bg: #14332a;
+      --prog: #e0a94a;
+      --prog-bg: #3a2c11;
+      --todo: #8990a8;
+      --todo-bg: #232838;
+      --found: #4fb2bd;
+      --found-bg: #123033;
+      --here: #f26b45;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #eef0f6; --surface: #ffffff; --surface-2: #f6f7fb;
+    --ink: #171a26; --ink-soft: #4a4f63; --ink-faint: #767c93;
+    --hair: #dcdfea; --hair-strong: #c6cadb;
+    --accent: #4a5cc4; --accent-soft: #e7e9f8;
+    --done: #2f9e6f; --done-bg: #e6f4ee; --prog: #c8841a; --prog-bg: #fbeecf;
+    --todo: #7c8399; --todo-bg: #eceef4; --found: #2f8b95; --found-bg: #e2f0f1;
+    --here: #d4441f;
+  }
+  :root[data-theme="dark"] {
+    --paper: #0d0f16; --surface: #161926; --surface-2: #1c2030;
+    --ink: #e7e9f2; --ink-soft: #b0b5c8; --ink-faint: #838aa2;
+    --hair: #2a2f42; --hair-strong: #3a4058;
+    --accent: #8b97ee; --accent-soft: #23284a;
+    --done: #4bbd8c; --done-bg: #14332a; --prog: #e0a94a; --prog-bg: #3a2c11;
+    --todo: #8990a8; --todo-bg: #232838; --found: #4fb2bd; --found-bg: #123033;
+    --here: #f26b45;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 24px 72px; }
+
+  /* ---- Masthead ---- */
+  .mast { border-bottom: 2px solid var(--ink); padding-bottom: 20px; margin-bottom: 8px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: clamp(30px, 5vw, 46px);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    margin: 0 0 12px;
+    text-wrap: balance;
+  }
+  .dek {
+    font-size: 15px;
+    color: var(--ink-soft);
+    max-width: 68ch;
+    margin: 0;
+  }
+  .mast-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    margin-top: 16px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+  }
+  .mast-meta b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ---- You-are-here banner ---- */
+  .here-band {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--hair-strong);
+    border-left: 4px solid var(--here);
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin: 22px 0 30px;
+  }
+  .here-tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #fff;
+    background: var(--here);
+    padding: 4px 9px;
+    border-radius: 4px;
+    white-space: nowrap;
+    margin-top: 1px;
+  }
+  .here-band p { margin: 0; font-size: 14.5px; color: var(--ink-soft); }
+  .here-band p b { color: var(--ink); font-weight: 650; }
+
+  /* ---- Legend ---- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin: 0 0 26px;
+    padding: 0;
+    list-style: none;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .legend li { display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+
+  /* ---- Layout grid ---- */
+  .grid { display: grid; grid-template-columns: 1fr 320px; gap: 34px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; gap: 30px; } }
+
+  .col-h {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--hair);
+  }
+
+  /* ---- Spine ---- */
+  .spine { position: relative; margin: 0; padding: 0; list-style: none; }
+  .block-label {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 15px;
+    color: var(--ink-faint);
+    margin: 22px 0 10px 2px;
+  }
+  .block-label:first-child { margin-top: 0; }
+
+  .phase {
+    position: relative;
+    display: grid;
+    grid-template-columns: 46px 1fr;
+    gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--hair);
+    border-radius: 9px;
+    padding: 14px 16px 14px 0;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .phase::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+  }
+  .phase.s-done::before { background: var(--done); }
+  .phase.s-prog::before { background: var(--prog); }
+  .phase.s-todo::before { background: var(--hair-strong); }
+  .phase.is-here { border-color: var(--here); box-shadow: 0 0 0 1px var(--here); }
+
+  .num {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink-faint);
+    text-align: center;
+    padding-left: 12px;
+    padding-top: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .phase.s-done .num { color: var(--done); }
+  .phase.s-prog .num { color: var(--prog); }
+
+  .body { min-width: 0; }
+  .row1 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 3px; }
+  .title {
+    font-family: var(--serif);
+    font-size: 17.5px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+  }
+  .pill {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .pill.done { color: var(--done); background: var(--done-bg); }
+  .pill.prog { color: var(--prog); background: var(--prog-bg); }
+  .pill.todo { color: var(--todo); background: var(--todo-bg); }
+
+  .desc { font-size: 13.5px; color: var(--ink-soft); margin: 4px 0 9px; max-width: 62ch; }
+  .desc .warn { color: var(--prog); font-weight: 600; }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid var(--hair-strong);
+    color: var(--ink-faint);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  .tag.ev { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .needs {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-right: 1px;
+  }
+
+  /* ---- Side panels ---- */
+  .side { display: flex; flex-direction: column; gap: 24px; position: sticky; top: 24px; }
+  @media (max-width: 860px) { .side { position: static; } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--hair);
+    border-radius: 9px;
+    padding: 16px 16px 14px;
+  }
+  .panel.found { border-left: 4px solid var(--found); }
+  .panel.keeping { border-left: 4px solid var(--accent); }
+
+  .rule-item {
+    display: grid;
+    grid-template-columns: 84px 1fr;
+    gap: 9px;
+    padding: 7px 0;
+    border-top: 1px solid var(--hair);
+    align-items: baseline;
+  }
+  .rule-item:first-of-type { border-top: none; }
+  .rule-k {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .rule-v { font-size: 12.5px; color: var(--ink-soft); line-height: 1.45; }
+  .rule-v code { font-family: var(--mono); font-size: 11px; color: var(--ink); word-break: break-all; }
+
+  .found-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 9px;
+    padding: 8px 0;
+    border-top: 1px solid var(--hair);
+    align-items: baseline;
+  }
+  .found-item:first-of-type { border-top: none; }
+  .found-ref {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--found);
+  }
+  .found-item.pending .found-ref { color: var(--prog); }
+  .found-name { font-size: 13px; color: var(--ink); }
+  .found-name small { display: block; color: var(--ink-faint); font-size: 11.5px; font-family: var(--mono); margin-top: 1px; }
+
+  .counts { display: flex; flex-direction: column; gap: 10px; }
+  .count-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .count-row .lab { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-soft); }
+  .count-row .val {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .bar { height: 7px; border-radius: 4px; background: var(--surface-2); overflow: hidden; display: flex; margin-top: 4px; border: 1px solid var(--hair); }
+  .bar span { display: block; height: 100%; }
+
+  .note { font-size: 12px; color: var(--ink-faint); line-height: 1.45; margin: 10px 0 0; }
+  .note code { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+
+  footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--hair);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    justify-content: space-between;
+  }
+</style>
+
+<div class="wrap">
+  <header class="mast">
+    <p class="eyebrow">Epocha · civilization simulator · project map</p>
+    <h1>The build map — 13 phases, verified against code</h1>
+    <p class="dek">The single source of truth for what is built and what is not — this board is authoritative, and every session that changes phase status must update it. Status is checked against the source tree and the whitepaper, never inherited from memory notes. The forward spine is the planned civilization arc; the substrate on the right is what is already built and audited underneath it.</p>
+    <div class="mast-meta">
+      <span><b>Branch</b> develop</span>
+      <span><b>Tip</b> aa4a53e · economy merged at 368e972</span>
+      <span><b>Suite</b> 911 passed · ruff clean</span>
+      <span><b>Source</b> docs/build-map/epocha-build-map.html</span>
+    </div>
+  </header>
+
+  <div class="here-band">
+    <span class="here-tag">You are here</span>
+    <p><b>Phase 1a closed — the economy base layer is audited (CONVERGED, round 12), promoted to §4.8, and merged into <code>develop</code> at <code>368e972</code>.</b> The frontier is now <b>Phase 2: wire demography into the tick loop (Plan 4)</b> — the models are audited but the loop never calls them — and the <b>Knowledge Graph audit (§8.1)</b>, the last built-but-unaudited module and the only thing left in chapter 8.</p>
+  </div>
+
+  <ul class="legend">
+    <li><span class="swatch" style="background:var(--done)"></span> Done · audited &amp; wired</li>
+    <li><span class="swatch" style="background:var(--prog)"></span> In progress · partial</li>
+    <li><span class="swatch" style="background:var(--hair-strong)"></span> Not started</li>
+    <li><span class="swatch" style="background:var(--found)"></span> Built substrate (audited)</li>
+  </ul>
+
+  <div class="grid">
+    <!-- FORWARD SPINE -->
+    <section>
+      <h2 class="col-h">Forward spine · dependency order</h2>
+      <ol class="spine">
+
+        <li class="block-label">Phase 1 — Economy</li>
+
+        <div class="phase s-done">
+          <div class="num">1a</div>
+          <div class="body">
+            <div class="row1"><span class="title">Economy base layer</span><span class="pill done">Done · merged</span></div>
+            <p class="desc">CES production, Walrasian tâtonnement, multi-currency, property, flat tax, era templates. Conservation core rewritten and pinned deterministic across twelve audit rounds.</p>
+            <div class="tags"><span class="tag ev">§4.8</span><span class="tag">economy/engine.py</span><span class="tag">wired · engine.py:394</span><span class="tag">R12 CONVERGED</span><span class="tag">merged 368e972</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-done">
+          <div class="num">1b</div>
+          <div class="body">
+            <div class="row1"><span class="title">Behavioral economy</span><span class="pill done">Done</span></div>
+            <p class="desc">Adaptive expectations, credit &amp; banking, property market — audited and live. <span class="warn">Prospect-theory distortions and labor-market matching from the original scope are not built.</span></p>
+            <div class="tags"><span class="tag ev">§4.2</span><span class="tag">expectations · credit · banking</span><span class="needs">needs</span><span class="tag">1a</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">1c</div>
+          <div class="body">
+            <div class="row1"><span class="title">Financial markets</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Securities (equity, bonds, derivatives), an exchange, fractional-reserve depth, bubbles, panic, contagion. Spec 3 not yet written.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">1b</span></div>
+          </div>
+        </div>
+
+        <li class="block-label">Phase 2 — Demography &amp; generations</li>
+
+        <div class="phase s-prog is-here">
+          <div class="num">2</div>
+          <div class="body">
+            <div class="row1"><span class="title">Demography</span><span class="pill prog">In progress · next</span></div>
+            <p class="desc">Mortality, fertility, couple formation are audited (§4.1) and unit-tested — <span class="warn">but not driven by the tick loop; only <code>set_avoid_conception_flag</code> is called. Plan 4 (engine wiring) and Plan 3 (inheritance + zone migration) remain.</span></p>
+            <div class="tags"><span class="tag ev">§4.1</span><span class="tag">mortality · fertility · couple</span><span class="tag">not wired</span><span class="needs">needs</span><span class="tag">1a</span></div>
+          </div>
+        </div>
+
+        <li class="block-label">Phases 3–12 — The civilization arc</li>
+
+        <div class="phase s-todo">
+          <div class="num">3</div>
+          <div class="body">
+            <div class="row1"><span class="title">Technology &amp; progress</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Tech tree that reshapes production functions, military capacity, transport and communication speed. No model exists yet.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">1a</span><span class="tag">2</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">4</div>
+          <div class="body">
+            <div class="row1"><span class="title">Military &amp; conflict</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Armies, Lanchester attrition, territorial conquest, war impact on demography and economy. Some governance scaffolding in <code>world.government</code>; no attrition model.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">1a</span><span class="tag">2</span><span class="tag">3</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">5</div>
+          <div class="body">
+            <div class="row1"><span class="title">Diplomacy &amp; inter-civilization</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Treaties, alliances, sanctions, betrayal; multiple independent civilizations trading and warring in one run.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">4</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">6</div>
+          <div class="body">
+            <div class="row1"><span class="title">Culture · religion · education</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Cultural transmission across generations, belief evolution, schools as active institutions. Belief infrastructure exists; mechanics are passive.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">2</span><span class="tag">3</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">7</div>
+          <div class="body">
+            <div class="row1"><span class="title">Environment · legal · comms speed</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Climate, exhaustible resources, disasters; a legislative process and judiciary; information propagation speed tied to the tech level.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">1a</span><span class="tag">2</span><span class="tag">3</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">8</div>
+          <div class="body">
+            <div class="row1"><span class="title">Epidemiology &amp; public health</span><span class="pill todo">Not started</span></div>
+            <p class="desc">SIR/SEIR spread over the social and spatial network; pandemics with demographic, economic and political fallout.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">2</span><span class="tag">7</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">9</div>
+          <div class="body">
+            <div class="row1"><span class="title">Energy · infrastructure · cities</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Energy transitions driving production scale, physical infrastructure that decays without upkeep, emergent urbanization. Only an <code>urbanization_index</code> field exists.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">1a</span><span class="tag">2</span><span class="tag">3</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">10</div>
+          <div class="body">
+            <div class="row1"><span class="title">Crowd psychology · identity · media</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Emotional contagion in crowds, overlapping social identities, media &amp; propaganda amplifying the rumor layer. Vision documented; no game mechanics.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">6</span><span class="tag">info-flow §4.4</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">11</div>
+          <div class="body">
+            <div class="row1"><span class="title">Long-distance trade routes</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Spatial routes (PostGIS) with transport cost, risk, and tech-bound capacity — Silk Road to container shipping.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">5</span><span class="tag">9</span></div>
+          </div>
+        </div>
+
+        <div class="phase s-todo">
+          <div class="num">12</div>
+          <div class="body">
+            <div class="row1"><span class="title">Inheritance · lineage · memory</span><span class="pill todo">Not started</span></div>
+            <p class="desc">Intergenerational wealth transfer (Piketty r&gt;g), family lineage (<code>parent_agent</code> FK exists), collective historical memory tied to the Knowledge Graph.</p>
+            <div class="tags"><span class="needs">needs</span><span class="tag">2</span><span class="tag">6</span></div>
+          </div>
+        </div>
+
+        <li class="block-label">Phase 13 — Platform &amp; tooling · runs in parallel to all</li>
+
+        <div class="phase s-prog">
+          <div class="num">13</div>
+          <div class="body">
+            <div class="row1"><span class="title">Platform &amp; tooling</span><span class="pill prog">In progress</span></div>
+            <p class="desc">Operator dashboard renders eight views (state, chat, social graph, analytics) and generates on-demand reports. <span class="warn">Web scraping, branching/what-if, narrative generator, interview mode, 2D map (Pixi.js) and advanced analytics are deferred.</span></p>
+            <div class="tags"><span class="tag ev">dashboard/</span><span class="tag">parallel to every phase</span></div>
+          </div>
+        </div>
+
+      </ol>
+    </section>
+
+    <!-- SIDE -->
+    <aside class="side">
+      <div class="panel">
+        <h2 class="col-h" style="margin-bottom:12px">Where the effort stands</h2>
+        <div class="counts">
+          <div class="count-row"><span class="lab"><span class="swatch" style="background:var(--done)"></span> Done</span><span class="val">2</span></div>
+          <div class="count-row"><span class="lab"><span class="swatch" style="background:var(--prog)"></span> In progress</span><span class="val">2</span></div>
+          <div class="count-row"><span class="lab"><span class="swatch" style="background:var(--hair-strong)"></span> Not started</span><span class="val">9</span></div>
+          <div class="bar" aria-hidden="true">
+            <span style="width:15%;background:var(--done)"></span>
+            <span style="width:15%;background:var(--prog)"></span>
+            <span style="width:70%;background:var(--hair-strong)"></span>
+          </div>
+        </div>
+        <p class="note">Counted over the 13 forward phases. Sub-blocks 1a/1b done, 1c not started; the block reads as economy‑heavy because that is where the audited work has concentrated.</p>
+      </div>
+
+      <div class="panel found">
+        <h2 class="col-h" style="margin-bottom:6px">The substrate underneath</h2>
+        <p class="note" style="margin:0 0 8px">Built and audited already — everything on the spine sits on top of these. They are whitepaper §4 Methods chapters, not forward phases.</p>
+
+        <div class="found-item">
+          <span class="found-ref">§3.2</span>
+          <span class="found-name">Agent decision pipeline<small>Big Five + memory + LLM</small></span>
+        </div>
+        <div class="found-item">
+          <span class="found-ref">§4.3</span>
+          <span class="found-name">Reputation<small>converged R2 · 2026-05-12</small></span>
+        </div>
+        <div class="found-item">
+          <span class="found-ref">§4.4</span>
+          <span class="found-name">Rumor propagation<small>info flow · distortion · belief · affinity</small></span>
+        </div>
+        <div class="found-item">
+          <span class="found-ref">§4.5</span>
+          <span class="found-name">Political institutions<small>government · stratification · election</small></span>
+        </div>
+        <div class="found-item">
+          <span class="found-ref">§4.6</span>
+          <span class="found-name">Movement<small>per-tick zone movement</small></span>
+        </div>
+        <div class="found-item">
+          <span class="found-ref">§4.7</span>
+          <span class="found-name">Factions<small>cohesion · leadership</small></span>
+        </div>
+        <div class="found-item pending">
+          <span class="found-ref">§8.1</span>
+          <span class="found-name">Knowledge Graph<small>built · audit pending — next gate</small></span>
+        </div>
+      </div>
+
+      <div class="panel keeping">
+        <h2 class="col-h" style="margin-bottom:6px">Keeping this board honest</h2>
+        <p class="note" style="margin:0 0 8px">This page is the project's source of truth for build status. It is mandatory to update it — it is not a snapshot.</p>
+        <div class="rule-item"><span class="rule-k">Source</span><span class="rule-v"><code>docs/build-map/epocha-build-map.html</code>, versioned in the repo. Edit it there, then republish to the same URL.</span></div>
+        <div class="rule-item"><span class="rule-k">Update when</span><span class="rule-v">a phase changes status, an audit converges, a module is wired into the tick loop, or a chapter is promoted.</span></div>
+        <div class="rule-item"><span class="rule-k">Verify first</span><span class="rule-v">check status against code and the whitepaper before colouring. Never inherit status from a memory note.</span></div>
+      </div>
+    </aside>
+  </div>
+
+  <footer>
+    <span>Source of truth · last verified against code 2026-07-17</span>
+    <span>Next gates: demography wiring (Plan 4) → Knowledge Graph audit (§8.1)</span>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    function apply(t) { if (t === 'dark' || t === 'light') root.setAttribute('data-theme', t); }
+    try {
+      var p = new URLSearchParams(location.search).get('theme');
+      apply(p);
+      window.addEventListener('message', function (e) {
+        var d = e && e.data; if (d && d.type === 'set-theme') apply(d.theme);
+      });
+    } catch (err) {}
+  })();
+</script>

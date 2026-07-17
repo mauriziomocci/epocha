@@ -61,6 +61,34 @@ Epocha is a scientific simulation. Every model, algorithm, formula, parameter, a
 6. No issue left unresolved — fix, re-review, repeat until clean
 7. When science says one thing and convenience says another, science wins
 
+### CRITICAL: The Build Map is the Source of Truth
+
+**CRITICAL RULE**: `docs/build-map/epocha-build-map.html` is the authoritative record of what is built and what is not — the project board, the equivalent of a Jira for Epocha. It is published as an artifact at:
+
+**https://claude.ai/code/artifact/c81c0d24-313c-474b-8440-c22275e1cb15**
+
+It is **not a snapshot**. Keeping it current is mandatory, not optional, and not deferrable to "later". A build map that lags the code is worse than no build map, because it is trusted while being wrong.
+
+**Update it in the SAME session, before closing, whenever any of these happen:**
+
+1. A phase changes status (not started -> in progress -> done)
+2. An adversarial audit converges, or a new audit round opens
+3. A module is wired into — or unwired from — the tick loop (`epocha/apps/simulation/engine.py`)
+4. A whitepaper chapter is promoted from §8 (audit pending) to §4 (Methods)
+5. A work item is opened, deferred to a separate branch, or closed
+6. Any dependency between phases changes
+
+**Procedure (all four steps, in order):**
+
+1. **Verify against reality first.** Check the status against the source tree and the whitepaper. NEVER inherit status from a memory note, from a handoff, or from the map's own previous state — all three go stale silently. Grep the tick engine to confirm a module is actually called, not merely defined and unit-tested.
+2. **Edit the repo file** `docs/build-map/epocha-build-map.html`. That file is the source; the artifact is its rendering.
+3. **Republish to the SAME URL**: call the Artifact tool with `file_path` set to the repo file and `url` set to the URL above. Omitting `url`, or publishing from a different path (e.g. a scratchpad copy), mints a NEW URL and forks the source of truth into two competing boards. This is the main failure mode — guard against it.
+4. **Commit the file** together with the work it describes, never in a trailing "update the map" commit.
+
+**Precedence.** On any conflict about build status, the map wins over memory notes and over handoffs. The whitepaper remains authoritative for scientific content and for the audit status of its own chapters; the map records project-level progress across the 13 phases. The roadmap memory `project_roadmap_post_mvp.md` carries the phase scope, dependency order, and literature sources, and points AT the map for status — it must not duplicate status, or the two will drift.
+
+**Why**: formalized 2026-07-17 at the user's explicit request ("è imperativo"). The roadmap memory had gone 94 days stale and misreported two load-bearing facts at once — it implied demography was unstarted when its models were audited but never wired into the tick loop, and it implied the economy integration was outstanding when it had shipped. The user lost sight of the project as a whole. A single verified board, updated as a matter of course, is the remedy.
+
 ### CRITICAL: Scientific Rigor
 
 1. **Every mathematical model must cite its source** in the code (docstring or comment with reference).
@@ -371,6 +399,7 @@ response = client.complete(prompt="...", system_prompt="...")
 
 | Document | When to consult |
 |----------|-----------------|
+| `docs/build-map/epocha-build-map.html` | **SOURCE OF TRUTH for build status.** What is done, in progress, not started, across the 13 phases; dependency order; "you are here". Read at the start of any session that touches project direction; **update it in the same session whenever status changes** (see the CRITICAL rule above). Artifact: https://claude.ai/code/artifact/c81c0d24-313c-474b-8440-c22275e1cb15 |
 | `docs/superpowers/specs/2026-03-22-epocha-design.md` | Full project design and vision |
 | `docs/superpowers/plans/2026-03-23-mvp-implementation.md` | MVP implementation plan with tasks |
 | `docs/letture-consigliate.md` | Recommended reading for contributors |
