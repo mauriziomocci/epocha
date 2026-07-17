@@ -503,3 +503,353 @@ class TestProcessExpropriation:
         memory = memories.first()
         assert "expropriated" in memory.content.lower()
         assert memory.emotional_weight >= 0.8
+
+
+@pytest.mark.django_db
+class TestOwnerlessPropertySaleConservation:
+    """Round 3 re-audit finding R3-3 (run wf_af84ed13-dc3): the sale
+    branch for a property with no agent owner debited the buyer
+    unconditionally but credited nobody (the seller guard skipped the
+    transfer leg), destroying money -- the same defect class as the
+    fixed CM-TAX-2. The sale price of an ownerless (government/public)
+    property must be credited to the government treasury, and without
+    a Government the sale must not happen at all."""
+
+    def _setup_gov_listing(self, setup, asking_price=300.0):
+        from epocha.apps.world.models import Government
+
+        gov = Government.objects.create(
+            simulation=setup["simulation"],
+            government_type="monarchy",
+            government_treasury={},
+        )
+        prop = Property.objects.create(
+            simulation=setup["simulation"],
+            owner=None,
+            owner_type="government",
+            zone=setup["zone"],
+            property_type="farmland",
+            name="Crown Land",
+            value=500.0,
+            production_bonus={"food": 1.0},
+        )
+        listing = PropertyListing.objects.create(
+            property=prop,
+            asking_price=asking_price,
+            fundamental_value=asking_price,
+            listed_at_tick=5,
+            status="listed",
+        )
+        return gov, prop, listing
+
+    def _buy_decision(self, sim, agent):
+        DecisionLog.objects.create(
+            simulation=sim,
+            agent=agent,
+            tick=5,
+            input_context="test",
+            output_decision=json.dumps({"action": "buy_property", "reason": "investment"}),
+            llm_model="test",
+        )
+
+    def test_ownerless_sale_credits_treasury(self, property_market_setup):
+        setup = property_market_setup
+        sim = setup["simulation"]
+        buyer = setup["buyer"]
+        currency = setup["currency"]
+
+        gov, prop, listing = self._setup_gov_listing(setup)
+        self._buy_decision(sim, buyer)
+
+        result = process_property_listings(sim, tick=6)
+
+        assert result["matched"] == 1
+
+        buyer_inv = setup["buyer_inv"]
+        buyer_inv.refresh_from_db()
+        assert buyer_inv.cash[currency.code] == pytest.approx(800.0 - 300.0)
+
+        gov.refresh_from_db()
+        assert gov.government_treasury.get(currency.code, 0.0) == pytest.approx(300.0)
+
+        prop.refresh_from_db()
+        assert prop.owner == buyer
+
+    def test_ownerless_sale_skipped_without_government(self, property_market_setup):
+        setup = property_market_setup
+        sim = setup["simulation"]
+        buyer = setup["buyer"]
+        currency = setup["currency"]
+
+        prop = Property.objects.create(
+            simulation=sim,
+            owner=None,
+            owner_type="government",
+            zone=setup["zone"],
+            property_type="farmland",
+            name="Ownerless Land",
+            value=500.0,
+            production_bonus={"food": 1.0},
+        )
+        PropertyListing.objects.create(
+            property=prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=5,
+            status="listed",
+        )
+        self._buy_decision(sim, buyer)
+
+        result = process_property_listings(sim, tick=6)
+
+        assert result["matched"] == 0
+
+        buyer_inv = setup["buyer_inv"]
+        buyer_inv.refresh_from_db()
+        assert buyer_inv.cash[currency.code] == pytest.approx(800.0)
+
+        prop.refresh_from_db()
+        assert prop.owner is None
+
+
+@pytest.mark.django_db
+class TestListingTiebreakDeterminism:
+    """Round 4 re-audit finding R4-DET-2 (run wf_9fb030e4-8a1): the
+    cheapest-listing lookup ordered by asking_price alone, so equal-
+    priced listings were chosen in implementation-defined order. The
+    id tiebreak pins the winner deterministically."""
+
+    def test_equal_price_listings_resolve_by_lowest_id(self, property_market_setup):
+        setup = property_market_setup
+        sim = setup["simulation"]
+        buyer = setup["buyer"]
+        seller = setup["seller"]
+
+        first_prop = setup["property"]
+        second_prop = Property.objects.create(
+            simulation=sim,
+            owner=seller,
+            owner_type="agent",
+            zone=setup["zone"],
+            property_type="farmland",
+            name="Second Farm",
+            value=500.0,
+            production_bonus={"food": 1.0},
+        )
+        first_listing = PropertyListing.objects.create(
+            property=first_prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=5,
+            status="listed",
+        )
+        PropertyListing.objects.create(
+            property=second_prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=5,
+            status="listed",
+        )
+        DecisionLog.objects.create(
+            simulation=sim,
+            agent=buyer,
+            tick=5,
+            input_context="test",
+            output_decision=json.dumps({"action": "buy_property", "reason": "investment"}),
+            llm_model="test",
+        )
+
+        result = process_property_listings(sim, tick=6)
+
+        assert result["matched"] == 1
+        first_listing.refresh_from_db()
+        assert first_listing.status == "sold"
+        first_prop.refresh_from_db()
+        assert first_prop.owner == buyer
+
+
+@pytest.mark.django_db
+class TestCollateralLien:
+    """Round 6 re-audit finding R6-PROP-1 (run wf_6b5ea862-41e): nothing
+    prevented listing and selling a property pledged as collateral for
+    an active loan -- the lender's security could vanish through the
+    property market while the loan stayed active. Pledged properties
+    must not be matchable."""
+
+    def test_pledged_property_cannot_be_sold(self, property_market_setup):
+        setup = property_market_setup
+        sim = setup["simulation"]
+        prop = setup["property"]
+        seller = setup["seller"]
+        buyer = setup["buyer"]
+
+        Loan.objects.create(
+            simulation=sim,
+            lender=None,
+            borrower=seller,
+            lender_type="banking",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=prop,
+            status="active",
+        )
+        PropertyListing.objects.create(
+            property=prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=5,
+            status="listed",
+        )
+        DecisionLog.objects.create(
+            simulation=sim,
+            agent=buyer,
+            tick=5,
+            input_context="test",
+            output_decision=json.dumps({"action": "buy_property", "reason": "investment"}),
+            llm_model="test",
+        )
+
+        result = process_property_listings(sim, tick=6)
+
+        assert result["matched"] == 0
+        prop.refresh_from_db()
+        assert prop.owner == seller
+
+
+@pytest.mark.django_db
+class TestSeizureAndExpropriationListingConsistency:
+    """Round 7 re-audit findings R7-PROP-1 / R7-PROP-2 (run
+    wf_d98bd880-53e): collateral seizure left the seized property's
+    active listings alive (a stale listing could later sell the
+    property from under its new owner), and expropriation nationalized
+    a pledged property while leaving the collateral FK on the
+    defaulted loan -- the next tick's settlement re-seized the
+    nationalized property FOR the lender, silently reversing the
+    expropriation."""
+
+    def test_seizure_withdraws_active_listing(self, property_market_setup):
+        from epocha.apps.economy.credit import process_defaults
+
+        setup = property_market_setup
+        sim = setup["simulation"]
+        prop = setup["property"]
+        seller = setup["seller"]
+        lender_agent = setup["buyer"]  # reuse as the loan's lender
+
+        listing = PropertyListing.objects.create(
+            property=prop,
+            asking_price=300.0,
+            fundamental_value=300.0,
+            listed_at_tick=4,
+            status="listed",
+        )
+        Loan.objects.create(
+            simulation=sim,
+            lender=lender_agent,
+            borrower=seller,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=prop,
+            status="defaulted",
+        )
+
+        process_defaults(sim, tick=5)
+
+        prop.refresh_from_db()
+        assert prop.owner == lender_agent
+        listing.refresh_from_db()
+        assert listing.status == "withdrawn"
+
+    def test_expropriation_clears_collateral_claim(self, property_market_setup):
+        from epocha.apps.economy.credit import process_defaults
+
+        setup = property_market_setup
+        sim = setup["simulation"]
+        prop = setup["property"]
+        seller = setup["seller"]
+
+        loan = Loan.objects.create(
+            simulation=sim,
+            lender=None,
+            borrower=seller,
+            lender_type="banking",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=prop,
+            status="active",
+        )
+
+        transferred = process_expropriation(sim, old_type="monarchy", new_type="communist", tick=5)
+        assert transferred >= 1
+
+        prop.refresh_from_db()
+        assert prop.owner_type == "government"
+
+        # The next tick's settlement must NOT re-seize the nationalized
+        # property away from the state.
+        process_defaults(sim, tick=6)
+        prop.refresh_from_db()
+        assert prop.owner_type == "government"
+        loan.refresh_from_db()
+        assert loan.collateral is None
+
+    def test_expropriation_clears_pending_default_collateral(self, property_market_setup):
+        """Round 8 re-audit finding R8-NEW-1/R8-PROP-1 (run
+        wf_75faf0db-ad2): the R7-PROP-2 fix cleared the collateral FK
+        only on loans in status "active". A loan already in the pending
+        "defaulted" state (cascade-marked at tick t, settled at t+1)
+        collateralized by an expropriated property kept its collateral
+        claim, so the next tick's process_defaults re-seized the
+        nationalized property FOR the agent lender -- silently reversing
+        the nationalization through the pending-default window. Every
+        other lien gate in the codebase uses the status pair
+        ["active", "defaulted"]; expropriation was the one site still on
+        the bare "active"."""
+        from epocha.apps.economy.credit import process_defaults
+
+        setup = property_market_setup
+        sim = setup["simulation"]
+        prop = setup["property"]
+        seller = setup["seller"]
+        lender_agent = setup["buyer"]  # reuse as the loan's lender
+
+        # Loan already in the pending-default window (cascade-forced at a
+        # prior tick, not yet settled) with an AGENT lender, so a
+        # re-seizure would flip the property back out of government hands.
+        loan = Loan.objects.create(
+            simulation=sim,
+            lender=lender_agent,
+            borrower=seller,
+            lender_type="agent",
+            principal=200.0,
+            interest_rate=0.10,
+            remaining_balance=200.0,
+            issued_at_tick=0,
+            collateral=prop,
+            status="defaulted",
+            cascade_origin=True,
+        )
+
+        transferred = process_expropriation(sim, old_type="monarchy", new_type="communist", tick=5)
+        assert transferred >= 1
+
+        prop.refresh_from_db()
+        assert prop.owner_type == "government"
+
+        # The pending-default loan must have had its collateral claim
+        # cleared, so the next tick's settlement does not re-seize the
+        # nationalized property for the agent lender.
+        loan.refresh_from_db()
+        assert loan.collateral is None
+
+        process_defaults(sim, tick=6)
+        prop.refresh_from_db()
+        assert prop.owner_type == "government"
+        assert prop.owner != lender_agent

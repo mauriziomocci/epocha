@@ -218,6 +218,45 @@ class TestInitializeEconomy:
         assert "default_sigma" in prod_cfg
         assert "role_production" in prod_cfg
 
+    def test_effective_production_scale_is_template_value(self, simulation, world_with_agents):
+        """The CES scale reaching production.compute_agent_output must be the
+        template's calibrated default_scale (2.0 for pre_industrial), not the
+        dead hardcoded per-good 5.0 nor the dead engine fallback 1.0.
+
+        Round 1 audit findings initialization/PROD-1 and initialization/PROD-2
+        (specs/20260715-132752-economy-base-layer-audit/round1-audit-report.md):
+        template_loader.py documents scale=5.0 as unphysical -- it floods a
+        4-agent market -- and calibrates pre_industrial to default_scale=2.0,
+        but both carriers that could deliver 2.0 to production.py were dead:
+        the per-good config always hardcoded "scale": 5.0 (shadowing the
+        default_scale fallback in production.py), and initialize_economy
+        never wrote "default_scale" into sim_config["production_config"], so
+        engine.py:138 fell back to its own conservative default of 1.0.
+        """
+        initialize_economy(simulation, template_name="pre_industrial")
+        simulation.refresh_from_db()
+
+        # Carrier (a): the per-good production config stored on the zone
+        # economy must not force the unphysical 5.0 over the calibrated
+        # value. Either the "scale" key is absent (letting production.py's
+        # default_scale fallback apply) or it already carries 2.0.
+        ze = ZoneEconomy.objects.filter(zone__world__simulation=simulation).first()
+        assert ze is not None
+        for good_code, good_prod in ze.production_config.items():
+            per_good_scale = good_prod.get("scale")
+            assert per_good_scale != 5.0, (
+                f"good '{good_code}' still hardcodes the unphysical scale=5.0 "
+                "documented in template_loader.py as flooding a 4-agent market"
+            )
+            if per_good_scale is not None:
+                assert per_good_scale == 2.0
+
+        # Carrier (b): sim_config["production_config"] must propagate
+        # default_scale so engine.py:138 receives the calibrated value
+        # instead of falling back to 1.0.
+        prod_cfg = simulation.config.get("production_config", {})
+        assert prod_cfg.get("default_scale") == 2.0
+
     def test_overrides_applied(self, simulation, world_with_agents):
         overrides = {
             "tax_config": {"income_tax_rate": 0.40},
@@ -330,3 +369,74 @@ class TestInitializationBehavioralConfig:
 
         sim = simulation_with_economy
         assert BankingState.objects.filter(simulation=sim).exists()
+
+
+@pytest.mark.django_db
+class TestInitializationDeterminism:
+    """Round 6 re-audit findings R6-DET-2 / R6-INIT-1 / R6-DET-3 (run
+    wf_6b5ea862-41e): initial agent cash was drawn with the
+    module-global random.uniform over an unordered Agent queryset --
+    identically-seeded simulations diverged at tick 0, falsifying the
+    whitepaper 3.4 seeded-RNG claim -- and every template currency was
+    created with is_primary=True, leaving the primary-currency
+    resolution to an unordered .first()."""
+
+    def test_initial_cash_does_not_consume_global_random(
+        self,
+        simulation,
+        world_with_agents,
+    ):
+        import random as global_random
+        from unittest.mock import patch
+
+        # The module-global RNG must not be consumed: the draw must
+        # come from an RNG derived from the simulation seed.
+        with patch.object(
+            global_random,
+            "uniform",
+            side_effect=AssertionError("module-global random.uniform consumed"),
+        ):
+            initialize_economy(simulation, "pre_industrial")
+
+        inv = AgentInventory.objects.filter(agent__simulation=simulation).first()
+        assert inv is not None
+        assert sum(inv.cash.values()) > 0.0
+
+    def test_only_first_template_currency_is_primary(
+        self,
+        simulation,
+        world_with_agents,
+    ):
+        initialize_economy(
+            simulation,
+            "pre_industrial",
+            overrides={
+                "currencies_config": [
+                    {"code": "LVR", "name": "Livre", "symbol": "L", "initial_supply": 10000.0},
+                    {"code": "GLD", "name": "Gold", "symbol": "G", "initial_supply": 500.0},
+                ]
+            },
+        )
+
+        primaries = Currency.objects.filter(simulation=simulation, is_primary=True)
+        assert primaries.count() == 1
+        assert primaries.first().code == "LVR"
+
+
+@pytest.mark.django_db
+class TestRngStreamNamespacing:
+    """Round 7 re-audit finding R7-RNG-1 (run wf_d98bd880-53e): the
+    economy RNG helper derived its seed from the same
+    sim:seed:tick:phase key as demography's helper, and both apps
+    reserve the phase label "initialization" -- two independent model
+    domains would consume the IDENTICAL stream, correlating their
+    draws. The economy key must be namespaced."""
+
+    def test_economy_and_demography_streams_differ(self, simulation):
+        from epocha.apps.demography.rng import get_seeded_rng as demography_rng
+        from epocha.apps.economy.rng import get_seeded_rng as economy_rng
+
+        eco = economy_rng(simulation, tick=0, phase="initialization")
+        demo = demography_rng(simulation, tick=0, phase="initialization")
+
+        assert [eco.random() for _ in range(4)] != [demo.random() for _ in range(4)]

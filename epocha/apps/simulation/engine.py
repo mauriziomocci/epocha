@@ -24,6 +24,7 @@ tasks (production path). This avoids duplicating logic across execution modes.
 from __future__ import annotations
 
 import logging
+import math
 
 from epocha.apps.agents.decision import process_agent_decision
 from epocha.apps.agents.factions import process_faction_dynamics
@@ -196,6 +197,14 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
                     amount = float(target_str)
                 except (ValueError, TypeError):
                     amount = collateral.value * 0.5
+                # R7-VAL-1 fix (Round 7 re-audit): the LLM-supplied
+                # amount is an external input -- float() accepts
+                # "nan", "inf" and negatives, which would poison the
+                # monetary aggregates downstream. Non-finite or
+                # non-positive requests fall back to the collateral
+                # heuristic (the same default as an unparsable target).
+                if not math.isfinite(amount) or amount <= 0:
+                    amount = collateral.value * 0.5
 
                 approved, result = evaluate_credit_request(
                     borrower=agent,
@@ -235,10 +244,17 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
             from epocha.apps.economy.property_market import compute_gordon_valuation
 
             target_type = action.get("target", "")
-            props = Property.objects.filter(owner=agent, owner_type="agent")
+            # R6-PROP-1 fix (Round 6 re-audit): a property under lien
+            # (collateral of an active or pending-default loan) cannot
+            # be listed for sale -- the matching side enforces the same
+            # exclusion (see economy/property_market.py). id-ordered
+            # for seeded reproducibility of which property gets listed.
+            props = Property.objects.filter(owner=agent, owner_type="agent").exclude(
+                collateralized_loans__status__in=["active", "defaulted"]
+            )
             if target_type:
                 props = props.filter(property_type__icontains=target_type)
-            prop = props.first()
+            prop = props.order_by("id").first()
 
             if prop:
                 # Skip if already actively listed
@@ -251,7 +267,17 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
                     # Expectation-based asking price multiplier.
                     # Tunable design parameters: 1.1 premium on rising, 0.9 discount on falling.
                     multiplier = 1.0
-                    exp = AgentExpectation.objects.filter(agent=agent).first()
+                    # R11-DET-1 fix (Round 11 re-audit, run wf_185858f4-372):
+                    # order_by("good_code") pins the selection. An agent
+                    # holds one expectation per good, so an unordered
+                    # .first() returned a DB-heap-order row -- an arbitrary
+                    # good's trend set the persisted asking_price and drove
+                    # the order-sensitive property settlement, breaking
+                    # reproducibility across identically-seeded runs. The
+                    # multiplier uses the agent's first good expectation as a
+                    # generic price-sentiment proxy (a documented
+                    # simplification, not the property's specific good).
+                    exp = AgentExpectation.objects.filter(agent=agent).order_by("good_code").first()
                     if exp:
                         if exp.trend_direction == "rising":
                             multiplier = 1.1

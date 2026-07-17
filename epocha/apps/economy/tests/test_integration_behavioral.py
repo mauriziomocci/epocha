@@ -18,6 +18,7 @@ directly to simulate decided-upon outcomes.
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
@@ -164,6 +165,22 @@ def behavioral_economy(db):
             "production_bonus": {"luxury": 0.3},
         },
     )
+    # Higher-value estate: find_best_unpledged_property pledges this
+    # one when the elite borrows, leaving the mansion lien-free so the
+    # full-scenario test can sell it (R6-PROP-1: a property pledged as
+    # collateral for an active loan can no longer be listed or sold).
+    Property.objects.get_or_create(
+        simulation=sim,
+        owner=elite,
+        owner_type="agent",
+        zone=z_urban,
+        property_type="estate",
+        defaults={
+            "name": "Country Estate",
+            "value": 800.0,
+            "production_bonus": {},
+        },
+    )
 
     return {
         "sim": sim,
@@ -290,6 +307,85 @@ class TestBehavioralIntegration:
         # Minsky classification should return a valid stage
         stage = classify_minsky_stage(elite, sim, tick=2)
         assert stage in {"hedge", "speculative", "ponzi"}
+
+    def test_borrow_action_falls_back_on_nonfinite_target(self, behavioral_economy):
+        """Round 8 re-audit finding R8-NEW-4 (run wf_75faf0db-ad2): pins
+        the THIRD defense-in-depth layer against a poisoned borrow
+        amount. The orchestrator borrow handler validates the
+        LLM-supplied target with math.isfinite/positivity (R7-VAL-1) and
+        falls back to collateral.value * 0.5 for a malformed target, so a
+        'nan'/'inf'/negative target never reaches issue_loan or the
+        monetary aggregates. Previously untested at the simulation
+        level."""
+        s = behavioral_economy
+        sim = s["sim"]
+        elite = s["elite"]
+
+        collateral = find_best_unpledged_property(elite)
+        assert collateral is not None
+
+        action = {"action": "borrow", "target": "nan", "reason": "invest"}
+        apply_agent_action(elite, action, tick=1)
+
+        loan = Loan.objects.filter(
+            simulation=sim,
+            borrower=elite,
+            status="active",
+        ).first()
+        assert loan is not None, "Borrow with a malformed target must fall back, not abort"
+        assert math.isfinite(loan.principal)
+        assert loan.principal == pytest.approx(collateral.value * 0.5, rel=1e-6)
+
+    def test_sell_property_asking_price_deterministic_on_expectation(self, behavioral_economy):
+        """Round 11 re-audit finding R11-DET-1 (run wf_185858f4-372): the
+        sell_property handler read the trend multiplier from
+        AgentExpectation.objects.filter(agent=agent).first() with no
+        order_by. An agent holds one expectation per good, so .first()
+        returned a DB-heap-order row -- an arbitrary good's trend set the
+        persisted asking_price and drove the order-sensitive property
+        settlement, so identically-seeded runs could ledger different sale
+        prices. The selection must be pinned by good_code. Here the
+        alphabetically-first good ("barley", falling -> 0.9) is created
+        SECOND while a rising good ("wheat" -> 1.1) is created first, so a
+        pre-fix insertion-order .first() and the post-fix good_code order
+        diverge, making this a genuine RED-first pin."""
+        from epocha.apps.economy.property_market import compute_gordon_valuation
+
+        s = behavioral_economy
+        sim = s["sim"]
+        elite = s["elite"]
+
+        AgentExpectation.objects.filter(agent=elite).delete()
+        AgentExpectation.objects.create(
+            agent=elite,
+            good_code="wheat",
+            expected_price=10.0,
+            trend_direction="rising",
+            confidence=0.8,
+            lambda_rate=0.3,
+            updated_at_tick=0,
+        )
+        AgentExpectation.objects.create(
+            agent=elite,
+            good_code="barley",
+            expected_price=10.0,
+            trend_direction="falling",
+            confidence=0.8,
+            lambda_rate=0.3,
+            updated_at_tick=0,
+        )
+
+        mansion = Property.objects.get(simulation=sim, owner=elite, property_type="mansion")
+        fundamental = compute_gordon_valuation(mansion, sim)
+
+        apply_agent_action(
+            elite, {"action": "sell_property", "target": "mansion", "reason": "cash"}, tick=1
+        )
+
+        listing = PropertyListing.objects.get(property=mansion, status="listed")
+        # good_code-ordered selection -> "barley" (falling) wins the pick,
+        # so the multiplier is 0.9, NOT "wheat"'s rising 1.1.
+        assert listing.asking_price == pytest.approx(fundamental * 0.9, rel=1e-6)
 
     def test_property_cycle_sell_then_buy(self, behavioral_economy):
         """sell_property creates a listing; buy_property intent matches at tick+1."""

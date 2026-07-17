@@ -23,15 +23,13 @@ References:
 from __future__ import annotations
 
 import logging
-import random
-
-from django.db.models import Sum
 
 from .models import (
     BankingState,
     EconomyTemplate,
     Loan,
 )
+from .rng import get_seeded_rng
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +44,13 @@ def _get_banking_config(simulation) -> dict:
     if banking_config:
         return banking_config
 
-    # Fall back to template config
-    templates = EconomyTemplate.objects.all()[:1]
+    # Fall back to template config. Legacy fallback: EconomyTemplate is
+    # a global catalog with no simulation FK, so this picks the lowest-id
+    # template deterministically (R4-DET fix) -- a documented limitation;
+    # the primary path is the per-simulation config written at
+    # initialization, which makes this branch unreachable for
+    # initialize_economy-created simulations.
+    templates = EconomyTemplate.objects.order_by("id")[:1]
     if templates:
         template_config = templates[0].config or {}
         banking_config = template_config.get("banking_config", {})
@@ -145,19 +148,28 @@ def adjust_interest_rate(simulation, tick: int) -> None:
     # and sum their potential borrowing needs.
     from epocha.apps.agents.models import Agent
 
+    # id-ordered (R5 determinism pin): the demand accumulation below is
+    # a float sum whose last ULPs depend on iteration order.
     agents = Agent.objects.filter(
         simulation=simulation,
         is_alive=True,
-    )
+    ).order_by("id")
 
     credit_demand = 0.0
     for agent in agents:
-        agent_debt_agg = Loan.objects.filter(
-            simulation=simulation,
-            borrower=agent,
-            status="active",
-        ).aggregate(total=Sum("remaining_balance"))
-        agent_debt = agent_debt_agg["total"] or 0.0
+        # id-ordered Python sum (R7-DET-1 determinism pin): SQL
+        # SUM(float8) accumulates in heap-scan order, and this value
+        # feeds the persisted base rate through a multiplicative
+        # per-tick update that compounds any ULP difference.
+        agent_debt = sum(
+            Loan.objects.filter(
+                simulation=simulation,
+                borrower=agent,
+                status="active",
+            )
+            .order_by("id")
+            .values_list("remaining_balance", flat=True)
+        )
         wealth = max(agent.wealth, 1.0)
         debt_ratio = agent_debt / wealth
 
@@ -296,10 +308,13 @@ def recalculate_deposits(simulation) -> None:
 
     from .models import AgentInventory
 
+    # agent_id-ordered (R5 determinism pin): float summation order
+    # affects the last ULPs of the aggregate; pin it so identically-
+    # seeded runs produce bit-identical deposits.
     inventories = AgentInventory.objects.filter(
         agent__simulation=simulation,
         agent__is_alive=True,
-    )
+    ).order_by("agent_id")
     total_cash = sum(sum(inv.cash.values()) for inv in inventories)
     bs.total_deposits = total_cash
     bs.save(update_fields=["total_deposits"])
@@ -347,13 +362,24 @@ def broadcast_banking_concern(simulation, tick: int) -> int:
 
     from epocha.apps.agents.models import Agent, Memory
 
-    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True))
+    # id-ordered (R4-DET fix): the sample draws from this list, so
+    # the pool order must be pinned for the derived RNG to reproduce
+    # the same broadcast set across identically-seeded runs.
+    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True).order_by("id"))
     if not agents:
         return 0
 
-    # Sample agents for broadcast
+    # Sample agents for broadcast. R5-2 fix (Round 5 re-audit): the
+    # sample comes from an RNG derived from (simulation, tick, phase)
+    # via the shared economy rng helper (R6-RNG-1: same sha256 scheme
+    # as demography/rng.py), NOT the module-global random, whose state
+    # depends on every prior consumer of the global stream -- with the
+    # global RNG the broadcast set was not a pure function of the
+    # seeded simulation state and identically-seeded runs could
+    # diverge.
+    rng = get_seeded_rng(simulation, tick, "banking_concern")
     sample_size = max(1, int(len(agents) * _CONCERN_BROADCAST_RATIO))
-    sampled = random.sample(agents, min(sample_size, len(agents)))
+    sampled = rng.sample(agents, min(sample_size, len(agents)))
 
     content = (
         "The banking system is under stress. Some depositors "

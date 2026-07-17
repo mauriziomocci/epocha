@@ -11,7 +11,6 @@ starts with a fully configured economy layer.
 from __future__ import annotations
 
 import logging
-import random
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.world.models import Zone
@@ -26,6 +25,7 @@ from .models import (
     TaxPolicy,
     ZoneEconomy,
 )
+from .rng import get_seeded_rng
 from .template_loader import get_template, load_default_templates
 
 logger = logging.getLogger(__name__)
@@ -63,16 +63,19 @@ def initialize_economy(
             if hasattr(template, key):
                 setattr(template, key, value)
 
-    # 1. Currencies
+    # 1. Currencies. R6-DET-3 fix (Round 6 re-audit): only the FIRST
+    # template currency is primary -- the pre-fix loop marked every
+    # currency is_primary=True, leaving the primary resolution to an
+    # unordered .first() elsewhere.
     currencies = []
-    for cur_cfg in template.currencies_config:
+    for idx, cur_cfg in enumerate(template.currencies_config):
         currencies.append(
             Currency.objects.create(
                 simulation=simulation,
                 code=cur_cfg["code"],
                 name=cur_cfg["name"],
                 symbol=cur_cfg["symbol"],
-                is_primary=True,
+                is_primary=(idx == 0),
                 total_supply=cur_cfg["initial_supply"],
             )
         )
@@ -117,6 +120,12 @@ def initialize_economy(
     default_sigma = prod_cfg.get("default_sigma", 0.5)
     zone_type_resources = prod_cfg.get("zone_type_resources", {})
     role_production = prod_cfg.get("role_production", {})
+    # default_scale: the template's calibrated CES scale (A). See
+    # template_loader.py's pre_industrial production_config for the
+    # calibration note (scale=5.0 floods a 4-agent market; 2.0 keeps
+    # supply/demand ratios reasonable). Falls back to 1.0 (conservative,
+    # matches engine.py's own fallback) only if a template omits it.
+    default_scale = prod_cfg.get("default_scale", 1.0)
 
     # Build initial market prices from goods base_price
     initial_prices = {g.code: g.base_price for g in goods}
@@ -124,13 +133,16 @@ def initialize_economy(
     # Build per-good production config from template defaults.
     # Each good gets a CES function with equal factor weights and the
     # template's default sigma. Zone-specific resource abundances are
-    # stored in natural_resources, not in the per-good config.
+    # stored in natural_resources, not in the per-good config. The
+    # "scale" key is intentionally omitted here so that production.py's
+    # default_scale fallback (good_prod.get("scale", default_scale))
+    # applies and every good uses the template's calibrated value rather
+    # than a hardcoded per-good override.
     factor_codes = [f.code for f in factors]
     n_factors = len(factor_codes) or 1
     default_good_production = {}
     for g in goods:
         default_good_production[g.code] = {
-            "scale": 5.0,  # tunable design parameter: base output multiplier
             "sigma": default_sigma,
             "factors": {fc: 1.0 / n_factors for fc in factor_codes},
         }
@@ -165,6 +177,7 @@ def initialize_economy(
     sim_config = simulation.config or {}
     sim_config["production_config"] = {
         "default_sigma": default_sigma,
+        "default_scale": default_scale,
         "role_production": role_production,
         "zone_type_resources": zone_type_resources,
     }
@@ -191,7 +204,12 @@ def initialize_economy(
     dist_cfg = template.initial_distribution
     wealth_ranges = dist_cfg.get("wealth_range", {})
 
-    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True))
+    # R6-DET-2 fix (Round 6 re-audit): the cash draws below consume a
+    # seeded RNG in agent-id order -- the pre-fix module-global
+    # random.uniform over an unordered queryset made identically-seeded
+    # simulations diverge at tick 0 (whitepaper 3.4 contract).
+    rng = get_seeded_rng(simulation, tick=0, phase="initialization")
+    agents = list(Agent.objects.filter(simulation=simulation, is_alive=True).order_by("id"))
     inventories_created = 0
 
     for agent in agents:
@@ -207,7 +225,7 @@ def initialize_economy(
             else:
                 wrange = wealth_ranges.get("poor", [5, 30])
 
-        initial_cash = random.uniform(wrange[0], wrange[1])
+        initial_cash = rng.uniform(wrange[0], wrange[1])
 
         # Start with 2 units of each essential good
         holdings = {code: 2.0 for code in essential_codes}

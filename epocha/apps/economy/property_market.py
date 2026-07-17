@@ -23,9 +23,9 @@ from __future__ import annotations
 import json
 import logging
 
-from django.db.models import Sum
-
 from epocha.apps.agents.models import Agent, DecisionLog, Memory
+from epocha.apps.world.government import add_to_treasury
+from epocha.apps.world.models import Government
 
 from .models import (
     AgentInventory,
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 def _get_primary_currency(simulation) -> Currency | None:
     """Return the primary currency for the simulation, or None."""
-    return Currency.objects.filter(simulation=simulation, is_primary=True).first()
+    return Currency.objects.filter(simulation=simulation, is_primary=True).order_by("id").first()
 
 
 def compute_gordon_valuation(prop: Property, simulation) -> float:
@@ -95,12 +95,19 @@ def compute_gordon_valuation(prop: Property, simulation) -> float:
     if latest_rent:
         latest_tick = latest_rent.tick
         # Sum rent for the property's zone at the latest tick
-        zone_rent_agg = EconomicLedger.objects.filter(
-            simulation=simulation,
-            transaction_type="rent",
-            tick=latest_tick,
-        ).aggregate(total=Sum("total_amount"))
-        rental_income = zone_rent_agg["total"] or 0.0
+        # id-ordered Python sum (R7-DET-1 determinism pin): SQL
+        # SUM(float8) accumulates in scan order, which is heap-order
+        # dependent -- the same ULP pinning applied to Python-side
+        # accumulations applies to aggregates feeding persisted state.
+        rental_income = sum(
+            EconomicLedger.objects.filter(
+                simulation=simulation,
+                transaction_type="rent",
+                tick=latest_tick,
+            )
+            .order_by("id")
+            .values_list("total_amount", flat=True)
+        )
     else:
         rental_income = 0.0
 
@@ -159,19 +166,26 @@ def _compute_rent_growth(simulation, num_ticks: int = 5) -> float:
     if span <= 0:
         return 0.0
 
-    latest_rent_agg = EconomicLedger.objects.filter(
-        simulation=simulation,
-        transaction_type="rent",
-        tick=latest_tick,
-    ).aggregate(total=Sum("total_amount"))
-    latest_rent = latest_rent_agg["total"] or 0.0
-
-    earliest_rent_agg = EconomicLedger.objects.filter(
-        simulation=simulation,
-        transaction_type="rent",
-        tick=earliest_tick,
-    ).aggregate(total=Sum("total_amount"))
-    earliest_rent = earliest_rent_agg["total"] or 0.0
+    # id-ordered Python sums (R7-DET-1 determinism pin, see
+    # compute_gordon_valuation).
+    latest_rent = sum(
+        EconomicLedger.objects.filter(
+            simulation=simulation,
+            transaction_type="rent",
+            tick=latest_tick,
+        )
+        .order_by("id")
+        .values_list("total_amount", flat=True)
+    )
+    earliest_rent = sum(
+        EconomicLedger.objects.filter(
+            simulation=simulation,
+            transaction_type="rent",
+            tick=earliest_tick,
+        )
+        .order_by("id")
+        .values_list("total_amount", flat=True)
+    )
 
     if earliest_rent <= 0:
         return 0.0
@@ -222,12 +236,23 @@ def process_property_listings(simulation, tick: int) -> dict:
     ).update(status="withdrawn")
     result["expired"] = stale_count
 
-    # Step 2: Read buy_property intents from DecisionLog at tick-1
-    buy_decisions = DecisionLog.objects.filter(
-        simulation=simulation,
-        tick=tick - 1,
-        output_decision__contains='"buy_property"',
-    ).select_related("agent")
+    # Step 2: Read buy_property intents from DecisionLog at tick-1.
+    # R4-DET-2 fix (Round 4 re-audit, run wf_9fb030e4-8a1): buyers
+    # compete for listings (each sale removes one), so buyer order
+    # decides contested-property winners -- pinned by agent id, then
+    # row id, for seeded reproducibility. The DecisionLog default
+    # ordering ("tick") is constant within this filter and pins
+    # nothing. The cheapest-listing lookup below carries an id
+    # tiebreak for equal asking prices for the same reason.
+    buy_decisions = (
+        DecisionLog.objects.filter(
+            simulation=simulation,
+            tick=tick - 1,
+            output_decision__contains='"buy_property"',
+        )
+        .select_related("agent")
+        .order_by("agent_id", "id")
+    )
 
     buyers = []
     for decision in buy_decisions:
@@ -258,8 +283,16 @@ def process_property_listings(simulation, tick: int) -> dict:
                 status="listed",
             )
             .exclude(property__owner=buyer)
+            # R6-PROP-1 fix (Round 6 re-audit): a property pledged as
+            # collateral for an active (or pending-default) loan is
+            # under lien -- selling it would strip the lender's
+            # security while the loan stays outstanding. Such listings
+            # are unmatchable until the loan is repaid or the default
+            # settles (seizure transfers ownership through the credit
+            # pipeline, not the market).
+            .exclude(property__collateralized_loans__status__in=["active", "defaulted"])
             .select_related("property", "property__owner")
-            .order_by("asking_price")
+            .order_by("asking_price", "id")
             .first()
         )
 
@@ -283,11 +316,27 @@ def process_property_listings(simulation, tick: int) -> dict:
         seller = listing.property.owner
         prop = listing.property
 
+        # R3-3 fix (Round 3 re-audit, run wf_af84ed13-dc3): a sale is a
+        # TRANSFER, so the buyer's debit must always have a matching
+        # credit. Pre-fix, an ownerless (government/public) listing
+        # debited the buyer while the seller guard skipped the credit,
+        # destroying money -- the same defect class as the fixed
+        # CM-TAX-2. The sale price of an ownerless property is credited
+        # to the government treasury; without a Government the sale
+        # cannot settle and is skipped before any debit.
+        treasury_gov = None
+        if seller is None:
+            try:
+                treasury_gov = Government.objects.get(simulation=simulation)
+            except Government.DoesNotExist:
+                result["failed"] += 1
+                continue
+
         # Deduct cash from buyer
         buyer_inv.cash[cur_code] = buyer_cash - listing.asking_price
         buyer_inv.save(update_fields=["cash"])
 
-        # Credit seller (if agent)
+        # Credit seller (agent) or the treasury (ownerless property)
         if seller:
             try:
                 seller_inv = seller.inventory
@@ -295,6 +344,8 @@ def process_property_listings(simulation, tick: int) -> dict:
                 seller_inv = AgentInventory.objects.create(agent=seller, holdings={}, cash={})
             seller_inv.cash[cur_code] = seller_inv.cash.get(cur_code, 0.0) + listing.asking_price
             seller_inv.save(update_fields=["cash"])
+        else:
+            add_to_treasury(treasury_gov, cur_code, listing.asking_price)
 
         # Transfer property ownership
         prop.owner = buyer
@@ -403,8 +454,12 @@ def process_expropriation(
         )
         return 0
 
-    # Materialize the queryset to iterate with side effects
-    properties_to_transfer = list(target_properties)
+    # Materialize the queryset to iterate with side effects.
+    # R10-DET-2 fix (Round 10 re-audit, run wf_9a6a807f-a41): pin the
+    # transfer order by id so the seizure side effects (and the Memory
+    # rows created below) are allocated in a reproducible order, matching
+    # the create-order pinning convention of broadcast_banking_concern.
+    properties_to_transfer = list(target_properties.order_by("id"))
     if not properties_to_transfer:
         return 0
 
@@ -420,11 +475,26 @@ def process_expropriation(
             status="listed",
         ).update(status="withdrawn")
 
-        # Default loans collateralized by this property
+        # Default loans collateralized by this property. R7-PROP-2 fix
+        # (Round 7 re-audit): the collateral FK is CLEARED -- the state
+        # has taken the security, so the later default settlement must
+        # not re-seize the nationalized property for the lender
+        # (silently reversing the expropriation); the lender's loss is
+        # the gross remaining balance, which is exactly right since the
+        # collateral is gone. R8-NEW-1/R8-PROP-1 fix (Round 8 re-audit,
+        # run wf_75faf0db-ad2): the filter must reach the pending
+        # "defaulted" state too -- a loan cascade-marked defaulted at
+        # tick t but settled by process_defaults only at t+1 retains its
+        # collateral claim through the pending-default window, so an
+        # active-only filter left that claim live and the next-tick
+        # settlement re-seized the nationalized property. This is the
+        # same status pair ["active", "defaulted"] every other lien gate
+        # uses (find_best_unpledged_property, issue_loan, the listing
+        # match gate, sell_property).
         Loan.objects.filter(
             collateral=prop,
-            status="active",
-        ).update(status="defaulted")
+            status__in=["active", "defaulted"],
+        ).update(status="defaulted", collateral=None)
 
         # Transfer ownership to government
         prop.owner = None
@@ -433,11 +503,13 @@ def process_expropriation(
 
         transferred += 1
 
-    # Create negative memories for affected agents
+    # Create negative memories for affected agents. R10-DET-2 fix:
+    # id-order the queryset so the Memory rows are created in a
+    # reproducible order (same convention as broadcast_banking_concern).
     affected_agents = Agent.objects.filter(
         id__in=affected_agent_ids,
         is_alive=True,
-    )
+    ).order_by("id")
     for agent in affected_agents:
         Memory.objects.create(
             agent=agent,

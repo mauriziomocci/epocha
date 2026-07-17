@@ -76,7 +76,12 @@ def apply_economic_feedback(simulation, tick: int) -> None:
     changed = False
 
     # --- Inflation feedback ---
-    zone_economies = list(ZoneEconomy.objects.filter(zone__world__simulation=simulation))
+    # id-ordered (R6-DET-1 determinism pin, Round 6 re-audit): the
+    # per-good price accumulations below are float sums whose order
+    # must be reproducible across identically-seeded runs.
+    zone_economies = list(
+        ZoneEconomy.objects.filter(zone__world__simulation=simulation).order_by("id")
+    )
 
     if zone_economies and tick > 0:
         # Aggregate prices across all zones for current and previous tick
@@ -86,10 +91,10 @@ def apply_economic_feedback(simulation, tick: int) -> None:
         new_count: dict[str, int] = {}
 
         for ze in zone_economies:
-            for ph in PriceHistory.objects.filter(zone_economy=ze, tick=tick - 1):
+            for ph in PriceHistory.objects.filter(zone_economy=ze, tick=tick - 1).order_by("id"):
                 old_prices[ph.good_code] = old_prices.get(ph.good_code, 0.0) + ph.price
                 old_count[ph.good_code] = old_count.get(ph.good_code, 0) + 1
-            for ph in PriceHistory.objects.filter(zone_economy=ze, tick=tick):
+            for ph in PriceHistory.objects.filter(zone_economy=ze, tick=tick).order_by("id"):
                 new_prices[ph.good_code] = new_prices.get(ph.good_code, 0.0) + ph.price
                 new_count[ph.good_code] = new_count.get(ph.good_code, 0) + 1
 

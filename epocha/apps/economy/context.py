@@ -44,7 +44,9 @@ def build_economic_context(agent, tick: int) -> str | None:
     simulation = agent.simulation
 
     # Get primary currency
-    currency = Currency.objects.filter(simulation=simulation, is_primary=True).first()
+    currency = (
+        Currency.objects.filter(simulation=simulation, is_primary=True).order_by("id").first()
+    )
     if not currency:
         return None
 
@@ -66,12 +68,19 @@ def build_economic_context(agent, tick: int) -> str | None:
 
     holdings_text = ", ".join(holdings_lines) if holdings_lines else "nothing"
 
-    # Properties
+    # Properties. R10-DET-1 fix (Round 10 re-audit, run wf_9a6a807f-a41):
+    # order_by("id") pins the enumeration joined into the LLM prompt
+    # below, matching the sorted holdings and market-price siblings in
+    # this builder -- an unordered values_list left the prompt's property
+    # list in unspecified DB scan order, so identically-seeded runs could
+    # hand the LLM a different enumeration and diverge.
     properties = list(
         Property.objects.filter(
             owner=agent,
             owner_type="agent",
-        ).values_list("property_type", flat=True)
+        )
+        .order_by("id")
+        .values_list("property_type", flat=True)
     )
     property_count = len(properties)
     property_text = f"{property_count} ({', '.join(properties)})" if properties else "none"
@@ -209,24 +218,34 @@ def _build_debt_block(agent, simulation, tick: int, symbol: str) -> str | None:
     Returns None if the agent has no active loans AND no unpledged
     property (nothing useful to report).
     """
+    # order_by("id") pins the iteration order feeding the prompt's
+    # total-balance and interest-due sums (R8-NEW-2 determinism note).
     active_loans = list(
         Loan.objects.filter(
             simulation=simulation,
             borrower=agent,
             status="active",
-        )
+        ).order_by("id")
     )
 
-    # Find best unpledged property for credit availability
+    # Find best unpledged property for credit availability.
+    # R8-NEW-2/R8-CTX-1 fix (Round 8 re-audit, run wf_75faf0db-ad2): this
+    # was a stale DRY twin of find_best_unpledged_property that the
+    # R6-COLL-1 fix never reached -- it excluded only status="active", so
+    # during the pending-default window a property pledged to a defaulted
+    # (not yet settled) loan was advertised to the LLM as available
+    # collateral with a computed credit line, though the real borrow path
+    # (which excludes ["active", "defaulted"]) would refuse it. The lien
+    # concept must have ONE definition across modules.
     unpledged_properties = list(
         Property.objects.filter(
             owner=agent,
             owner_type="agent",
         )
         .exclude(
-            collateralized_loans__status="active",
+            collateralized_loans__status__in=["active", "defaulted"],
         )
-        .order_by("-value")
+        .order_by("-value", "id")
     )
     best_property = unpledged_properties[0] if unpledged_properties else None
 

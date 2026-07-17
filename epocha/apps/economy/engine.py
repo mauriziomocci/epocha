@@ -5,11 +5,34 @@ Executes the 9-step economic cycle each tick:
 1. Production (CES per agent per zone)
 2. Market clearing (Walrasian tatonnement)
 3. Credit market (loan servicing, maturity, defaults, cascade, banking)
-4. Rent (emergent, Ricardian)
-5. Wages (output share)
+4. Rent (land factor share, emergent Ricardian)
+5. Wages (labor factor share)
+5b. Profit (capital/entrepreneurial residual factor share)
 6. Taxation (flat income tax -> treasury)
 7. Essential consumption (1 unit/tick deducted)
-8. Monetary update (Fisher velocity) + wealth/mood/stability feedback
+8a. Money supply (live circulating-cash aggregate) + Fisher diagnostic
+8b. Wealth + mood (population-median-relative thresholds) + stability
+9. Deposit recalculation (banking)
+
+Steps 4, 5 and 5b partition a single zone output value V into factor
+incomes that sum to V (rent + wages + profit = V; Ricardo 1817 /
+national-accounting identity -- see distribution.py's module
+docstring). This replaced the pre-CM-1-fix behavior where rent and
+wages each independently credited the full V as brand-new cash,
+injecting strictly more money than the output actually produced
+(Round 1 audit report, distribution/PROD-2 and cross-module CM-1).
+
+Step 8a recomputes Currency.total_supply (M) as the live aggregate of
+circulating agent cash every tick, instead of leaving it at the
+static template constant set once at initialization, and invokes the
+Fisher MV=PQ diagnostic (previously defined but never called). Step
+8b derives the mood poverty/satiation thresholds from the living
+population's median wealth instead of fixed absolute constants (see
+monetary.derive_mood_thresholds). Both are the CM-2 and CM-6 fixes
+from the Round 1 audit report's cross-module findings; the system
+prices they and the inflation computation consume are themselves a
+genuine cross-zone aggregate (monetary.aggregate_system_prices),
+fixing the last-zone-wins dict.update() merge (CM-5).
 
 This function replaces world/economy.py:process_economy_tick for
 simulations that have the new economy app models initialized.
@@ -18,6 +41,7 @@ simulations that have the new economy app models initialized.
 from __future__ import annotations
 
 import logging
+import statistics
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.world.government import add_to_treasury
@@ -36,7 +60,7 @@ from .credit import (
     process_maturity,
     service_loans,
 )
-from .distribution import compute_rent, compute_taxes, compute_wages
+from .distribution import compute_taxes, partition_output_value
 from .expectations import update_agent_expectations
 from .market import (
     SUBSISTENCE_NEED_PER_AGENT,
@@ -49,15 +73,20 @@ from .models import (
     Currency,
     EconomicLedger,
     GoodCategory,
+    Loan,
     PriceHistory,
     Property,
     TaxPolicy,
     ZoneEconomy,
 )
 from .monetary import (
+    aggregate_system_prices,
+    check_fisher_consistency,
+    compute_circulating_money_supply,
     compute_inflation,
     compute_mood_delta,
     compute_velocity,
+    derive_mood_thresholds,
     update_agent_wealth,
 )
 from .production import compute_agent_output
@@ -101,7 +130,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     records to exist for the simulation. If no currencies exist, the
     tick is silently skipped (economy not yet initialized).
     """
-    currencies = list(Currency.objects.filter(simulation=simulation))
+    currencies = list(Currency.objects.filter(simulation=simulation).order_by("id"))
     if not currencies:
         logger.debug(
             "Simulation %d has no currencies; skipping economy tick",
@@ -110,7 +139,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         return
 
     primary_currency = next((c for c in currencies if c.is_primary), currencies[0])
-    goods = list(GoodCategory.objects.filter(simulation=simulation))
+    goods = list(GoodCategory.objects.filter(simulation=simulation).order_by("id"))
     good_map = {g.code: g for g in goods}
 
     try:
@@ -118,8 +147,17 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     except TaxPolicy.DoesNotExist:
         tax_policy = None
 
+    # R4-DET-1 fix (Round 4 re-audit, run wf_9fb030e4-8a1): the zone
+    # loop feeds order-sensitive state (the credit/property block runs
+    # after the FIRST non-empty zone; cross-zone factor incomes are
+    # credited zone-by-zone), so zone order must be pinned like every
+    # other iteration order in this tick. Currencies and goods above
+    # are id-ordered for the same reason (goods order feeds the
+    # per-agent wants insertion order).
     zone_economies = list(
-        ZoneEconomy.objects.filter(zone__world__simulation=simulation).select_related("zone")
+        ZoneEconomy.objects.filter(zone__world__simulation=simulation)
+        .select_related("zone")
+        .order_by("id")
     )
     if not zone_economies:
         return
@@ -138,12 +176,34 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     default_scale = prod_template.get("default_scale", 1.0)
     role_production = prod_template.get("role_production", _ROLE_PRODUCTION)
     zone_type_resources = prod_template.get("zone_type_resources", _ZONE_TYPE_RESOURCES)
+    # wage_share / rent_share: factor-income shares partitioning the zone
+    # output value V into rent + wages + profit (Ricardo 1817 / national-
+    # accounting identity Y = wages + rent + profit; see distribution.py's
+    # module docstring). profit_share is the residual 1 - wage_share -
+    # rent_share, clamped to 0 if the two shares alone already reach or
+    # exceed 1 (a misconfigured template) -- see
+    # distribution.partition_output_value for the clamp and its warning
+    # log. Defaults match distribution.py's own defaults so callers that
+    # invoke compute_rent/compute_wages/compute_profit directly (e.g.
+    # tests) see the same numbers as the engine.
     wage_share = prod_template.get("wage_share", 0.6)
+    rent_share = prod_template.get("rent_share", 0.15)
 
     total_transaction_volume = 0.0
+    # Factor-income injections (rent + wages + profit) tracked
+    # separately from total turnover: the Fisher diagnostic compares
+    # THIS flow against nominal output (R4-FISH-1 fix, see step 8a).
+    factor_income_volume = 0.0
     total_output = 0.0
-    old_prices_all: dict[str, float] = {}
-    new_prices_all: dict[str, float] = {}
+    # CM-5 fix (Round 1 audit report, cross-module CM-5): collect one
+    # price dict PER ZONE and aggregate them with
+    # monetary.aggregate_system_prices after the loop, instead of
+    # merging with dict.update() as the loop runs. The pre-fix
+    # dict.update() approach kept only the LAST zone's price for any
+    # good present in multiple zones, despite the "_all" naming
+    # implying a genuine system-wide aggregate.
+    old_prices_by_zone: list[dict[str, float]] = []
+    new_prices_by_zone: list[dict[str, float]] = []
 
     credit_processed = False
 
@@ -157,21 +217,37 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     # Their goods will not be offered to the market (is_hoarding=True).
     hoarding_ids = _get_hoarding_agent_ids(simulation, tick)
 
+    # R3-MKT-8 fix (Round 3 re-audit, run wf_af84ed13-dc3): every
+    # iteration order that feeds the order-sensitive settlement below
+    # must be deterministic for seeded reproducibility -- agents and
+    # properties are ordered by id (unordered querysets are
+    # implementation-defined on PostgreSQL), and execute_trades
+    # iterates goods in sorted order (see market.py).
+    essential_good_codes = {g.code for g in goods if g.is_essential}
+    # Nominal output value accumulated as the sum of per-zone V_z =
+    # sum_g(zone_production_zg * equilibrium_price_zg) -- the SAME
+    # quantity the factor-income partition of steps 4/5/5b distributes.
+    # R5-FISH-2 fix (Round 5 re-audit): repricing system output at the
+    # unweighted cross-zone mean made the Fisher PQ side diverge
+    # spuriously from MV in multi-zone runs with price dispersion and
+    # asymmetric output; valuing PQ at each zone's own equilibrium
+    # prices keeps MV == PQ exactly whenever conservation holds.
+    nominal_output_value = 0.0
+
     for ze in zone_economies:
         zone = ze.zone
         agents = list(
-            Agent.objects.filter(simulation=simulation, zone=zone, is_alive=True).select_related(
-                "inventory"
-            )
+            Agent.objects.filter(simulation=simulation, zone=zone, is_alive=True)
+            .order_by("id")
+            .select_related("inventory")
         )
         if not agents:
             continue
 
-        properties = list(Property.objects.filter(simulation=simulation, zone=zone))
-        property_owner_ids = {p.owner_id for p in properties if p.owner_id}
+        properties = list(Property.objects.filter(simulation=simulation, zone=zone).order_by("id"))
 
         old_prices = dict(ze.market_prices)
-        old_prices_all.update(old_prices)
+        old_prices_by_zone.append(old_prices)
 
         # === STEP 1: PRODUCTION (CES per agent) ===
         zone_production: dict[str, float] = {}
@@ -222,12 +298,16 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     transaction_type="production",
                 )
 
+            # Note: no "owns_property" flag here (CM-1 fix). Ownership no
+            # longer affects wage computation -- an owner's land/capital
+            # income is earned through the rent/profit steps below, on
+            # the SAME output value, not through a separate full-value
+            # wage payout (see distribution.compute_wages docstring).
             agent_outputs.append(
                 {
                     "agent_id": agent.id,
                     "good_code": good_code,
                     "quantity": quantity,
-                    "owns_property": agent.id in property_owner_ids,
                 }
             )
 
@@ -242,7 +322,14 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 {
                     "agent_id": agent.id,
                     "holdings": dict(inv.holdings),
-                    "cash_amount": sum(inv.cash.values()),
+                    # R3-MKT-9 fix (Round 3 re-audit): demand is sized
+                    # on the PRIMARY currency only, matching what the
+                    # settlement below actually debits. Sizing on the
+                    # sum of all currencies let an agent holding only
+                    # secondary-currency cash project demand it could
+                    # never settle, distorting the price signal.
+                    # Multi-currency trading is not modeled.
+                    "cash_amount": inv.cash.get(primary_currency.code, 0.0),
                     "is_hoarding": agent.id in hoarding_ids,
                 }
             )
@@ -279,6 +366,23 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             total_demand,
         )
 
+        # R3-MON-NEW-1 fix (Round 3 re-audit, run wf_af84ed13-dc3):
+        # settlement is order-sensitive because the affordability guard
+        # consumes the buyer's cash as trades apply. Two guarantees:
+        # (1) determinism -- trades arrive good-by-good in sorted order
+        # from execute_trades and agents are id-ordered, so the order
+        # is reproducible across identically-seeded runs; (2) explicit
+        # priority -- essential goods settle FIRST, so a
+        # cash-constrained buyer secures subsistence before any
+        # discretionary purchase consumes its cash. The sort is stable,
+        # preserving the two-pointer matching order within each good.
+        trades.sort(
+            key=lambda t: (
+                0 if t["good_code"] in essential_good_codes else 1,
+                t["good_code"],
+            )
+        )
+
         # Apply trades to inventories
         inv_cache: dict[int, AgentInventory] = {}
         for agent in agents:
@@ -295,11 +399,27 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                 qty = trade["quantity"]
                 cost = trade["total"]
 
+                # MKT-7 settlement affordability guard (Round 2
+                # re-audit, run wf_da2305bc-4cd): wants are sized at
+                # pre-clearing prices (essential needs are not
+                # cash-sized at all), while trades settle at equilibrium
+                # prices, so a trade's cost can exceed the buyer's
+                # remaining cash. Scale the trade down to what the buyer
+                # can actually pay (the unsold quantity stays with the
+                # seller, conserving goods), so trading can never drive
+                # a buyer's cash negative.
+                cur_code = primary_currency.code
+                available = buyer_inv.cash.get(cur_code, 0.0)
+                if cost > available:
+                    if available <= 0.0:
+                        continue
+                    qty *= available / cost
+                    cost = available
+
                 buyer_inv.holdings[good] = buyer_inv.holdings.get(good, 0.0) + qty
                 current_hold = seller_inv.holdings.get(good, 0.0)
                 seller_inv.holdings[good] = max(0.0, current_hold - qty)
 
-                cur_code = primary_currency.code
                 buyer_inv.cash[cur_code] = buyer_inv.cash.get(cur_code, 0.0) - cost
                 seller_inv.cash[cur_code] = seller_inv.cash.get(cur_code, 0.0) + cost
 
@@ -336,30 +456,156 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             process_property_listings(simulation, tick)
 
             default_dead_agent_loans(simulation)
-            service_loans(simulation, tick)
+            # R5-CRED-3 fix (Round 5 re-audit): service_loans returns
+            # the loans whose borrower could not pay this tick's
+            # interest ("candidates for default"); pre-fix the list was
+            # discarded, so missed interest had zero consequence until
+            # maturity, contradicting the documented pipeline. Those
+            # loans are marked defaulted here and handled by
+            # process_defaults in the SAME tick.
+            defaulting_ids = service_loans(simulation, tick)
+            if defaulting_ids:
+                Loan.objects.filter(id__in=defaulting_ids, status="active").update(
+                    status="defaulted"
+                )
             process_maturity(simulation, tick)
-            process_defaults(simulation, tick)
-            process_default_cascade(simulation, tick)
+            # R5-CRED-2 fix (Round 5 re-audit): the cascade consumes the
+            # loss records of the defaults processed THIS tick (net of
+            # seized collateral), not a re-query over all-time defaults.
+            # Loans cascade-defaulted here are settled by
+            # process_defaults on the NEXT tick, exactly once.
+            default_loss_records = process_defaults(simulation, tick)
+            process_default_cascade(simulation, tick, loss_records=default_loss_records)
             adjust_interest_rate(simulation, tick)
             check_solvency(simulation)
             broadcast_banking_concern(simulation, tick)
             credit_processed = True
 
-        # === STEP 4: RENT (emergent Ricardian) ===
+            # R6-ENG-1 fix (Round 6 re-audit, run wf_6b5ea862-41e,
+            # INCORRECT/high): the credit/property block above reloads
+            # and saves the SAME AgentInventory rows that this zone's
+            # inv_cache instances (loaded before the block) point to.
+            # Steps 4/5/5b/6 below mutate and save those instances: a
+            # stale instance would OVERWRITE the block's cash changes
+            # (interest debits, property-sale transfers) -- a classic
+            # lost update that silently created or destroyed money
+            # outside every ledgered flow, and the one leak the Fisher
+            # diagnostic is residually blind to (it checks flows, not
+            # the M base). Re-read the rows so downstream writes build
+            # on the block's committed state. R6-ENG-2: the properties
+            # list feeding the rent/profit partition is re-read for the
+            # same reason (a sale or collateral seizure in the block
+            # changes owners).
+            for inv in AgentInventory.objects.filter(agent_id__in=list(inv_cache.keys())):
+                inv_cache[inv.agent_id] = inv
+            properties = list(
+                Property.objects.filter(simulation=simulation, zone=zone).order_by("id")
+            )
+
+        # === STEP 4/5/5b: RENT + WAGES + PROFIT (conserved factor-income
+        # partition, approach A / CM-1 fix) ===
+        # zone_production's total value V = sum(zone_production[g] *
+        # equilibrium_prices[g]) is partitioned into rent (land) + wages
+        # (labor) + profit (capital residual) so the three shares sum to
+        # exactly V -- see distribution.partition_output_value and its
+        # module docstring for the Ricardo 1817 / national-accounting
+        # source. This replaces the pre-fix behavior where compute_rent
+        # and compute_wages each independently credited (approximately)
+        # the full V as brand-new cash, injecting strictly more money
+        # than the output actually produced every tick.
+        # Round 2 re-audit fix (CM-TAX-1 / NEW-3, run wf_da2305bc-4cd):
+        # Property.owner_id may point to an agent who is dead or lives
+        # in another zone, while the payee lookup below (inv_cache) only
+        # holds this zone's living agents. Owners are therefore resolved
+        # against the SIMULATION-WIDE living-agent set: dead owners are
+        # excluded from the partition entirely -- their bonus share
+        # renormalizes to the surviving claimants of the same good
+        # inside _distribute_proportional_to_bonus, or, when NO living
+        # property claims the good, routes to the producing agents via
+        # compute_profit's no-landlord fallback; either path keeps the
+        # partition summing to V (R3-ENG-1 precision fix, Round 3
+        # re-audit) -- and living out-of-zone owners are
+        # paid through the extended payee lookup built after the
+        # partition instead of being silently dropped. Properties not
+        # owned by an agent at all (owner_type != "agent", e.g.
+        # government/public holdings) are likewise excluded: goods
+        # claimed only by such properties route their land+capital share
+        # to the producing agents via the same no-landlord fallback
+        # (Round 2 re-audit finding NEW-5, documented modeling
+        # assumption -- see distribution.py's module docstring).
+        owner_ids = {p.owner_id for p in properties if p.owner_type == "agent" and p.owner_id}
+        alive_owner_ids: set[int] = (
+            set(
+                Agent.objects.filter(
+                    simulation=simulation, id__in=owner_ids, is_alive=True
+                ).values_list("id", flat=True)
+            )
+            if owner_ids
+            else set()
+        )
         prop_dicts = [
             {"owner_id": p.owner_id, "production_bonus": p.production_bonus}
             for p in properties
-            if p.owner_type == "agent" and p.owner_id
+            if p.owner_type == "agent" and p.owner_id in alive_owner_ids
         ]
-        rents = compute_rent(zone_production, prop_dicts, equilibrium_prices)
+        # V_z: this zone's nominal output value at its OWN equilibrium
+        # prices -- the base of the factor-income partition below and
+        # this zone's contribution to the Fisher PQ side (R5-FISH-2
+        # fix; see the accumulator's comment above the zone loop).
+        nominal_output_value += sum(
+            qty * equilibrium_prices.get(good, 0.0) for good, qty in zone_production.items()
+        )
+
+        factor_shares = partition_output_value(
+            zone_production,
+            prop_dicts,
+            agent_outputs,
+            equilibrium_prices,
+            wage_share=wage_share,
+            rent_share=rent_share,
+        )
+        rents = factor_shares["rent"]
+        wages = factor_shares["wages"]
+        profits = factor_shares["profit"]
 
         cur_code = primary_currency.code
+
+        # Extended payee lookup (NEW-3 fix): factor incomes may be owed
+        # to living owners resident in OTHER zones, absent from the
+        # zone-local inv_cache. Fetch their inventories simulation-wide
+        # so rent/profit credits (and the matching tax debits in step 6)
+        # reach every living payee. Fresh per zone: a cross-zone owner
+        # credited by an earlier zone is re-read from the DB here, so
+        # running balances stay consistent across the zone loop.
+        payee_invs: dict[int, AgentInventory] = dict(inv_cache)
+        missing_payee_ids = (set(rents) | set(wages) | set(profits)) - payee_invs.keys()
+        if missing_payee_ids:
+            for inv in AgentInventory.objects.filter(
+                agent_id__in=missing_payee_ids, agent__is_alive=True
+            ):
+                payee_invs[inv.agent_id] = inv
+            # R6-MISS-1 fix (Round 6 re-audit): a LIVING payee with no
+            # inventory row yet was silently skipped by the credit
+            # loops' `if inv` guard, dropping factor income the NEW-3
+            # fix promised to pay. Create the row so the payee is
+            # creditable (and taxable) like every other living earner.
+            still_missing = missing_payee_ids - set(payee_invs)
+            if still_missing:
+                for agent_id in Agent.objects.filter(
+                    id__in=still_missing, is_alive=True
+                ).values_list("id", flat=True):
+                    payee_invs[agent_id] = AgentInventory.objects.create(
+                        agent_id=agent_id, holdings={}, cash={}
+                    )
+
+        # === STEP 4: RENT (land factor share, emergent Ricardian) ===
         for owner_id, rent_amount in rents.items():
-            inv = inv_cache.get(owner_id)
-            if inv:
+            inv = payee_invs.get(owner_id)
+            if inv and rent_amount > 0:
                 inv.cash[cur_code] = inv.cash.get(cur_code, 0.0) + rent_amount
                 inv.save(update_fields=["cash"])
                 total_transaction_volume += rent_amount
+                factor_income_volume += rent_amount
                 EconomicLedger.objects.create(
                     simulation=simulation,
                     tick=tick,
@@ -370,14 +616,21 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     transaction_type="rent",
                 )
 
-        # === STEP 5: WAGES (share of output value) ===
-        wages = compute_wages(agent_outputs, equilibrium_prices, wage_share=wage_share)
-
-        # Sanity cap: no single wage exceeds 100x the median wage.
-        # This prevents price-explosion artifacts (from Fix 1-3 residuals or
-        # edge cases) from creating billionaires in a single tick.
-        # The floor of 100.0 ensures the cap is non-trivial even when the
-        # median is very low. Tunable design parameter.
+        # === STEP 5: WAGES (labor factor share) ===
+        # Sanity cap: no single wage exceeds 100x the median wage. This
+        # predates the conservation fix, when it guarded against price-
+        # explosion artifacts creating billionaires in a single tick
+        # (Fix 1-3 residuals / edge cases). With wages now structurally
+        # bounded to wage_share*V (never the full output value), the cap
+        # should rarely bind, but it is kept as a defense-in-depth
+        # safety net -- documented, not removed. The floor of 100.0
+        # ensures the cap is non-trivial even when the median is very
+        # low. Tunable design parameter. When the cap DOES bind, the
+        # credited factor-income total falls strictly below V and the
+        # clipped remainder is deliberately not redistributed: the
+        # conservation invariant is "injection <= V, equal whenever the
+        # cap is not binding" (Round 2 re-audit finding NEW-2; see
+        # distribution.py's module docstring).
         if wages:
             sorted_wages = sorted(wages.values())
             median_wage = sorted_wages[len(sorted_wages) // 2]
@@ -385,12 +638,13 @@ def process_economy_tick_new(simulation, tick: int) -> None:
             wages = {k: min(v, max_wage) for k, v in wages.items()}
 
         for agent_id, wage_amount in wages.items():
-            inv = inv_cache.get(agent_id)
+            inv = payee_invs.get(agent_id)
             if inv and wage_amount > 0:
                 current_cash = inv.cash.get(cur_code, 0.0)
                 inv.cash[cur_code] = current_cash + wage_amount
                 inv.save(update_fields=["cash"])
                 total_transaction_volume += wage_amount
+                factor_income_volume += wage_amount
                 EconomicLedger.objects.create(
                     simulation=simulation,
                     tick=tick,
@@ -401,47 +655,88 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     transaction_type="wage",
                 )
 
+        # === STEP 5b: PROFIT (capital/entrepreneurial residual factor
+        # share) ===
+        for agent_id, profit_amount in profits.items():
+            inv = payee_invs.get(agent_id)
+            if inv and profit_amount > 0:
+                current_cash = inv.cash.get(cur_code, 0.0)
+                inv.cash[cur_code] = current_cash + profit_amount
+                inv.save(update_fields=["cash"])
+                total_transaction_volume += profit_amount
+                factor_income_volume += profit_amount
+                EconomicLedger.objects.create(
+                    simulation=simulation,
+                    tick=tick,
+                    from_agent=None,
+                    to_agent_id=agent_id,
+                    currency=primary_currency,
+                    total_amount=profit_amount,
+                    transaction_type="profit",
+                )
+
         # === STEP 6: TAXATION (flat rate -> government treasury) ===
+        # Taxable income is still wages + rent only (profit is not yet
+        # in the taxable base -- a known scope limitation; taxing profit
+        # would be a separate, deliberate policy change).
+        #
+        # Round 2 re-audit fixes (CM-TAX-1 / CM-TAX-2, run
+        # wf_da2305bc-4cd): taxation is a TRANSFER, so debits and the
+        # treasury credit must be two legs of the same amount.
+        # (1) The step runs only when a Government exists: taxing with
+        #     no fiscal authority to receive the revenue destroyed money
+        #     (agents were debited while the `if gov` guard skipped the
+        #     credit). Without a government, no tax is levied at all.
+        # (2) The treasury is credited with the RUNNING TOTAL of taxes
+        #     actually debited from agents, not compute_taxes' nominal
+        #     total_revenue: pre-fix, income imputed to an owner absent
+        #     from the payee lookup was credited to the treasury with no
+        #     matching debit, creating money. With the extended
+        #     payee_invs lookup every living earner is debitable, and
+        #     the running total makes the conservation structural.
         if tax_policy:
-            agent_incomes: dict[int, float] = {}
-            for agent_id in set(list(wages.keys()) + list(rents.keys())):
-                income = wages.get(agent_id, 0.0) + rents.get(agent_id, 0.0)
-                if income > 0:
-                    agent_incomes[agent_id] = income
-
-            tax_result = compute_taxes(agent_incomes, tax_policy.income_tax_rate)
-
             try:
                 gov = Government.objects.get(simulation=simulation)
             except Government.DoesNotExist:
                 gov = None
 
-            for agent_id, tax_amount in tax_result["agent_taxes"].items():
-                if tax_amount > 0:
-                    inv = inv_cache.get(agent_id)
-                    if inv:
-                        cur_cash = inv.cash.get(cur_code, 0.0)
-                        inv.cash[cur_code] = cur_cash - tax_amount
-                        inv.save(update_fields=["cash"])
-                        EconomicLedger.objects.create(
-                            simulation=simulation,
-                            tick=tick,
-                            from_agent_id=agent_id,
-                            to_agent=None,
-                            currency=primary_currency,
-                            total_amount=tax_amount,
-                            transaction_type="tax",
-                        )
+            if gov is not None:
+                agent_incomes: dict[int, float] = {}
+                for agent_id in set(list(wages.keys()) + list(rents.keys())):
+                    income = wages.get(agent_id, 0.0) + rents.get(agent_id, 0.0)
+                    if income > 0:
+                        agent_incomes[agent_id] = income
 
-            if gov and tax_result["total_revenue"] > 0:
-                add_to_treasury(gov, cur_code, tax_result["total_revenue"])
+                tax_result = compute_taxes(agent_incomes, tax_policy.income_tax_rate)
+
+                collected_tax = 0.0
+                for agent_id, tax_amount in tax_result["agent_taxes"].items():
+                    if tax_amount > 0:
+                        inv = payee_invs.get(agent_id)
+                        if inv:
+                            cur_cash = inv.cash.get(cur_code, 0.0)
+                            inv.cash[cur_code] = cur_cash - tax_amount
+                            inv.save(update_fields=["cash"])
+                            collected_tax += tax_amount
+                            EconomicLedger.objects.create(
+                                simulation=simulation,
+                                tick=tick,
+                                from_agent_id=agent_id,
+                                to_agent=None,
+                                currency=primary_currency,
+                                total_amount=tax_amount,
+                                transaction_type="tax",
+                            )
+
+                if collected_tax > 0:
+                    add_to_treasury(gov, cur_code, collected_tax)
 
         # Update zone prices and write price history
         ze.market_prices = equilibrium_prices
         ze.market_supply = total_supply
         ze.market_demand = total_demand
         ze.save(update_fields=["market_prices", "market_supply", "market_demand"])
-        new_prices_all.update(equilibrium_prices)
+        new_prices_by_zone.append(dict(equilibrium_prices))
 
         for good_code, price in equilibrium_prices.items():
             PriceHistory.objects.create(
@@ -463,16 +758,45 @@ def process_economy_tick_new(simulation, tick: int) -> None:
                     inv.holdings[code] = max(0.0, current - SUBSISTENCE_NEED_PER_AGENT)
                 inv.save(update_fields=["holdings"])
 
-    # === STEP 8a (global): MONETARY UPDATE (Fisher velocity) ===
-    primary_currency.cached_velocity = compute_velocity(
-        transaction_volume=total_transaction_volume,
-        money_supply=primary_currency.total_supply,
-    )
-    primary_currency.save(update_fields=["cached_velocity"])
+    # CM-5 fix: aggregate the per-zone price snapshots collected during
+    # the loop above into genuine system-wide prices (mean across the
+    # zones quoting each good), replacing the pre-fix last-zone-wins
+    # dict.update() merge. Used below by the money-supply/Fisher step,
+    # the wealth valuation, and the inflation/stability step.
+    old_prices_all = aggregate_system_prices(old_prices_by_zone)
+    new_prices_all = aggregate_system_prices(new_prices_by_zone)
 
-    # === STEP 8b: WEALTH + MOOD + STABILITY FEEDBACK ===
-    all_agents = Agent.objects.filter(simulation=simulation, is_alive=True)
-    agents_to_update = []
+    # === STEP 8: MONEY SUPPLY + WEALTH + MOOD + STABILITY FEEDBACK ===
+    # Single pass over all living agents (with their inventory
+    # prefetched) feeds three things that Round 1 audit found broken:
+    # (a) the live circulating-cash aggregate for Currency.total_supply
+    # (CM-2), (b) each agent's wealth for the mood update, and (c) the
+    # population median wealth used to derive this tick's mood
+    # thresholds (CM-6). Doing this in one query avoids re-fetching
+    # the same agent/inventory rows for what were previously two
+    # separate steps (N+1 avoidance).
+    # id-ordered (R4-DET fixes): the float accumulations below (M,
+    # median wealth) are summation-order-sensitive at the ULP level,
+    # and bulk_update write order should be reproducible too.
+    all_agents = list(
+        Agent.objects.filter(simulation=simulation, is_alive=True)
+        .order_by("id")
+        .select_related("inventory")
+    )
+
+    # Property values grouped by owner in a single query instead of one
+    # query per agent inside the loop below (N+1 avoidance; pre-existing
+    # in the code this step replaces, fixed while rewriting the block).
+    property_values_by_owner: dict[int, list[float]] = {}
+    for owner_id, value in (
+        Property.objects.filter(simulation=simulation, owner_type="agent")
+        .order_by("id")
+        .values_list("owner_id", "value")
+    ):
+        property_values_by_owner.setdefault(owner_id, []).append(value)
+
+    agent_wealths: list[tuple[Agent, float]] = []
+    cash_balances: list[dict[str, float]] = []
 
     for agent in all_agents:
         try:
@@ -480,29 +804,105 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         except AgentInventory.DoesNotExist:
             continue
 
-        property_values = list(
-            Property.objects.filter(owner=agent, owner_type="agent").values_list("value", flat=True)
-        )
+        cash_balances.append(inv.cash)
 
-        agent.wealth = update_agent_wealth(
+        property_values = property_values_by_owner.get(agent.id, [])
+        wealth = update_agent_wealth(
             holdings=inv.holdings,
             cash=inv.cash,
             property_values=property_values,
             prices=new_prices_all or old_prices_all,
         )
+        agent_wealths.append((agent, wealth))
 
-        mood_delta = compute_mood_delta(agent.wealth)
+    # === STEP 8a: MONEY SUPPLY (CM-2 fix) + FISHER DIAGNOSTIC ===
+    # total_supply (M) is recomputed every tick as the live aggregate
+    # of circulating cash across all living agents in the primary
+    # currency, replacing the static template constant that was set
+    # once at initialization and never updated (Round 1 audit report,
+    # cross-module CM-2). See compute_circulating_money_supply's
+    # docstring for why BankingState.total_deposits is NOT added on
+    # top (it mirrors the same agent cash, not a disjoint pool).
+    live_money_supply = compute_circulating_money_supply(cash_balances, primary_currency.code)
+    primary_currency.total_supply = live_money_supply
+    primary_currency.cached_velocity = compute_velocity(
+        transaction_volume=total_transaction_volume,
+        money_supply=live_money_supply,
+    )
+    primary_currency.save(update_fields=["total_supply", "cached_velocity"])
+
+    # Fisher MV=PQ consistency check: a DIAGNOSTIC only (logs a warning
+    # above 20% divergence; never alters simulation state). Round 1
+    # audit report found check_fisher_consistency defined but never
+    # invoked anywhere. R3-5 fix: the PQ side is the output-weighted
+    # nominal value; R5-FISH-2 fix: it is accumulated as the sum of the
+    # PER-ZONE nominal output values V_z at each zone's own equilibrium
+    # prices (see the zone loop), NOT system output repriced at the
+    # cross-zone mean -- the mean form diverged spuriously from MV in
+    # multi-zone runs with price dispersion and asymmetric output.
+    # system_price_level is the output-weighted (Paasche-type) index
+    # PQ / Q, so price_level * output_level reproduces the nominal
+    # output value exactly. Goods with no quoted price contribute zero
+    # nominal value, consistent with the ledger's zero-price
+    # production entries.
+    #
+    # R4-FISH-1 fix (Round 4 re-audit, run wf_9fb030e4-8a1): with a
+    # MEASURED velocity V := volume / M, the identity M*V = volume is
+    # tautological -- M cancels, so no choice of volume can make the
+    # check sensitive to an M error (Fisher's equation of exchange is
+    # an accounting identity, not a testable hypothesis, when V is
+    # residually measured). The pre-fix wiring compounded this by
+    # passing the TURNOVER velocity (trades + factor incomes over M)
+    # against the income-form PQ, firing spurious warnings whenever
+    # trade volume exceeded ~25% of nominal output in a perfectly
+    # conserved economy. The diagnostic now compares the two flows
+    # that ARE independently measured: the factor-income injection
+    # actually credited this tick (income velocity = factor income /
+    # M, so MV = factor income) against nominal output PQ. Divergence
+    # therefore means injected income != produced value -- exactly the
+    # CM-1 defect class this check was resurrected to catch. The
+    # turnover velocity remains reported on Currency.cached_velocity
+    # as a metric; it is no longer fed into this check.
+    system_price_level = nominal_output_value / total_output if total_output > 0 else 0.0
+    income_velocity = factor_income_volume / live_money_supply if live_money_supply > 0 else 0.0
+    check_fisher_consistency(
+        money_supply=live_money_supply,
+        velocity=income_velocity,
+        price_level=system_price_level,
+        output_level=total_output,
+    )
+
+    # === STEP 8b: WEALTH + MOOD (CM-6 fix: relative thresholds) ===
+    # Poverty/satiation thresholds are derived from THIS tick's living
+    # population median wealth (monetary.derive_mood_thresholds)
+    # instead of the fixed absolute constants (10.0 / 100.0) that were
+    # disconnected from the era template's wealth scale -- e.g. every
+    # property owner in the pre-industrial template started past the
+    # old satiation=100 threshold from tick 0 (Round 1 audit report,
+    # monetary+initialization cross-module finding).
+    median_wealth = statistics.median([w for _, w in agent_wealths]) if agent_wealths else 0.0
+    poverty_threshold, satiation_threshold = derive_mood_thresholds(median_wealth)
+
+    agents_to_update = []
+    for agent, wealth in agent_wealths:
+        agent.wealth = wealth
+        mood_delta = compute_mood_delta(
+            wealth,
+            satiation_threshold=satiation_threshold,
+            poverty_threshold=poverty_threshold,
+        )
         agent.mood = max(0.0, min(1.0, agent.mood + mood_delta))
-
         agents_to_update.append(agent)
 
     if agents_to_update:
         Agent.objects.bulk_update(agents_to_update, ["wealth", "mood"])
 
-    # Update world stability based on inflation
+    # === STEP 8c: STABILITY FEEDBACK (inflation, system aggregate) ===
     # Alesina & Perotti (1996): political instability and income distribution.
     # High inflation destabilizes; low inflation is neutral-to-positive.
     # Thresholds are tunable design parameters, not derived from the paper.
+    # old_prices_all/new_prices_all are now genuine system-wide
+    # aggregates (CM-5 fix above), not a single zone's prices.
     inflation = compute_inflation(old_prices_all, new_prices_all)
     try:
         world = simulation.world
@@ -514,7 +914,7 @@ def process_economy_tick_new(simulation, tick: int) -> None:
     except Exception:
         pass
 
-    # === STEP 10: DEPOSIT RECALCULATION ===
+    # === STEP 9: DEPOSIT RECALCULATION ===
     # Recalculate total_deposits from all agent cash after all economic
     # transactions are complete.
     recalculate_deposits(simulation)
