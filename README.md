@@ -21,8 +21,9 @@ of simulated time.
 
 ## Authoritative documentation
 
-- **Whitepaper (English)**: [`docs/whitepaper/epocha-whitepaper.md`](docs/whitepaper/epocha-whitepaper.md) — scientific reference: motivation, methods (audited Demography and Economy Behavioral), implementation, calibration, validation methodology, designed subsystems pending audit.
+- **Whitepaper (English)**: [`docs/whitepaper/epocha-whitepaper.md`](docs/whitepaper/epocha-whitepaper.md) — scientific reference: motivation, methods (§4.1–§4.8, all audited to convergence), implementation, calibration, validation methodology, designed subsystems pending audit (§8).
 - **Whitepaper (Italian)**: [`docs/whitepaper/epocha-whitepaper.it.md`](docs/whitepaper/epocha-whitepaper.it.md) — Italian companion, kept in sync.
+- **Build map**: [`docs/build-map/epocha-build-map.html`](docs/build-map/epocha-build-map.html) — the project board and the source of truth for build status: what is done, in progress, or not started across the 13 phases, and in which dependency order. Self-contained, no server needed: open the file directly in a browser.
 - **Project conventions**: [`CLAUDE.md`](CLAUDE.md) — workflow, code review checklist, scientific rigor rules.
 - **Recommended reading**: [`docs/letture-consigliate.md`](docs/letture-consigliate.md) — curated bibliography for contributors.
 
@@ -83,9 +84,9 @@ docs/                  Specs, plans, whitepaper, memory backup
 
 | Module | Implemented | Audited |
 |---|---|---|
-| Demography (Plan 1+2): mortality, fertility, couple | yes | yes (CONVERGED 2026-04-18 round 4) |
+| Demography (Plan 1+2): mortality, fertility, couple | yes — models unit-tested, not yet called by the tick loop (Plan 4) | yes (CONVERGED 2026-04-18 round 4) |
 | Economy Behavioral (expectations, credit, property) | yes | yes (CONVERGED 2026-04-15) |
-| Economy base (production, monetary, market, distribution) | yes | spec audit pending |
+| Economy base (production, monetary, market, distribution) | yes | yes (CONVERGED 2026-07-16 round 12) |
 | Reputation (Castelfranchi-Conte-Paolucci 1998) | yes | yes (CONVERGED 2026-05-12 round 2) |
 | Information Flow (Bartlett 1932; Granovetter 1973 cited not implemented) | yes | yes (CONVERGED 2026-05-16 round 2) |
 | Distortion (Allport-Postman 1947 assimilation) | yes | yes (CONVERGED 2026-05-16 round 2) |
@@ -102,16 +103,19 @@ docs/                  Specs, plans, whitepaper, memory backup
 | Demography Plan 3+4 (Inheritance + Migration + Engine integration + Validation execution) | not yet | n/a |
 | Economy financial markets (Spec 3) | not yet | n/a |
 
-The audit re-pass on the 2026-04-12 batch is the highest priority follow-up; 2 modules (knowledge graph, economy base layer) still pending after the reputation, rumor, political, movement and factions clusters converged. See whitepaper §9 Roadmap.
+The Knowledge Graph is the only module still awaiting its first scientific audit. The economy base layer converged on round 12 (2026-07-16) and was promoted to whitepaper §4.8, which closed the 2026-04-12 audit re-pass batch on every other module. The live board is the [build map](docs/build-map/epocha-build-map.html); the scientific detail is in whitepaper §9 Roadmap.
 
 ## Roadmap
 
-Highest priority: re-audit pass on the remaining 2026-04-12 batch modules (Knowledge Graph, Economy base layer); reputation converged on round 2 (2026-05-12) and is documented in whitepaper §4.3, the rumor cluster (Information Flow, Distortion, Belief Filter, Affinity) converged on round 2 (2026-05-16) and is documented in §4.4, the political cluster (Government, Government Types, Institutions, Stratification, Election) converged on round 2 (2026-05-16) and is documented in §4.5, Movement converged on round 2 (2026-05-16) and is documented in §4.6, and Factions converged on round 2 (2026-05-16) and is documented in §4.7. Then Demography Plan 3 (Inheritance + Migration), Plan 4 (Init + Engine integration + Historical validation), Economy financial markets, validation experiments execution. Full list in whitepaper §9.
+Highest priority is the adversarial scientific audit of the Knowledge Graph, the one module left in whitepaper §8 and the gating item before calibration and validation can close. Six clusters have already converged and been promoted to Methods: reputation on round 2 (2026-05-12) as §4.3, the rumor cluster — information flow, distortion, belief filter, affinity — on round 2 (2026-05-16) as §4.4, the political cluster — government, government types, institutions, stratification, election — on round 2 (2026-05-16) as §4.5, movement on round 2 (2026-05-16) as §4.6, factions on round 2 (2026-05-16) as §4.7, and the economy base layer on round 12 of its first audit (2026-07-16) as §4.8.
+
+Next come Demography Plan 3 (inheritance + migration) and Plan 4, which wires the audited §4.1 models into the live tick loop they do not yet enter, seeds the starting population from the era template, and runs the historical validation campaign. Then the economy financial markets (Spec 3, not yet drafted) and the execution of the validation experiments. Full list in whitepaper §9; current status per phase in the [build map](docs/build-map/epocha-build-map.html).
 
 ## Contributing
 
-- **Workflow**: 7-phase canonical (ideation → requirements with adversarial audit → architectural plan → task breakdown → implementation per atomic task → general test with adversarial code audit → closure). See `CLAUDE.md`.
-- **Branch naming**: `feature/<short-description>`, `fix/<short-description>`, `refactor/<short-description>`.
+- **Spec-driven development (mandatory since 2026-05-16)**: every work item — feature, fix campaign, refactor, deprecation — is authored through [GitHub Spec Kit](https://github.com/github/spec-kit), with no exceptions. Start with `/speckit-specify "<description>"`, which creates the branch and the spec scaffold, then `/speckit-plan` and `/speckit-tasks`. The three artifacts live in `specs/<branch>/{spec,plan,tasks}.md`. The project constitution is [`.specify/memory/constitution.md`](.specify/memory/constitution.md) and supersedes the code-quality rules of `CLAUDE.md` where the two conflict. Ad-hoc spec or plan files are not accepted: `docs/superpowers/specs/` and `docs/superpowers/plans/` are read-only archives of work predating the rule.
+- **Workflow**: Spec Kit is the authoring framework; the canonical 7-phase workflow is the gating procedure around it (ideation → requirements with adversarial audit → architectural plan → task breakdown → implementation per atomic task → general test with adversarial code audit → closure). Heavy gates at requirements and at final validation, light gates at plan and task breakdown. See `CLAUDE.md`.
+- **Branch naming**: `<YYYYMMDD-HHMMSS>-<slug>`, produced by `.specify/scripts/bash/create-new-feature.sh` through `/speckit-specify` — for example `20260715-132752-economy-base-layer-audit`. Do not hand-craft branch names.
 - **Commits**: Conventional Commits (`type(scope): brief description` + `CHANGE:` line). No AI attribution, no emoji.
 - **Code style**: `ruff check . && ruff format --check .`
 - **Tests**: `pytest --cov=epocha -v`. Zero failing tests.
