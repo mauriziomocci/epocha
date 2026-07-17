@@ -247,8 +247,16 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
             # R6-PROP-1 fix (Round 6 re-audit): a property under lien
             # (collateral of an active or pending-default loan) cannot
             # be listed for sale -- the matching side enforces the same
-            # exclusion (see economy/property_market.py). id-ordered
-            # for seeded reproducibility of which property gets listed.
+            # exclusion (see economy/property_market.py).
+            #
+            # The order_by("id") below makes an ORM guarantee explicit, it
+            # does not fix a defect: QuerySet.first() already applies
+            # order_by("pk") to any queryset whose `ordered` property is
+            # False (django/db/models/query.py, Django 5.1), and Property
+            # declares no Meta.ordering, so the emitted SQL is identical
+            # with or without it. Kept deliberately: this contract is not
+            # common knowledge -- work item R12-DET-1 was raised, and
+            # ratified, on the belief that the opposite was true.
             props = Property.objects.filter(owner=agent, owner_type="agent").exclude(
                 collateralized_loans__status__in=["active", "defaulted"]
             )
@@ -268,15 +276,20 @@ def apply_agent_action(agent: Agent, action: dict, tick: int) -> None:
                     # Tunable design parameters: 1.1 premium on rising, 0.9 discount on falling.
                     multiplier = 1.0
                     # R11-DET-1 fix (Round 11 re-audit, run wf_185858f4-372):
-                    # order_by("good_code") pins the selection. An agent
-                    # holds one expectation per good, so an unordered
-                    # .first() returned a DB-heap-order row -- an arbitrary
-                    # good's trend set the persisted asking_price and drove
-                    # the order-sensitive property settlement, breaking
-                    # reproducibility across identically-seeded runs. The
-                    # multiplier uses the agent's first good expectation as a
-                    # generic price-sentiment proxy (a documented
-                    # simplification, not the property's specific good).
+                    # order_by("good_code") pins the selection to the
+                    # alphabetically-first good code. The fix is real, but
+                    # its original rationale was wrong and is corrected
+                    # here: the pre-fix unordered .first() did NOT return a
+                    # DB-heap-order row. QuerySet.first() applies
+                    # order_by("pk") when `ordered` is False, so it returned
+                    # the lowest-pk expectation, deterministically. What the
+                    # fix changed is WHICH row: good_code order is not
+                    # creation order, so the selected trend -- and the
+                    # persisted asking_price it drives -- differs. That is
+                    # why the accompanying test was genuinely red.
+                    # The multiplier uses one good expectation as a generic
+                    # price-sentiment proxy (a documented simplification,
+                    # not the property's specific good).
                     exp = AgentExpectation.objects.filter(agent=agent).order_by("good_code").first()
                     if exp:
                         if exp.trend_direction == "rising":

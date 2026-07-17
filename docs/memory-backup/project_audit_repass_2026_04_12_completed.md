@@ -35,4 +35,4 @@ Il branch 6 ha scelto il path B del piano (marker di deprecazione) perche' la ve
 
 - **paragraph 8.1 Knowledge Graph** e **paragraph 8.2 economy base layer**: Round 2 pendente, fuori scope campagna, tracciati da [[audit-repass-batch-2026-04-12-pending]].
 - **Factions Round 3 hardening**: 5 finding behavioral deferred (NEW-1, NEW-7, NEW-8, NEW-10, NEW-12/13), catalogati nel Known Limitations bullet (f) di `factions.py`.
-- **Validation experiments**: campagna paragraph 7 ancora pendente, vedi [[project_validation_experiments_pending]].
+- **Validation experiments**: campagna paragraph 7 ancora pendente, vedi [[validation-experiments-pending]].

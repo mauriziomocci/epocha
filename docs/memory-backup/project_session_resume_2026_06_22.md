@@ -18,7 +18,7 @@ Nuovo work item via Spec Kit completo (fasi 1-7): `specs/20260622-152915-ruff-re
 - Obiettivo: gate CI lint da rosso a verde. Era `ruff check .` exit 1 (1183 errori/150 file) + `ruff format --check .` 212 file.
 - Risultato: **`ruff check .` e `ruff format --check .` exit 0 su develop**, pytest 809 invariato, zero behavior change.
 - PR#10 mergiato in develop, merge SHA `ed5e9e1626e2022f993471f348c9d14477e3692d`. Niente frozen-pin (no whitepaper toccato).
-- Dettagli completi in [[project_ruff_cleanup_pending]] (ora CLOSED).
+- Cleanup CHIUSO. Le trappole operative da riapplicare al prossimo giro di lint sono in [[ruff-lint-practice]]; la cronaca completa la registra la spec `specs/20260622-152915-ruff-repo-wide-cleanup/`.
 
 Gate heavy fase 2 (spec) + fase 6 (review avversariale) chiusi con approvazione utente. Light gate fase 3+4 confermati. Decisioni utente upfront: line-length 100, format-all, naming noqa-con-rationale su scientifico.
 
@@ -26,7 +26,7 @@ Gate heavy fase 2 (spec) + fase 6 (review avversariale) chiusi con approvazione 
 
 ### 1. Branch 6 — world economy deprecation (ULTIMO F-CAMPAIGN)
 
-`<timestamp>-world-economy-deprecation` via Spec Kit. `epocha/apps/world/economy.py` legacy MVP placeholder. Decisione: deprecate o re-audit? Default = deprecation procedure documentata in [[project_audit_repass_batch_2026_04_12_pending]]. Chiude la campagna F-CAMPAIGN (6/6).
+`<timestamp>-world-economy-deprecation` via Spec Kit. `epocha/apps/world/economy.py` legacy MVP placeholder. Decisione: deprecate o re-audit? Default = deprecation procedure documentata in [[audit-repass-batch-2026-04-12-pending]]. Chiude la campagna F-CAMPAIGN (6/6).
 
 ### 2. factions Round 3 hardening spec
 
@@ -34,8 +34,8 @@ Gate heavy fase 2 (spec) + fase 6 (review avversariale) chiusi con approvazione 
 
 ### 3. Post-campagna
 
-- Demography Plan 4 (engine wiring mortality/fertility/couple in simulation/engine.py) -- vedi [[project_demography_plan2_complete]]
-- Validation experiments execution -- vedi [[project_validation_experiments_pending]]
+- Demography Plan 4 (engine wiring mortality/fertility/couple in simulation/engine.py) -- vedi [[demography-plan2-complete]]
+- Validation experiments execution -- vedi [[validation-experiments-pending]]
 
 ## F-CAMPAIGN progress
 

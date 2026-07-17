@@ -12,7 +12,7 @@ Il whitepaper bilingue cita questo file per nome in piu' punti (paragrafi 10 Dis
 
 ## Stato campagna F-CAMPAIGN: CHIUSA 6/6
 
-Piano campagna: `docs/superpowers/plans/2026-05-12-audit-repass-campaign.md` (legacy pre-Spec-Kit). Retrospettiva: [[project_audit_repass_2026_04_12_completed]].
+Piano campagna: `docs/superpowers/plans/2026-05-12-audit-repass-campaign.md` (legacy pre-Spec-Kit). Retrospettiva: [[audit-repass-2026-04-12-completed]].
 
 | # | Branch | Esito | PR | Merge SHA |
 |---|--------|-------|----|-----------|
@@ -32,7 +32,7 @@ Piano campagna: `docs/superpowers/plans/2026-05-12-audit-repass-campaign.md` (le
 | Knowledge Graph | paragraph 8.1 | Audit PENDENTE -- unico residuo; findings originali in `docs/scientific-audit-2026-04-12.md`. E' l'item HIGH PRIORITY della roadmap paragraph 9. Codice in `epocha/apps/knowledge/` (19 moduli), **zero chiamate dal tick engine** (verificato 2026-07-17). |
 | ~~Economy base layer~~ | ~~paragraph 8.2~~ -> **paragraph 4.8** | **CHIUSO**: CONVERGED round 12 (2026-07-16), 7/7 moduli, unresolved=0, money=BOUNDED_INJECTION_ONLY, goods=YES, tax=YES, deterministic=YES. Promosso a paragraph 4.8 sul branch `20260715-132752-economy-base-layer-audit` (commit promozione `d353de2`). Suite 911 verdi. |
 
-Gate: la promozione da paragraph 8 a paragraph 4.x, l'ingresso dei parametri nelle tabelle di calibrazione paragraph 6 e l'ingresso nella campagna di validazione paragraph 7 dipendono dall'audit CONVERGED del modulo (procedura in [[project_whitepaper_promotion_pipeline]]).
+Gate: la promozione da paragraph 8 a paragraph 4.x, l'ingresso dei parametri nelle tabelle di calibrazione paragraph 6 e l'ingresso nella campagna di validazione paragraph 7 dipendono dall'audit CONVERGED del modulo (procedura in [[whitepaper-promotion-pipeline]]).
 
 Nota sul numero di round: l'economy base layer NON era nel batch 2026-04-12, quindi ha fatto il suo PRIMO audit (non un Round 2) e ha richiesto 12 round di convergenza -- molto piu' dei 2 round tipici dei moduli della campagna, perche' l'implementazione pre-audit aveva difetti strutturali di conservazione (iniettava piu' del doppio del valore prodotto come cassa nuova, fabbricava beni al settlement, M scollegata dalla cassa circolante).
 
