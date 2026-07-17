@@ -360,7 +360,7 @@ Scope: `simulation`, `agents`, `world`, `chat`, `llm-adapter`, `config`
 
 ### Git Workflow
 
-**Branch naming**: `feature/<short-description>`, `fix/<short-description>`, `refactor/<short-description>`
+**Branch naming**: ALWAYS the timestamped form `<YYYYMMDD-HHMMSS>-<slug>` produced by `.specify/scripts/bash/create-new-feature.sh` through `/speckit-specify` — for example `20260715-132752-economy-base-layer-audit`. Never hand-craft a branch name, and never the legacy `feature/<short-description>` form. See **Spec-Driven Development MANDATORY** below, which is the authority on this.
 
 | Work item type | Base branch | PR target |
 |----------------|-------------|-----------|
@@ -375,9 +375,9 @@ Scope: `simulation`, `agents`, `world`, `chat`, `llm-adapter`, `config`
 
 ### Work Item Lifecycle
 
-1. Analyze and plan — explore codebase, produce plan with architecture, trade-offs, task list
-2. Get user approval
-3. Create branch in English (e.g. `feature/agent-decision-pipeline`)
+1. `/speckit-specify "<description>"` — creates the timestamped branch and the `specs/<branch>/spec.md` scaffold
+2. Analyze and plan — explore codebase, draft the spec, then `/speckit-plan` and `/speckit-tasks` for architecture, trade-offs, task list
+3. Get user approval (heavy gate on the spec)
 4. Create Draft PR on GitHub — title and description in English
 5. Write code following all Agent Rules
 6. 8-point code review before every commit
