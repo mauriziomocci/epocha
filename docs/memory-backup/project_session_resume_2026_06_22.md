@@ -18,7 +18,7 @@ Nuovo work item via Spec Kit completo (fasi 1-7): `specs/20260622-152915-ruff-re
 - Obiettivo: gate CI lint da rosso a verde. Era `ruff check .` exit 1 (1183 errori/150 file) + `ruff format --check .` 212 file.
 - Risultato: **`ruff check .` e `ruff format --check .` exit 0 su develop**, pytest 809 invariato, zero behavior change.
 - PR#10 mergiato in develop, merge SHA `ed5e9e1626e2022f993471f348c9d14477e3692d`. Niente frozen-pin (no whitepaper toccato).
-- Dettagli completi in [[ruff-cleanup-pending]] (ora CLOSED).
+- Cleanup CHIUSO. Le trappole operative da riapplicare al prossimo giro di lint sono in [[ruff-lint-practice]]; la cronaca completa la registra la spec `specs/20260622-152915-ruff-repo-wide-cleanup/`.
 
 Gate heavy fase 2 (spec) + fase 6 (review avversariale) chiusi con approvazione utente. Light gate fase 3+4 confermati. Decisioni utente upfront: line-length 100, format-all, naming noqa-con-rationale su scientifico.
 
