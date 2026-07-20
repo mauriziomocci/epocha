@@ -353,7 +353,7 @@
     <p class="dek">The single source of truth for what is built and what is not — this board is authoritative, and every session that changes phase status must update it. Status is checked against the source tree and the whitepaper, never inherited from memory notes. The forward spine is the planned civilization arc; the substrate on the right is what is already built and audited underneath it.</p>
     <div class="mast-meta">
       <span><b>Branch</b> develop</span>
-      <span><b>Tip</b> aa4a53e · economy merged at 368e972</span>
+      <span><b>Tip</b> beb6c7f · economy merged at 368e972</span>
       <span><b>Suite</b> 911 passed · ruff clean</span>
       <span><b>Source</b> docs/build-map/epocha-build-map.html</span>
     </div>
@@ -584,7 +584,7 @@
         </div>
         <div class="rule-item">
           <span class="rule-k" style="color:var(--prog)">RNG</span>
-          <span class="rule-v">The global RNG is never seeded in <code>agents/</code> and <code>world/</code>: coup success (<code>government.py:618</code>), arrival scatter, initial placement. <code>get_seeded_rng</code> exists and is ratified in <code>economy/</code> and <code>demography/</code> — those two apps never adopted it. §3.4 promises seeding for demography only and does not say the rest lacks it.</span>
+          <span class="rule-v">The global RNG is never seeded in <code>agents/</code> and <code>world/</code>: coup success (<code>government.py:618</code>), arrival scatter, initial placement. <code>get_seeded_rng</code> exists and is ratified in <code>economy/</code> and <code>demography/</code> — agents and world never adopted it. The whitepaper now discloses both defects (§4.5 N-9 coup, §4.6 N-8 movement) but the code fix — adopting <code>get_seeded_rng</code> in agents/world — is not done.</span>
         </div>
         <div class="rule-item">
           <span class="rule-k" style="color:var(--prog)">Pins</span>
@@ -607,7 +607,7 @@
   </div>
 
   <footer>
-    <span>Source of truth · last verified against code 2026-07-17</span>
+    <span>Source of truth · last verified against code 2026-07-20</span>
     <span>Next gates: demography Plan 3 (inheritance + migration) → Plan 4 (engine wiring + validation) → Knowledge Graph audit (§8.1) · open risks: unseeded global RNG + ~23 tiebreak pins in agents/world</span>
   </footer>
 </div>
