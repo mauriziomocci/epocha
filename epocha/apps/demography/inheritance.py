@@ -22,9 +22,14 @@ h^2 values consumed by the birth pipeline.
 from __future__ import annotations
 
 import ast
+import logging
 from typing import Any
 
 from django.core.exceptions import FieldDoesNotExist
+
+from epocha.apps.world.stratification import _CLASS_RANK
+
+logger = logging.getLogger(__name__)
 
 
 class FormulaError(ValueError):
@@ -487,3 +492,299 @@ def _apply_derived_traits(
             setattr(child, name, value)
         else:
             child.personality[name] = value
+
+
+# ---------------------------------------------------------------------------
+# Social inheritance (design spec Sezione 5): social-class transmission and
+# education-level regression applied once per birth, independently of the
+# polygenic biological pass above.
+# ---------------------------------------------------------------------------
+
+# Cross-module consistency note, flagged for the phase-6 adversarial audit:
+# the canonical social-class rank ladder lives in
+# epocha.apps.world.stratification._CLASS_RANK (wealth-percentile class
+# assignment, 0 = elite .. 4 = poor). It is imported here rather than
+# duplicated -- re-deriving the same five-way ranking in this module would
+# violate the project's DRY rule and would silently drift from the
+# stratification module's definition the next time either one changes.
+# demography already depends on the world app (see
+# epocha/apps/demography/context.py importing from economy, an analogous
+# cross-app dependency), so this import does not introduce a new
+# architectural layering violation.
+#
+# _CLASS_RANK has no "enslaved" entry: the stratification module assigns
+# class purely from a wealth percentile each political cycle and never
+# produces "enslaved", even though Agent.social_class's help_text
+# (epocha/apps/agents/models.py) lists it as a valid value. The only path
+# that can ever populate "enslaved" is patrilineal_rigid social inheritance
+# carrying it forward from an already-enslaved father (pre-industrial
+# templates model chattel slavery this way). _EXTENDED_CLASS_RANK below is
+# therefore a strict superset of stratification's ladder, adding "enslaved"
+# one rank below "poor" so this module's rank arithmetic (clark_regression,
+# becker_tomes_elasticity_0.4, meritocratic) can place it correctly on the
+# rare occasions it appears as a parent's class. A future change to
+# _CLASS_RANK's five keys in the stratification module will silently desync
+# this extension unless re-verified; flagged here rather than fixed, since a
+# real fix would mean changing the stratification module itself, which is
+# outside this task's scope.
+_EXTENDED_CLASS_RANK: dict[str, int] = {**_CLASS_RANK, "enslaved": max(_CLASS_RANK.values()) + 1}
+_RANK_TO_CLASS_LABEL: dict[int, str] = {rank: label for label, rank in _EXTENDED_CLASS_RANK.items()}
+_MAX_CLASS_RANK = max(_EXTENDED_CLASS_RANK.values())
+
+# Fallback rank for a social_class value absent from _EXTENDED_CLASS_RANK
+# (defensive: a corrupted fixture, or a future class label added to
+# Agent.social_class's free-text help_text without a matching ladder entry).
+# "working" is the Agent model field's own default value, which makes it
+# the least surprising fallback -- an unrecognized class is treated as
+# ordinary rather than assumed elite or destitute.
+_UNKNOWN_CLASS_FALLBACK_RANK = _EXTENDED_CLASS_RANK["working"]
+
+# Rank-noise standard deviation for the becker_tomes_elasticity_0.4 sampling
+# step. Solon (1999) and Chetty et al. (2014) report the point elasticity
+# (0.4) but not a residual-variance term for a discrete five-level class
+# ladder -- the underlying US intergenerational-mobility studies model
+# continuous log-income, not discrete class rank, so no directly published
+# standard deviation applies here. 0.75 (three-quarters of one rank step) is
+# a documented, explicitly tunable design parameter chosen to produce
+# visible sampling variability around the shifted mean without letting
+# noise dominate the elasticity signal; it is not itself sourced from Solon
+# or Chetty.
+_BECKER_TOMES_RANK_NOISE_SD = 0.75
+
+# Rank span the meritocratic rule maps merit onto: elite=0 .. poor=4, i.e.
+# _CLASS_RANK's own un-extended span. Deliberately excludes "enslaved":
+# meritocratic reassignment is the sci_fi template's speculative design
+# choice (design spec Sezione 5, no citation), and a merit-based system
+# reassigning servile status would not be a documented simplification but
+# an invented one -- "enslaved" only ever reaches a child via
+# patrilineal_rigid transmission from an already-enslaved father, never via
+# merit.
+_MERIT_RANK_SPAN = float(max(_CLASS_RANK.values()))
+
+# Era-mean education-level prior applied when neither the era template nor
+# a caller-supplied override provides era_mean_education. No era template
+# currently declares a `social_inheritance.era_mean_education` key (verified
+# across all five templates under epocha/apps/demography/templates/).
+# 0.3 matches Agent.education_level's own field default
+# (epocha/apps/agents/models.py), making the interim substitute consistent
+# with the model's own baseline rather than an arbitrary scale midpoint.
+# Documented, explicitly tunable placeholder in the same spirit as
+# DEFAULT_ERA_MEAN / DEFAULT_ERA_SD above, pending a per-era value carried
+# by the templates.
+DEFAULT_ERA_MEAN_EDUCATION = 0.3
+
+
+def _class_rank(social_class: str | None) -> int:
+    """Resolve a social_class string to its rank on `_EXTENDED_CLASS_RANK`.
+
+    Defensive: an unrecognized or missing value falls back to the "working"
+    rank rather than raising `KeyError` (decision A) -- rank arithmetic
+    must never crash the birth pipeline over a corrupted or unexpected
+    class label.
+    """
+    if social_class is None:
+        return _UNKNOWN_CLASS_FALLBACK_RANK
+    return _EXTENDED_CLASS_RANK.get(social_class, _UNKNOWN_CLASS_FALLBACK_RANK)
+
+
+def _rank_to_class_label(rank: float) -> str:
+    """Round a continuous rank to the nearest class label.
+
+    The raw rank is clamped to the ladder's valid range
+    `[0, _MAX_CLASS_RANK]` before rounding, so an out-of-range arithmetic
+    result (e.g. a large becker_tomes_elasticity_0.4 perturbation) always
+    resolves to a real label instead of a `KeyError`.
+    """
+    clamped_rank = max(0, min(_MAX_CLASS_RANK, round(rank)))
+    return _RANK_TO_CLASS_LABEL[clamped_rank]
+
+
+def _resolve_parent_rank(mother: Any, father: Any) -> int:
+    """Father's rank, falling back to the mother's when the father is
+    unresolved, falling back further to the "working" rank when neither
+    parent is known.
+
+    The design spec documents the father-then-mother fallback explicitly
+    only for patrilineal_rigid; the same fallback is applied here to
+    clark_regression, becker_tomes_elasticity_0.4, and meritocratic so a
+    missing father never crashes rank arithmetic in any rule -- consistent
+    with the single-parent fallback philosophy of fix I-1 in
+    `inherit_trait` elsewhere in this module.
+    """
+    if father is not None:
+        return _class_rank(father.social_class)
+    if mother is not None:
+        return _class_rank(mother.social_class)
+    return _UNKNOWN_CLASS_FALLBACK_RANK
+
+
+def _apply_patrilineal_rigid(child: Any, mother: Any, father: Any) -> None:
+    """child.social_class = father.social_class verbatim (Goody, J. (1976),
+    "Production and Reproduction"; Wrigley, E.A. (1981), "Population
+    History of England"). Falls back to the mother's class when the father
+    is unresolved, and to the "working" rank when neither parent is known.
+
+    A pure string copy -- not a rank round-trip -- so a servile "enslaved"
+    father's status transmits to the child exactly, without ever passing
+    through `_rank_to_class_label`'s rounding.
+    """
+    if father is not None:
+        child.social_class = father.social_class
+    elif mother is not None:
+        child.social_class = mother.social_class
+    else:
+        child.social_class = _RANK_TO_CLASS_LABEL[_UNKNOWN_CLASS_FALLBACK_RANK]
+
+
+def _apply_clark_regression(child: Any, mother: Any, father: Any, zone_class_mean: float) -> None:
+    """70% inherited from the father's rank, 30% regression toward the
+    zone's mean class rank (Clark, G. (2014), "The Son Also Rises: Surnames
+    and the History of Social Mobility", Princeton University Press).
+
+    Deterministic: no `rng` draw, matching the design spec's description of
+    this rule as a fixed 70/30 weighting rather than a sampled outcome.
+    """
+    parent_rank = _resolve_parent_rank(mother, father)
+    rank = 0.7 * parent_rank + 0.3 * zone_class_mean
+    child.social_class = _rank_to_class_label(rank)
+
+
+def _apply_becker_tomes(
+    child: Any, mother: Any, father: Any, zone_class_mean: float, rng: Any
+) -> None:
+    """Intergenerational income elasticity 0.4 applied to class rank.
+
+    The 0.4 elasticity value is attributed to Solon, G. (1999),
+    "Intergenerational Mobility in the Labor Market", Handbook of Labor
+    Economics 3A, and corroborated by Chetty, R. et al. (2014), "Is the
+    United States Still a Land of Opportunity?", who report a 0.3-0.5
+    range. Becker, G.S. & Tomes, N. (1979), "An Equilibrium Theory of the
+    Distribution of Income and Intergenerational Mobility", Journal of
+    Political Economy, is the founding theoretical framework for
+    intergenerational elasticity but did not publish this specific value
+    (decision C) -- the template key `becker_tomes_elasticity_0.4` names
+    the framework, not the value's source.
+
+    child_rank = 0.4 * parent_rank + 0.6 * zone_class_mean, plus a seeded
+    Gaussian perturbation (see `_BECKER_TOMES_RANK_NOISE_SD`) drawn via
+    `rng.gauss`, mapped back to the nearest label. Sampled, unlike
+    clark_regression: the design spec describes this rule as drawing from a
+    distribution shifted toward the parent's rank, not a fixed weighting.
+    """
+    parent_rank = _resolve_parent_rank(mother, father)
+    base_rank = 0.4 * parent_rank + 0.6 * zone_class_mean
+    perturbation = rng.gauss(0.0, _BECKER_TOMES_RANK_NOISE_SD)
+    child.social_class = _rank_to_class_label(base_rank + perturbation)
+
+
+def _apply_meritocratic(child: Any, mother: Any, father: Any) -> None:
+    """20% inherited rank, 80% merit-based reassignment (sci_fi template's
+    speculative design choice, design spec Sezione 5 -- no citation).
+
+    Merit is the mean of the child's own already-inherited `intelligence`
+    and `education_level` (both in [0, 1]); higher merit maps to a better,
+    i.e. numerically lower, rank via `merit_rank = (1 - merit) *
+    _MERIT_RANK_SPAN`. Deterministic: no `rng` draw.
+    """
+    parent_rank = _resolve_parent_rank(mother, father)
+    merit = (child.intelligence + child.education_level) / 2.0
+    merit_rank = (1.0 - merit) * _MERIT_RANK_SPAN
+    rank = 0.2 * parent_rank + 0.8 * merit_rank
+    child.social_class = _rank_to_class_label(rank)
+
+
+def _regress_education_level(
+    mother: Any, father: Any, rho: float, era_mean_education: float
+) -> float:
+    """child.education_level = rho * midparent_education + (1 - rho) *
+    era_mean_education, clamped to [0.0, 1.0].
+
+    Applied identically after every `class_rule` branch (design spec
+    Sezione 5). Single-parent case degrades the midparent term to that
+    parent's value alone, consistent with fix I-1 in `inherit_trait`; when
+    neither parent is known, the midparent term degrades to
+    `era_mean_education` itself so the formula still resolves to a
+    well-defined value instead of raising.
+    """
+    mother_edu = mother.education_level if mother is not None else None
+    father_edu = father.education_level if father is not None else None
+
+    if mother_edu is not None and father_edu is not None:
+        midparent_edu = (mother_edu + father_edu) / 2.0
+    elif mother_edu is not None:
+        midparent_edu = mother_edu
+    elif father_edu is not None:
+        midparent_edu = father_edu
+    else:
+        midparent_edu = era_mean_education
+
+    value = rho * midparent_edu + (1.0 - rho) * era_mean_education
+    return max(0.0, min(1.0, value))
+
+
+def apply_social_inheritance(
+    child: Any, mother: Any, father: Any, template: dict, zone_class_mean: float, rng: Any
+) -> None:
+    """Apply per-era social-class transmission, then education-level
+    regression toward the era mean (design spec Sezione 5).
+
+    Two strictly ordered steps:
+
+    1. `template["social_inheritance"]["class_rule"]` selects one of four
+       branches -- `patrilineal_rigid`, `clark_regression`,
+       `becker_tomes_elasticity_0.4`, `meritocratic` (see the per-branch
+       helpers for citations and formulas). An unrecognized `class_rule`
+       logs a warning and falls back to `patrilineal_rigid` rather than
+       raising, matching this module's "never crash the birth pipeline on
+       template data" posture (see `evaluate_derived_formula`'s
+       fractional-tail handling in `resolve_birth_attributes` for the same
+       philosophy applied elsewhere).
+    2. Every branch is followed by the education-level regression (see
+       `_regress_education_level`), using
+       `template["social_inheritance"]["education_regression_rho"]` and
+       `template["social_inheritance"].get("era_mean_education",
+       DEFAULT_ERA_MEAN_EDUCATION)`.
+
+    `zone_class_mean` is supplied by the caller as the mean class rank
+    (on the `_EXTENDED_CLASS_RANK` scale) for the child's zone; this
+    function does not compute it.
+
+    This function mutates `child` in place (`social_class` and
+    `education_level`) but never calls `child.save()` -- persistence is
+    the caller's responsibility, matching `apply_trait_inheritance`'s
+    contract. All randomness is drawn from the passed `rng`
+    (`becker_tomes_elasticity_0.4` is the only branch that consumes a
+    draw); no global state, no set iteration.
+
+    Args:
+        child: the newborn Agent instance (need not be saved yet).
+        mother: the mother Agent instance, or None if unresolved.
+        father: the father Agent instance, or None if unresolved.
+        template: a demography era template dict carrying at least
+            `social_inheritance.class_rule` and
+            `social_inheritance.education_regression_rho`.
+        zone_class_mean: mean class rank of the child's zone.
+        rng: a random.Random-compatible instance exposing `.gauss(mu,
+            sigma)`.
+    """
+    social_inheritance = template["social_inheritance"]
+    class_rule = social_inheritance["class_rule"]
+
+    if class_rule == "patrilineal_rigid":
+        _apply_patrilineal_rigid(child, mother, father)
+    elif class_rule == "clark_regression":
+        _apply_clark_regression(child, mother, father, zone_class_mean)
+    elif class_rule == "becker_tomes_elasticity_0.4":
+        _apply_becker_tomes(child, mother, father, zone_class_mean, rng)
+    elif class_rule == "meritocratic":
+        _apply_meritocratic(child, mother, father)
+    else:
+        logger.warning(
+            "Unknown social_inheritance class_rule %r; falling back to patrilineal_rigid",
+            class_rule,
+        )
+        _apply_patrilineal_rigid(child, mother, father)
+
+    rho = social_inheritance["education_regression_rho"]
+    era_mean_education = social_inheritance.get("era_mean_education", DEFAULT_ERA_MEAN_EDUCATION)
+    child.education_level = _regress_education_level(mother, father, rho, era_mean_education)

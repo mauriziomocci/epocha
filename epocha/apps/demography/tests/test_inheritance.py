@@ -19,10 +19,19 @@ orchestrator that applies the polygenic pass to every heritable trait (scalar
 Agent fields and Agent.personality JSONB entries alike) and then evaluates
 `derived_trait_formulas` (e.g. `cunning`) against the freshly inherited
 values, per the "Responsibility contract" in the design spec (Sezione 4).
+
+Also covers `apply_social_inheritance` (Plan 3, T012/T013), the social-class
+transmission and education-level regression mechanism (design spec Sezione
+5): the four `class_rule` branches (patrilineal_rigid -- Goody 1976, Wrigley
+1981; clark_regression -- Clark 2014; becker_tomes_elasticity_0.4 -- Solon
+1999, Chetty et al. 2014; meritocratic -- speculative sci_fi design choice)
+and the education-level regression toward the era mean that runs after
+every rule.
 """
 
 from __future__ import annotations
 
+import logging
 import random
 
 import pytest
@@ -31,7 +40,9 @@ from django.contrib.gis.geos import Point, Polygon
 from epocha.apps.agents.models import Agent
 from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
+    DEFAULT_ERA_MEAN_EDUCATION,
     DEFAULT_ERA_SD,
+    apply_social_inheritance,
     apply_trait_inheritance,
     evaluate_derived_formula,
     inherit_trait,
@@ -606,3 +617,346 @@ class TestResolveBirthAttributesBucketCorrectness:
         for seed in range(100):
             _, orientation = resolve_birth_attributes(template, random.Random(seed))
             assert orientation == "homosexual"
+
+
+# ---------------------------------------------------------------------------
+# apply_social_inheritance (Plan 3, T012/T013)
+# ---------------------------------------------------------------------------
+#
+# Social-class transmission and education-level regression at birth (design
+# spec Sezione 5, docs/superpowers/specs/2026-04-18-demography-design-it.md).
+# Reuses the sim_with_zone fixture / _make_agent helper defined above for
+# apply_trait_inheritance.
+
+# Hand-maintained rank ladder mirroring
+# epocha.apps.world.stratification._CLASS_RANK, extended with "enslaved" one
+# rank below "poor". Kept independent of the implementation's own copy (the
+# file's established exact-match testing style) so a test failure cannot be
+# masked by trusting a constant the implementation might get wrong.
+# Agent.social_class's help_text (epocha/apps/agents/models.py) lists
+# "enslaved" as a valid value, but the stratification module (wealth-
+# percentile class assignment) never assigns it -- it is only ever
+# reachable through social inheritance (patrilineal_rigid transmission from
+# an already-enslaved father in a pre-industrial template).
+_TEST_CLASS_RANK = {
+    "elite": 0,
+    "wealthy": 1,
+    "middle": 2,
+    "working": 3,
+    "poor": 4,
+    "enslaved": 5,
+}
+_TEST_VALID_CLASS_LABELS = set(_TEST_CLASS_RANK)
+
+
+class TestApplySocialInheritancePatrilinealRigid:
+    """class_rule = "patrilineal_rigid": verbatim copy of the father's class
+    (Goody 1976; Wrigley 1981).
+    """
+
+    @pytest.mark.django_db
+    def test_child_copies_fathers_class_exactly(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "patrilineal_rigid",
+                "education_regression_rho": 0.5,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
+        father = _make_agent(sim, zone, "Father", social_class="wealthy", education_level=0.6)
+        child = _make_agent(sim, zone, "Child")
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
+
+        assert child.social_class == "wealthy"
+
+    @pytest.mark.django_db
+    def test_enslaved_status_transmits_from_father(self, sim_with_zone):
+        """A pure string copy transmits "enslaved" exactly like any other
+        label -- the whole reason the extended rank ladder (_TEST_CLASS_RANK
+        above, and its implementation counterpart per decision A) exists.
+        """
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "patrilineal_rigid",
+                "education_regression_rho": 0.5,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="poor", education_level=0.2)
+        father = _make_agent(sim, zone, "Father", social_class="enslaved", education_level=0.1)
+        child = _make_agent(sim, zone, "Child")
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(child, mother, father, template, zone_class_mean=4.0, rng=rng)
+
+        assert child.social_class == "enslaved"
+
+
+class TestApplySocialInheritanceClarkRegression:
+    """class_rule = "clark_regression": 70% father's rank / 30% regression
+    toward the zone's mean class rank (Clark, G. (2014), "The Son Also
+    Rises").
+    """
+
+    @pytest.mark.django_db
+    def test_child_regresses_toward_zone_mean_between_father_and_mean(self, sim_with_zone):
+        """A high-class father ("elite", rank 0) in a low-class zone
+        (zone_class_mean = 4.0, the "poor" rank) must land the child
+        strictly between the two ranks -- neither a plain copy of the
+        father's class nor a jump straight to the zone mean. The 70/30
+        weighting (child_rank = 0.7*0 + 0.3*4.0 = 1.2) makes this hold for
+        any reasonable nearest-label rounding rule (floor, round, or ceil
+        all land inside (0, 4.0)), so the assertion does not depend on the
+        exact rounding tie-break the implementation chooses.
+        """
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "clark_regression",
+                "education_regression_rho": 0.4,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="elite", education_level=0.9)
+        father = _make_agent(sim, zone, "Father", social_class="elite", education_level=0.9)
+        child = _make_agent(sim, zone, "Child")
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(child, mother, father, template, zone_class_mean=4.0, rng=rng)
+
+        assert child.social_class in _TEST_VALID_CLASS_LABELS
+        child_rank = _TEST_CLASS_RANK[child.social_class]
+        assert 0 < child_rank < 4.0
+
+
+class TestApplySocialInheritanceBeckerTomes:
+    """class_rule = "becker_tomes_elasticity_0.4": intergenerational income
+    elasticity 0.4 (Solon 1999; Chetty et al. 2014), sampled rather than
+    deterministic.
+    """
+
+    @pytest.mark.django_db
+    def test_outcome_varies_across_seeds_and_stays_in_valid_label_set(self, sim_with_zone):
+        """A batch of independent seeds must NOT all resolve to the same
+        label as a deterministic copy would -- the rule samples a
+        perturbation around the shifted mean -- and every result must stay
+        inside the six valid social_class labels.
+        """
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "becker_tomes_elasticity_0.4",
+                "education_regression_rho": 0.4,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="elite", education_level=0.9)
+        father = _make_agent(sim, zone, "Father", social_class="elite", education_level=0.9)
+
+        results = set()
+        for seed in range(40):
+            child = _make_agent(sim, zone, f"BeckerChild{seed}")
+            rng = random.Random(seed)
+            apply_social_inheritance(child, mother, father, template, zone_class_mean=3.0, rng=rng)
+            results.add(child.social_class)
+
+        assert results <= _TEST_VALID_CLASS_LABELS
+        assert len(results) > 1, "expected sampling variability, got a deterministic copy"
+
+
+class TestApplySocialInheritanceMeritocratic:
+    """class_rule = "meritocratic": 20% inherited, 80% merit-based
+    reassignment from the child's own intelligence/education_level
+    (speculative sci_fi design choice, design spec Sezione 5 -- no
+    citation).
+    """
+
+    @pytest.mark.django_db
+    def test_higher_merit_yields_a_numerically_lower_better_rank(self, sim_with_zone):
+        """Two children of the same parents/zone, differing only in their
+        already-inherited intelligence/education_level, must resolve to a
+        strictly better (lower) rank for the high-merit child than for the
+        low-merit child. Deterministic -- meritocratic consumes no rng
+        draws -- so the comparison holds exactly, not just on average.
+        """
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "meritocratic",
+                "education_regression_rho": 0.25,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
+        father = _make_agent(sim, zone, "Father", social_class="middle", education_level=0.5)
+
+        high_merit_child = _make_agent(
+            sim, zone, "HighMeritChild", intelligence=0.95, education_level=0.95
+        )
+        low_merit_child = _make_agent(
+            sim, zone, "LowMeritChild", intelligence=0.05, education_level=0.05
+        )
+
+        rng_high = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(
+            high_merit_child, mother, father, template, zone_class_mean=2.0, rng=rng_high
+        )
+        rng_low = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(
+            low_merit_child, mother, father, template, zone_class_mean=2.0, rng=rng_low
+        )
+
+        high_rank = _TEST_CLASS_RANK[high_merit_child.social_class]
+        low_rank = _TEST_CLASS_RANK[low_merit_child.social_class]
+        assert high_rank < low_rank
+
+
+class TestApplySocialInheritanceEducationRegression:
+    """child.education_level = rho*(mother.education_level +
+    father.education_level)/2 + (1-rho)*era_mean_education, clamped to
+    [0.0, 1.0]. Runs identically after every class_rule (design spec
+    Sezione 5). TRAP 1 guard: the field under test is `education_level`,
+    never `education` -- Agent has no such attribute.
+    """
+
+    @pytest.mark.django_db
+    def test_matches_hand_computed_formula_with_known_rho(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        rho = 0.6
+        mother_edu = 0.8
+        father_edu = 0.4
+        template = {
+            "social_inheritance": {
+                "class_rule": "patrilineal_rigid",
+                "education_regression_rho": rho,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=mother_edu)
+        father = _make_agent(sim, zone, "Father", social_class="middle", education_level=father_edu)
+        child = _make_agent(sim, zone, "Child")
+
+        expected = rho * (mother_edu + father_edu) / 2.0 + (1.0 - rho) * DEFAULT_ERA_MEAN_EDUCATION
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
+
+        assert not hasattr(child, "education")  # TRAP 1: no such field on Agent
+        assert child.education_level == pytest.approx(expected)
+
+    @pytest.mark.django_db
+    def test_result_is_clamped_into_zero_one(self, sim_with_zone):
+        """rho = 0.0 isolates the era-mean term: an out-of-range
+        era_mean_education (only reachable via a template override -- the
+        Agent.education_level field itself is not range-restricted at the
+        DB level either, so this also guards against a future caller
+        passing an out-of-range value) must still clamp the final
+        education_level into [0.0, 1.0].
+        """
+        sim, zone = sim_with_zone
+        mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
+        father = _make_agent(sim, zone, "Father", social_class="middle", education_level=0.5)
+
+        template_high = {
+            "social_inheritance": {
+                "class_rule": "patrilineal_rigid",
+                "education_regression_rho": 0.0,
+                "era_mean_education": 2.0,
+            }
+        }
+        child_high = _make_agent(sim, zone, "ChildHighEdu")
+        rng_high = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(
+            child_high, mother, father, template_high, zone_class_mean=2.0, rng=rng_high
+        )
+        assert child_high.education_level == 1.0
+
+        template_low = {
+            "social_inheritance": {
+                "class_rule": "patrilineal_rigid",
+                "education_regression_rho": 0.0,
+                "era_mean_education": -1.0,
+            }
+        }
+        child_low = _make_agent(sim, zone, "ChildLowEdu")
+        rng_low = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(
+            child_low, mother, father, template_low, zone_class_mean=2.0, rng=rng_low
+        )
+        assert child_low.education_level == 0.0
+
+    @pytest.mark.django_db
+    def test_single_parent_fallback_uses_that_parents_value_alone(self, sim_with_zone):
+        """Consistent with fix I-1 in `inherit_trait`: when only the mother
+        is known, the midparent term degrades to her value alone.
+        """
+        sim, zone = sim_with_zone
+        rho = 0.5
+        mother_edu = 0.9
+        template = {
+            "social_inheritance": {
+                "class_rule": "patrilineal_rigid",
+                "education_regression_rho": rho,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=mother_edu)
+        child = _make_agent(sim, zone, "Child")
+
+        expected = rho * mother_edu + (1.0 - rho) * DEFAULT_ERA_MEAN_EDUCATION
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(child, mother, None, template, zone_class_mean=2.0, rng=rng)
+
+        assert child.education_level == pytest.approx(expected)
+
+
+class TestApplySocialInheritanceUnknownClassRule:
+    """Decision A/contract: an unrecognized class_rule must never raise."""
+
+    @pytest.mark.django_db
+    def test_unknown_class_rule_falls_back_to_patrilineal_rigid_with_warning(
+        self, sim_with_zone, caplog
+    ):
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "not_a_real_rule",
+                "education_regression_rho": 0.5,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
+        father = _make_agent(sim, zone, "Father", social_class="wealthy", education_level=0.5)
+        child = _make_agent(sim, zone, "Child")
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        with caplog.at_level(logging.WARNING):
+            apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
+
+        assert child.social_class == "wealthy"
+        assert any("not_a_real_rule" in message for message in caplog.messages)
+
+
+class TestApplySocialInheritanceUnknownClassValue:
+    """Decision A: an unrecognized social_class value is treated as the
+    "working" rank rather than raising during rank arithmetic.
+    """
+
+    @pytest.mark.django_db
+    def test_unknown_father_class_value_falls_back_to_working_rank(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "clark_regression",
+                "education_regression_rho": 0.4,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
+        father = _make_agent(
+            sim, zone, "Father", social_class="not_a_real_class", education_level=0.5
+        )
+        child = _make_agent(sim, zone, "Child")
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        # "working" rank fallback (3): 0.7*3 + 0.3*2.0 = 2.7 -> rounds to 3.
+        apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
+
+        assert child.social_class == "working"
