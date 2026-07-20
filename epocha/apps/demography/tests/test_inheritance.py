@@ -69,11 +69,14 @@ from epocha.apps.demography.inheritance import (
     inherit_trait,
     resolve_birth_attributes,
     resolve_heirs,
+    transfer_loans_as_lender,
 )
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.demography.template_loader import load_template
+from epocha.apps.economy.models import Loan
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
+from epocha.apps.world.government import add_to_treasury
 from epocha.apps.world.models import Government, World, Zone
 
 
@@ -2080,3 +2083,345 @@ class TestDistributeEstateConservation:
         allocation = distribute_estate(deceased, heirs, "matrilineal", inheritable)
 
         assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
+
+
+# ---------------------------------------------------------------------------
+# T022 (Plan 3, user story 2 -- estate/succession, SC-002): end-to-end
+# conservation across the FULL chain estate -> apply_estate_tax ->
+# distribute_estate, for every one of the five per-era succession rules.
+#
+# The tests above (TestApplyEstateTaxConservation, TestDistributeEstate
+# Conservation) each already prove conservation for one leg of the chain in
+# isolation: apply_estate_tax's own remainder + treasury delta, and
+# distribute_estate's own allocation sum. Neither, alone, proves the two
+# legs compose correctly end to end. This class is the guard for that
+# composition -- the actual invariant whitepaper Sezione 4.2 ("Economia
+# comportamentale") and Sezione 4.8 ("Economia -- livello base") both state
+# and both of which are already CONVERGED: no value is created or destroyed
+# when an estate is settled, whichever succession rule the era template
+# selects.
+#
+# The treasury side of the equation is read back from the DATABASE (via
+# government.refresh_from_db()), never from apply_estate_tax's own return
+# value or from add_to_treasury's in-memory mutation -- this is what proves
+# the money actually landed in a persisted row, not merely that the
+# arithmetic leading up to the write was correct.
+# ---------------------------------------------------------------------------
+
+
+def _build_deceased_for_primogeniture(sim, zone):
+    """A single son: primogeniture's cascade resolves him as sole heir."""
+    deceased = _make_agent(sim, zone, "Deceased")
+    _make_agent(sim, zone, "Son", parent_agent=deceased, birth_tick=1, gender=Agent.Gender.MALE)
+    return deceased
+
+
+def _build_deceased_for_equal_split(sim, zone):
+    """Spouse + two children: three equal shares, none of which divides
+    total_estate_value evenly -- exercises the remainder-absorption path.
+    """
+    deceased = _make_agent(sim, zone, "Deceased")
+    partner = _make_agent(sim, zone, "Partner")
+    form_couple(deceased, partner, formed_at_tick=1)
+    _make_agent(sim, zone, "ChildA", parent_agent=deceased, birth_tick=1)
+    _make_agent(sim, zone, "ChildB", parent_agent=deceased, birth_tick=2)
+    return deceased
+
+
+def _build_deceased_for_sharia(sim, zone):
+    """Spouse + son + daughter: exercises both the spouse's fixed fraction
+    and the 2:1 male:female residuary split in the same allocation.
+    """
+    deceased = _make_agent(sim, zone, "Deceased")
+    partner = _make_agent(sim, zone, "Partner")
+    form_couple(deceased, partner, formed_at_tick=1)
+    _make_agent(sim, zone, "Son", parent_agent=deceased, birth_tick=1, gender=Agent.Gender.MALE)
+    _make_agent(
+        sim, zone, "Daughter", parent_agent=deceased, birth_tick=2, gender=Agent.Gender.FEMALE
+    )
+    return deceased
+
+
+def _build_deceased_for_matrilineal(sim, zone):
+    """A sister with two living children: matrilineal never reads the
+    deceased's own children or spouse, only descendants of sisters.
+    """
+    common_parent = _make_agent(sim, zone, "CommonParent")
+    deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+    sister = _make_agent(
+        sim, zone, "Sister", parent_agent=common_parent, birth_tick=5, gender=Agent.Gender.FEMALE
+    )
+    _make_agent(sim, zone, "Niece", parent_agent=sister, birth_tick=20)
+    _make_agent(sim, zone, "Nephew", parent_agent=sister, birth_tick=25)
+    return deceased
+
+
+def _build_deceased_for_nationalized(sim, zone):
+    """Spouse + child present and living: proves the empty allocation is
+    "nationalized by design", not "nobody was found" (see
+    TestDistributeEstateNationalized above).
+    """
+    deceased = _make_agent(sim, zone, "Deceased")
+    partner = _make_agent(sim, zone, "Partner")
+    form_couple(deceased, partner, formed_at_tick=1)
+    _make_agent(sim, zone, "Child", parent_agent=deceased, birth_tick=1)
+    return deceased
+
+
+class TestFullEstateChainConservation:
+    """SC-002: sum(distribute_estate(...).values()) + (treasury delta from
+    apply_estate_tax, read from the database) == the deceased's total
+    estate, exactly within `_CONSERVATION_TOLERANCE`, for every one of the
+    five succession rules, under a non-zero tax rate (0.40, the
+    modern_democracy rate -- see TestApplyEstateTaxModernRate).
+
+    `total_estate_value` is deliberately 12_345.67 (matching
+    TestApplyEstateTaxConservation) rather than a round number, so the
+    conservation assertion is not accidentally satisfied by inputs that
+    happen to divide evenly at every step of the chain.
+    """
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "rule, build_deceased",
+        [
+            ("primogeniture", _build_deceased_for_primogeniture),
+            ("equal_split", _build_deceased_for_equal_split),
+            ("shari'a", _build_deceased_for_sharia),
+            ("matrilineal", _build_deceased_for_matrilineal),
+            ("nationalized", _build_deceased_for_nationalized),
+        ],
+    )
+    def test_full_chain_conserves_total_estate(self, sim_with_government, rule, build_deceased):
+        sim, zone, government = sim_with_government
+        deceased = build_deceased(sim, zone)
+
+        total_estate_value = 12_345.67
+        rate = 0.40
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        inheritable = apply_estate_tax(total_estate_value, rate, government, "USD")
+
+        government.refresh_from_db()
+        tax_treasury_delta = government.government_treasury["USD"]
+
+        allocation = distribute_estate(deceased, heirs, rule, inheritable)
+
+        if rule == "nationalized":
+            # nationalized (Nove 1969): distribute_estate's allocation is
+            # empty BY DESIGN -- the entire post-tax remainder is state
+            # property, not an unclaimed leftover (see the EMPTY
+            # ALLOCATION SHAPE note in distribute_estate's own docstring).
+            # distribute_estate is a pure function that only ever returns
+            # an id-keyed allocation mapping; crediting the nationalized
+            # remainder to the treasury is explicitly the CALLER's
+            # responsibility (a later task, T029's
+            # process_inheritance_batch), not distribute_estate's own. This
+            # test simulates that caller step directly via add_to_treasury
+            # -- the same primitive apply_estate_tax itself already used
+            # for the tax leg -- so the chain closes end to end, then
+            # re-reads the treasury from the database a second time to
+            # prove the nationalized remainder, and not merely the tax,
+            # actually landed.
+            assert allocation == {}
+            add_to_treasury(government, "USD", inheritable)
+            government.refresh_from_db()
+            total_treasury_delta = government.government_treasury["USD"]
+            assert total_treasury_delta == pytest.approx(
+                total_estate_value, abs=_CONSERVATION_TOLERANCE
+            )
+        else:
+            allocation_total = sum(allocation.values())
+            assert allocation_total + tax_treasury_delta == pytest.approx(
+                total_estate_value, abs=_CONSERVATION_TOLERANCE
+            )
+
+
+# ---------------------------------------------------------------------------
+# transfer_loans_as_lender (Plan 3, T023, user story 2 -- estate/succession).
+# Reassigns the deceased's outstanding CREDITS (active loans where the
+# deceased was the LENDER) to a living heir, or to the banking system when
+# no living heir exists, so an agent's death never evaporates money someone
+# else owes them -- the same conservation posture as apply_estate_tax /
+# distribute_estate above, applied to the deceased's loan book rather than
+# their cash/property estate.
+# ---------------------------------------------------------------------------
+
+
+def _make_loan(sim, borrower, lender=None, lender_type="agent", status="active", **kwargs):
+    """Helper: create a Loan with sensible defaults (mirrors the pattern in
+    epocha/apps/economy/tests/test_credit.py).
+    """
+    defaults = dict(
+        principal=1_000.0,
+        interest_rate=0.05,
+        remaining_balance=1_000.0,
+        issued_at_tick=0,
+        due_at_tick=None,
+    )
+    defaults.update(kwargs)
+    return Loan.objects.create(
+        simulation=sim,
+        borrower=borrower,
+        lender=lender,
+        lender_type=lender_type,
+        status=status,
+        **defaults,
+    )
+
+
+class TestTransferLoansAsLenderToLivingHeir:
+    """An active loan where the deceased was the lender moves to a living
+    heir, drawn from the heirs dict resolve_heirs already resolved.
+    """
+
+    @pytest.mark.django_db
+    def test_active_loan_reassigned_to_sole_living_heir(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        heir = _make_agent(sim, zone, "Heir", parent_agent=deceased, birth_tick=1)
+        borrower = _make_agent(sim, zone, "Borrower")
+        loan = _make_loan(sim, borrower, lender=deceased)
+
+        transfer_loans_as_lender(deceased, {"children": [heir]})
+
+        loan.refresh_from_db()
+        assert loan.lender_id == heir.id
+        assert loan.lender_type == "agent"
+        assert loan.status == "active"
+
+    @pytest.mark.django_db
+    def test_multiple_active_loans_round_robin_across_heirs_in_priority_order(self, sim_with_zone):
+        """Round-robin over the flattened heir list, in the same
+        spouse-first / children-oldest-first priority order the estate
+        distribution rules use -- every heir must receive at least one
+        loan when loans outnumber heirs, and no loan is dropped.
+        """
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        spouse = _make_agent(sim, zone, "Spouse")
+        form_couple(deceased, spouse, formed_at_tick=1)
+        child = _make_agent(sim, zone, "Child", parent_agent=deceased, birth_tick=1)
+        borrower = _make_agent(sim, zone, "Borrower")
+        loans = [_make_loan(sim, borrower, lender=deceased) for _ in range(3)]
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        assert [agent.id for agent in heirs["spouse"]] == [spouse.id]
+        assert [agent.id for agent in heirs["children"]] == [child.id]
+
+        transfer_loans_as_lender(deceased, heirs)
+
+        for loan in loans:
+            loan.refresh_from_db()
+        new_lender_ids = {loan.lender_id for loan in loans}
+        # Both heirs receive at least one loan (3 loans, 2 heirs,
+        # round-robin) -- no heir is skipped and no loan is dropped.
+        assert new_lender_ids == {spouse.id, child.id}
+        assert loans[0].lender_id == spouse.id
+        assert loans[1].lender_id == child.id
+        assert loans[2].lender_id == spouse.id
+
+
+class TestTransferLoansAsLenderNoLivingHeir:
+    """No living heir at all: the loan transfers to the banking system
+    (lender=None, lender_type="banking") and KEEPS being serviced -- the
+    conserving resolution of the spec's self-contradiction (see
+    transfer_loans_as_lender's own docstring for the full account).
+    """
+
+    @pytest.mark.django_db
+    def test_no_heirs_transfers_to_banking_system_and_stays_active(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        borrower = _make_agent(sim, zone, "Borrower")
+        loan = _make_loan(sim, borrower, lender=deceased)
+
+        transfer_loans_as_lender(deceased, {"spouse": [], "children": [], "siblings": []})
+
+        loan.refresh_from_db()
+        assert loan.lender_id is None
+        assert loan.lender_type == "banking"
+        assert loan.status == "active"
+
+
+class TestTransferLoansAsLenderScopeGuards:
+    """Non-active loans and borrower-side loans are never touched."""
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("status", ["repaid", "defaulted"])
+    def test_non_active_loan_is_untouched(self, sim_with_zone, status):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        heir = _make_agent(sim, zone, "Heir", parent_agent=deceased, birth_tick=1)
+        borrower = _make_agent(sim, zone, "Borrower")
+        loan = _make_loan(sim, borrower, lender=deceased, status=status)
+
+        transfer_loans_as_lender(deceased, {"children": [heir]})
+
+        loan.refresh_from_db()
+        assert loan.lender_id == deceased.id
+        assert loan.lender_type == "agent"
+        assert loan.status == status
+
+    @pytest.mark.django_db
+    def test_loan_where_deceased_is_borrower_is_untouched(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        heir = _make_agent(sim, zone, "Heir", parent_agent=deceased, birth_tick=1)
+        other_lender = _make_agent(sim, zone, "OtherLender")
+        loan = _make_loan(sim, deceased, lender=other_lender)
+
+        transfer_loans_as_lender(deceased, {"children": [heir]})
+
+        loan.refresh_from_db()
+        assert loan.lender_id == other_lender.id
+        assert loan.borrower_id == deceased.id
+        assert loan.status == "active"
+
+    @pytest.mark.django_db
+    def test_banking_lender_type_loan_with_null_lender_is_untouched(self, sim_with_zone):
+        """A loan already carried by the banking system (lender=None) has
+        no bearing on the deceased's own lender-side loan book and must
+        never be touched, even though its lender FK happens to be null
+        like a freshly-transferred heirless loan would be.
+        """
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        heir = _make_agent(sim, zone, "Heir", parent_agent=deceased, birth_tick=1)
+        borrower = _make_agent(sim, zone, "Borrower")
+        loan = _make_loan(sim, borrower, lender=None, lender_type="banking")
+
+        transfer_loans_as_lender(deceased, {"children": [heir]})
+
+        loan.refresh_from_db()
+        assert loan.lender_id is None
+        assert loan.lender_type == "banking"
+
+
+class TestTransferLoansAsLenderQueryBudget:
+    """Efficiency requirement: Plan 4 will call this once per death, every
+    tick -- the write path must not become N+1 as the deceased's loan book
+    grows (see this module's established query-budget convention, e.g.
+    TestResolveHeirsQueryBudget above).
+    """
+
+    @pytest.mark.django_db
+    def test_write_count_is_bounded_independent_of_loan_count(
+        self, sim_with_zone, django_assert_num_queries
+    ):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        spouse = _make_agent(sim, zone, "Spouse")
+        form_couple(deceased, spouse, formed_at_tick=1)
+        child = _make_agent(sim, zone, "Child", parent_agent=deceased, birth_tick=1)
+        borrower = _make_agent(sim, zone, "Borrower")
+        for _ in range(5):
+            _make_loan(sim, borrower, lender=deceased)
+
+        heirs = {"spouse": [spouse], "children": [child]}
+
+        # 1 query to fetch the deceased's active lender-side loans, plus 1
+        # bulk_update UPDATE for the reassignment -- 2 queries regardless
+        # of loan count, never N+1 individual .save() calls.
+        with django_assert_num_queries(2):
+            transfer_loans_as_lender(deceased, heirs)

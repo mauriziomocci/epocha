@@ -1837,3 +1837,132 @@ def distribute_estate(
 
     logger.warning("Unknown economic_inheritance rule %r; falling back to equal_split", rule)
     return _distribute_equal_split(heirs, inheritable)
+
+
+# ---------------------------------------------------------------------------
+# Loan transfer (Plan 3, T023, user story 2 -- estate/succession). Reassigns
+# the deceased's outstanding CREDITS -- active loans where the deceased was
+# the LENDER -- so a death never evaporates money someone else owes the
+# deceased. Loans where the deceased was the BORROWER are a separate
+# mechanism, entirely out of scope here (see the docstring below).
+# ---------------------------------------------------------------------------
+
+
+def transfer_loans_as_lender(deceased: Any, heirs: dict[str, list]) -> None:
+    """Reassign the deceased's active lender-side loans to a living heir,
+    or to the banking system when there is none.
+
+    Design spec Sezione 5, "Loans ereditati (come lender)": the deceased's
+    outstanding CREDITS (active loans where the deceased is `lender`, i.e.
+    money owed TO them) transfer to their heirs under the same distribution
+    priority the estate itself uses, rather than following the deceased
+    into oblivion -- an asset (a claim on someone else's future repayment)
+    must not evaporate merely because its holder died, on the same
+    conservation posture `apply_estate_tax` and `distribute_estate` above
+    already establish for cash and property.
+
+    Scope (CRITICAL, read before touching this function): only loans where
+    `deceased` is `lender` are considered. Loans where `deceased` is
+    `borrower` -- the deceased's own DEBTS -- are entirely out of scope
+    here; they are a separate mechanism (debt forgiveness / creditor claim
+    against the estate) not implemented by this task. Only loans with
+    `status="active"` are reassigned -- a `repaid`, `defaulted`, or
+    `default_settled` loan has no live balance for the new holder to
+    service and is left untouched.
+
+    SPEC AMBIGUITY AND ITS RESOLUTION (flagged explicitly for the phase-6
+    adversarial code audit): the design spec contradicts itself on what
+    happens when there is no living heir. Sezione 5's own "Loans ereditati"
+    paragraph states, in the same breath: "Se la regola non produce eredi
+    umani (es. nationalized o nessuna famiglia), il loan trasferisce al
+    banking system (lender=None, lender_type="banking") e continua a essere
+    servito" -- immediately followed by "Loans agent-to-agent senza eredi
+    vengono silenziosamente cancellati a MVP -- limitazione documentata."
+    The spec's own FAQ (Sezione "Cosa succede ai loans dove il deceduto era
+    il lender?") repeats the same transfer-then-contradict pattern, and
+    "Known Limitations" item 9 independently restates the cancellation
+    reading in isolation. These two readings cannot both be implemented:
+    "transfers to the banking system and keeps being serviced" and
+    "silently cancelled" describe mutually exclusive outcomes for the same
+    loan. This function implements the BANKING TRANSFER reading, never
+    cancellation -- silently cancelling an active credit would destroy
+    real value and violate the exact conservation invariant (whitepaper
+    Sezione 4.2/4.8, both CONVERGED) that this entire user story exists to
+    protect; `apply_estate_tax` and `distribute_estate` conserve every
+    unit of the estate's cash value; a heirless loan disappearing outright
+    would silently reintroduce the leak this user story closes for cash.
+    A future spec revision should reconcile the contradiction in the design
+    document itself; until then, this docstring is the authoritative record
+    of which reading the code implements and why.
+
+    Heir selection: `heirs` is the dict `resolve_heirs(deceased, template)`
+    already returned -- categories in `heir_priority` order (typically
+    "spouse", "children", "siblings", "extended_family"), each a list of
+    living heirs in the module's established oldest-first order (see
+    `resolve_heirs`'s own docstring). This function flattens `heirs` by
+    iterating its values in that same insertion order -- never re-sorted,
+    never routed through a `set` -- reproducing the identical spouse-first,
+    children-oldest-first priority ladder `distribute_estate` already
+    applies to the estate's cash. Loans are then assigned ROUND-ROBIN across
+    that flattened list (`heir_index = loan_index % len(flattened_heirs)`):
+    a documented, deliberately simple policy choice -- the design spec does
+    not specify HOW multiple loans should split across multiple heirs
+    (only that they "transfer... using the same distribution rule" for the
+    single-recipient primogeniture case; round-robin is the natural,
+    deterministic generalization to N heirs that guarantees every heir with
+    at least one loan-slot receives at least one loan when loans outnumber
+    heirs, without requiring this function to re-run a full
+    `distribute_estate`-style proportional split for a fundamentally
+    different asset class).
+
+    Write path (efficiency requirement, load-bearing once Plan 4 wires this
+    into the per-tick death pipeline): exactly ONE `SELECT` (the active
+    lender-side loans, materialized into a list) followed by exactly ONE
+    `bulk_update` `UPDATE`, regardless of how many loans the deceased held
+    as lender -- never a per-loan `.save()` loop, which would make this
+    function's cost scale with the deceased's loan-book size instead of
+    staying O(1) in query count.
+
+    This function is NOT pure -- unlike `resolve_heirs` and
+    `distribute_estate` above, it performs the ORM write itself (via
+    `bulk_update`) rather than returning a value for the caller to persist.
+    This is a deliberate departure from this module's usual no-save
+    contract: a `Loan.lender` FK reassignment has no meaningful "allocation
+    mapping" representation the way a cash split does (there is nothing to
+    sum or conserve across the return value -- the loan's `principal` /
+    `remaining_balance` are untouched), so returning a pure description for
+    a separate persistence step would only add indirection without a
+    conservation contract to protect.
+
+    Args:
+        deceased: the deceased Agent instance. Must be saved (queried by
+            `id` against `Loan.lender`).
+        heirs: the dict `resolve_heirs(deceased, template)` returned --
+            values are lists of living heir Agent instances, in the
+            established priority/oldest-first order. An empty dict, or a
+            dict whose every value is an empty list, is treated identically
+            to "no living heir".
+
+    Returns:
+        None. Mutates `Loan` rows in the database directly.
+    """
+    from epocha.apps.economy.models import Loan
+
+    active_loans = list(Loan.objects.filter(lender=deceased, lender_type="agent", status="active"))
+    if not active_loans:
+        return
+
+    flattened_heirs = [heir for pool in heirs.values() for heir in pool]
+
+    if not flattened_heirs:
+        for loan in active_loans:
+            loan.lender = None
+            loan.lender_type = "banking"
+        Loan.objects.bulk_update(active_loans, ["lender", "lender_type"])
+        return
+
+    heir_count = len(flattened_heirs)
+    for index, loan in enumerate(active_loans):
+        loan.lender = flattened_heirs[index % heir_count]
+
+    Loan.objects.bulk_update(active_loans, ["lender"])
