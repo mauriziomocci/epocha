@@ -27,6 +27,7 @@ from typing import Any
 
 from django.core.exceptions import FieldDoesNotExist
 
+from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.world.stratification import _CLASS_RANK
 
 logger = logging.getLogger(__name__)
@@ -788,3 +789,150 @@ def apply_social_inheritance(
     rho = social_inheritance["education_regression_rho"]
     era_mean_education = social_inheritance.get("era_mean_education", DEFAULT_ERA_MEAN_EDUCATION)
     child.education_level = _regress_education_level(mother, father, rho, era_mean_education)
+
+
+# ---------------------------------------------------------------------------
+# Birth-pipeline entry point (Plan 3, T014/T015, user story 1): wires the
+# three independent inheritance mechanisms above behind a single call and a
+# single deterministic RNG stream.
+# ---------------------------------------------------------------------------
+
+
+def _compute_zone_class_mean(zone: Any) -> float:
+    """Mean class rank (on `_EXTENDED_CLASS_RANK`) of living agents in `zone`.
+
+    Single query: `.values_list("social_class", flat=True)` fetches only the
+    `social_class` column, avoiding both full Agent instantiation and any
+    N+1 pattern -- every agent's class in the zone is read in one round
+    trip. Filters `is_alive=True`, matching the dominant codebase convention
+    for "current living population" queries (e.g. `couple.py`,
+    `fertility.py`).
+
+    Empty-zone guard: a zone with no living agents (a brand-new zone, or
+    one whose entire prior population has died) has no well-defined
+    arithmetic mean. Falls back to `_UNKNOWN_CLASS_FALLBACK_RANK` -- the
+    "working" rank, the same fallback `_class_rank` itself uses for a
+    single unrecognized label -- so `apply_social_inheritance`'s
+    zone-mean-dependent branches (`clark_regression`,
+    `becker_tomes_elasticity_0.4`) always receive a well-defined float and
+    never need a special case of their own for an empty zone.
+    """
+    from epocha.apps.agents.models import Agent
+
+    class_values = Agent.objects.filter(zone=zone, is_alive=True).values_list(
+        "social_class", flat=True
+    )
+    ranks = [_class_rank(value) for value in class_values]
+    if not ranks:
+        return float(_UNKNOWN_CLASS_FALLBACK_RANK)
+    return sum(ranks) / len(ranks)
+
+
+def apply_inheritance_at_birth(
+    child: Any, mother: Any, father: Any, simulation: Any, tick: int
+) -> None:
+    """Birth-pipeline entry point: apply every inheritance mechanism to a newborn.
+
+    The single composable entry point a birth calls (design spec Sezione
+    4/5, "Responsibility contract"; Plan 3 user story 1). Wires together
+    this module's three independent building blocks --
+    `apply_trait_inheritance`, `resolve_birth_attributes`,
+    `apply_social_inheritance` -- so a caller (the Plan 4 birth
+    orchestrator) does not need to know their internal ordering or share
+    RNG state manually across them.
+
+    Fixed step order (mandatory, not incidental -- see "RNG stream" below):
+
+    1. `apply_trait_inheritance` -- polygenic biological traits (Falconer &
+       Mackay 1996, ch. 8) and derived-trait formulas (e.g. `cunning`).
+    2. `resolve_birth_attributes` -- gender and sexual orientation, exactly
+       two `rng.random()` draws.
+    3. `apply_social_inheritance` -- social_class transmission (one of four
+       per-era class rules) and education_level regression toward the era
+       mean.
+
+    RNG stream: all three steps share a SINGLE `random.Random` instance,
+    drawn once via `demography.rng.get_seeded_rng(simulation, tick,
+    phase="inheritance")`, so together they consume one continuous,
+    deterministic sequence rather than three independently-seeded ones.
+    Changing the call order above would change which draw lands on which
+    step and silently break bit-for-bit reproducibility across identically
+    (simulation, tick)-seeded calls -- the same reproducibility contract
+    `apply_trait_inheritance` and `resolve_birth_attributes` each document
+    individually for their own internal draws.
+
+    Template resolution: `simulation.config.get("demography_template",
+    "pre_industrial_christian")` then `template_loader.load_template(...)`,
+    with no try/except around the lookup -- matching how
+    `couple.resolve_pair_bond_intents` / `couple.resolve_separate_intents`
+    (this app's other mandatory, non-skippable per-tick template lookups)
+    resolve their own template. A birth is not an optional action a caller
+    can choose to skip the way `avoid_conception` is in
+    `simulation.engine`; a misconfigured `demography_template` name is a
+    configuration error that must surface immediately as a raised
+    exception, not one this function silently papers over with a fallback
+    template that would produce scientifically wrong inheritance under a
+    mislabeled era.
+
+    zone_class_mean: computed once via `_compute_zone_class_mean(mother.zone)`
+    -- the child's zone is the mother's zone (a newborn has no location
+    history of its own) -- before any of the three steps run, since
+    `apply_social_inheritance` needs it and the query has no RNG
+    interaction with the deterministic stream above.
+
+    wealth: `child.wealth` is set to 0.0 unconditionally. A newborn
+    inherits nothing financially at the moment of birth; wealth transfer
+    from a deceased parent's estate (`economic_inheritance` in the era
+    template) is a separate mechanism triggered at death, not birth, and is
+    scoped to a later task.
+
+    zone: `child.zone = mother.zone`, matching `Agent.zone`'s own
+    help_text ("Current zone (denormalized for performance)") -- a newborn
+    is physically located with its mother at birth.
+
+    No-save contract: this function mutates `child` (and only `child`) in
+    place and never calls `child.save()`, matching the contract already
+    established by `apply_trait_inheritance` and `apply_social_inheritance`.
+    Persistence stays the caller's responsibility, keeping this composable
+    with however the Plan 4 orchestrator sequences and batches the birth
+    pipeline (e.g. bulk-creating several newborns in one query).
+
+    Args:
+        child: the newborn Agent instance (need not be saved yet).
+        mother: the mother Agent instance. A birth always has a mother;
+            `mother.zone` supplies both the child's zone and the
+            zone_class_mean query target.
+        father: the father Agent instance, or None if unresolved -- the
+            single-parent fallback already supported by every downstream
+            mechanism this function calls.
+        simulation: the Simulation instance; supplies `.config` (read for
+            the `demography_template` key) and is passed through to
+            `get_seeded_rng`.
+        tick: the current simulation tick, passed through to
+            `get_seeded_rng`.
+
+    Raises:
+        FileNotFoundError, ValueError: propagated unchanged from
+            `template_loader.load_template` when `simulation.config`'s
+            `demography_template` name does not resolve to a template file
+            on disk, or fails the loader's own schema validation.
+    """
+    from epocha.apps.demography.template_loader import load_template
+
+    template_name = simulation.config.get("demography_template", "pre_industrial_christian")
+    template = load_template(template_name)
+
+    zone_class_mean = _compute_zone_class_mean(mother.zone)
+
+    rng = get_seeded_rng(simulation, tick, phase="inheritance")
+
+    apply_trait_inheritance(child, mother, father, template, rng)
+
+    gender, orientation = resolve_birth_attributes(template, rng)
+    child.gender = gender
+    child.sexual_orientation = orientation
+
+    apply_social_inheritance(child, mother, father, template, zone_class_mean, rng)
+
+    child.wealth = 0.0
+    child.zone = mother.zone

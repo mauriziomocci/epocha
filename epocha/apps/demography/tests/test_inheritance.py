@@ -42,6 +42,7 @@ from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
     DEFAULT_ERA_MEAN_EDUCATION,
     DEFAULT_ERA_SD,
+    apply_inheritance_at_birth,
     apply_social_inheritance,
     apply_trait_inheritance,
     evaluate_derived_formula,
@@ -960,3 +961,216 @@ class TestApplySocialInheritanceUnknownClassValue:
         apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
 
         assert child.social_class == "working"
+
+
+# ---------------------------------------------------------------------------
+# apply_inheritance_at_birth (Plan 3, T014/T015)
+# ---------------------------------------------------------------------------
+#
+# The single birth-pipeline entry point wiring apply_trait_inheritance,
+# resolve_birth_attributes, and apply_social_inheritance behind ONE
+# deterministic RNG stream (design spec Sezione 4/5, "Responsibility
+# contract"). Reuses sim_with_zone / _make_agent from above, plus
+# SCALAR_HERITABLE_TRAITS / PERSONALITY_HERITABLE_TRAITS /
+# _TEST_CLASS_RANK / _TEST_VALID_CLASS_LABELS already defined for the
+# lower-level orchestrators.
+
+
+class TestApplyInheritanceAtBirthEndToEnd:
+    """A single call populates every inherited attribute on the child.
+
+    Uses the real "pre_industrial_christian" template (the simulation.config
+    default), exercising the full production template-resolution path
+    rather than a synthetic dict.
+    """
+
+    @pytest.mark.django_db
+    def test_populates_every_inherited_attribute_and_wealth_and_zone(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        mother_personality = {name: 0.65 for name in PERSONALITY_HERITABLE_TRAITS}
+        father_personality = {name: 0.35 for name in PERSONALITY_HERITABLE_TRAITS}
+        mother = _make_agent(
+            sim,
+            zone,
+            "Mother",
+            personality=mother_personality,
+            social_class="wealthy",
+            education_level=0.6,
+            **{name: 0.65 for name in SCALAR_HERITABLE_TRAITS},
+        )
+        father = _make_agent(
+            sim,
+            zone,
+            "Father",
+            personality=father_personality,
+            social_class="middle",
+            education_level=0.4,
+            **{name: 0.35 for name in SCALAR_HERITABLE_TRAITS},
+        )
+        child = _make_agent(sim, zone, "Child")
+
+        apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
+
+        for name in SCALAR_HERITABLE_TRAITS:
+            value = getattr(child, name)
+            assert isinstance(value, float), f"{name} was not written as a scalar float"
+            assert 0.0 <= value <= 1.0, f"{name}={value} outside [0, 1]"
+
+        for name in PERSONALITY_HERITABLE_TRAITS:
+            assert name in child.personality, f"{name} missing from child.personality"
+            value = child.personality[name]
+            assert isinstance(value, float), f"{name} was not written as a float"
+            assert 0.0 <= value <= 1.0, f"{name}={value} outside [0, 1]"
+
+        assert child.gender in {"male", "female"}
+        assert child.sexual_orientation in {"heterosexual", "bisexual", "homosexual"}
+        assert child.social_class in _TEST_VALID_CLASS_LABELS
+        assert 0.0 <= child.education_level <= 1.0
+        assert child.wealth == 0.0
+        assert child.zone == mother.zone
+
+
+class TestApplyInheritanceAtBirthDeterminism:
+    """SC-003: identical simulation seed and tick reproduce an identical
+    child state bit for bit -- proof that the fixed step order feeds all
+    three inheritance mechanisms from a single continuous RNG stream.
+    """
+
+    @pytest.mark.django_db
+    def test_same_seed_and_tick_yields_identical_child_state(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        mother = _make_agent(
+            sim,
+            zone,
+            "Mother",
+            social_class="wealthy",
+            education_level=0.6,
+            personality={name: 0.6 for name in PERSONALITY_HERITABLE_TRAITS},
+            **{name: 0.6 for name in SCALAR_HERITABLE_TRAITS},
+        )
+        father = _make_agent(
+            sim,
+            zone,
+            "Father",
+            social_class="middle",
+            education_level=0.4,
+            personality={name: 0.4 for name in PERSONALITY_HERITABLE_TRAITS},
+            **{name: 0.4 for name in SCALAR_HERITABLE_TRAITS},
+        )
+        child_a = _make_agent(sim, zone, "ChildA")
+        child_b = _make_agent(sim, zone, "ChildB")
+
+        apply_inheritance_at_birth(child_a, mother, father, sim, sim.current_tick)
+        apply_inheritance_at_birth(child_b, mother, father, sim, sim.current_tick)
+
+        for name in SCALAR_HERITABLE_TRAITS:
+            assert getattr(child_a, name) == getattr(child_b, name), name
+        for name in PERSONALITY_HERITABLE_TRAITS:
+            assert child_a.personality[name] == child_b.personality[name], name
+        assert child_a.gender == child_b.gender
+        assert child_a.sexual_orientation == child_b.sexual_orientation
+        assert child_a.social_class == child_b.social_class
+        assert child_a.education_level == child_b.education_level
+        assert child_a.wealth == child_b.wealth == 0.0
+        assert child_a.zone == child_b.zone == mother.zone
+
+
+class TestApplyInheritanceAtBirthEmptyZoneGuard:
+    """A zone with zero living agents does not raise, and the zone-mean
+    fallback rank is actually threaded through to a verifiable outcome.
+
+    Uses the "industrial" template (class_rule = clark_regression,
+    deterministic -- no rng draw), so the child's exact social_class can be
+    hand-computed from the documented fallback rank
+    (_UNKNOWN_CLASS_FALLBACK_RANK, the "working" rank = 3) rather than only
+    asserting "no exception raised".
+    """
+
+    @pytest.mark.django_db
+    def test_empty_zone_falls_back_to_working_rank_mean(self, sim_with_zone):
+        sim, populated_zone = sim_with_zone
+        empty_zone = Zone.objects.create(
+            world=populated_zone.world,
+            name="EmptyZone",
+            zone_type="residential",
+            boundary=Polygon.from_bbox((200, 200, 300, 300)),
+            center=Point(250, 250),
+        )
+        sim.config = {"demography_template": "industrial"}
+
+        mother = _make_agent(
+            sim,
+            populated_zone,
+            "Mother",
+            social_class="middle",
+            personality={name: 0.5 for name in PERSONALITY_HERITABLE_TRAITS},
+        )
+        father = _make_agent(
+            sim,
+            populated_zone,
+            "Father",
+            social_class="middle",
+            personality={name: 0.5 for name in PERSONALITY_HERITABLE_TRAITS},
+        )
+        # Reassign in memory only, never saved: the query the function runs
+        # is Agent.objects.filter(zone=mother.zone, is_alive=True), so this
+        # is sufficient to make that query return zero rows without
+        # depending on the mother's own persisted row being agent-free.
+        mother.zone = empty_zone
+        child = _make_agent(sim, populated_zone, "Child")
+
+        apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
+
+        # clark_regression: child_rank = 0.7*parent_rank + 0.3*zone_class_mean.
+        # father.social_class = "middle" -> parent_rank = 2. Empty-zone
+        # fallback -> zone_class_mean = 3.0 ("working" rank). rank =
+        # 0.7*2 + 0.3*3.0 = 2.3 -> round(2.3) = 2 -> "middle". If the
+        # fallback were anything else (e.g. 0.0 from an unguarded empty
+        # mean), this would resolve to a different label.
+        assert child.social_class == "middle"
+        assert child.social_class in _TEST_VALID_CLASS_LABELS
+        assert child.zone == empty_zone
+
+
+class TestApplyInheritanceAtBirthNoPersistence:
+    """The function never calls child.save() -- persistence stays the
+    caller's responsibility, matching apply_trait_inheritance's and
+    apply_social_inheritance's own no-save contract.
+    """
+
+    @pytest.mark.django_db
+    def test_child_mutations_are_not_persisted(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        mother = _make_agent(
+            sim,
+            zone,
+            "Mother",
+            social_class="wealthy",
+            personality={name: 0.5 for name in PERSONALITY_HERITABLE_TRAITS},
+        )
+        father = _make_agent(
+            sim,
+            zone,
+            "Father",
+            social_class="middle",
+            personality={name: 0.5 for name in PERSONALITY_HERITABLE_TRAITS},
+        )
+        # _make_agent always calls Agent.objects.create(...), so the child
+        # already has a pk and a persisted wealth=100.0 (the helper's own
+        # default) before the call under test -- this is the case the task
+        # flags explicitly: assert the function performed no save by
+        # checking a field left unsaved in the database, since the fixture
+        # helper itself always saves.
+        child = _make_agent(sim, zone, "Child")
+        assert child.pk is not None
+        original_wealth = child.wealth
+        assert original_wealth == 100.0
+
+        apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
+
+        # In-memory mutation happened...
+        assert child.wealth == 0.0
+        # ...but was never persisted: re-fetching from the database still
+        # shows the pre-call value, proving no save() occurred.
+        persisted = Agent.objects.get(pk=child.pk)
+        assert persisted.wealth == original_wealth == 100.0
