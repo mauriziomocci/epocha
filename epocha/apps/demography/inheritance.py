@@ -1345,3 +1345,495 @@ def apply_estate_tax(
     add_to_treasury(government, primary_currency_code, tax_revenue)
 
     return remainder
+
+
+# ---------------------------------------------------------------------------
+# Estate distribution (Plan 3, T020/T021, user story 2 -- estate/succession).
+# Decides HOW the inheritable remainder `apply_estate_tax` returns is split
+# among the heirs `resolve_heirs` already resolved -- the per-era rule named
+# by `template["economic_inheritance"]["rule"]` (design spec Sezione 5:
+# primogeniture, equal_split, shari'a, matrilineal, nationalized). Every
+# function below is PURE: no `.save()`, no mutation of any heir Agent, no
+# ORM writes at all (only the read-only queries the matrilineal rule needs
+# to resolve nieces/nephews). Persistence -- crediting `Agent.wealth` from
+# the returned allocation -- is the caller's responsibility, a later task
+# (T029's `process_inheritance_batch`), matching the no-save contract
+# `apply_trait_inheritance` / `apply_social_inheritance` already establish
+# elsewhere in this module.
+# ---------------------------------------------------------------------------
+
+
+def _allocate_with_exact_remainder(
+    ordered_shares: list[tuple[int, float]], total: float
+) -> dict[int, float]:
+    """Assign each entry its own raw share except the LAST, which absorbs
+    whatever is left of `total` after the others -- the technique that
+    makes the conservation contract (`sum(allocation.values()) == total`,
+    exactly up to floating-point representation) hold for every succession
+    rule below that splits an amount across more than one heir.
+
+    Why this is needed: a raw per-heir share (`total / n`, or the
+    units-weighted variant in `_split_two_to_one`) is itself subject to
+    floating-point rounding, and summing `n` independently-rounded shares
+    does not, in general, reproduce `total` bit-for-bit -- the classic
+    "divide a total into N parts" rounding trap (e.g. `10_000.0 / 3 ==
+    3333.3333333333335`, and three such shares summed drift from
+    `10_000.0` by roughly 1e-12). Instead of accepting that drift, the LAST
+    entry in `ordered_shares` is assigned `total - running_sum(all other
+    entries)` rather than its own raw share. This single subtraction makes
+    the sum of everything assigned exactly equal to `total`:
+    `running_sum + (total - running_sum)` collapses algebraically to
+    `total`, and holds to full floating-point precision here because
+    `running_sum` and `total` are always the same order of magnitude (the
+    former is a fraction of the latter, drawn from the same estate) --
+    the pathological cancellation cases of naive `a + (b - a)` arithmetic
+    (`a`, `b` of wildly different magnitude) do not arise in this domain.
+
+    `ordered_shares` must already be in the caller's final deterministic
+    order -- oldest-first, per this module's established convention (see
+    `resolve_heirs`'s child/sibling/extended_family ordering) -- and never
+    built from a Python `set`, whose iteration order is not guaranteed and
+    would make which heir absorbs the remainder depend on interpreter hash
+    seed rather than birth order. The heir LAST in that order is always the
+    one that absorbs the remainder; every earlier heir receives exactly its
+    own computed raw share.
+
+    Args:
+        ordered_shares: a list of (heir_id, raw_share) pairs, already in
+            deterministic order.
+        total: the amount the returned mapping must sum to exactly.
+
+    Returns:
+        A dict mapping each heir_id to its allocated amount; empty when
+        `ordered_shares` is empty.
+    """
+    if not ordered_shares:
+        return {}
+
+    allocation: dict[int, float] = {}
+    running_sum = 0.0
+    for heir_id, raw_share in ordered_shares[:-1]:
+        allocation[heir_id] = raw_share
+        running_sum += raw_share
+
+    last_id, _ = ordered_shares[-1]
+    allocation[last_id] = total - running_sum
+    return allocation
+
+
+def _split_two_to_one(pool: list, amount: float) -> dict[int, float]:
+    """Divide `amount` among `pool` so each MALE member receives twice a
+    non-male (female or non-binary) member's share -- the general Quranic
+    principle "for the male, the equivalent share of two females" (Q4:11),
+    part of the classical fara'id inheritance system documented by Powers,
+    D.S. (1986), "Studies in Qur'an and Hadith: The Formation of the
+    Islamic Law of Inheritance". Used both for the deceased's own
+    surviving children (the literal Sezione 5 `shari'a` rule) and, inside
+    `_distribute_sharia`, as a documented simplification applying the same
+    ratio to the deceased's siblings when there are no children -- standing
+    in for the fuller classical residuary ('asaba) hierarchy, which this
+    MVP does not model in full.
+
+    NON-BINARY handling: a non-binary member of `pool` is treated as
+    non-male, receiving one unit -- the same unit a daughter receives.
+    Documented simplification: classical Islamic jurisprudence recognised
+    no non-binary status.
+
+    `total_units = 2 * (male count) + 1 * (non-male count)`;
+    `unit_value = amount / total_units`. Deterministic: `pool`'s own
+    oldest-first order (as every category `resolve_heirs` returns already
+    is) is preserved, never re-sorted and never routed through a set. The
+    last member of `pool` in that order absorbs the floating-point
+    remainder via `_allocate_with_exact_remainder`, so the returned mapping
+    sums to `amount` exactly.
+
+    Args:
+        pool: a non-empty list of heir Agent instances.
+        amount: the amount to divide among them.
+
+    Returns:
+        A dict mapping each member's id to its allocated share.
+    """
+    from epocha.apps.agents.models import Agent
+
+    total_units = sum(2 if agent.gender == Agent.Gender.MALE else 1 for agent in pool)
+    unit_value = amount / total_units
+
+    ordered_shares = [
+        (agent.id, (2 if agent.gender == Agent.Gender.MALE else 1) * unit_value) for agent in pool
+    ]
+    return _allocate_with_exact_remainder(ordered_shares, amount)
+
+
+def _eldest_male_then_female(pool: list) -> Any:
+    """The eldest MALE member of `pool`; if there is none, the eldest
+    non-male member (female or non-binary -- "ordered together", see
+    `_distribute_primogeniture`'s NON-BINARY handling); `None` when `pool`
+    is empty.
+
+    `pool` must already be in oldest-first order (every category
+    `resolve_heirs` returns already is) -- this function never re-sorts.
+    Any male in `pool` outranks every non-male regardless of relative age
+    (the first loop returns on the first male found, wherever it sits in
+    birth order); among a pool with no male at all, `pool[0]` -- the
+    eldest by construction -- is the answer.
+    """
+    from epocha.apps.agents.models import Agent
+
+    for agent in pool:
+        if agent.gender == Agent.Gender.MALE:
+            return agent
+    if pool:
+        return pool[0]
+    return None
+
+
+def _distribute_primogeniture(heirs: dict[str, list], inheritable: float) -> dict[int, float]:
+    """100% of `inheritable` to a single heir, cascading down the ladder
+    (Blackstone, W. (1765), "Commentaries on the Laws of England"):
+
+    1. The eldest surviving SON (`heirs["children"]`, filtered to
+       `Agent.Gender.MALE`).
+    2. If there is no son, the eldest surviving DAUGHTER.
+    3. If there are no children at all, the surviving spouse
+       (`heirs["spouse"]`; at most one entry, per this module's monogamy
+       assumption -- see `_resolve_spouse_heirs`).
+    4. If there is no spouse either, cascade to `heirs["siblings"]`,
+       applying the SAME son-then-daughter preference one rung further
+       down the heir-priority ladder. This sibling-level cascade is a
+       documented extension beyond Blackstone's own text (which addresses
+       lineal descent, not the collateral line): it applies the identical
+       eldest-male-preference test for internal consistency, rather than
+       leaving the estate stranded (and the conservation contract broken)
+       when the deceased has neither children nor a spouse but does have
+       living siblings.
+
+    NON-BINARY handling: a non-binary heir is ordered together with the
+    female heirs at every tier (step 2's "daughter" pool, step 4's
+    "sister" pool) -- an older non-binary heir outranks a younger female
+    heir and vice versa, purely by birth order within that combined pool
+    (see `_eldest_male_then_female`). Documented pragmatic simplification:
+    pre-modern inheritance law had no category for non-binary identity;
+    this module records the choice explicitly rather than silently
+    defaulting non-binary heirs to a category.
+
+    Returns an empty allocation (the treasury fallback) when every tier is
+    exhausted -- no children, no spouse, no siblings.
+    """
+    children = heirs.get("children", [])
+    spouse = heirs.get("spouse", [])
+    siblings = heirs.get("siblings", [])
+
+    heir = _eldest_male_then_female(children)
+    if heir is not None:
+        return {heir.id: inheritable}
+
+    if spouse:
+        return {spouse[0].id: inheritable}
+
+    heir = _eldest_male_then_female(siblings)
+    if heir is not None:
+        return {heir.id: inheritable}
+
+    return {}
+
+
+def _distribute_equal_split(heirs: dict[str, list], inheritable: float) -> dict[int, float]:
+    """Cash divided equally among surviving children, with the spouse
+    receiving a share equal to one child's (Napoleonic Code, 1804): with N
+    children and a spouse, there are N+1 equal shares.
+
+    NON-BINARY handling: every heir receives the same equal share
+    regardless of gender -- no distinction is made.
+
+    Recipient order (children in their own oldest-first order, spouse
+    last) is fixed and deterministic, never a set; see
+    `_allocate_with_exact_remainder` for why the LAST recipient in that
+    order -- the spouse when present, otherwise the youngest child --
+    absorbs the floating-point remainder so the total conserves exactly.
+
+    Returns an empty allocation (the treasury fallback) when there are
+    neither children nor a spouse.
+    """
+    children = heirs.get("children", [])
+    spouse = heirs.get("spouse", [])
+    recipients = [*children, *spouse]
+
+    if not recipients:
+        return {}
+
+    share = inheritable / len(recipients)
+    ordered_shares = [(agent.id, share) for agent in recipients]
+    return _allocate_with_exact_remainder(ordered_shares, inheritable)
+
+
+def _distribute_sharia(heirs: dict[str, list], inheritable: float) -> dict[int, float]:
+    """Spouse receives 1/8 of `inheritable` when the deceased leaves
+    children, otherwise 1/4; the remainder is divided among the children
+    with each son receiving twice a daughter's share (Powers, D.S. (1986),
+    "Studies in Qur'an and Hadith: The Formation of the Islamic Law of
+    Inheritance" -- the fixed-share-plus-residuary structure of the
+    classical fara'id system; see `_split_two_to_one` for the 2:1 ratio's
+    own citation, Q4:11).
+
+    NON-BINARY handling: a non-binary child receives a daughter's share (1
+    unit). Documented simplification: classical Islamic jurisprudence
+    recognised no non-binary status.
+
+    Residuary cascade when the deceased leaves NO children -- a documented
+    simplification of the fuller classical residuary ('asaba) hierarchy,
+    which this MVP does not model in full (flagged here explicitly rather
+    than silently invented; the original design spec itself only states
+    "il resto cascade per regole coraniche" without specifying the
+    mechanism). Mirrors `_distribute_primogeniture`'s own cascade depth
+    (children -> spouse -> siblings, no further) for consistency between
+    this module's two cascading rules:
+
+    1. If there are living siblings (`heirs["siblings"]`), they divide the
+       residual under the SAME 2:1 male:non-male ratio children would have
+       used -- siblings are the closest real analogue to the classical
+       'asaba (residuary agnate) heirs, the next priority tier after
+       children in the actual fara'id system.
+    2. Else, if there is a spouse and no sibling was found, the spouse
+       absorbs the ENTIRE residual on top of their own fixed fraction
+       (mirroring the real "radd" -- return of residue -- effect for a
+       sole surviving Quranic heir): in this one case the spouse's total
+       allocation is the WHOLE `inheritable` amount, not literally 1/4,
+       since there is no residuary heir left to receive the other 3/4.
+    3. Else (no heir of any kind), the allocation is empty -- the treasury
+       fallback.
+
+    The spouse's own fixed-fraction entry (1/8 or 1/4) is exact ONLY when
+    step 1 actually receives the rest; step 2 is the degenerate case where
+    the spouse is topped up beyond that fraction.
+
+    Conservation: `spouse_amount + sum(residuary allocation) ==
+    inheritable` exactly (see `_allocate_with_exact_remainder`, used
+    inside `_split_two_to_one` for the residuary split).
+
+    Returns an empty allocation (the treasury fallback) when there is
+    neither a spouse, nor children, nor siblings.
+    """
+    children = heirs.get("children", [])
+    spouse = heirs.get("spouse", [])
+    siblings = heirs.get("siblings", [])
+
+    spouse_fraction = 0.125 if children else 0.25
+    spouse_amount = inheritable * spouse_fraction if spouse else 0.0
+    residual = inheritable - spouse_amount
+
+    if children:
+        pool = children
+    elif siblings:
+        pool = siblings
+    else:
+        pool = []
+
+    allocation: dict[int, float] = {}
+    if pool:
+        allocation = _split_two_to_one(pool, residual)
+        if spouse:
+            allocation[spouse[0].id] = spouse_amount
+    elif spouse:
+        # No sibling found either: the spouse is the sole heir and
+        # absorbs the whole residual too (see docstring, step 2).
+        allocation[spouse[0].id] = spouse_amount + residual
+
+    return allocation
+
+
+def _resolve_matrilineal_heirs(heirs: dict[str, list]) -> list:
+    """Living children of the deceased's SISTERS (Schneider, D.M. & Gough,
+    K. (1961), "Matrilineal Kinship") -- a relationship `resolve_heirs`'s
+    own category ladder does not reach: its `extended_family` traversal
+    walks the deceased's own grandparent lineage to aunts/uncles and first
+    cousins, never down through a SIBLING's own descendants (nieces and
+    nephews). Resolved here via a dedicated query per sister.
+
+    "Sisters" are the FEMALE entries of `heirs["siblings"]`
+    (`Agent.Gender.FEMALE` exactly) -- a non-binary sibling is not treated
+    as an ambiguous match on the sister-selection side, since the
+    matrilineal descent link's biological premise (a shared mother)
+    requires an unambiguous sister to trace through. This is the
+    sister-selection half of matrilineal's NON-BINARY handling; the
+    child-selection half (below) needs no gender distinction at all.
+
+    Each sister's living children are resolved by reusing
+    `_resolve_children_heirs` -- despite that function's `deceased`
+    parameter name (chosen for its original call site inside
+    `resolve_heirs`), its body has no special-casing on "the deceased" as
+    a concept: it purely finds the living children of whatever Agent
+    instance is passed. Reusing it here for an arbitrary sister avoids
+    duplicating the same `Q(parent_agent=X) | Q(other_parent_agent=X)`
+    query pattern, per this module's DRY convention.
+
+    Results from every sister are pooled and de-duplicated by id (defensive:
+    two separate per-sister queries would return distinct Python objects
+    for the same database row if a child were somehow reachable through two
+    sisters), then sorted oldest-first by `(birth_tick, id)` -- built via a
+    dict, then sorted explicitly, never through a Python `set`, so the
+    final order is deterministic and reproducible.
+
+    Returns an empty list when there are no sisters, or when no sister has
+    a living child.
+    """
+    from epocha.apps.agents.models import Agent
+
+    sisters = [agent for agent in heirs.get("siblings", []) if agent.gender == Agent.Gender.FEMALE]
+    if not sisters:
+        return []
+
+    pooled: dict[int, Any] = {}
+    for sister in sisters:
+        for child in _resolve_children_heirs(sister):
+            pooled[child.id] = child
+
+    def _sort_key(agent: Any) -> tuple[int, int]:
+        birth_tick = agent.birth_tick if agent.birth_tick is not None else 0
+        return (birth_tick, agent.id)
+
+    return sorted(pooled.values(), key=_sort_key)
+
+
+def _distribute_matrilineal(heirs: dict[str, list], inheritable: float) -> dict[int, float]:
+    """The entire `inheritable` amount passes to the children of the
+    deceased's sisters, divided equally (Schneider, D.M. & Gough, K.
+    (1961), "Matrilineal Kinship" -- schematic matrilineal succession).
+
+    NON-BINARY handling: a non-binary niece/nephew receives the same equal
+    share as any other -- no gender-role distinction is needed on the
+    child-selection side, since matrilineal succession here is defined
+    purely by biological descent from a sister, not by the heir's own
+    gender (see `_resolve_matrilineal_heirs` for the sister-selection
+    side's own NON-BINARY handling).
+
+    Note: no era template currently selects the `matrilineal` rule --
+    verified across all five current templates under
+    `epocha/apps/demography/templates/` (pre_industrial_christian ->
+    primogeniture, pre_industrial_islamic -> shari'a, industrial /
+    modern_democracy / sci_fi -> equal_split). This rule exists for future
+    custom templates and for completeness of the five documented
+    succession systems (design spec Sezione 5).
+
+    The deceased's OWN children never receive anything under this rule --
+    only `heirs["siblings"]`'s female entries and their descendants are
+    ever consulted; `heirs["children"]` is not read here at all.
+
+    Deterministic order (oldest-first by `(birth_tick, id)`, from
+    `_resolve_matrilineal_heirs`) is preserved, never a set; the last
+    niece/nephew in that order absorbs the floating-point remainder via
+    `_allocate_with_exact_remainder`, so the returned mapping sums to
+    `inheritable` exactly.
+
+    Returns an empty allocation (the treasury fallback) when the deceased
+    has no sister, or no sister has a living child.
+    """
+    nieces_and_nephews = _resolve_matrilineal_heirs(heirs)
+    if not nieces_and_nephews:
+        return {}
+
+    share = inheritable / len(nieces_and_nephews)
+    ordered_shares = [(agent.id, share) for agent in nieces_and_nephews]
+    return _allocate_with_exact_remainder(ordered_shares, inheritable)
+
+
+def distribute_estate(
+    deceased: Any, heirs: dict[str, list], rule: str, inheritable: float
+) -> dict[int, float]:
+    """Split `inheritable` among the heirs `resolve_heirs` already
+    resolved, per the era's `economic_inheritance.rule` (design spec
+    Sezione 5): `primogeniture`, `equal_split`, `shari'a`, `matrilineal`,
+    `nationalized` -- see each `_distribute_*` helper's own docstring for
+    its formula, citation, and NON-BINARY handling.
+
+    Return shape (decision, documented per this module's convention of
+    stating non-obvious choices explicitly): the mapping is keyed by each
+    heir's `Agent.id` (a plain int), NOT by the Agent instance itself.
+    Chosen for consistency with this module's established use of id-keyed
+    sets/dicts for heir bookkeeping (`excluded_ids` in `resolve_heirs`,
+    `aunt_uncle_ids` and the `candidates` dict in
+    `_resolve_extended_family_heirs`), and because an id-keyed mapping is
+    trivially and unambiguously summable/comparable by callers and tests
+    without depending on Django Model's pk-based `__eq__`/`__hash__`
+    semantics holding for every future caller.
+
+    PURITY / no-save contract (CRITICAL for the conservation invariant
+    below to be assertable in isolation): this function never calls
+    `.save()` and never mutates any heir Agent instance -- it only reads
+    `.id`, `.gender`, and (for `matrilineal`) `.birth_tick` off heirs
+    already resolved by `resolve_heirs`, plus, for `matrilineal` only,
+    issues read-only queries to resolve nieces/nephews. Returning a pure
+    allocation mapping, rather than crediting `Agent.wealth` directly, is
+    what makes the conservation contract assertable on the returned
+    mapping alone, independent of any database state -- crediting the
+    heirs' actual `wealth` field is the caller's responsibility (a later
+    task, T029's `process_inheritance_batch`).
+
+    CONSERVATION CONTRACT (non-negotiable, load-bearing for whitepaper
+    Sezione 4.2/4.8's accounting invariant): for every rule that resolves
+    at least one heir, `sum(allocation.values())` equals `inheritable`
+    exactly, up to floating-point representation -- see
+    `_allocate_with_exact_remainder` for the technique (the last heir in
+    each rule's deterministic order absorbs the float remainder rather
+    than every heir rounding independently). No value is ever lost or
+    fabricated relative to `inheritable`.
+
+    EMPTY ALLOCATION SHAPE: an empty `{}` return means "route the entire
+    `inheritable` amount to the treasury", and covers TWO distinct
+    situations that look identical on the mapping's shape alone -- the
+    caller distinguishes them by the `rule` it already has on hand:
+    - `nationalized`: always empty by design (Nove, A. (1969), "An
+      Economic History of the USSR" -- Soviet-style expropriation; the
+      ENTIRE estate is state property, not merely an untaxed remainder
+      nobody claimed).
+    - Every other rule, when it happens to resolve NO heir at all (e.g.
+      `matrilineal` with no sister, or `primogeniture` / `equal_split` /
+      `shari'a` with no children, spouse, or relevant collateral
+      relatives): empty because there was genuinely nobody to inherit.
+
+    Unknown `rule`: logged at WARNING and falls back to `equal_split`,
+    matching this module's established never-crash-on-template-data
+    posture (see `resolve_heirs`'s unknown-category skip and
+    `apply_social_inheritance`'s unknown-`class_rule` fallback).
+
+    Args:
+        deceased: the deceased Agent instance. Not read by any rule
+            today -- every rule derives its allocation purely from
+            `heirs` -- kept in the signature for interface symmetry with
+            `resolve_heirs(deceased, template)` (whose result is `heirs`,
+            this function's own second argument) and so a future
+            succession rule needing the deceased's own attributes (e.g.
+            an explicit will/testament override) does not require another
+            signature change.
+        heirs: the dict `resolve_heirs(deceased, template)` returned --
+            categories "spouse", "children", "siblings",
+            "extended_family", each a list of living heir Agents in
+            oldest-first order. A category absent from the dict is
+            treated as an empty list (`heirs.get(category, [])`
+            throughout every `_distribute_*` helper).
+        rule: `template["economic_inheritance"]["rule"]` -- one of
+            `primogeniture`, `equal_split`, `shari'a`, `matrilineal`,
+            `nationalized`, or an unrecognized string (falls back to
+            `equal_split` with a warning).
+        inheritable: the amount to distribute -- the remainder
+            `apply_estate_tax` already returned after routing the era's
+            estate tax to the treasury.
+
+    Returns:
+        A dict mapping each allocated heir's `Agent.id` to the amount
+        they receive; empty when no heir receives anything (see EMPTY
+        ALLOCATION SHAPE above).
+    """
+    if rule == "primogeniture":
+        return _distribute_primogeniture(heirs, inheritable)
+    if rule == "equal_split":
+        return _distribute_equal_split(heirs, inheritable)
+    if rule == "shari'a":
+        return _distribute_sharia(heirs, inheritable)
+    if rule == "matrilineal":
+        return _distribute_matrilineal(heirs, inheritable)
+    if rule == "nationalized":
+        return {}
+
+    logger.warning("Unknown economic_inheritance rule %r; falling back to equal_split", rule)
+    return _distribute_equal_split(heirs, inheritable)

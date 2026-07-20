@@ -35,6 +35,15 @@ split among the resolved heirs (design spec Sezione 5, "Ereditarietà
 economica alla morte"; the modern-democracy 0.40 rate corresponds to
 Piketty, T. (2014), "Capital in the Twenty-First Century", tables
 14.1-14.2).
+
+Also covers `distribute_estate` (Plan 3, T020/T021, user story 2): the five
+per-era succession rules that decide HOW the inheritable remainder is split
+among `resolve_heirs`'s resolved heirs -- `primogeniture` (Blackstone, W.
+(1765), "Commentaries on the Laws of England"), `equal_split` (Napoleonic
+Code, 1804), `shari'a` (Powers, D.S. (1986), "Studies in Qur'an and Hadith:
+The Formation of the Islamic Law of Inheritance"), `matrilineal` (Schneider,
+D.M. & Gough, K. (1961), "Matrilineal Kinship"), and `nationalized` (Nove,
+A. (1969), "An Economic History of the USSR").
 """
 
 from __future__ import annotations
@@ -55,6 +64,7 @@ from epocha.apps.demography.inheritance import (
     apply_inheritance_at_birth,
     apply_social_inheritance,
     apply_trait_inheritance,
+    distribute_estate,
     evaluate_derived_formula,
     inherit_trait,
     resolve_birth_attributes,
@@ -1611,3 +1621,462 @@ class TestApplyEstateTaxDegenerateInputs:
         assert remainder == pytest.approx(0.0)
         government.refresh_from_db()
         assert government.government_treasury.get("USD", 0.0) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# distribute_estate (Plan 3, T020/T021, user story 2 -- estate/succession).
+# The five per-era succession rules that decide HOW the inheritable
+# remainder from apply_estate_tax is split among resolve_heirs's resolved
+# heirs (design spec Sezione 5): primogeniture (Blackstone 1765),
+# equal_split (Napoleonic Code 1804), shari'a (Powers 1986), matrilineal
+# (Schneider & Gough 1961), nationalized (Nove 1969). Reuses sim_with_zone /
+# _make_agent / _heir_template / _CONSERVATION_TOLERANCE already defined
+# above for resolve_heirs and apply_estate_tax.
+#
+# distribute_estate is a PURE function -- no .save(), no heir mutation --
+# so every test below asserts on the returned allocation mapping alone,
+# never touching the database beyond the read-only resolve_heirs call that
+# builds its `heirs` argument.
+# ---------------------------------------------------------------------------
+
+
+class TestDistributeEstatePrimogeniture:
+    """100% to a single heir, cascading children -> spouse -> siblings
+    (Blackstone 1765); non-binary heirs ordered together with the female
+    heirs at every tier.
+    """
+
+    @pytest.mark.django_db
+    def test_eldest_son_takes_all_even_if_a_daughter_is_chronologically_older(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        _make_agent(
+            sim,
+            zone,
+            "Daughter",
+            parent_agent=deceased,
+            birth_tick=1,
+            gender=Agent.Gender.FEMALE,
+        )
+        younger_son = _make_agent(
+            sim,
+            zone,
+            "YoungerSon",
+            parent_agent=deceased,
+            birth_tick=5,
+            gender=Agent.Gender.MALE,
+        )
+        older_son = _make_agent(
+            sim,
+            zone,
+            "OlderSon",
+            parent_agent=deceased,
+            birth_tick=3,
+            gender=Agent.Gender.MALE,
+        )
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "primogeniture", 10_000.0)
+
+        assert allocation == {older_son.id: 10_000.0}
+        assert younger_son.id not in allocation
+
+    @pytest.mark.django_db
+    def test_daughters_only_eldest_daughter_takes_all(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        younger_daughter = _make_agent(
+            sim,
+            zone,
+            "YoungerDaughter",
+            parent_agent=deceased,
+            birth_tick=10,
+            gender=Agent.Gender.FEMALE,
+        )
+        older_daughter = _make_agent(
+            sim,
+            zone,
+            "OlderDaughter",
+            parent_agent=deceased,
+            birth_tick=2,
+            gender=Agent.Gender.FEMALE,
+        )
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "primogeniture", 8_000.0)
+
+        assert allocation == {older_daughter.id: 8_000.0}
+        assert younger_daughter.id not in allocation
+
+    @pytest.mark.django_db
+    def test_non_binary_child_ordered_with_daughters_by_birth_order(self, sim_with_zone):
+        """No sons: the eldest of (daughters + non-binary children) wins,
+        purely by birth order. Here the non-binary child is older than the
+        daughter and inherits -- proof the two pools are merged, not that
+        one categorically outranks the other.
+        """
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        daughter = _make_agent(
+            sim,
+            zone,
+            "Daughter",
+            parent_agent=deceased,
+            birth_tick=10,
+            gender=Agent.Gender.FEMALE,
+        )
+        elder_non_binary = _make_agent(
+            sim,
+            zone,
+            "ElderNonBinary",
+            parent_agent=deceased,
+            birth_tick=1,
+            gender=Agent.Gender.NON_BINARY,
+        )
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "primogeniture", 5_000.0)
+
+        assert allocation == {elder_non_binary.id: 5_000.0}
+        assert daughter.id not in allocation
+
+    @pytest.mark.django_db
+    def test_no_children_cascades_to_spouse(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "primogeniture", 6_000.0)
+
+        assert allocation == {partner.id: 6_000.0}
+
+    @pytest.mark.django_db
+    def test_no_children_no_spouse_cascades_to_eldest_brother(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        sister = _make_agent(
+            sim,
+            zone,
+            "Sister",
+            parent_agent=common_parent,
+            birth_tick=2,
+            gender=Agent.Gender.FEMALE,
+        )
+        brother = _make_agent(
+            sim,
+            zone,
+            "Brother",
+            parent_agent=common_parent,
+            birth_tick=5,
+            gender=Agent.Gender.MALE,
+        )
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "primogeniture", 3_000.0)
+
+        assert allocation == {brother.id: 3_000.0}
+        assert sister.id not in allocation
+
+    @pytest.mark.django_db
+    def test_no_heirs_at_all_yields_empty_allocation(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Isolated")
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "primogeniture", 1_000.0)
+
+        assert allocation == {}
+
+
+class TestDistributeEstateEqualSplit:
+    """Cash divided equally among children, with the spouse receiving a
+    share equal to one child's (Napoleonic Code 1804): N children + spouse
+    = N+1 equal shares.
+    """
+
+    @pytest.mark.django_db
+    def test_three_children_and_spouse_yield_four_equal_shares(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+        child_a = _make_agent(sim, zone, "ChildA", parent_agent=deceased, birth_tick=1)
+        child_b = _make_agent(sim, zone, "ChildB", parent_agent=deceased, birth_tick=2)
+        child_c = _make_agent(sim, zone, "ChildC", parent_agent=deceased, birth_tick=3)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "equal_split", 8_000.0)
+
+        expected_share = 2_000.0
+        for heir_id in (child_a.id, child_b.id, child_c.id, partner.id):
+            assert allocation[heir_id] == pytest.approx(expected_share, abs=_CONSERVATION_TOLERANCE)
+        assert sum(allocation.values()) == pytest.approx(8_000.0, abs=_CONSERVATION_TOLERANCE)
+
+
+class TestDistributeEstateSharia:
+    """Spouse takes 1/8 with children present, else 1/4; sons receive
+    exactly twice a daughter's share (Powers 1986).
+    """
+
+    @pytest.mark.django_db
+    def test_spouse_takes_one_eighth_with_children_and_son_takes_double_daughter(
+        self, sim_with_zone
+    ):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+        son = _make_agent(
+            sim, zone, "Son", parent_agent=deceased, birth_tick=1, gender=Agent.Gender.MALE
+        )
+        daughter = _make_agent(
+            sim,
+            zone,
+            "Daughter",
+            parent_agent=deceased,
+            birth_tick=2,
+            gender=Agent.Gender.FEMALE,
+        )
+
+        inheritable = 8_000.0
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "shari'a", inheritable)
+
+        assert allocation[partner.id] == pytest.approx(1_000.0, abs=_CONSERVATION_TOLERANCE)
+        assert allocation[son.id] == pytest.approx(
+            2 * allocation[daughter.id], abs=_CONSERVATION_TOLERANCE
+        )
+        assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
+
+    @pytest.mark.django_db
+    def test_spouse_takes_one_quarter_without_children(self, sim_with_zone):
+        """No children: the spouse's fixed share drops to 1/4; the
+        residual cascades to the deceased's siblings -- the documented
+        simplification of the classical residuary hierarchy described on
+        `_distribute_sharia`.
+        """
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        partner = _make_agent(sim, zone, "Partner", birth_tick=8)
+        form_couple(deceased, partner, formed_at_tick=1)
+        _make_agent(sim, zone, "Sibling", parent_agent=common_parent, birth_tick=5)
+
+        inheritable = 4_000.0
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "shari'a", inheritable)
+
+        assert allocation[partner.id] == pytest.approx(1_000.0, abs=_CONSERVATION_TOLERANCE)
+        assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
+
+
+class TestDistributeEstateMatrilineal:
+    """Estate passes to the children of the deceased's SISTERS (Schneider
+    & Gough 1961); the deceased's own children never receive anything
+    under this rule.
+    """
+
+    @pytest.mark.django_db
+    def test_sisters_children_inherit_not_the_deceaseds_own_children(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        sister = _make_agent(
+            sim,
+            zone,
+            "Sister",
+            parent_agent=common_parent,
+            birth_tick=5,
+            gender=Agent.Gender.FEMALE,
+        )
+        niece = _make_agent(sim, zone, "Niece", parent_agent=sister, birth_tick=20)
+        nephew = _make_agent(sim, zone, "Nephew", parent_agent=sister, birth_tick=25)
+        own_child = _make_agent(sim, zone, "OwnChild", parent_agent=deceased, birth_tick=30)
+
+        inheritable = 6_000.0
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "matrilineal", inheritable)
+
+        assert set(allocation.keys()) == {niece.id, nephew.id}
+        assert own_child.id not in allocation
+        assert allocation[niece.id] == pytest.approx(3_000.0, abs=_CONSERVATION_TOLERANCE)
+        assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
+
+    @pytest.mark.django_db
+    def test_no_sisters_yields_empty_allocation(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "matrilineal", 2_000.0)
+
+        assert allocation == {}
+
+
+class TestDistributeEstateNationalized:
+    """100% to the state (Nove 1969, Soviet-style expropriation): the
+    allocation is always empty, regardless of which heirs survive --
+    "empty" here means the whole amount routes to the treasury, not that
+    no heirs were found.
+    """
+
+    @pytest.mark.django_db
+    def test_allocation_is_always_empty_even_with_surviving_heirs(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+        _make_agent(sim, zone, "Child", parent_agent=deceased, birth_tick=1)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "nationalized", 9_000.0)
+
+        assert allocation == {}
+
+
+class TestDistributeEstateUnknownRule:
+    """An unrecognized rule falls back to equal_split with a WARNING log,
+    matching this module's established never-crash-on-template-data
+    posture.
+    """
+
+    @pytest.mark.django_db
+    def test_unknown_rule_falls_back_to_equal_split_with_warning(self, sim_with_zone, caplog):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        child_a = _make_agent(sim, zone, "ChildA", parent_agent=deceased, birth_tick=1)
+        child_b = _make_agent(sim, zone, "ChildB", parent_agent=deceased, birth_tick=2)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        with caplog.at_level(logging.WARNING):
+            allocation = distribute_estate(deceased, heirs, "not_a_real_rule", 4_000.0)
+
+        assert allocation[child_a.id] == pytest.approx(2_000.0, abs=_CONSERVATION_TOLERANCE)
+        assert allocation[child_b.id] == pytest.approx(2_000.0, abs=_CONSERVATION_TOLERANCE)
+        assert any("not_a_real_rule" in message for message in caplog.messages)
+
+
+class TestDistributeEstateConservation:
+    """Sum of the allocation equals `inheritable` exactly, up to
+    floating-point representation, for every rule that resolves at least
+    one heir -- the load-bearing invariant for whitepaper Sezione 4.2/4.8's
+    accounting (see `_allocate_with_exact_remainder`'s docstring for the
+    remainder-absorption technique). `inheritable` is deliberately
+    10_000.33 -- an amount that does NOT divide evenly across two or three
+    heirs -- so these tests stress the remainder-absorption path rather
+    than accidentally passing on inputs that happen to divide exactly.
+    """
+
+    @pytest.mark.django_db
+    def test_primogeniture_conserves(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        _make_agent(sim, zone, "Son", parent_agent=deceased, birth_tick=1, gender=Agent.Gender.MALE)
+
+        inheritable = 10_000.33
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "primogeniture", inheritable)
+
+        assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
+
+    @pytest.mark.django_db
+    def test_equal_split_conserves_with_three_children_and_spouse(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+        _make_agent(sim, zone, "ChildA", parent_agent=deceased, birth_tick=1)
+        _make_agent(sim, zone, "ChildB", parent_agent=deceased, birth_tick=2)
+        _make_agent(sim, zone, "ChildC", parent_agent=deceased, birth_tick=3)
+
+        inheritable = 10_000.33
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "equal_split", inheritable)
+
+        assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
+
+    @pytest.mark.django_db
+    def test_sharia_conserves_with_children(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+        _make_agent(sim, zone, "Son", parent_agent=deceased, birth_tick=1, gender=Agent.Gender.MALE)
+        _make_agent(
+            sim,
+            zone,
+            "Daughter",
+            parent_agent=deceased,
+            birth_tick=2,
+            gender=Agent.Gender.FEMALE,
+        )
+        _make_agent(
+            sim,
+            zone,
+            "NonBinaryChild",
+            parent_agent=deceased,
+            birth_tick=3,
+            gender=Agent.Gender.NON_BINARY,
+        )
+
+        inheritable = 10_000.33
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "shari'a", inheritable)
+
+        assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
+
+    @pytest.mark.django_db
+    def test_sharia_conserves_without_children_via_sibling_cascade(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        partner = _make_agent(sim, zone, "Partner", birth_tick=8)
+        form_couple(deceased, partner, formed_at_tick=1)
+        _make_agent(
+            sim,
+            zone,
+            "Brother",
+            parent_agent=common_parent,
+            birth_tick=5,
+            gender=Agent.Gender.MALE,
+        )
+        _make_agent(
+            sim,
+            zone,
+            "Sister",
+            parent_agent=common_parent,
+            birth_tick=6,
+            gender=Agent.Gender.FEMALE,
+        )
+
+        inheritable = 10_000.33
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "shari'a", inheritable)
+
+        assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
+
+    @pytest.mark.django_db
+    def test_matrilineal_conserves_with_three_nieces_and_nephews(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        sister = _make_agent(
+            sim,
+            zone,
+            "Sister",
+            parent_agent=common_parent,
+            birth_tick=5,
+            gender=Agent.Gender.FEMALE,
+        )
+        _make_agent(sim, zone, "Niece", parent_agent=sister, birth_tick=20)
+        _make_agent(sim, zone, "Nephew", parent_agent=sister, birth_tick=25)
+        _make_agent(sim, zone, "SecondNephew", parent_agent=sister, birth_tick=27)
+
+        inheritable = 10_000.33
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "matrilineal", inheritable)
+
+        assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
