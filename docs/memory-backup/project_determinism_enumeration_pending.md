@@ -1,6 +1,6 @@
 ---
 name: determinism-enumeration-pending
-description: "Dossier 2026-07-17: i difetti di determinismo REALI di agents/world (~23 siti noti, 3 classi) piu' la scoperta che la riproducibilita' e' architetturalmente irraggiungibile (generazione LLM senza seme). Evidenza gia' raccolta con file:riga, da 3 round di audit avversariale."
+description: "Dossier 2026-07-17: i difetti di determinismo REALI di agents/world (~23 siti noti, 3 classi) piu' la scoperta che la riproducibilita' e' architetturalmente irraggiungibile (generazione LLM senza seme). Evidenza gia' raccolta con file:riga, da 3 round di audit avversariale. Il RISCHIO PAPER e' stato CORRETTO (PR#16, pending merge): restano aperti i due difetti di CODICE (RNG globale non seminato + ~23 pin di tiebreak)."
 metadata: 
   node_type: memory
   type: project
@@ -50,7 +50,7 @@ Inventario `Meta.ordering` **parziali** (ogni `.first()` su questi perde il tieb
 2. **RNG globale non seminato in agents/world**: `government.py:618` `random.random()` decide il successo di un **colpo di stato**; `movement.py:245-246` lo scatter; `generator.py:172`/`:391` il piazzamento. `random.seed(` non esiste nel progetto; `random.Random(` solo in `economy/rng.py:56` e `demography/rng.py:45`. Il rimedio esiste gia': `get_seeded_rng` (`economy/rng.py:31`, `demography/rng.py:25`).
 3. **Il chord Celery e' parallelo** (`simulation/tasks.py:59-62`): `DecisionLog`, `Memory`, `Relationship` nascono in ordine deciso dallo scheduling, non dal seed.
 
-**Implicazione sul paper, PRIORITARIA**: il whitepaper §4.8 (capitolo Methods, convergito in 12 round) afferma *"identically-seeded runs reproduce bit-identical state"*. Alla luce di (1) l'affermazione e' al piu' scoped a "a parita' di stato di partenza gia' nel DB", e cosi' com'e' scritta un revisore la legge come riproducibilita' end-to-end. **E' integrita' del paper e viene prima dei pin.** Vedi anche §3.4 (`epocha-whitepaper.md:485`), che promette la semina per la **sola demografia** e si definisce esplicitamente *contro* il `process-wide random.random` che agents/world usano ancora -- senza dire che il resto ne e' privo.
+**Implicazione sul paper -- CORRETTA il 2026-07-17 (PR#16, branch `20260717-160922-whitepaper-reproducibility-claim`, commit `11b18b3`, pending merge/ratifica).** Era la voce prioritaria di questo dossier: il whitepaper affermava in piu' punti *"identically-seeded runs reproduce bit-identical state"* e, il piu' grave, che lo stesso seme riproduce lo stesso *decision log* per-agente. Un'enumerazione avversariale (`specs/20260717-160922-.../research/enumeration-reproducibility-claims.md`) ha classificato 19 affermazioni: 5 FALSE, 1 borderline, 7 ambigue, 3 anchor corretti. Corrette 13 loci per lingua (EN+IT in lockstep): ogni affermazione di riproducibilita' ora e' delimitata alla parte non-LLM; il decision log e' dichiarato **auditabile, non riproducibile**; la nota mancante sul RNG del coup (`government.py:618`) e' aggiunta a §4.5 sul modello di N-8; i 3 anchor (§3.1, §4.6 N-8, App.B "draws") intatti. Nessun codice toccato, frozen-pin §4.8 invariato. **Restano aperti i due difetti di CODICE sotto** -- il paper ora dice la verita' su di essi, ma non li risolve.
 
 ## Altri work item emersi (tracciati, non risolti)
 
