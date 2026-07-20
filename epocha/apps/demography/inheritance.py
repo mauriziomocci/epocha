@@ -379,6 +379,84 @@ def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict
     _apply_derived_traits(child, trait_inheritance.get("derived_trait_formulas", {}), symbols)
 
 
+def resolve_birth_attributes(template: dict, rng: Any) -> tuple[str, str]:
+    """Draw a newborn's gender and sexual orientation from era-template priors.
+
+    Two independent draws, strictly ordered so the RNG sequence this
+    function consumes is predictable for identically-seeded reproducibility:
+
+    1. Gender, from the secondary sex ratio at birth (males per female).
+       `template["sex_ratio_at_birth"]` (e.g. 1.05 in every current era
+       template except sci_fi's 1.0) is converted to a male probability via
+       p_male = sex_ratio / (1 + sex_ratio), then a single `rng.random()` is
+       drawn and compared against it. A ratio of 1.05 -- about 105 male
+       births per 100 female births -- is biologically near-universal across
+       human populations (Falconer & Mackay 1996, ch. 8, cite it as one of
+       the best-documented constants in human genetics) and is nonetheless
+       carried as a tunable per-era template parameter rather than a hard
+       constant, since some era templates (sci_fi) deliberately deviate from
+       it. This draw yields only "male" or "female": the biological
+       secondary sex ratio is a birth-sex statistic, not a gender-identity
+       distribution, so it structurally cannot produce "non_binary" (an
+       `Agent.Gender` value describing identity, not birth sex).
+
+    2. Sexual orientation, from `template["sexual_orientation_distribution"]`
+       -- a second `rng.random()` is drawn and walked cumulatively over the
+       distribution's own keys in their dict (JSON insertion) order, never
+       sorted and never routed through a set: iterating in a different
+       order would change which bucket a given uniform draw lands in and
+       silently break reproducibility across identically-seeded runs. If
+       the cumulative sum falls fractionally short of the draw (a
+       floating-point tail from summing probabilities that nominally total
+       1.0), the last key in iteration order is returned rather than
+       raising, so a rounding artifact in a template's probabilities can
+       never crash the birth pipeline.
+
+       The modern-era default distribution (heterosexual 0.955, bisexual
+       0.030, homosexual 0.015, no "asexual" entry) comes from Chandra, A.,
+       Mosher, W.D., Copen, C. & Sionean, C. (2011), "Sexual behaviour,
+       sexual attraction, and sexual identity in the United States: data
+       from the 2006-2008 National Survey of Family Growth", National
+       Health Statistics Reports 36. These are modern US self-report
+       values, carried as tunable design parameters for eras (and future
+       templates) where no comparable survey data exists -- not a claim
+       that they hold universally across historical populations.
+
+    This function is pure: no ORM access, no persistence, no global state.
+    It consumes exactly two `rng.random()` draws, in the order documented
+    above, so callers composing it with other rng-consuming steps (e.g.
+    `apply_trait_inheritance`) can reason about the total draw count.
+
+    Args:
+        template: a demography era template dict as returned by
+            `template_loader.load_template`, carrying at least
+            `sex_ratio_at_birth` and `sexual_orientation_distribution`.
+        rng: a random.Random-compatible instance exposing `.random()`.
+
+    Returns:
+        A (gender, orientation) tuple of two strings: gender is "male" or
+        "female"; orientation is one of the keys of
+        `template["sexual_orientation_distribution"]`.
+    """
+    sex_ratio = template["sex_ratio_at_birth"]
+    p_male = sex_ratio / (1.0 + sex_ratio)
+    gender = "male" if rng.random() < p_male else "female"
+
+    distribution = template["sexual_orientation_distribution"]
+    draw = rng.random()
+    cumulative = 0.0
+    orientation = None
+    for key, probability in distribution.items():
+        cumulative += probability
+        if draw < cumulative:
+            orientation = key
+            break
+    if orientation is None:
+        orientation = list(distribution.keys())[-1]
+
+    return gender, orientation
+
+
 def _apply_derived_traits(
     child: Any, derived_trait_formulas: dict, symbols: dict[str, float]
 ) -> None:

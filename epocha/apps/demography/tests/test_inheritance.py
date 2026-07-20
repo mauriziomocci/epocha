@@ -35,6 +35,7 @@ from epocha.apps.demography.inheritance import (
     apply_trait_inheritance,
     evaluate_derived_formula,
     inherit_trait,
+    resolve_birth_attributes,
 )
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.demography.template_loader import load_template
@@ -464,3 +465,144 @@ class TestApplyTraitInheritanceDerivedTrait:
 
         assert child.cunning == pytest.approx(expected_cunning)
         assert not (heritability.get("cunning"))  # cunning has no published h2 entry
+
+
+# ---------------------------------------------------------------------------
+# resolve_birth_attributes (Plan 3, T010/T011)
+# ---------------------------------------------------------------------------
+#
+# Pure function -- no ORM, no persistence -- so none of these tests use
+# @pytest.mark.django_db. `load_template` reads a JSON fixture from disk,
+# which needs no database.
+
+
+def _expected_gender_and_orientation(template: dict, rng: random.Random) -> tuple[str, str]:
+    """Independently replay the two documented rng draws against `rng`.
+
+    Mirrors the draw order and selection rule specified for
+    `resolve_birth_attributes`: gender first from a single `rng.random()`
+    compared against p_male = sex_ratio / (1 + sex_ratio), then orientation
+    from a second `rng.random()` walked cumulatively over
+    `sexual_orientation_distribution` in the dict's own insertion order,
+    falling back to the last key if the cumulative sum falls fractionally
+    short of the draw.
+    """
+    sex_ratio = template["sex_ratio_at_birth"]
+    p_male = sex_ratio / (1.0 + sex_ratio)
+    gender_draw = rng.random()
+    gender = "male" if gender_draw < p_male else "female"
+
+    distribution = template["sexual_orientation_distribution"]
+    orientation_draw = rng.random()
+    cumulative = 0.0
+    orientation = None
+    for key, probability in distribution.items():
+        cumulative += probability
+        if orientation_draw < cumulative:
+            orientation = key
+            break
+    if orientation is None:
+        orientation = list(distribution.keys())[-1]
+
+    return gender, orientation
+
+
+class TestResolveBirthAttributesExactness:
+    """Exact RNG-predicted (gender, orientation) pair for a seeded rng."""
+
+    def test_matches_hand_replayed_two_draw_sequence(self):
+        """The two draws (gender then orientation) are replayed independently
+        against an identically-seeded random.Random and the documented
+        selection rules, mirroring the exact-match style used for
+        `inherit_trait` above.
+        """
+        template = load_template("pre_industrial_christian")
+
+        expected_rng = random.Random(2026)
+        expected = _expected_gender_and_orientation(template, expected_rng)
+
+        actual_rng = random.Random(2026)
+        actual = resolve_birth_attributes(template, actual_rng)
+
+        assert actual == expected
+
+    def test_matches_hand_replayed_two_draw_sequence_different_seed(self):
+        """Same replay, a different seed, so the exactness check is not an
+        artifact of one lucky seed value.
+        """
+        template = load_template("pre_industrial_christian")
+
+        expected_rng = random.Random(777)
+        expected = _expected_gender_and_orientation(template, expected_rng)
+
+        actual_rng = random.Random(777)
+        actual = resolve_birth_attributes(template, actual_rng)
+
+        assert actual == expected
+
+
+class TestResolveBirthAttributesValidDomain:
+    """Over many seeds, the return values stay within their valid domains."""
+
+    def test_gender_and_orientation_always_in_domain(self):
+        template = load_template("pre_industrial_christian")
+        valid_orientations = set(template["sexual_orientation_distribution"].keys())
+
+        for seed in range(200):
+            gender, orientation = resolve_birth_attributes(template, random.Random(seed))
+            assert gender in {"male", "female"}
+            assert orientation in valid_orientations
+
+
+class TestResolveBirthAttributesSexRatioDirection:
+    """The sex_ratio_at_birth parameter steers the gender draw as expected."""
+
+    def test_high_sex_ratio_yields_mostly_male(self):
+        """sex_ratio_at_birth = 99.0 -> p_male = 99/100 = 0.99: an overwhelming
+        majority of "male" over a seeded batch. A strong-majority assertion
+        keeps the test robust to which exact seeds land on the female side.
+        """
+        template = {
+            "sex_ratio_at_birth": 99.0,
+            "sexual_orientation_distribution": {"heterosexual": 1.0},
+        }
+        male_count = sum(
+            1
+            for seed in range(300)
+            if resolve_birth_attributes(template, random.Random(seed))[0] == "male"
+        )
+        assert male_count > 270  # 90% of 300, well below the ~99% expectation
+
+    def test_low_sex_ratio_yields_mostly_female(self):
+        """sex_ratio_at_birth = 0.01 -> p_male = 0.01/1.01 ~= 0.0099: an
+        overwhelming majority of "female" over a seeded batch.
+        """
+        template = {
+            "sex_ratio_at_birth": 0.01,
+            "sexual_orientation_distribution": {"heterosexual": 1.0},
+        }
+        female_count = sum(
+            1
+            for seed in range(300)
+            if resolve_birth_attributes(template, random.Random(seed))[0] == "female"
+        )
+        assert female_count > 270  # 90% of 300, well below the ~99% expectation
+
+
+class TestResolveBirthAttributesBucketCorrectness:
+    """A degenerate distribution deterministically selects the non-zero bucket."""
+
+    def test_zero_probability_bucket_is_never_selected(self):
+        """{"heterosexual": 0.0, "homosexual": 1.0} returns "homosexual" on
+        every draw: the cumulative sum after "heterosexual" stays at 0.0, so
+        `draw < cumulative` never selects it (rng.random() draws are >= 0.0),
+        and the cumulative sum after "homosexual" reaches 1.0, which every
+        draw in [0.0, 1.0) satisfies.
+        """
+        template = {
+            "sex_ratio_at_birth": 1.05,
+            "sexual_orientation_distribution": {"heterosexual": 0.0, "homosexual": 1.0},
+        }
+        for seed in range(100):
+            _, orientation = resolve_birth_attributes(template, random.Random(seed))
+            assert orientation == "homosexual"
