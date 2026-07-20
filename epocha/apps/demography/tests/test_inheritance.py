@@ -27,6 +27,14 @@ transmission and education-level regression mechanism (design spec Sezione
 1999, Chetty et al. 2014; meritocratic -- speculative sci_fi design choice)
 and the education-level regression toward the era mean that runs after
 every rule.
+
+Also covers `resolve_heirs` (Plan 3, T016/T017, user story 2 -- estate
+succession) and `apply_estate_tax` (Plan 3, T018/T019, user story 2): the
+flat estate tax routed to the government treasury before the remainder is
+split among the resolved heirs (design spec Sezione 5, "Ereditarietà
+economica alla morte"; the modern-democracy 0.40 rate corresponds to
+Piketty, T. (2014), "Capital in the Twenty-First Century", tables
+14.1-14.2).
 """
 
 from __future__ import annotations
@@ -43,6 +51,7 @@ from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
     DEFAULT_ERA_MEAN_EDUCATION,
     DEFAULT_ERA_SD,
+    apply_estate_tax,
     apply_inheritance_at_birth,
     apply_social_inheritance,
     apply_trait_inheritance,
@@ -55,7 +64,7 @@ from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
-from epocha.apps.world.models import World, Zone
+from epocha.apps.world.models import Government, World, Zone
 
 
 class TestInheritTraitTwoParents:
@@ -1430,3 +1439,175 @@ class TestResolveHeirsQueryBudget:
         # category.
         with django_assert_num_queries(7):
             resolve_heirs(deceased, _heir_template())
+
+
+# ---------------------------------------------------------------------------
+# apply_estate_tax (Plan 3, T018/T019, user story 2 -- estate/succession).
+# Routes the era's flat `economic_inheritance.estate_tax_rate` to the
+# government treasury via `add_to_treasury`, and returns the inheritable
+# remainder -- the amount a later distribution step (T020+) actually splits
+# among `resolve_heirs`'s resolved heirs.
+# ---------------------------------------------------------------------------
+
+# Tolerance for the conservation assertions below (remainder + treasury
+# delta == total_estate_value). At the magnitudes used in these tests
+# (estates of a few thousand to ~12,000 units), IEEE 754 double precision's
+# ~2^-52 relative epsilon bounds any single multiplication's rounding error
+# to roughly 1e-12 in absolute terms; two multiplications plus one addition
+# cannot plausibly accumulate beyond that by more than a small constant
+# factor. 1e-6 is therefore several orders of magnitude more generous than
+# the rounding error these operations can actually produce -- verified
+# empirically (see the T018 implementation notes) to be exactly 0.0 for the
+# representative estate values exercised here. Used explicitly rather than
+# relying on pytest.approx's own default so the tolerance is a documented,
+# reviewed choice, not an implicit one.
+_CONSERVATION_TOLERANCE = 1e-6
+
+
+@pytest.fixture
+def sim_with_government(sim_with_zone):
+    """Extends `sim_with_zone` with a saved Government row for treasury tests.
+
+    `add_to_treasury` (epocha.apps.world.government) requires a real,
+    already-saved Government instance -- it calls `government.save(
+    update_fields=["government_treasury"])` -- so an in-memory-only stub
+    would fail. Reuses `sim_with_zone` rather than duplicating its
+    user/simulation/world/zone scaffolding.
+    """
+    sim, zone = sim_with_zone
+    government = Government.objects.create(simulation=sim)
+    return sim, zone, government
+
+
+class TestApplyEstateTaxModernRate:
+    """Modern-democracy era: `estate_tax_rate` 0.40 (Piketty 2014, tables
+    14.1-14.2 -- top marginal estate/inheritance tax rates)."""
+
+    @pytest.mark.django_db
+    def test_treasury_grows_by_exactly_forty_percent_and_remainder_is_sixty_percent(
+        self, sim_with_government
+    ):
+        sim, zone, government = sim_with_government
+        total_estate_value = 10_000.0
+        rate = 0.40
+
+        remainder = apply_estate_tax(total_estate_value, rate, government, "USD")
+
+        assert remainder == pytest.approx(6_000.0, abs=_CONSERVATION_TOLERANCE)
+
+        # Read back from the database (not the in-memory `government`
+        # object add_to_treasury already mutated) to prove the credit was
+        # actually persisted, not merely held in memory.
+        government.refresh_from_db()
+        assert government.government_treasury["USD"] == pytest.approx(
+            4_000.0, abs=_CONSERVATION_TOLERANCE
+        )
+
+
+class TestApplyEstateTaxConservation:
+    """remainder + treasury delta reproduces `total_estate_value` exactly,
+    up to floating-point rounding -- the load-bearing invariant for
+    whitepaper Sezione 4.2/4.8's accounting."""
+
+    @pytest.mark.django_db
+    def test_remainder_plus_treasury_delta_equals_input_estate(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        total_estate_value = 12_345.67
+        rate = 0.40
+
+        remainder = apply_estate_tax(total_estate_value, rate, government, "USD")
+
+        government.refresh_from_db()
+        treasury_delta = government.government_treasury["USD"]
+
+        assert remainder + treasury_delta == pytest.approx(
+            total_estate_value, abs=_CONSERVATION_TOLERANCE
+        )
+
+
+class TestApplyEstateTaxZeroRate:
+    """Pre-industrial eras: `estate_tax_rate` 0.0 -- feudal dues are
+    modelled separately in the economy layer, not as an estate tax here."""
+
+    @pytest.mark.django_db
+    def test_zero_rate_routes_nothing_and_returns_full_value(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        total_estate_value = 5_000.0
+
+        remainder = apply_estate_tax(total_estate_value, 0.0, government, "USD")
+
+        assert remainder == pytest.approx(total_estate_value)
+
+        government.refresh_from_db()
+        # "Unchanged or absent": whether the implementation skips the
+        # add_to_treasury call entirely for a zero delta, or calls it with
+        # amount=0.0, the effective treasury value for this currency is 0.0
+        # either way -- .get(..., 0.0) covers both outcomes.
+        assert government.government_treasury.get("USD", 0.0) == pytest.approx(0.0)
+
+
+class TestApplyEstateTaxCurrencyIsolation:
+    """Crediting one currency code leaves other currency codes already
+    present in the treasury untouched."""
+
+    @pytest.mark.django_db
+    def test_crediting_one_currency_leaves_others_untouched(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        government.government_treasury = {"EUR": 250.0, "gold_solidus": 12.0}
+        government.save(update_fields=["government_treasury"])
+
+        apply_estate_tax(1_000.0, 0.40, government, "USD")
+
+        government.refresh_from_db()
+        assert government.government_treasury["EUR"] == pytest.approx(250.0)
+        assert government.government_treasury["gold_solidus"] == pytest.approx(12.0)
+        assert government.government_treasury["USD"] == pytest.approx(400.0)
+
+
+class TestApplyEstateTaxDegenerateInputs:
+    """Out-of-range rate is clamped, not raised; a non-positive estate
+    value never produces a negative treasury credit."""
+
+    @pytest.mark.django_db
+    def test_rate_above_one_is_clamped_to_one(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        total_estate_value = 1_000.0
+
+        remainder = apply_estate_tax(total_estate_value, 1.5, government, "USD")
+
+        assert remainder == pytest.approx(0.0)
+        government.refresh_from_db()
+        assert government.government_treasury["USD"] == pytest.approx(total_estate_value)
+
+    @pytest.mark.django_db
+    def test_negative_rate_is_clamped_to_zero(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        total_estate_value = 1_000.0
+
+        remainder = apply_estate_tax(total_estate_value, -0.2, government, "USD")
+
+        assert remainder == pytest.approx(total_estate_value)
+        government.refresh_from_db()
+        assert government.government_treasury.get("USD", 0.0) == pytest.approx(0.0)
+
+    @pytest.mark.django_db
+    def test_negative_estate_value_does_not_produce_negative_treasury_credit(
+        self, sim_with_government
+    ):
+        sim, zone, government = sim_with_government
+
+        apply_estate_tax(-500.0, 0.40, government, "USD")
+
+        government.refresh_from_db()
+        credited = government.government_treasury.get("USD", 0.0)
+        assert credited >= 0.0
+
+    @pytest.mark.django_db
+    def test_zero_estate_value_returns_zero_and_credits_nothing(self, sim_with_government):
+        sim, zone, government = sim_with_government
+
+        remainder = apply_estate_tax(0.0, 0.40, government, "USD")
+
+        assert remainder == pytest.approx(0.0)
+        government.refresh_from_db()
+        assert government.government_treasury.get("USD", 0.0) == pytest.approx(0.0)

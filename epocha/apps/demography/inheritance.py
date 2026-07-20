@@ -1236,3 +1236,112 @@ def resolve_heirs(deceased: Any, template: dict) -> dict[str, list]:
             logger.warning("Unknown heir_priority category %r; skipped", category)
 
     return heirs
+
+
+# ---------------------------------------------------------------------------
+# Estate tax (Plan 3, T018/T019, user story 2 -- estate/succession). Routes
+# the era's flat estate tax to the government treasury before the remainder
+# is split among resolve_heirs's resolved heirs -- a separate, later
+# distribution step (design spec Sezione 5, per-era primogeniture /
+# equal_split / shari'a / matrilineal / nationalized rules, T020+).
+# ---------------------------------------------------------------------------
+
+
+def apply_estate_tax(
+    total_estate_value: float, rate: float, government: Any, primary_currency_code: str
+) -> float:
+    """Route the era's estate tax to the government treasury, return the remainder.
+
+    Design spec Sezione 5, "Ereditarietà economica alla morte": each era
+    template's `economic_inheritance.estate_tax_rate` is a flat tax on the
+    deceased's total estate value, applied before the remainder is split
+    among the heirs `resolve_heirs` already resolved. Verified across all
+    five current era templates: pre_industrial_christian 0.0,
+    pre_industrial_islamic 0.0, industrial 0.15, modern_democracy 0.40,
+    sci_fi 0.0. The modern-democracy rate of 0.40 corresponds to the
+    top-bracket historical estate/inheritance tax rates documented in
+    Piketty, T. (2014), "Capital in the Twenty-First Century", Harvard
+    University Press, tables 14.1-14.2 (top marginal estate tax rates
+    across France, the UK, the US, and Germany over the 20th century). The
+    pre-industrial rate of 0.0 is not a claim that pre-industrial elites
+    paid no death duties at all -- feudal relief payments and analogous
+    transfer-of-power levies are modelled separately in the economy layer
+    rather than folded into this "estate tax" line item, so this function
+    correctly routes nothing for those eras without under-modelling the
+    underlying phenomenon; it is simply out of this function's scope.
+
+    Caller supplies `rate` (read from the resolved era template) and
+    `primary_currency_code` (the simulation's primary currency code, the
+    same code `add_to_treasury`'s other callers -- tax, expropriation --
+    already use); this function does not resolve either from the template
+    or the simulation itself, keeping it a pure two-line accounting step
+    the caller composes with `resolve_heirs`.
+
+    tax_revenue = total_estate_value * rate, credited to `government`'s
+    treasury under `primary_currency_code` via `add_to_treasury` (imported
+    lazily inside this function -- this module's established pattern for
+    cross-app imports, see `_compute_zone_class_mean`,
+    `_resolve_spouse_heirs`, `apply_inheritance_at_birth`'s
+    `template_loader` import). The returned remainder,
+    `total_estate_value * (1.0 - rate)`, is the amount later split among
+    the resolved heirs.
+
+    Conservation (load-bearing for whitepaper Sezione 4.2/4.8's accounting
+    invariant): remainder + tax_revenue reproduces `total_estate_value`,
+    exactly up to floating-point rounding. Neither value is rounded,
+    clamped, or otherwise adjusted beyond what the multiplication itself
+    introduces -- doing so would silently create or destroy money relative
+    to the estate's true value.
+
+    Degenerate inputs are guarded explicitly rather than left to produce
+    nonsensical output, matching this module's established
+    never-crash-on-template-data posture (see `apply_social_inheritance`'s
+    unknown-`class_rule` fallback and `resolve_heirs`'s unknown-category
+    skip):
+
+    - `rate` outside [0, 1]: a template authoring error (e.g. a rate typed
+      as a percentage, "40" instead of "0.40"). Logged at WARNING and
+      clamped into [0, 1] -- a single malformed template value must not
+      abort estate settlement for a real death.
+    - `total_estate_value <= 0.0`: a well-formed settled estate is never
+      negative; a non-positive value is a data anomaly (e.g. a caller
+      passing an unfloored negative net worth). Treated as a zero estate --
+      no treasury credit is issued and 0.0 is returned -- rather than
+      letting a negative `total_estate_value * rate` silently debit the
+      treasury through `add_to_treasury`.
+
+    Args:
+        total_estate_value: the deceased's total estate value, in the
+            simulation's primary currency, before tax. Non-positive values
+            are treated as a zero estate (see above): no treasury credit,
+            remainder 0.0.
+        rate: the era's `economic_inheritance.estate_tax_rate`, supplied by
+            the caller from the resolved era template. Clamped into [0, 1]
+            if the template value is out of range.
+        government: the simulation's Government instance to credit.
+        primary_currency_code: the simulation's primary currency code,
+            supplied by the caller.
+
+    Returns:
+        The inheritable remainder: `total_estate_value * (1.0 - rate)` for
+        a positive estate value, or 0.0 when `total_estate_value` is
+        non-positive.
+    """
+    if rate < 0.0 or rate > 1.0:
+        logger.warning(
+            "economic_inheritance.estate_tax_rate %r outside [0, 1]; clamping before use",
+            rate,
+        )
+        rate = max(0.0, min(1.0, rate))
+
+    if total_estate_value <= 0.0:
+        return 0.0
+
+    tax_revenue = total_estate_value * rate
+    remainder = total_estate_value * (1.0 - rate)
+
+    from epocha.apps.world.government import add_to_treasury
+
+    add_to_treasury(government, primary_currency_code, tax_revenue)
+
+    return remainder
