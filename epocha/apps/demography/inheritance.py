@@ -26,6 +26,7 @@ import logging
 from typing import Any
 
 from django.core.exceptions import FieldDoesNotExist
+from django.db.models import Q
 
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.world.stratification import _CLASS_RANK
@@ -936,3 +937,302 @@ def apply_inheritance_at_birth(
 
     child.wealth = 0.0
     child.zone = mother.zone
+
+
+# ---------------------------------------------------------------------------
+# Heir resolution (Plan 3, T016/T017, user story 2 -- estate/succession).
+# Resolves WHO occupies each category of the heir-priority ladder (design
+# spec Sezione 5, "Ereditarietà economica alla morte"). Does not decide HOW
+# the estate is split among the resolved heirs -- that is a separate,
+# later mechanism (the per-era primogeniture / equal_split / shari'a /
+# matrilineal / nationalized distribution rules, Plan 3 T019+).
+# ---------------------------------------------------------------------------
+
+
+def _resolve_spouse_heirs(deceased: Any) -> list:
+    """The deceased's surviving partner, from their active Couple.
+
+    Design spec Sezione 5, heir priority item 1: "Coniuge sopravvissuto
+    (tramite Couple attiva)". Reuses `couple.active_couple_for` rather than
+    querying `Couple` directly here -- the couple-membership query is
+    already centralized there (`Q(agent_a=agent) | Q(agent_b=agent),
+    dissolved_at_tick__isnull=True`), and duplicating it in this module
+    would violate DRY and risk drifting from that definition.
+
+    The partner is whichever of `couple.agent_a` / `couple.agent_b` is not
+    the deceased. Side comparison uses the `_id` attributes (already loaded
+    with the `Couple` instance, no extra query) rather than the FK
+    descriptors themselves, so determining which side is the deceased never
+    triggers a query. Once the non-deceased side is identified, accessing
+    it (`couple.agent_a` or `couple.agent_b`) issues exactly one query to
+    fetch the partner `Agent` row -- never both sides, since the other side
+    is never touched.
+
+    Handles the defensive case where the identified side is already `None`
+    (a couple with the deceased-side FK nulled by an earlier
+    `dissolve_on_death` call is no longer "active" under
+    `active_couple_for`'s `dissolved_at_tick__isnull=True` filter, so this
+    path is not reachable in the current call sequence; kept as a guard
+    against a future caller composing this differently) -- returns an empty
+    list rather than raising.
+
+    Only a LIVING partner counts as an heir (a partner who died in the same
+    tick, before their own `dissolve_on_death` ran, must not receive an
+    estate on the way to their own death being resolved).
+
+    Query cost: 1 query (`active_couple_for`) plus, only when an active
+    couple is found, 1 more query to fetch the partner's `Agent` row. 0
+    queries beyond the first when there is no active couple.
+    """
+    from epocha.apps.demography.couple import active_couple_for
+
+    couple = active_couple_for(deceased)
+    if couple is None:
+        return []
+
+    if couple.agent_a_id == deceased.id:
+        partner = couple.agent_b
+    elif couple.agent_b_id == deceased.id:
+        partner = couple.agent_a
+    else:
+        # Neither side matches the deceased -- see the "defensive case" note
+        # above. Not reachable via active_couple_for's own filter today.
+        partner = None
+
+    if partner is None or not partner.is_alive:
+        return []
+    return [partner]
+
+
+def _resolve_children_heirs(deceased: Any) -> list:
+    """Living children of the deceased, via EITHER parentage FK.
+
+    Design spec Sezione 5, heir priority item 2: "Figli (tramite
+    parent_agent + other_parent_agent)". A child is linked through
+    `Agent.parent_agent` (mother, by Epocha convention) OR
+    `Agent.other_parent_agent` (father); both routes count, since a
+    deceased agent may be recorded as either parent depending on which
+    parentage slot the birth pipeline assigned.
+
+    Ordered oldest-first by `birth_tick` ascending (primogeniture, the
+    default `economic_inheritance.rule` in every era template, depends on
+    this order to pick "the eldest surviving heir"), tie-broken by `id` for
+    a total, deterministic order when two children share a `birth_tick`.
+
+    Query cost: exactly 1 query.
+    """
+    from epocha.apps.agents.models import Agent
+
+    return list(
+        Agent.objects.filter(
+            Q(parent_agent=deceased) | Q(other_parent_agent=deceased),
+            is_alive=True,
+        ).order_by("birth_tick", "id")
+    )
+
+
+def _resolve_sibling_heirs(deceased: Any) -> list:
+    """Living siblings of the deceased: agents sharing at least one
+    non-null parent, excluding the deceased itself.
+
+    Design spec Sezione 5, heir priority item 3, describes this narrowly as
+    "Fratelli (parent_agent condiviso)" -- a shared mother only. This
+    implementation deliberately broadens the match to either parentage FK
+    (`parent_agent` OR `other_parent_agent` shared with the deceased's own
+    corresponding parent), so a half-sibling who shares only the father
+    (`other_parent_agent`) is also found. Documented broadening, not a
+    contradiction: excluding known half-siblings from an estate ladder
+    whose next fallback is "no heir at all -> government treasury" would be
+    a worse simplification than widening the match.
+
+    Reads `deceased.parent_agent_id` / `deceased.other_parent_agent_id`
+    directly -- both already loaded as plain FK id columns on the passed
+    instance, so this costs no query of its own.
+
+    Query cost: exactly 1 query (0 when the deceased has no recorded
+    parent at all, since there is then no basis to compare against).
+    """
+    from epocha.apps.agents.models import Agent
+
+    parent_ids = {
+        pid for pid in (deceased.parent_agent_id, deceased.other_parent_agent_id) if pid is not None
+    }
+    if not parent_ids:
+        return []
+
+    sibling_filter = Q(parent_agent_id__in=parent_ids) | Q(other_parent_agent_id__in=parent_ids)
+    return list(
+        Agent.objects.filter(sibling_filter, is_alive=True)
+        .exclude(id=deceased.id)
+        .order_by("birth_tick", "id")
+    )
+
+
+def _resolve_extended_family_heirs(deceased: Any, excluded_ids: set[int]) -> list:
+    """Living descendants of the deceased's grandparents, bounded to two
+    generations down from them -- aunts/uncles and first cousins.
+
+    Design spec Sezione 5, heir priority item 4: "Famiglia estesa (lineage
+    di nonno, fino a 2 generazioni)" -- grandparent lineage, up to two
+    generations. Read as: reach the grandparent level (two generations up
+    from the deceased), then walk down that lineage for up to two more
+    generations, which lands back on the deceased's own generation:
+
+    1. Grandparents (2 generations up): the parents of the deceased's own
+       `parent_agent` / `other_parent_agent`.
+    2. Aunts/uncles (1 generation down from the grandparents): the
+       grandparents' children, excluding the deceased's own parents (who
+       are not "extended" family).
+    3. First cousins (2 generations down from the grandparents, the same
+       generation as the deceased): the aunts/uncles' children.
+
+    The traversal deliberately stops at first cousins -- it does not walk
+    to great-aunts/uncles, second cousins, or a cousin's own children.
+    Bounding the depth here is what keeps the query count independent of
+    family size (see the cost note below), and matches the "up to 2
+    generations" ceiling from the design spec.
+
+    Returns an empty list when the deceased has no recorded parent at all
+    (no basis to find a grandparent), or when neither recorded parent has
+    a recorded parent of their own (no grandparent found).
+
+    `excluded_ids` removes agents already counted under an earlier category
+    in this same `resolve_heirs` call (children, siblings) -- defensive:
+    the aunt/cousin traversal above is structurally disjoint from children
+    and siblings, but a future template with unusual pedigree data should
+    not double-count an heir across categories.
+
+    Query cost: up to 3 queries -- (1) the deceased's parents' own parent
+    ids (a `values_list` over at most 2 rows), (2) the aunts/uncles fetch,
+    (3) the cousins fetch (skipped, 0 extra queries, when no aunts/uncles
+    were found). 0 queries when the deceased has no recorded parent; 1
+    query when no grandparent is found. Every query filters on a small,
+    already-resolved id set (parents, then grandparents, then
+    aunts/uncles) rather than scanning the population, so the cost does not
+    grow with total agent count.
+    """
+    from epocha.apps.agents.models import Agent
+
+    parent_ids = [pid for pid in (deceased.parent_agent_id, deceased.other_parent_agent_id) if pid]
+    if not parent_ids:
+        return []
+
+    grandparent_id_pairs = Agent.objects.filter(id__in=parent_ids).values_list(
+        "parent_agent_id", "other_parent_agent_id"
+    )
+    grandparent_ids = {gid for pair in grandparent_id_pairs for gid in pair if gid is not None}
+    if not grandparent_ids:
+        return []
+
+    aunts_uncles = list(
+        Agent.objects.filter(
+            Q(parent_agent_id__in=grandparent_ids) | Q(other_parent_agent_id__in=grandparent_ids)
+        ).exclude(id__in=parent_ids)
+    )
+    aunt_uncle_ids = {agent.id for agent in aunts_uncles}
+
+    cousins: list = []
+    if aunt_uncle_ids:
+        cousins = list(
+            Agent.objects.filter(
+                Q(parent_agent_id__in=aunt_uncle_ids) | Q(other_parent_agent_id__in=aunt_uncle_ids)
+            )
+        )
+
+    candidates = {agent.id: agent for agent in aunts_uncles + cousins}
+    for excluded_id in excluded_ids | {deceased.id}:
+        candidates.pop(excluded_id, None)
+
+    def _sort_key(agent: Any) -> tuple[int, int]:
+        birth_tick = agent.birth_tick if agent.birth_tick is not None else 0
+        return (birth_tick, agent.id)
+
+    living = [agent for agent in candidates.values() if agent.is_alive]
+    living.sort(key=_sort_key)
+    return living
+
+
+def resolve_heirs(deceased: Any, template: dict) -> dict[str, list]:
+    """Resolve every category of the heir-priority ladder for `deceased`.
+
+    Design spec Sezione 5, "Ereditarietà economica alla morte": the ladder
+    is `template["economic_inheritance"]["heir_priority"]`, identical
+    across all five current era templates --
+    `["spouse", "children", "siblings", "extended_family", "government"]`.
+    This function resolves WHO occupies each category; it does not decide
+    HOW the estate is split among them (a separate mechanism, the per-era
+    `rule` -- primogeniture, equal_split, shari'a, matrilineal, nationalized
+    -- scoped to a later task) or apply estate tax.
+
+    Returns a dict keyed by every category present in `heir_priority`
+    EXCEPT "government": only "spouse", "children", "siblings", and
+    "extended_family" ever appear as keys, each mapped to a list of LIVING
+    heirs in a deterministic order (birth_tick ascending, id tie-break; see
+    each category's own resolver for the exact ordering rationale).
+    "government" is never a key holding heir objects -- it is the ladder's
+    terminal fallback, and is represented structurally by every OTHER
+    category resolving to an empty list, not by a key of its own. A
+    category absent from `heir_priority` in a future custom template is
+    likewise simply absent from the returned dict, so callers can always
+    branch with `heirs.get(category, [])` or an explicit `"category" in
+    heirs` check without ever hitting `KeyError` for a category the
+    template actually declares.
+
+    Category order in `heir_priority` is followed exactly, and matters for
+    one dependency: by the time "extended_family" is processed, whatever
+    "children" and "siblings" already resolved to (if those categories
+    appear earlier in `heir_priority`, as they do in every current
+    template) is passed to `_resolve_extended_family_heirs` as an exclusion
+    set, so an heir already counted under an earlier category is never
+    double-counted under "extended_family". An unrecognized category name
+    is logged at WARNING level and skipped, matching this module's
+    established "never crash the birth/death pipeline on template data"
+    posture (see `apply_social_inheritance`'s unknown-`class_rule`
+    handling).
+
+    Query cost contract (efficiency requirement -- this runs once per
+    death today, and the Plan 4 death orchestrator will call it every
+    tick): every category's query count is bounded independently of family
+    size (see each resolver's own docstring for its exact cost). Worst
+    case, with every category present and populated: 2 (spouse) + 1
+    (children) + 1 (siblings) + 3 (extended_family) = 7 queries total.
+    Categories with no matching heirs cost fewer queries (e.g. 0 extra
+    queries for spouse when there is no active couple, 0 total for
+    extended_family when the deceased has no recorded parent).
+
+    Args:
+        deceased: the deceased Agent instance. Must be saved (have a
+            primary key) -- every resolver below compares against
+            `deceased.id`.
+        template: a demography era template dict as returned by
+            `template_loader.load_template`, or an equivalent dict carrying
+            at least `economic_inheritance.heir_priority`.
+
+    Returns:
+        A dict mapping each `heir_priority` category (except "government")
+        to a list of living `Agent` heirs, always including the key even
+        when the list is empty.
+    """
+    heir_priority = template["economic_inheritance"]["heir_priority"]
+    heirs: dict[str, list] = {}
+
+    for category in heir_priority:
+        if category == "spouse":
+            heirs["spouse"] = _resolve_spouse_heirs(deceased)
+        elif category == "children":
+            heirs["children"] = _resolve_children_heirs(deceased)
+        elif category == "siblings":
+            heirs["siblings"] = _resolve_sibling_heirs(deceased)
+        elif category == "extended_family":
+            already_counted_ids = {
+                agent.id for agent in heirs.get("children", []) + heirs.get("siblings", [])
+            }
+            heirs["extended_family"] = _resolve_extended_family_heirs(deceased, already_counted_ids)
+        elif category == "government":
+            # Terminal fallback: represented by every other category being
+            # empty, never by a key of its own -- see the docstring above.
+            continue
+        else:
+            logger.warning("Unknown heir_priority category %r; skipped", category)
+
+    return heirs

@@ -38,6 +38,7 @@ import pytest
 from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent
+from epocha.apps.demography.couple import form_couple
 from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
     DEFAULT_ERA_MEAN_EDUCATION,
@@ -48,6 +49,7 @@ from epocha.apps.demography.inheritance import (
     evaluate_derived_formula,
     inherit_trait,
     resolve_birth_attributes,
+    resolve_heirs,
 )
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.demography.template_loader import load_template
@@ -1174,3 +1176,257 @@ class TestApplyInheritanceAtBirthNoPersistence:
         # shows the pre-call value, proving no save() occurred.
         persisted = Agent.objects.get(pk=child.pk)
         assert persisted.wealth == original_wealth == 100.0
+
+
+# ---------------------------------------------------------------------------
+# resolve_heirs (Plan 3, T016/T017, user story 2 -- estate/succession)
+# ---------------------------------------------------------------------------
+#
+# The heir-priority ladder (design spec Sezione 5, "Ereditarietà economica
+# alla morte"): every era template's economic_inheritance.heir_priority is
+# ["spouse", "children", "siblings", "extended_family", "government"]
+# (verified identical across all five templates under
+# epocha/apps/demography/templates/). resolve_heirs resolves WHO occupies
+# each category -- never how the estate is split among them, which is a
+# separate later mechanism (T019+, the primogeniture/equal_split/shari'a/
+# matrilineal/nationalized distribution rules).
+#
+# Reuses sim_with_zone / _make_agent from above.
+
+
+def _heir_template() -> dict:
+    """Minimal synthetic template carrying only what resolve_heirs reads.
+
+    Mirrors the real heir_priority order from every era template (verified
+    identical across all five in the design spec and the templates
+    themselves), isolated from the rest of the demography_template schema so
+    these tests do not depend on unrelated template sections.
+    """
+    return {
+        "economic_inheritance": {
+            "heir_priority": ["spouse", "children", "siblings", "extended_family", "government"],
+        }
+    }
+
+
+class TestResolveHeirsSpouse:
+    """spouse category: the surviving partner from the deceased's active
+    Couple (design spec Sezione 5, heir priority item 1).
+    """
+
+    @pytest.mark.django_db
+    def test_spouse_of_active_couple_is_the_sole_heir(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        assert heirs["spouse"] == [partner]
+
+    @pytest.mark.django_db
+    def test_no_active_couple_yields_empty_spouse_list(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        assert heirs["spouse"] == []
+
+
+class TestResolveHeirsChildren:
+    """children category: living children found through EITHER parentage FK
+    (design spec Sezione 5, heir priority item 2: "tramite parent_agent +
+    other_parent_agent"), oldest first (primogeniture-dependent ordering).
+    """
+
+    @pytest.mark.django_db
+    def test_children_via_both_parent_fks_are_found_ordered_oldest_first(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+
+        younger = _make_agent(sim, zone, "Younger", parent_agent=deceased, birth_tick=20)
+        older = _make_agent(sim, zone, "Older", other_parent_agent=deceased, birth_tick=5)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        assert heirs["children"] == [older, younger]
+
+    @pytest.mark.django_db
+    def test_dead_children_are_excluded(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        _make_agent(sim, zone, "DeadChild", parent_agent=deceased, birth_tick=5, is_alive=False)
+        living_child = _make_agent(sim, zone, "LivingChild", parent_agent=deceased, birth_tick=10)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        assert heirs["children"] == [living_child]
+
+
+class TestResolveHeirsSiblings:
+    """siblings category: living agents sharing at least one non-null parent
+    with the deceased (either parent_agent or other_parent_agent), never
+    including the deceased itself.
+    """
+
+    @pytest.mark.django_db
+    def test_siblings_sharing_a_parent_are_found_excluding_deceased(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        sibling = _make_agent(sim, zone, "Sibling", parent_agent=common_parent, birth_tick=5)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        assert heirs["siblings"] == [sibling]
+        assert deceased not in heirs["siblings"]
+
+    @pytest.mark.django_db
+    def test_half_sibling_via_other_parent_agent_is_found(self, sim_with_zone):
+        """A half-sibling sharing only the father (other_parent_agent) must
+        also be found -- the "either parent" broadening documented on
+        resolve_heirs, wider than the design spec's literal single-FK
+        prose.
+        """
+        sim, zone = sim_with_zone
+        common_father = _make_agent(sim, zone, "CommonFather")
+        deceased = _make_agent(
+            sim, zone, "Deceased", other_parent_agent=common_father, birth_tick=10
+        )
+        half_sibling = _make_agent(
+            sim, zone, "HalfSibling", other_parent_agent=common_father, birth_tick=5
+        )
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        assert heirs["siblings"] == [half_sibling]
+
+    @pytest.mark.django_db
+    def test_dead_siblings_are_excluded(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        _make_agent(
+            sim, zone, "DeadSibling", parent_agent=common_parent, birth_tick=5, is_alive=False
+        )
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        assert heirs["siblings"] == []
+
+
+class TestResolveHeirsExtendedFamily:
+    """extended_family category: living descendants of the deceased's
+    grandparents, bounded to two generations down from them -- aunts/uncles
+    and first cousins (design spec Sezione 5, heir priority item 4:
+    "Famiglia estesa (lineage di nonno, fino a 2 generazioni)") -- excluding
+    whoever is already counted as a child or sibling, and excluding the
+    deceased.
+    """
+
+    @pytest.mark.django_db
+    def test_aunt_and_cousin_are_found_via_grandparent_lineage(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        grandparent = _make_agent(sim, zone, "Grandparent")
+        parent = _make_agent(sim, zone, "Parent", parent_agent=grandparent, birth_tick=-60)
+        aunt = _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=parent, birth_tick=-30)
+        cousin = _make_agent(sim, zone, "Cousin", parent_agent=aunt, birth_tick=-5)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        extended_ids = {agent.id for agent in heirs["extended_family"]}
+        assert extended_ids == {aunt.id, cousin.id}
+
+    @pytest.mark.django_db
+    def test_no_recorded_parents_yields_empty_extended_family(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Orphan")
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        assert heirs["extended_family"] == []
+
+
+class TestResolveHeirsGovernmentFallbackShape:
+    """When every category resolves empty (no heirs at all), the returned
+    dict still carries every category key from heir_priority except
+    "government" itself -- the terminal treasury fallback is represented by
+    every OTHER category being empty, not by a key holding objects -- and
+    nothing raises (design spec Sezione 5, heir priority item 5).
+    """
+
+    @pytest.mark.django_db
+    def test_isolated_agent_yields_every_category_empty_and_no_government_key(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Isolated")
+
+        heirs = resolve_heirs(deceased, _heir_template())
+
+        assert heirs == {
+            "spouse": [],
+            "children": [],
+            "siblings": [],
+            "extended_family": [],
+        }
+        assert "government" not in heirs
+
+
+class TestResolveHeirsDeterminism:
+    """Two calls against the same deceased agent return identical ordering
+    in every category -- required for reproducible estate settlement.
+    """
+
+    @pytest.mark.django_db
+    def test_repeated_calls_return_identical_ordering(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        grandparent = _make_agent(sim, zone, "Grandparent")
+        parent = _make_agent(sim, zone, "Parent", parent_agent=grandparent, birth_tick=-60)
+        aunt = _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=parent, birth_tick=-30)
+        _make_agent(sim, zone, "Cousin", parent_agent=aunt, birth_tick=-5)
+        partner = _make_agent(sim, zone, "Partner", birth_tick=-28)
+        form_couple(deceased, partner, formed_at_tick=1)
+        _make_agent(sim, zone, "Sibling", parent_agent=parent, birth_tick=-25)
+        _make_agent(sim, zone, "ChildA", parent_agent=deceased, birth_tick=15)
+        _make_agent(sim, zone, "ChildB", parent_agent=deceased, birth_tick=5)
+
+        first = resolve_heirs(deceased, _heir_template())
+        second = resolve_heirs(deceased, _heir_template())
+
+        for category in ("spouse", "children", "siblings", "extended_family"):
+            assert [agent.id for agent in first[category]] == [
+                agent.id for agent in second[category]
+            ], category
+
+
+class TestResolveHeirsQueryBudget:
+    """Efficiency requirement: resolve_heirs runs once per death today, and
+    the Plan 4 birth/death orchestrator will call it every tick -- the total
+    query count must stay bounded and independent of family size (no N+1).
+    """
+
+    @pytest.mark.django_db
+    def test_full_ladder_stays_within_fixed_query_budget(
+        self, sim_with_zone, django_assert_num_queries
+    ):
+        sim, zone = sim_with_zone
+        grandparent = _make_agent(sim, zone, "Grandparent")
+        parent = _make_agent(sim, zone, "Parent", parent_agent=grandparent, birth_tick=-60)
+        aunt = _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
+        _make_agent(sim, zone, "Cousin", parent_agent=aunt, birth_tick=-20)
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=parent, birth_tick=-30)
+        partner = _make_agent(sim, zone, "Partner", birth_tick=-28)
+        form_couple(deceased, partner, formed_at_tick=1)
+        _make_agent(sim, zone, "Sibling", parent_agent=parent, birth_tick=-25)
+        _make_agent(sim, zone, "Child", parent_agent=deceased, birth_tick=1)
+
+        # 7 queries total, documented in resolve_heirs's own docstring:
+        # spouse (Couple lookup + partner fetch) = 2, children = 1,
+        # siblings = 1, extended_family (grandparent ids + aunts/uncles +
+        # cousins) = 3. Fixed regardless of how many agents populate each
+        # category.
+        with django_assert_num_queries(7):
+            resolve_heirs(deceased, _heir_template())
