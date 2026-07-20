@@ -53,6 +53,16 @@ fallback (conditions flag) when no living relative exists anywhere, the
 module-wide no-persistence contract, and fix MISS-1 -- the orphan keeps
 direct ownership of its inheritance, the caretaker only administers
 (design spec Sezione 5, "Gestione orfani (fix MISS-1)").
+
+Also covers `generate_mourning_memories` (Plan 3, T026/T027, user story 3
+-- death leaves a mark): surviving spouse, surviving children, and strong
+ties (`Relationship.strength > 0.6`, either direction) each receive one
+`Memory` with `emotional_weight = 0.9`, deduplicated when an agent
+qualifies under more than one category. Trap 2: the filter is
+`Relationship.strength`, NOT `Agent.strength` (an inherited physical
+trait, h^2 = 0.55) -- filtering on the wrong field would send grief
+memories to muscular agents instead of close friends (design spec Sezione
+5, "Cascata di memoria del lutto").
 """
 
 from __future__ import annotations
@@ -63,7 +73,7 @@ import random
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
-from epocha.apps.agents.models import Agent
+from epocha.apps.agents.models import Agent, Memory, Relationship
 from epocha.apps.demography.couple import form_couple
 from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
@@ -76,6 +86,7 @@ from epocha.apps.demography.inheritance import (
     assign_orphan_caretaker,
     distribute_estate,
     evaluate_derived_formula,
+    generate_mourning_memories,
     inherit_trait,
     resolve_birth_attributes,
     resolve_heirs,
@@ -2839,3 +2850,321 @@ class TestAssignOrphanCaretakerKinshipDefinitions:
         caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
 
         assert caretaker == grandparent
+
+
+# ---------------------------------------------------------------------------
+# generate_mourning_memories (Plan 3, T026/T027, user story 3 -- death
+# leaves a mark). Design spec Sezione 5, "Cascata di memoria del lutto":
+# the surviving spouse, surviving children, and every living agent tied to
+# the deceased by a Relationship with strength > 0.6 (either direction)
+# each receive one first-hand Memory of the death, deduplicated across
+# categories. This function only creates the direct memories -- carrying
+# them onward to socially-distant agents is the existing per-tick
+# `propagate_information` system's job, called later, never from here.
+#
+# TRAP 2 (verbatim, load-bearing): the strong-tie filter is
+# `Relationship.strength`, NOT `Agent.strength`. `Agent.strength` is an
+# inherited PHYSICAL trait (h^2 = 0.55, Falconer & Mackay 1996 kernel --
+# see `TestInheritTraitTwoParents` above) measuring how strong an agent's
+# body is; `Relationship.strength` measures how strong a SOCIAL bond is.
+# Filtering the grief cascade on the former would deliver memories to
+# muscular strangers instead of close friends -- a category error the
+# TestGenerateMourningMemoriesTrap2 class below is built to catch.
+#
+# `generate_mourning_memories` does not exist yet (implemented in T027);
+# the import above therefore fails at collection time with "cannot import
+# name 'generate_mourning_memories'", this file's established RED-first
+# signal (see e.g. T016/T018/T020/T023/T024's own RED commits).
+
+
+class TestGenerateMourningMemoriesSpouse:
+    """The surviving partner of the deceased's active Couple receives one
+    memory (design spec Sezione 5, heir-adjacent recipient list item 1).
+    """
+
+    @pytest.mark.django_db
+    def test_surviving_spouse_receives_memory_with_the_module_row_shape(self, sim_with_zone):
+        """Canonical row-shape check (asserted once here, not repeated per
+        recipient category below): `agent`, `emotional_weight=0.9`,
+        `source_type=DIRECT`, `reliability=1.0`, `tick_created=tick`,
+        `origin_agent=deceased`, and a `content` sentence naming the
+        deceased (wording itself is T027's freedom, not pinned here).
+        """
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        memory = Memory.objects.get(agent=partner, origin_agent=deceased)
+        assert memory.emotional_weight == 0.9
+        assert memory.source_type == Memory.SourceType.DIRECT
+        assert memory.reliability == 1.0
+        assert memory.tick_created == sim.current_tick
+        assert deceased.name in memory.content
+
+    @pytest.mark.django_db
+    def test_dead_partner_in_active_couple_receives_nothing(self, sim_with_zone):
+        """`active_couple_for` does not itself check the partner's own
+        aliveness (see `_resolve_spouse_heirs`'s own documented edge case)
+        -- this function must apply the "only if alive" qualifier itself.
+        """
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner", is_alive=False)
+        form_couple(deceased, partner, formed_at_tick=1)
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert not Memory.objects.filter(agent=partner, origin_agent=deceased).exists()
+
+    @pytest.mark.django_db
+    def test_no_active_couple_yields_no_spousal_memory(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert not Memory.objects.filter(origin_agent=deceased).exists()
+
+
+class TestGenerateMourningMemoriesChildren:
+    """Living children of the deceased (either parentage FK) each receive
+    one memory (design spec Sezione 5, recipient list item 2).
+    """
+
+    @pytest.mark.django_db
+    def test_surviving_children_via_both_parent_fks_receive_memory(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        child_via_mother_fk = _make_agent(
+            sim, zone, "ChildViaMotherFk", parent_agent=deceased, birth_tick=5
+        )
+        child_via_father_fk = _make_agent(
+            sim, zone, "ChildViaFatherFk", other_parent_agent=deceased, birth_tick=6
+        )
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert Memory.objects.filter(agent=child_via_mother_fk, origin_agent=deceased).exists()
+        assert Memory.objects.filter(agent=child_via_father_fk, origin_agent=deceased).exists()
+
+    @pytest.mark.django_db
+    def test_dead_child_receives_nothing(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        dead_child = _make_agent(
+            sim, zone, "DeadChild", parent_agent=deceased, birth_tick=5, is_alive=False
+        )
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert not Memory.objects.filter(agent=dead_child, origin_agent=deceased).exists()
+
+
+class TestGenerateMourningMemoriesStrongTies:
+    """Living agents linked to the deceased by a `Relationship` with
+    `strength > 0.6`, in EITHER direction, each receive one memory (design
+    spec Sezione 5, recipient list item 3).
+    """
+
+    @pytest.mark.django_db
+    def test_strong_tie_with_deceased_as_agent_from_receives_memory(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        friend = _make_agent(sim, zone, "Friend")
+        Relationship.objects.create(
+            agent_from=deceased,
+            agent_to=friend,
+            relation_type=Relationship.RelationType.FRIENDSHIP,
+            strength=0.8,
+            since_tick=0,
+        )
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert Memory.objects.filter(agent=friend, origin_agent=deceased).exists()
+
+    @pytest.mark.django_db
+    def test_strong_tie_with_deceased_as_agent_to_receives_memory(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        friend = _make_agent(sim, zone, "Friend")
+        Relationship.objects.create(
+            agent_from=friend,
+            agent_to=deceased,
+            relation_type=Relationship.RelationType.FRIENDSHIP,
+            strength=0.8,
+            since_tick=0,
+        )
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert Memory.objects.filter(agent=friend, origin_agent=deceased).exists()
+
+    @pytest.mark.django_db
+    def test_boundary_strength_exactly_zero_point_six_receives_nothing(self, sim_with_zone):
+        """Strict `>` boundary: `strength = 0.6` exactly does NOT qualify."""
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        acquaintance = _make_agent(sim, zone, "Acquaintance")
+        Relationship.objects.create(
+            agent_from=deceased,
+            agent_to=acquaintance,
+            relation_type=Relationship.RelationType.FRIENDSHIP,
+            strength=0.6,
+            since_tick=0,
+        )
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert not Memory.objects.filter(agent=acquaintance, origin_agent=deceased).exists()
+
+    @pytest.mark.django_db
+    def test_dead_strong_tie_receives_nothing(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        dead_friend = _make_agent(sim, zone, "DeadFriend", is_alive=False)
+        Relationship.objects.create(
+            agent_from=deceased,
+            agent_to=dead_friend,
+            relation_type=Relationship.RelationType.FRIENDSHIP,
+            strength=0.9,
+            since_tick=0,
+        )
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert not Memory.objects.filter(agent=dead_friend, origin_agent=deceased).exists()
+
+
+class TestGenerateMourningMemoriesTrap2:
+    """Trap 2 (mandatory, verbatim): the strong-tie filter MUST be
+    `Relationship.strength`, never `Agent.strength`. Each test here is
+    constructed so that filtering on the wrong field flips the assertion.
+    """
+
+    @pytest.mark.django_db
+    def test_muscular_agent_with_no_relationship_receives_nothing(self, sim_with_zone):
+        """High `Agent.strength` (physical trait) alone, with no
+        `Relationship` row at all to the deceased, must not qualify.
+        """
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        muscular_stranger = _make_agent(sim, zone, "MuscularStranger", strength=0.95)
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert not Memory.objects.filter(agent=muscular_stranger, origin_agent=deceased).exists()
+
+    @pytest.mark.django_db
+    def test_muscular_agent_with_weak_relationship_receives_nothing(self, sim_with_zone):
+        """High `Agent.strength`, but the `Relationship.strength` to the
+        deceased is at/under the 0.6 threshold -- still no memory.
+        """
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        muscular_acquaintance = _make_agent(sim, zone, "MuscularAcquaintance", strength=0.95)
+        Relationship.objects.create(
+            agent_from=deceased,
+            agent_to=muscular_acquaintance,
+            relation_type=Relationship.RelationType.PROFESSIONAL,
+            strength=0.5,
+            since_tick=0,
+        )
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert not Memory.objects.filter(
+            agent=muscular_acquaintance, origin_agent=deceased
+        ).exists()
+
+    @pytest.mark.django_db
+    def test_frail_agent_with_strong_relationship_receives_memory(self, sim_with_zone):
+        """The discriminating case: LOW `Agent.strength` (0.1, frail) but
+        a `Relationship.strength` of 0.8 to the deceased -- this is the
+        close friend the cascade must reach. An implementation that
+        mistakenly filters on `Agent.strength` instead of
+        `Relationship.strength` fails this test.
+        """
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        frail_close_friend = _make_agent(sim, zone, "FrailCloseFriend", strength=0.1)
+        Relationship.objects.create(
+            agent_from=deceased,
+            agent_to=frail_close_friend,
+            relation_type=Relationship.RelationType.FRIENDSHIP,
+            strength=0.8,
+            since_tick=0,
+        )
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert Memory.objects.filter(agent=frail_close_friend, origin_agent=deceased).exists()
+
+
+class TestGenerateMourningMemoriesDedup:
+    """An agent qualifying under more than one recipient category gets
+    exactly ONE memory, never one per category (design spec Sezione 5,
+    "un ricordo per destinatario").
+    """
+
+    @pytest.mark.django_db
+    def test_child_who_is_also_a_strong_tie_receives_exactly_one_memory(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        child = _make_agent(sim, zone, "Child", parent_agent=deceased, birth_tick=5)
+        Relationship.objects.create(
+            agent_from=deceased,
+            agent_to=child,
+            relation_type=Relationship.RelationType.FAMILY,
+            strength=0.9,
+            since_tick=0,
+        )
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert Memory.objects.filter(agent=child, origin_agent=deceased).count() == 1
+
+
+class TestGenerateMourningMemoriesNoPropagation:
+    """This function only creates the direct, first-hand memories for its
+    three recipient categories -- it does not itself carry the death to
+    socially-distant agents (that is the existing per-tick
+    `propagate_information` system's job, run later, not from here).
+    """
+
+    @pytest.mark.django_db
+    def test_socially_distant_zone_mate_receives_nothing(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        zone_mate = _make_agent(sim, zone, "ZoneMateNoTie")
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        assert not Memory.objects.filter(agent=zone_mate, origin_agent=deceased).exists()
+
+
+class TestGenerateMourningMemoriesNoSaveOnDeceased:
+    """The function creates NEW `Memory` rows (persistence of new rows is
+    this function's job -- precedent: `transfer_loans_as_lender` persists
+    `Loan` updates), but it must never call `.save()` on the passed
+    `deceased` instance itself.
+    """
+
+    @pytest.mark.django_db
+    def test_never_saves_the_deceased_instance(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+
+        # Mutated only in memory -- if the function ever called
+        # deceased.save(), this would leak into the database.
+        deceased.name = "MutatedInMemoryOnly"
+
+        generate_mourning_memories(deceased, tick=sim.current_tick)
+
+        persisted = Agent.objects.get(id=deceased.id)
+        assert persisted.name == "Deceased"

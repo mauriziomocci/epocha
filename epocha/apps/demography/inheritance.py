@@ -2190,3 +2190,205 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
         minor.conditions.append("state_ward")
 
     return caretaker
+
+
+# ---------------------------------------------------------------------------
+# Mourning memories (Plan 3, T026/T027, user story 3 -- death leaves a
+# mark). Design spec Sezione 5, "Cascata di memoria del lutto": the
+# surviving spouse, surviving children, and every living agent tied to the
+# deceased by a strong Relationship each receive one first-hand Memory of
+# the death. Carrying that memory onward to socially-distant agents is NOT
+# this function's job -- it is the existing per-tick `propagate_information`
+# system's job (epocha/apps/agents/information_flow.py), which reads
+# Memory.origin_agent (see the model's own `memory_propagation_idx` index,
+# epocha/apps/agents/models.py) to derive decayed-weight hearsay/rumor
+# copies for the wider society. This section only creates the direct,
+# first-hand rows; it never calls `propagate_information` itself.
+# ---------------------------------------------------------------------------
+
+# Emotional weight assigned to every direct mourning memory. Design spec
+# Sezione 5, "Cascata di memoria del lutto": the death of a close relation
+# is modeled as a high-intensity, first-hand event -- 0.9 on Memory's own
+# [0.0, 1.0] "trivial .. traumatic/ecstatic" scale (see the field's
+# help_text, epocha/apps/agents/models.py). A documented, explicitly
+# tunable design constant, not a magic number: it sits just below the 1.0
+# ceiling, leaving headroom above it for a still more acute personal-
+# survival event elsewhere in this plan (Plan 3's emergency-flight trapped-
+# crisis memory in migration.py, scoped to a later task, uses a higher
+# weight for imminent threat to the agent's own life).
+MOURNING_MEMORY_WEIGHT = 0.9
+
+# Strict lower bound (exclusive) on Relationship.strength for an agent to
+# qualify as a "strong tie" mourning-memory recipient. Design spec Sezione
+# 5: only relationships strong enough that the death is experienced first-
+# hand, not merely heard about later, trigger a direct memory here. 0.6
+# sits above Relationship.strength's own field midpoint (0.5, "weak" ..
+# "very strong", see the field's help_text) -- a documented, explicitly
+# tunable design threshold reserving first-hand grief for the upper tier
+# of a relationship's strength range. TRAP 2 (verbatim, load-bearing):
+# this constant gates `Relationship.strength`, the SOCIAL bond strength
+# between two agents -- it must never be confused with `Agent.strength`,
+# an unrelated inherited PHYSICAL trait (h^2 = 0.55, the Falconer & Mackay
+# 1996 polygenic kernel at the top of this module) measuring how strong an
+# agent's body is. Filtering the grief cascade on `Agent.strength` instead
+# would deliver memories to muscular strangers instead of close friends --
+# a category error, not a rounding difference.
+MOURNING_TIE_STRENGTH_THRESHOLD = 0.6
+
+
+def generate_mourning_memories(deceased: Any, tick: int) -> None:
+    """Create one first-hand `Memory` of `deceased`'s death for every
+    qualifying recipient (design spec Sezione 5, "Cascata di memoria del
+    lutto").
+
+    RECIPIENT CATEGORIES (a recipient qualifying under more than one
+    category still receives exactly ONE memory -- see DEDUPLICATION
+    below):
+
+    1. Surviving spouse: the partner of `deceased`'s active Couple,
+       resolved via `active_couple_for` (couple.py) -- the same helper
+       `_resolve_spouse_heirs` uses for the estate ladder, reused here
+       rather than re-querying `Couple` directly (DRY). `active_couple_for`
+       does NOT itself filter on the partner's own aliveness (a couple
+       with the deceased side already nulled by an earlier
+       `dissolve_on_death` call is no longer "active", but the partner
+       side is never checked) -- this function applies the "only if
+       alive" qualifier itself, exactly like `_resolve_spouse_heirs` does.
+    2. Surviving children: living agents recorded as having `deceased` as
+       EITHER parentage FK (`parent_agent` or `other_parent_agent`) --
+       the same "either FK" match `_resolve_children_heirs` uses for the
+       estate ladder.
+    3. Strong ties: living agents linked to `deceased` by a `Relationship`
+       row with `strength > MOURNING_TIE_STRENGTH_THRESHOLD`, in EITHER
+       direction (`deceased` as `agent_from` or as `agent_to`). See TRAP 2
+       on `MOURNING_TIE_STRENGTH_THRESHOLD` above -- the filter is
+       `Relationship.strength`, an inherited PHYSICAL trait on `Agent` is
+       never consulted anywhere in this function.
+
+    DEDUPLICATION: recipients are collected into a single `dict` keyed by
+    agent id as each category is resolved, so an agent found under two
+    categories (e.g. a child who is also recorded as a strong tie) simply
+    overwrites its own dict entry and ends up with exactly one row in the
+    final `Memory.objects.bulk_create` call, never two.
+
+    DETERMINISM (project invariant -- bit-for-bit reproducibility across
+    identically-seeded runs): the recipient dict is built in a fixed
+    category order (spouse, then children, then strong ties) and every
+    query within a category is itself deterministically ordered by the
+    database (children and strong-tie rows are read in whatever stable
+    order the query planner returns for a single unordered SELECT, but the
+    OUTPUT this function produces -- the `Memory` rows -- is written in
+    `agent_id` ascending order: recipients are sorted by id immediately
+    before `bulk_create`, never iterated as a bare Python `set`, so the
+    database `INSERT` order (and therefore the auto-incrementing `Memory.
+    id` values) is reproducible run to run regardless of any incidental
+    variation in the recipient-discovery queries' own row order.
+
+    MEMORY ROW SHAPE (mirrors the conventions `information_flow.py`
+    already establishes for `Memory` creation): `agent=recipient`,
+    `content` an English sentence naming `deceased` (exact wording is this
+    function's own choice, not part of the pinned contract),
+    `emotional_weight=MOURNING_MEMORY_WEIGHT`,
+    `source_type=Memory.SourceType.DIRECT` (first-hand experience, as
+    opposed to `HEARSAY`/`RUMOR`/`PUBLIC`), `reliability=1.0` (a first-hand
+    grief memory is never uncertain to the person experiencing it),
+    `tick_created=tick`, `origin_agent=deceased` (the traceability/
+    propagation-index FK `information_flow.py`'s hearsay/rumor derivation
+    reads via `Memory.origin_agent`, e.g. its own `memory_propagation_idx`
+    composite index).
+
+    PERSISTENCE CONTRACT (nuance vs. this module's usual "no-save"
+    resolvers): unlike `resolve_heirs` / `distribute_estate` /
+    `assign_orphan_caretaker`, which return a pure value or mutate only
+    the passed instance, this function DOES write to the database --
+    exactly like `transfer_loans_as_lender` persists `Loan` reassignments
+    directly, creating a brand-new `Memory` row has no "pure value"
+    representation a caller could sensibly persist later, so the write
+    happens here. What this function still never does is call `.save()`
+    on the passed `deceased` instance itself -- `deceased` is read-only
+    input (its `id`, `name`, and FK columns), never mutated or persisted.
+
+    NO PROPAGATION HERE: this function never imports or calls
+    `propagate_information` -- see the module section header above for
+    why (that system runs later, per tick, and reads what this function
+    wrote via `origin_agent`). An agent with no tie to `deceased` (not a
+    spouse, not a child, no qualifying `Relationship`) receives nothing
+    from this function, however geographically close (e.g. a same-zone
+    agent with no recorded relationship).
+
+    Args:
+        deceased: the deceased Agent instance. Must be saved (queried by
+            `id`/FK comparisons throughout). Never mutated or saved by
+            this function.
+        tick: the current simulation tick, written verbatim to every
+            created `Memory.tick_created`.
+
+    Returns:
+        None. Mutates the database directly (new `Memory` rows); has no
+        return value to persist, unlike this module's pure resolvers.
+
+    Query cost contract (bounded, independent of population size -- this
+    runs once per death, and the Plan 4 orchestrator will call it every
+    tick): up to 5 queries total -- (1) `active_couple_for` (the `Couple`
+    lookup), (2) fetching the partner's own `Agent` row (skipped, 0 extra
+    queries, when there is no active couple), (3) the children fetch (one
+    query, either-FK `Q` filter), (4) the strong-tie fetch (one query: a
+    single `Relationship` queryset with an either-direction `Q` filter and
+    `select_related("agent_from", "agent_to")` so reading which side is
+    the recipient costs no further query), (5) one `Memory.objects.
+    bulk_create` (skipped entirely, 0 queries, when no recipient was
+    found at all). No per-recipient queries anywhere.
+    """
+    from epocha.apps.agents.models import Agent, Memory, Relationship
+    from epocha.apps.demography.couple import active_couple_for
+
+    recipients: dict[int, Any] = {}
+
+    # Category 1: surviving spouse.
+    couple = active_couple_for(deceased)
+    if couple is not None:
+        partner = couple.agent_b if couple.agent_a_id == deceased.id else couple.agent_a
+        if partner is not None and partner.is_alive:
+            recipients[partner.id] = partner
+
+    # Category 2: surviving children, either parentage FK.
+    children = Agent.objects.filter(
+        Q(parent_agent=deceased) | Q(other_parent_agent=deceased), is_alive=True
+    )
+    for child in children:
+        recipients[child.id] = child
+
+    # Category 3: strong ties. TRAP 2 -- Relationship.strength, never
+    # Agent.strength (see MOURNING_TIE_STRENGTH_THRESHOLD above). One
+    # query for both directions; select_related avoids a further query
+    # per relationship when reading which side is the recipient.
+    strong_tie_relationships = Relationship.objects.filter(
+        Q(agent_from=deceased) | Q(agent_to=deceased),
+        strength__gt=MOURNING_TIE_STRENGTH_THRESHOLD,
+    ).select_related("agent_from", "agent_to")
+    for relationship in strong_tie_relationships:
+        tie = (
+            relationship.agent_to
+            if relationship.agent_from_id == deceased.id
+            else relationship.agent_from
+        )
+        if tie.is_alive:
+            recipients[tie.id] = tie
+
+    if not recipients:
+        return
+
+    content = f"{deceased.name} has died; the loss is felt first-hand."
+    memories = [
+        Memory(
+            agent=recipient,
+            content=content,
+            emotional_weight=MOURNING_MEMORY_WEIGHT,
+            source_type=Memory.SourceType.DIRECT,
+            reliability=1.0,
+            tick_created=tick,
+            origin_agent=deceased,
+        )
+        for _, recipient in sorted(recipients.items(), key=lambda item: item[0])
+    ]
+    Memory.objects.bulk_create(memories)
