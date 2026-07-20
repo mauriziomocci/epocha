@@ -3765,3 +3765,190 @@ class TestProcessInheritanceBatchEmptyBatch:
         process_inheritance_batch(sim, tick=50, deceased_agents=[])
 
         assert not DemographyEvent.objects.filter(simulation=sim).exists()
+
+
+# ---------------------------------------------------------------------------
+# Birth-path determinism (Plan 3, T040, SC-003). Two INDEPENDENTLY
+# constructed births -- fresh mother/father/child rows each time, so their
+# ids genuinely differ (never the same object reused across "run A" and
+# "run B", which would prove far less than it looks like it proves) --
+# must produce byte-identical child state when driven through the SAME
+# simulation, tick, and template. This is the module-wide guarantee
+# `apply_trait_inheritance`'s own docstring already claims ("an unordered
+# iteration would make the RNG draw sequence depend on the interpreter's
+# per-process string hash seed, breaking the bit-for-bit reproducibility
+# the demography subsystem requires") -- this test is the executable
+# proof of that claim, comparing the FULL resulting state (every scalar
+# trait, every personality entry, the derived trait `cunning`, gender,
+# orientation, social class, education level, wealth, zone), not a
+# sampled field or two.
+# ---------------------------------------------------------------------------
+
+
+class TestBirthPathDeterminismSC003:
+    """SC-003: two independently constructed births at the same
+    simulation/tick/template produce identical child state, compared by
+    VALUE across every field the birth pipeline touches.
+    """
+
+    @pytest.mark.django_db
+    def test_two_independent_births_produce_byte_identical_child_state(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        template = load_template("pre_industrial_christian")
+
+        mother_personality = {name: 0.65 for name in PERSONALITY_HERITABLE_TRAITS}
+        father_personality = {name: 0.35 for name in PERSONALITY_HERITABLE_TRAITS}
+        mother_scalars = {name: 0.65 for name in SCALAR_HERITABLE_TRAITS}
+        father_scalars = {name: 0.35 for name in SCALAR_HERITABLE_TRAITS}
+
+        # RUN A: its own mother/father/child rows.
+        mother_a = _make_agent(
+            sim,
+            zone,
+            "MotherA",
+            social_class="wealthy",
+            education_level=0.6,
+            personality=dict(mother_personality),
+            **mother_scalars,
+        )
+        father_a = _make_agent(
+            sim,
+            zone,
+            "FatherA",
+            social_class="middle",
+            education_level=0.4,
+            personality=dict(father_personality),
+            **father_scalars,
+        )
+        child_a = _make_agent(sim, zone, "ChildA")
+
+        # RUN B: an ENTIRELY SEPARATE set of mother/father/child rows,
+        # created AFTER run A's, so their ids are strictly higher --
+        # genuinely different database rows, not the same objects reused
+        # (the "two calls in one process that happen to hit the same
+        # objects prove less than you think" trap). Same trait VALUES as
+        # run A, so any difference in the outcome can only come from a
+        # hidden dependency on identity/id/creation-order, not from a
+        # deliberate input difference.
+        mother_b = _make_agent(
+            sim,
+            zone,
+            "MotherB",
+            social_class="wealthy",
+            education_level=0.6,
+            personality=dict(mother_personality),
+            **mother_scalars,
+        )
+        father_b = _make_agent(
+            sim,
+            zone,
+            "FatherB",
+            social_class="middle",
+            education_level=0.4,
+            personality=dict(father_personality),
+            **father_scalars,
+        )
+        child_b = _make_agent(sim, zone, "ChildB")
+
+        assert mother_a.id != mother_b.id  # self-check: genuinely different rows
+        assert father_a.id != father_b.id
+        assert child_a.id != child_b.id
+
+        rng_a = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        rng_b = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+
+        apply_trait_inheritance(child_a, mother_a, father_a, template, rng_a)
+        gender_a, orientation_a = resolve_birth_attributes(template, rng_a)
+        child_a.gender = gender_a
+        child_a.sexual_orientation = orientation_a
+        apply_social_inheritance(
+            child_a, mother_a, father_a, template, zone_class_mean=2.0, rng=rng_a
+        )
+        child_a.wealth = 0.0
+        child_a.zone = mother_a.zone
+
+        apply_trait_inheritance(child_b, mother_b, father_b, template, rng_b)
+        gender_b, orientation_b = resolve_birth_attributes(template, rng_b)
+        child_b.gender = gender_b
+        child_b.sexual_orientation = orientation_b
+        apply_social_inheritance(
+            child_b, mother_b, father_b, template, zone_class_mean=2.0, rng=rng_b
+        )
+        child_b.wealth = 0.0
+        child_b.zone = mother_b.zone
+
+        # Full state comparison -- every field the birth pipeline touches,
+        # not a sampled subset.
+        for name in SCALAR_HERITABLE_TRAITS:
+            assert getattr(child_a, name) == getattr(child_b, name), name
+        for name in PERSONALITY_HERITABLE_TRAITS:
+            assert child_a.personality[name] == child_b.personality[name], name
+        assert child_a.cunning == child_b.cunning  # the derived trait, NOT in either set above
+        assert child_a.gender == child_b.gender
+        assert child_a.sexual_orientation == child_b.sexual_orientation
+        assert child_a.social_class == child_b.social_class
+        assert child_a.education_level == child_b.education_level
+        assert child_a.wealth == child_b.wealth == 0.0
+        assert child_a.zone_id == child_b.zone_id == zone.id
+
+
+# ---------------------------------------------------------------------------
+# GENUINE FINDING (T040, not a bug fix -- flagged for the phase-6 audit /
+# the project's open determinism investigation, per CLAUDE.md's ABSOLUTE
+# PRIORITY: Verify Before Asserting). Verified directly against
+# epocha/apps/demography/rng.py: `get_seeded_rng`'s derived seed is
+# `sha256(f"{simulation.id}:{simulation.seed}:{tick}:{phase}")`, NOT
+# `sha256(f"{simulation.seed}:{tick}:{phase}")` as the module's own
+# docstring states ("derived from a deterministic hash of
+# (simulation.seed, tick, phase)" -- simulation.id is never named).
+# CONSEQUENCE: two DIFFERENT Simulation rows sharing the SAME declared
+# `.seed` value do NOT produce the same RNG stream, and therefore do NOT
+# produce the same birth outcome, even with byte-identical mother/father
+# input values -- verified below. This is DIFFERENT from the already-
+# tracked "LLM world/agent generation has no seed" limitation (memory
+# project_determinism_enumeration_pending.md): that one is about
+# non-deterministic INPUTS (agents differ before inheritance even runs);
+# this one is about the RNG STREAM ITSELF being tied to the database row's
+# own primary key, so even IDENTICAL inputs on two DIFFERENT simulation
+# rows diverge. Whether `simulation.id` in the hash is deliberate
+# (isolating concurrent simulation runs from sharing RNG state) or an
+# unintended docstring/implementation mismatch is a design question this
+# task does NOT resolve -- flagged here, not silently patched, per the
+# explicit instruction to stop and report rather than reseed or relax the
+# assertion.
+# ---------------------------------------------------------------------------
+
+
+class TestGetSeededRngSimulationIdCoupling:
+    """Documents (does not endorse or fix) a verified property of
+    `get_seeded_rng`: reproducibility by `.seed` value alone does NOT hold
+    across different `Simulation` rows, because the derived seed also
+    incorporates `simulation.id`. See the module-level note above this
+    class for the full account.
+    """
+
+    @pytest.mark.django_db
+    def test_same_seed_value_on_different_simulation_rows_yields_different_streams(self):
+        user_a = User.objects.create_user(
+            email="rng-a@epocha.dev", username="rngusera", password="pass1234"
+        )
+        user_b = User.objects.create_user(
+            email="rng-b@epocha.dev", username="rnguserb", password="pass1234"
+        )
+        sim_a = Simulation.objects.create(name="RngSimA", seed=2026, owner=user_a)
+        sim_b = Simulation.objects.create(name="RngSimB", seed=2026, owner=user_b)
+
+        assert sim_a.seed == sim_b.seed == 2026  # self-check: identical declared seed
+        assert sim_a.id != sim_b.id  # self-check: genuinely different rows
+
+        rng_a = get_seeded_rng(sim_a, tick=10, phase="inheritance")
+        rng_b = get_seeded_rng(sim_b, tick=10, phase="inheritance")
+
+        # VERIFIED FINDING: this is NOT the same draw, despite an
+        # identical declared .seed, tick, and phase -- because
+        # simulation.id differs and is folded into the hash. If a future
+        # change to rng.py makes this assertion fail (i.e. the streams
+        # become equal), that is progress on the finding above, not a
+        # regression -- update this test's assertion deliberately in that
+        # case, do not delete it silently.
+        assert rng_a.random() != rng_b.random()
