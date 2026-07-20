@@ -80,6 +80,14 @@ partners of one couple die in the same batch. PRECONDITION, load-bearing
 throughout this section: every agent passed in `deceased_agents` already
 has `is_alive=False` BEFORE the call -- the caller (Plan 4's mortality
 step) sets it, not this function.
+
+Also covers the SC-004 era coverage gate (Plan 3, T041, Phase 8 closure):
+all five era templates drive BOTH the inheritance path
+(`process_inheritance_batch`) and the migration path
+(`coordinate_family_migration`, `evaluate_emergency_flight`) without
+error, each asserted against era-appropriate outcomes -- estate tax rate,
+succession rule signature, adulthood_age, and flight_trigger_ticks --
+never merely "does not raise".
 """
 
 from __future__ import annotations
@@ -109,6 +117,10 @@ from epocha.apps.demography.inheritance import (
     resolve_birth_attributes,
     resolve_heirs,
     transfer_loans_as_lender,
+)
+from epocha.apps.demography.migration import (
+    coordinate_family_migration,
+    evaluate_emergency_flight,
 )
 from epocha.apps.demography.models import Couple, DemographyEvent
 from epocha.apps.demography.rng import get_seeded_rng
@@ -3952,3 +3964,249 @@ class TestGetSeededRngSimulationIdCoupling:
         # regression -- update this test's assertion deliberately in that
         # case, do not delete it silently.
         assert rng_a.random() != rng_b.random()
+
+
+# ---------------------------------------------------------------------------
+# Era coverage gate (Plan 3, T041, SC-004, Phase 8 closure). All five era
+# templates must drive BOTH the inheritance path
+# (`process_inheritance_batch`) and the migration path
+# (`coordinate_family_migration`, `evaluate_emergency_flight`) without
+# error, each producing era-appropriate outcomes -- not merely "does not
+# raise", the weakest possible criterion and unfit for the last gate
+# before the audit.
+# ---------------------------------------------------------------------------
+
+
+class TestEraCoverageSC004:
+    """SC-004: all five era templates drive both the inheritance and the
+    migration path, each exercising its OWN declared succession rule.
+
+    RULE-PER-ERA MAPPING (verified directly against the five template
+    JSON files under epocha/apps/demography/templates/, not assumed):
+    only THREE of the five implemented succession rules are actually
+    exercised by the five default era templates -- `primogeniture`
+    (pre_industrial_christian only), `shari'a` (pre_industrial_islamic
+    only), and `equal_split` (industrial, modern_democracy, AND sci_fi --
+    three different eras share this one rule). `matrilineal` and
+    `nationalized` are declared by NONE of the five default templates;
+    both are only reachable through a scenario-authored template
+    override, already exercised in isolation by
+    `TestDistributeEstateMatrilineal`, `TestDistributeEstateNationalized`,
+    and `TestFullEstateChainConservation` above -- not by any default
+    era, and not by this test.
+
+    Reuses, rather than duplicating, the per-rule fixture builders
+    already established for T020-T022
+    (`_build_deceased_for_primogeniture`, `_build_deceased_for_sharia`,
+    `_build_deceased_for_equal_split`) and this file's own
+    `sim_with_government` / `_make_agent` / `_set_demography_template`.
+    """
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "era_name, rule, class_rule, estate_tax_rate, adulthood_age, "
+        "flight_trigger_ticks, build_deceased",
+        [
+            (
+                "pre_industrial_christian",
+                "primogeniture",
+                "patrilineal_rigid",
+                0.0,
+                16,
+                30,
+                _build_deceased_for_primogeniture,
+            ),
+            (
+                "pre_industrial_islamic",
+                "shari'a",
+                "patrilineal_rigid",
+                0.0,
+                16,
+                30,
+                _build_deceased_for_sharia,
+            ),
+            (
+                "industrial",
+                "equal_split",
+                "clark_regression",
+                0.15,
+                16,
+                20,
+                _build_deceased_for_equal_split,
+            ),
+            (
+                "modern_democracy",
+                "equal_split",
+                "becker_tomes_elasticity_0.4",
+                0.40,
+                18,
+                10,
+                _build_deceased_for_equal_split,
+            ),
+            (
+                "sci_fi",
+                "equal_split",
+                "meritocratic",
+                0.0,
+                18,
+                5,
+                _build_deceased_for_equal_split,
+            ),
+        ],
+    )
+    def test_era_drives_inheritance_and_migration_with_era_appropriate_outcomes(
+        self,
+        sim_with_government,
+        era_name,
+        rule,
+        class_rule,
+        estate_tax_rate,
+        adulthood_age,
+        flight_trigger_ticks,
+        build_deceased,
+    ):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, era_name)
+        template = load_template(era_name)
+
+        # Self-check: the parametrize table states facts read directly
+        # off the template JSON files (see the class docstring's RULE-PER-
+        # ERA MAPPING) -- verify them here so a future template edit that
+        # silently changes one of these values is caught by THIS test,
+        # never merely assumed.
+        assert template["economic_inheritance"]["rule"] == rule
+        assert template["social_inheritance"]["class_rule"] == class_rule
+        assert template["economic_inheritance"]["estate_tax_rate"] == pytest.approx(estate_tax_rate)
+        assert template["migration"]["adulthood_age"] == adulthood_age
+        assert template["migration"]["flight_trigger_ticks"] == flight_trigger_ticks
+
+        # --- INHERITANCE PATH: process_inheritance_batch end to end,
+        # asserting the era's OWN tax rate and the succession rule's
+        # distinctive allocation signature -- not merely absence of error.
+        deceased = build_deceased(sim, zone)
+        deceased.wealth = 1000.0
+        deceased.is_alive = False
+        deceased.save(update_fields=["wealth", "is_alive"])
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        government.refresh_from_db()
+        expected_tax = 1000.0 * estate_tax_rate
+        assert sum(government.government_treasury.values()) == pytest.approx(
+            expected_tax, abs=_CONSERVATION_TOLERANCE
+        )
+        inheritable = 1000.0 - expected_tax
+
+        # Every heir created by the builders above starts at
+        # _make_agent's own default wealth (100.0) -- process_inheritance_
+        # batch correctly credits ON TOP OF that pre-existing balance
+        # (its own documented T029 contract: "a heir's final wealth is
+        # their pre-batch database value plus every credit accumulated"),
+        # so the rule-signature assertions below compare the CREDITED
+        # DELTA (wealth minus the 100.0 baseline), not the raw post-batch
+        # wealth -- comparing raw wealth against a bare `inheritable`
+        # figure was this test's own first-draft bug, caught by running
+        # it, not assumed away.
+        _heir_baseline_wealth = 100.0
+
+        if rule == "primogeniture":
+            son = Agent.objects.get(simulation=sim, name="Son")
+            assert son.wealth - _heir_baseline_wealth == pytest.approx(
+                inheritable, abs=_CONSERVATION_TOLERANCE
+            )
+        elif rule == "shari'a":
+            # spouse_fraction = 1/8 when children are present (verified
+            # against _distribute_sharia's own docstring/body); residual
+            # splits 2:1 son:daughter.
+            partner = Agent.objects.get(simulation=sim, name="Partner")
+            son = Agent.objects.get(simulation=sim, name="Son")
+            daughter = Agent.objects.get(simulation=sim, name="Daughter")
+            assert partner.wealth - _heir_baseline_wealth == pytest.approx(
+                inheritable / 8, abs=_CONSERVATION_TOLERANCE
+            )
+            assert son.wealth - _heir_baseline_wealth == pytest.approx(
+                2 * (daughter.wealth - _heir_baseline_wealth), abs=_CONSERVATION_TOLERANCE
+            )
+        elif rule == "equal_split":
+            # Three equal shares (spouse counts as a child's share); the
+            # two children never absorb the float remainder (spouse is
+            # last in this rule's own deterministic order), so they must
+            # be exactly equal.
+            partner = Agent.objects.get(simulation=sim, name="Partner")
+            child_a = Agent.objects.get(simulation=sim, name="ChildA")
+            child_b = Agent.objects.get(simulation=sim, name="ChildB")
+            assert child_a.wealth == pytest.approx(child_b.wealth, abs=_CONSERVATION_TOLERANCE)
+            assert partner.wealth > 0.0
+
+        # --- MIGRATION PATH, part 1: coordinate_family_migration reads
+        # this era's adulthood_age (16 vs 18) -- a 17-year-old is an adult
+        # under the 16-eras and a minor under the 18-eras, so the SAME
+        # fixture discriminates every era's own declared value.
+        target_zone = Zone.objects.create(
+            world=zone.world,
+            name=f"{era_name}Target",
+            zone_type="residential",
+            boundary=Polygon.from_bbox((200, 200, 300, 300)),
+            center=Point(250, 250),
+        )
+        family_head = _make_agent(sim, zone, f"{era_name}FamilyHead")
+        teenager = _make_agent(sim, zone, f"{era_name}Teenager", parent_agent=family_head, age=17)
+
+        household = coordinate_family_migration(
+            family_head, target_zone, tick=50, template=template
+        )
+
+        teenager.refresh_from_db()
+        if adulthood_age <= 17:
+            # 16: a 17-year-old is already an adult under this era --
+            # decides independently, never dragged along.
+            assert teenager.id not in household
+            assert teenager.zone_id == zone.id
+        else:
+            # 18: a 17-year-old is still a minor under this era -- moves
+            # with the family.
+            assert teenager.id in household
+            assert teenager.zone_id == target_zone.id
+
+        # --- MIGRATION PATH, part 2: evaluate_emergency_flight reads this
+        # era's flight_trigger_ticks (30/30/20/10/5) -- a fixed
+        # consecutive_ticks_under_subsistence=15 clears the trigger for
+        # sci_fi/modern_democracy but not for the other three, so the
+        # SAME fixture discriminates every era's own declared value. A
+        # hand-built zone_stats (own subsistence_threshold key, T039's
+        # documented caching contract) avoids needing a Currency/
+        # GoodCategory/ZoneEconomy economy scaffold just to prove this
+        # one template value is actually read.
+        starving_agent = _make_agent(sim, zone, f"{era_name}Starving", wealth=1.0)
+        flight_zone_stats = {
+            "world": zone.world,
+            "government_stability": government.stability,
+            "zones": {
+                zone.id: {
+                    "zone": zone,
+                    "wage": 0.0,
+                    "unemployment": 0.0,
+                    "subsistence_threshold": 100.0,
+                },
+                target_zone.id: {
+                    "zone": target_zone,
+                    "wage": 200.0,
+                    "unemployment": 0.0,
+                    "subsistence_threshold": 0.0,
+                },
+            },
+        }
+
+        flight_target = evaluate_emergency_flight(
+            starving_agent,
+            sim,
+            tick=50,
+            template=template,
+            zone_stats=flight_zone_stats,
+            consecutive_ticks_under_subsistence=15,
+        )
+
+        if flight_trigger_ticks <= 15:
+            assert flight_target == target_zone
+        else:
+            assert flight_target is None
