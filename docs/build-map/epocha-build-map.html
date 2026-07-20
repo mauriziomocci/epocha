@@ -353,15 +353,15 @@
     <p class="dek">The single source of truth for what is built and what is not — this board is authoritative, and every session that changes phase status must update it. Status is checked against the source tree and the whitepaper, never inherited from memory notes. The forward spine is the planned civilization arc; the substrate on the right is what is already built and audited underneath it.</p>
     <div class="mast-meta">
       <span><b>Branch</b> develop</span>
-      <span><b>Tip</b> 0009fe4 · Plan 3 branch · economy merged at 368e972</span>
-      <span><b>Suite</b> 1002 passed · ruff clean</span>
+      <span><b>Tip</b> Plan 3 branch, user story 3 closed · economy merged at 368e972</span>
+      <span><b>Suite</b> 1047 passed · 94% cov · ruff clean</span>
       <span><b>Source</b> docs/build-map/epocha-build-map.html</span>
     </div>
   </header>
 
   <div class="here-band">
     <span class="here-tag">You are here</span>
-    <p><b>Phase 1a closed — the economy base layer is audited (CONVERGED, round 12), promoted to §4.8, and merged into <code>develop</code> at <code>368e972</code>.</b> The frontier is now <b>Phase 2: demography</b> — the models are audited but the loop never calls them — and the <b>Knowledge Graph audit (§8.1)</b>, the last built-but-unaudited module and the only thing left in chapter 8. Demography is <b>two plans, not one</b>: Plan 3 (inheritance + migration) must land before Plan 4 (initialization + engine wiring + historical validation), because Plan 4's orchestrator calls <code>inheritance.py</code> for orphan caretaker assignment and <code>migration.py</code> for emergency flight. <b>Plan 3 is now under way on branch <code>20260717-120706-demography-inheritance-migration</code>: 23 of 47 tasks done.</b> User story 1 (birth: traits, sex and orientation, social class and education) and user story 2 (succession: heirs, estate tax, the five per-era rules, loan transfer) are complete and committed, with the estate conservation chain closing exactly across all five rules. <code>inheritance.py</code> exists with ten public functions; <code>migration.py</code> does not exist yet, and the tick loop still calls only <code>set_avoid_conception_flag</code>.</p>
+    <p><b>Phase 1a closed — the economy base layer is audited (CONVERGED, round 12), promoted to §4.8, and merged into <code>develop</code> at <code>368e972</code>.</b> The frontier is now <b>Phase 2: demography</b> — the models are audited but the loop never calls them — and the <b>Knowledge Graph audit (§8.1)</b>, the last built-but-unaudited module and the only thing left in chapter 8. Demography is <b>two plans, not one</b>: Plan 3 (inheritance + migration) must land before Plan 4 (initialization + engine wiring + historical validation), because Plan 4's orchestrator calls <code>inheritance.py</code> for orphan caretaker assignment and <code>migration.py</code> for emergency flight. <b>Plan 3 is now under way on branch <code>20260717-120706-demography-inheritance-migration</code>: 29 of 47 tasks done.</b> User story 1 (birth: traits, sex and orientation, social class and education), user story 2 (succession: heirs, estate tax, the five per-era rules, loan transfer) and user story 3 (orphan caretakers, the mourning cascade, the simultaneous-death batch) are complete and committed, with the estate conservation chain closing exactly across all five rules. <b><code>inheritance.py</code> is finished</b> — thirteen public functions, ending at <code>process_inheritance_batch</code>, the death-path entry point Plan 4 will call. <code>migration.py</code> does not exist yet: user stories 4 and 5 build it from scratch and are the whole remainder of the plan alongside closure. The tick loop still calls only <code>set_avoid_conception_flag</code>.</p>
   </div>
 
   <ul class="legend">
@@ -412,7 +412,7 @@
           <div class="num">2</div>
           <div class="body">
             <div class="row1"><span class="title">Demography</span><span class="pill prog">In progress · next</span></div>
-            <p class="desc">Mortality, fertility, couple formation are audited (§4.1) and unit-tested. <b>Plan 3 in flight — 23/47 tasks.</b> Done and committed: the birth path (polygenic traits per Falconer &amp; Mackay, sex and orientation, social class and education) and the succession path (heir ladder, estate tax to treasury, five per-era rules, lender-side loan transfer), with the conservation chain verified across all five rules. Still to come in Plan 3: orphans and the mourning cascade, then all of <code>migration.py</code>. <span class="warn">The tick loop still does not drive demography — only <code>set_avoid_conception_flag</code> is called; wiring is Plan 4, blocked until Plan 3 lands.</span></p>
+            <p class="desc">Mortality, fertility, couple formation are audited (§4.1) and unit-tested. <b>Plan 3 in flight — 29/47 tasks.</b> Done and committed: the birth path (polygenic traits per Falconer &amp; Mackay, sex and orientation, social class and education), the succession path (heir ladder, estate tax to treasury, five per-era rules, lender-side loan transfer) with the conservation chain verified across all five rules, and the death path (orphan caretaker ladder, weight-0.9 mourning cascade, simultaneous-death batch ordered oldest-first). <code>inheritance.py</code> is complete at thirteen public functions. Still to come in Plan 3: all of <code>migration.py</code>, then closure. <span class="warn">The tick loop still does not drive demography — only <code>set_avoid_conception_flag</code> is called; wiring is Plan 4, blocked until Plan 3 lands.</span></p>
             <div class="tags"><span class="tag ev">§4.1</span><span class="tag">mortality · fertility · couple</span><span class="tag">not wired</span><span class="needs">needs</span><span class="tag">1a</span></div>
           </div>
         </div>
@@ -504,7 +504,7 @@
           <div class="num">12</div>
           <div class="body">
             <div class="row1"><span class="title">Inheritance · lineage · memory</span><span class="pill todo">Not started</span></div>
-            <p class="desc">Intergenerational wealth transfer (Piketty r&gt;g), family lineage (<code>parent_agent</code> FK exists), collective historical memory tied to the Knowledge Graph.</p>
+            <p class="desc">Intergenerational wealth transfer (Piketty r&gt;g), family lineage (<code>parent_agent</code> FK exists), collective historical memory tied to the Knowledge Graph. <b>The mechanical substrate now exists</b> in demography's <code>inheritance.py</code> (Plan 3): estates settle to an era-specific heir ladder, taxed once per transfer, and traits and social class pass at birth. What this phase still owes is the dynamic layer above it — wealth concentration measured across generations, lineages as first-class historical objects, and memory that outlives the agents who formed it.</p>
             <div class="tags"><span class="needs">needs</span><span class="tag">2</span><span class="tag">6</span></div>
           </div>
         </div>

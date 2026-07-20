@@ -2392,3 +2392,383 @@ def generate_mourning_memories(deceased: Any, tick: int) -> None:
         for _, recipient in sorted(recipients.items(), key=lambda item: item[0])
     ]
     Memory.objects.bulk_create(memories)
+
+
+# ---------------------------------------------------------------------------
+# Batch orchestration (Plan 3, T028/T029, user story 3 -- the death-path
+# entry point). Design spec Sezione 5: composes every mechanism this
+# module built for user stories 1-3 into the single call the Plan 4
+# orchestrator's death step (step 2/3 of its canonical six-step tick)
+# makes once per tick, given that tick's freshly-deceased agents.
+# ---------------------------------------------------------------------------
+
+# MVP placeholder currency code for Government.government_treasury credits
+# (a plain {currency_code: amount} dict, see world/models.py). No
+# simulation-level "primary currency code" field exists for Agent.wealth's
+# simplified economy layer -- Agent.wealth is a single scalar float,
+# distinct from the full economy app's per-currency Currency/AgentInventory
+# model (gated behind World.economy_level = "full"). Every existing
+# apply_estate_tax test already treats the currency code as an arbitrary
+# illustrative bookkeeping label ("USD" / "EUR" / "gold_solidus"), never
+# tied to a real Currency row -- this constant mirrors that established
+# convention rather than reaching into economy.property_market's
+# `_get_primary_currency(simulation)` (which returns None for a
+# "simplified"-tier simulation with zero Currency rows, and would add a
+# demography -> economy cross-app read for a value with no functional
+# bearing beyond a dict key). Documented MVP simplification, not a
+# verified design decision: a future integration should resolve this from
+# the simulation's actual primary Currency once demography and the full
+# economy layer are unified for a given simulation.
+ESTATE_TAX_CURRENCY_CODE = "USD"
+
+
+def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) -> None:
+    """Settle every death in `deceased_agents` for this `tick`: dissolve
+    couples, settle each estate, transfer loans, generate mourning
+    memories, assign caretakers to newly-orphaned minors, and emit one
+    `DemographyEvent` per actual heir transfer (design spec Sezione 5).
+
+    THIS IS THE PLAN 4 DEATH-PATH ENTRY POINT (orchestrator step 2/3):
+    the only thing this function does NOT do is decide WHO died or WHEN --
+    that is entirely the mortality module's and the orchestrator's job.
+    This function is called once per tick with that tick's list of
+    freshly-deceased agents and settles all of them.
+
+    PRECONDITION (load-bearing throughout, never verified by this
+    function itself): every agent in `deceased_agents` already has
+    `is_alive=False` (and, where applicable, `death_tick` already set)
+    BEFORE this call -- the caller sets it, not this function. This is
+    what makes intra-tick chaining through a dead intermediate
+    STRUCTURALLY IMPOSSIBLE rather than merely suppressed: `resolve_heirs`
+    and every category it delegates to already filter `is_alive=True`, so
+    a child who died in this SAME batch is mechanically excluded from
+    being anyone's heir, with no special-cased recursion or suppression
+    flag needed anywhere in this function (fix MISS-5, both the same-tick
+    and the cross-tick case -- an agent who died in an EARLIER tick and is
+    simply not `is_alive` behaves identically to one dying in this batch,
+    for exactly the same structural reason).
+
+    PROCESSING ORDER (fix C-3, the Simultaneous Death Act convention):
+    `deceased_agents` -- which may be a list or a queryset, never assumed
+    pre-ordered -- is normalized with `list()` once and sorted `age`
+    DESCENDING (oldest first), `id` ASCENDING as the deterministic
+    tiebreak for equal age. Processing an empty batch is a no-op (returns
+    immediately, before reading `simulation.config` or opening a
+    transaction).
+
+    PER-DECEASED STEPS:
+    1. `resolve_heirs(deceased, template)`.
+    2. `apply_estate_tax(deceased.wealth, rate, government,
+       ESTATE_TAX_CURRENCY_CODE)` -- `deceased.wealth` IS the estate's
+       total cash value; this is the one place in the whole chain that
+       decides that wiring (every pure resolver upstream takes
+       `total_estate_value` as an opaque float precisely so this
+       orchestrator, not they, makes that call).
+    3. `distribute_estate(deceased, heirs, rule, inheritable)`.
+    4. Accumulate this transfer into the batch-wide pending wealth-credit
+       ledger (see WEALTH CREDITING below) rather than crediting
+       immediately -- the same living heir may inherit from a SECOND
+       decedent later in this same batch (the two-independent-transfers
+       case), and crediting immediately per deceased would require a
+       second read-modify-write that could double-apply or lose a credit
+       under `bulk_update`'s all-at-once semantics.
+    5. `transfer_loans_as_lender(deceased, heirs)`.
+    6. `generate_mourning_memories(deceased, tick)`.
+    7. `dissolve_on_death(deceased, tick)` (decision D1) -- deliberately
+       LAST among these steps, not first; see ORDERING CORRECTION below.
+       Idempotent per partner, so this correctly handles fix MISS-4 (both
+       partners of one Couple dying in the same batch) with no special-
+       casing here: each call is safe regardless of whether the partner
+       already died earlier in this same loop.
+    8. Record every living child (`heirs["children"]`) as an orphan
+       CANDIDATE for the caretaker pass below -- not yet acted on.
+
+    ORDERING CORRECTION (discovered running T028's own RED tests against
+    a first implementation that called `dissolve_on_death` FIRST, per a
+    literal reading of the task's step list -- flagged here rather than
+    silently fixed without a trace): `resolve_heirs`'s spouse category
+    (`_resolve_spouse_heirs`) and `generate_mourning_memories`'s spouse
+    recipient BOTH resolve the surviving partner through
+    `active_couple_for(deceased)`, which only finds a `Couple` with
+    `dissolved_at_tick__isnull=True`. Calling `dissolve_on_death` before
+    either of them already nulls `deceased`'s own side of the `Couple` FK
+    and sets `dissolved_at_tick` -- making the couple invisible to both
+    lookups and silently discarding a living spouse's inheritance AND
+    mourning memory, contradicting the design spec's own heir-priority
+    item 1 (spouse first). `dissolve_on_death` itself is safe to call
+    after both reads: `_resolve_spouse_heirs`'s own docstring already
+    documents the nulled-FK case as a defensive guard for exactly this
+    kind of call-order variation, so moving it here changes no other
+    function's contract -- only the position of this call within THIS
+    orchestrator's own sequence.
+
+    CARETAKER ASSIGNMENT COMES LAST, AFTER EVERY DECEASED ABOVE IS FULLY
+    PROCESSED (settled ordering decision): a minor orphaned by the LAST
+    death in the batch must still be caught, and the "does this candidate
+    still have a living parent" check must see the batch's FINAL
+    aliveness state, not a partial one. Scoped to `heirs["children"]`
+    collected during the loop above -- NOT a population-wide scan -- so
+    the cost is bounded by this batch's own deaths, never by total
+    population size. A candidate is actually orphaned and gets
+    `assign_orphan_caretaker(child, tick)` called on it (T025's own
+    contract: mutates `child` in memory only, never saves) when ALL of:
+    it does not already have a `caretaker_agent`; it is a minor
+    (`child.age < template["migration"]["adulthood_age"]`); and NEITHER
+    of its own two recorded parents is still alive (checked with ONE
+    query across every candidate's parent ids, never per-candidate).
+    `assign_orphan_caretaker` itself still costs its own documented
+    up-to-4-query search PER actual orphan (inherent to reusing that pure
+    resolver rather than reimplementing its kinship ladder here) -- see
+    QUERY BUDGET below.
+
+    FAMILY-TOPOLOGY SCOPE (ratified 2026-07-20, logged for the phase-6
+    audit as an open question, NOT a defect to fix here): orphan
+    candidates are `heirs["children"]` ONLY -- the deceased's OWN
+    grandchildren are never candidates, because `resolve_heirs` has no
+    category that reaches two generations down (`extended_family` reaches
+    the deceased's own grandparents' lineage, never descendants of the
+    deceased's own children). This is a property of the CONVERGED design,
+    not something this task is scoped to change.
+
+    WEALTH CREDITING AND ZEROING (T028's persistence pin): after the full
+    per-deceased loop, every deceased's wealth is set to exactly 0.0 and
+    every credited heir's wealth is their PRE-BATCH database value plus
+    the SUM of every transfer they received in this batch (one or more),
+    computed with exactly ONE fresh `Agent.objects.filter(id__in=...)`
+    read and ONE `Agent.objects.bulk_update(..., ["wealth"])` write for
+    the WHOLE batch -- never a per-heir or per-deceased `.save()`. A
+    transfer of exactly 0.0 (a heir-bearing but valueless estate) credits
+    nothing and emits no event -- see ZERO-VALUE TRANSFERS below.
+
+    ZERO-VALUE TRANSFERS: `distribute_estate` returns a non-empty
+    allocation (e.g. `{heir.id: 0.0}`) for a heir-bearing estate whose
+    `inheritable` happens to be 0.0 (a deceased with no wealth) -- this is
+    NOT the same as the empty-`{}` "route to treasury" case (see
+    `distribute_estate`'s own EMPTY ALLOCATION SHAPE note). This function
+    treats a 0.0 allocation entry as nothing happened: no wealth credit,
+    no `DemographyEvent` (an "actual heir transfer" moves value; a
+    transfer of nothing is not one). Symmetrically, the empty-allocation
+    treasury fallback is skipped when `inheritable` is 0.0 -- crediting
+    0.0 to the treasury would cost a wasted `add_to_treasury` write for no
+    observable effect.
+
+    EVENT PAYLOAD (design spec Sezione 5, DemographyEvent payload
+    schemas, `inheritance_transfer` row, line 1221 of the design spec):
+    one `DemographyEvent(event_type=INHERITANCE_TRANSFER, simulation=
+    simulation, tick=tick, primary_agent=deceased, secondary_agent=heir)`
+    per actual (non-zero) transfer, with `payload = {"deceased_id",
+    "heir_id", "assets": {"cash", "property_ids", "loans_as_lender"},
+    "estate_tax_applied", "rule_used"}`. The design spec names these keys
+    but not their exact semantics; this implementation PINS (per T028's
+    own ratified decision): `cash` is this specific transfer's post-tax
+    amount; `estate_tax_applied` is the ABSOLUTE tax amount
+    (`deceased.wealth * rate`) deducted from the deceased's WHOLE estate
+    -- identical across every event sharing the same `deceased`, never a
+    per-heir proportional fraction, since the design spec does not define
+    one and inventing an unrequested split would be worse than repeating
+    the estate-level figure; `rule_used` is the era template's
+    `economic_inheritance.rule` string. `property_ids` and
+    `loans_as_lender` are populated as empty lists -- a documented MVP
+    simplification: no property-transfer mechanism exists in this module
+    (property ownership is untouched by this function), and
+    `transfer_loans_as_lender` persists loan reassignments directly
+    without returning which specific loan ids moved to which heir,
+    re-deriving that per event would cost an extra query per transfer for
+    a value the settled contract explicitly leaves to this
+    implementation's discretion. Events are appended to a list during the
+    per-deceased loop (deterministic: deceased processed oldest-first,
+    heirs within one deceased's allocation in `id` ascending order) and
+    written with exactly ONE `DemographyEvent.objects.bulk_create` for the
+    whole batch, never per-event `.save()`.
+
+    TRANSACTION (conservation invariant, non-negotiable): the ENTIRE batch
+    -- every `dissolve_on_death` call, every `apply_estate_tax` /
+    `add_to_treasury` write, the wealth bulk_update, every
+    `transfer_loans_as_lender` write, every `generate_mourning_memories`
+    bulk_create, the caretaker bulk_update, and the final event
+    bulk_create -- runs inside one `django.db.transaction.atomic()` block.
+    A failure partway through rolls back everything, so an estate can
+    never be left half-settled (e.g. treasury credited but heir wealth
+    not, or vice versa) at any commit boundary reachable from outside this
+    function.
+
+    QUERY BUDGET (bounded per deceased, documented honestly): per
+    deceased, roughly `dissolve_on_death`'s own cost (up to 2) +
+    `resolve_heirs`'s own cost (up to 7) + 1 for `apply_estate_tax`'s
+    treasury write (0 when the estate is non-positive) +
+    `transfer_loans_as_lender`'s own cost (up to 2) +
+    `generate_mourning_memories`'s own cost (up to 5). PLUS, once for the
+    whole batch (not per deceased): 1 fetch + 1 `bulk_update` for wealth,
+    1 query + 1 `bulk_update` for caretakers (skipped entirely when there
+    are no orphan candidates), 1 `bulk_create` for events. On top of that,
+    each ACTUAL newly-orphaned minor costs `assign_orphan_caretaker`'s own
+    up-to-4-query search. TOTAL COST SCALES LINEARLY WITH THE NUMBER OF
+    DEATHS THIS TICK (and, for the caretaker pass, with the number of
+    actual new orphans) -- NEVER quadratically, and never with total
+    simulation population, since every query in this function filters on
+    an already-resolved, batch-scoped id set.
+
+    Args:
+        simulation: the Simulation instance. Supplies `.config` (read for
+            `demography_template`, same convention as
+            `apply_inheritance_at_birth`) and is written onto every
+            `DemographyEvent.simulation`.
+        tick: the current simulation tick.
+        deceased_agents: an iterable (list or queryset) of Agent
+            instances, each already `is_alive=False` before this call.
+            Normalized to a list and sorted once; never assumed
+            pre-ordered.
+
+    Returns:
+        None. Persists directly -- unlike this module's pure resolvers,
+        this IS the orchestrated entry point.
+    """
+    from django.db import transaction
+
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.couple import dissolve_on_death
+    from epocha.apps.demography.models import DemographyEvent
+    from epocha.apps.demography.template_loader import load_template
+    from epocha.apps.world.government import add_to_treasury
+    from epocha.apps.world.models import Government
+
+    ordered_deceased = sorted(list(deceased_agents), key=lambda agent: (-agent.age, agent.id))
+    if not ordered_deceased:
+        return
+
+    template_name = simulation.config.get("demography_template", "pre_industrial_christian")
+    template = load_template(template_name)
+    rate = template["economic_inheritance"]["estate_tax_rate"]
+    rule = template["economic_inheritance"]["rule"]
+    adulthood_age = template["migration"]["adulthood_age"]
+
+    with transaction.atomic():
+        government = Government.objects.get(simulation=simulation)
+
+        deceased_ids = {deceased.id for deceased in ordered_deceased}
+        pending_credits: dict[int, float] = {}
+        events_to_create: list[Any] = []
+        orphan_candidates: dict[int, Any] = {}
+
+        for deceased in ordered_deceased:
+            # dissolve_on_death runs LAST among this deceased's Couple-
+            # touching steps, not first -- see the docstring's ORDERING
+            # CORRECTION note. resolve_heirs's spouse category and
+            # generate_mourning_memories's spouse recipient both resolve
+            # the partner through active_couple_for(deceased), which only
+            # finds a couple with dissolved_at_tick__isnull=True; calling
+            # dissolve_on_death first would already have nulled deceased's
+            # own side and set dissolved_at_tick, making the couple
+            # invisible to both lookups and silently discarding a living
+            # spouse's inheritance and mourning memory.
+            heirs = resolve_heirs(deceased, template)
+
+            total_estate_value = deceased.wealth
+            inheritable = apply_estate_tax(
+                total_estate_value, rate, government, ESTATE_TAX_CURRENCY_CODE
+            )
+            tax_amount = total_estate_value * rate if total_estate_value > 0.0 else 0.0
+
+            allocation = distribute_estate(deceased, heirs, rule, inheritable)
+
+            if allocation:
+                for heir_id, amount in sorted(allocation.items()):
+                    if amount <= 0.0:
+                        continue
+                    pending_credits[heir_id] = pending_credits.get(heir_id, 0.0) + amount
+                    events_to_create.append(
+                        DemographyEvent(
+                            simulation=simulation,
+                            tick=tick,
+                            event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER,
+                            primary_agent=deceased,
+                            secondary_agent_id=heir_id,
+                            payload={
+                                "deceased_id": deceased.id,
+                                "heir_id": heir_id,
+                                "assets": {
+                                    "cash": amount,
+                                    "property_ids": [],
+                                    "loans_as_lender": [],
+                                },
+                                "estate_tax_applied": tax_amount,
+                                "rule_used": rule,
+                            },
+                        )
+                    )
+            elif inheritable > 0.0:
+                # Empty allocation: no living heir (every category
+                # exhausted) or the nationalized rule (always empty by
+                # design) -- either way, distribute_estate's own contract
+                # is that the entire post-tax remainder routes to the
+                # treasury.
+                add_to_treasury(government, ESTATE_TAX_CURRENCY_CODE, inheritable)
+
+            transfer_loans_as_lender(deceased, heirs)
+            generate_mourning_memories(deceased, tick)
+
+            # Safe to dissolve now: both couple-dependent reads above have
+            # already run. dissolve_on_death is idempotent per partner
+            # (T002/D1), so calling it here, once per deceased, correctly
+            # handles fix MISS-4 regardless of which of the two partners
+            # this loop reaches first.
+            dissolve_on_death(deceased, tick)
+
+            for child in heirs.get("children", []):
+                orphan_candidates[child.id] = child
+
+        # Wealth: one fresh read + one bulk_update for the whole batch,
+        # never per-agent .save(). Deceased always end at exactly 0.0;
+        # a heir's final wealth is their pre-batch database value plus
+        # every credit accumulated above, however many decedents
+        # contributed one.
+        wealth_touched_ids = deceased_ids | set(pending_credits.keys())
+        if wealth_touched_ids:
+            agents_for_wealth = list(Agent.objects.filter(id__in=wealth_touched_ids))
+            for agent in agents_for_wealth:
+                base = 0.0 if agent.id in deceased_ids else agent.wealth
+                agent.wealth = base + pending_credits.get(agent.id, 0.0)
+            Agent.objects.bulk_update(agents_for_wealth, ["wealth"])
+
+        # Caretaker assignment LAST -- see the docstring's CARETAKER
+        # ASSIGNMENT section for why. Bounded to this batch's own
+        # children, never a population-wide scan.
+        if orphan_candidates:
+            parent_ids_to_check = set()
+            for child in orphan_candidates.values():
+                if child.parent_agent_id:
+                    parent_ids_to_check.add(child.parent_agent_id)
+                if child.other_parent_agent_id:
+                    parent_ids_to_check.add(child.other_parent_agent_id)
+
+            still_alive_parent_ids = (
+                set(
+                    Agent.objects.filter(id__in=parent_ids_to_check, is_alive=True).values_list(
+                        "id", flat=True
+                    )
+                )
+                if parent_ids_to_check
+                else set()
+            )
+
+            minors_to_update = []
+            for child_id in sorted(orphan_candidates):
+                child = orphan_candidates[child_id]
+                if child.caretaker_agent_id is not None:
+                    continue
+                if child.age >= adulthood_age:
+                    continue
+                has_living_parent = (
+                    child.parent_agent_id in still_alive_parent_ids
+                    or child.other_parent_agent_id in still_alive_parent_ids
+                )
+                if has_living_parent:
+                    continue
+                assign_orphan_caretaker(child, tick)
+                minors_to_update.append(child)
+
+            if minors_to_update:
+                Agent.objects.bulk_update(minors_to_update, ["caretaker_agent", "conditions"])
+
+        if events_to_create:
+            DemographyEvent.objects.bulk_create(events_to_create)

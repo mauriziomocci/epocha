@@ -63,6 +63,23 @@ qualifies under more than one category. Trap 2: the filter is
 trait, h^2 = 0.55) -- filtering on the wrong field would send grief
 memories to muscular agents instead of close friends (design spec Sezione
 5, "Cascata di memoria del lutto").
+
+Also covers `process_inheritance_batch` (Plan 3, T028/T029, user story 3
+-- the death-path orchestrator): multiple same-tick deaths process oldest
+(by `age`) first, `id` ascending tiebreak (fix C-3); estate tax applies
+exactly once per actual heir transfer, never cumulatively when the same
+living heir inherits from two different same-tick decedents; a dead
+intermediate (same tick or an earlier one) is never a bequest conduit,
+because every resolver already filters `is_alive=True` (fix MISS-5); one
+`DemographyEvent` of type `INHERITANCE_TRANSFER` per actual transfer; the
+batch composes `dissolve_on_death`, the estate chain
+(`resolve_heirs`/`apply_estate_tax`/`distribute_estate`),
+`transfer_loans_as_lender`, `assign_orphan_caretaker`, and
+`generate_mourning_memories`, including the MISS-4 case where both
+partners of one couple die in the same batch. PRECONDITION, load-bearing
+throughout this section: every agent passed in `deceased_agents` already
+has `is_alive=False` BEFORE the call -- the caller (Plan 4's mortality
+step) sets it, not this function.
 """
 
 from __future__ import annotations
@@ -88,10 +105,12 @@ from epocha.apps.demography.inheritance import (
     evaluate_derived_formula,
     generate_mourning_memories,
     inherit_trait,
+    process_inheritance_batch,
     resolve_birth_attributes,
     resolve_heirs,
     transfer_loans_as_lender,
 )
+from epocha.apps.demography.models import Couple, DemographyEvent
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.economy.models import Loan
@@ -3168,3 +3187,581 @@ class TestGenerateMourningMemoriesNoSaveOnDeceased:
 
         persisted = Agent.objects.get(id=deceased.id)
         assert persisted.name == "Deceased"
+
+
+# ---------------------------------------------------------------------------
+# process_inheritance_batch (Plan 3, T028/T029, user story 3 -- the
+# death-path orchestrator). Design spec Sezione 5: per deceased, calls
+# `dissolve_on_death` (D1), settles the estate through
+# `resolve_heirs` -> `apply_estate_tax` -> `distribute_estate`, credits
+# heirs' wealth and zeroes the deceased's, transfers active lender-side
+# loans, assigns caretakers to now-orphaned minors, generates mourning
+# memories, and emits one `DemographyEvent` (`INHERITANCE_TRANSFER`) per
+# actual heir transfer.
+#
+# PRECONDITION, load-bearing for every test below: every agent in
+# `deceased_agents` is passed in ALREADY `is_alive=False` (and, where
+# relevant, `death_tick` already set) -- the caller (Plan 4's mortality
+# step) sets this BEFORE calling `process_inheritance_batch`, never this
+# function itself. This is the resolution of the apparent MISS-5 chaining
+# puzzle: since `resolve_heirs`'s every category already filters
+# `is_alive=True`, a same-tick-dead intermediate is mechanically excluded
+# from being anyone's heir -- no suppression flag or special-cased
+# recursion is needed, and none should be invented.
+#
+# FAMILY-TOPOLOGY NOTE (read before extending these tests): the coordinator
+# brief's illustrative "grandfather / father / grandson" chain describes
+# the OBSERVABLE arithmetic (two independent, separately-taxed transfers
+# landing on one living heir) rather than a literal three-generation
+# lineage `resolve_heirs` could actually traverse -- `resolve_heirs`'s own
+# ladder (spouse, children, siblings, extended_family) never walks down
+# to a deceased's grandchildren; "extended_family" reaches the deceased's
+# OWN grandparents' descendants (aunts/uncles/cousins), never descendants
+# of the deceased's own children. The tests below therefore build the
+# "living heir inherits from two same-tick decedents" case as a shared
+# living CHILD of two decedents (one on each parentage FK), and the
+# "father already dead, estate falls to the next living category" case as
+# ANOTHER living child of the same decedent (the same-generation fallback
+# `resolve_heirs`'s own "children" category actually provides), not as a
+# literal grandchild. Flagged explicitly rather than silently invented --
+# see the T028 report's Doubts section for the full reasoning.
+#
+# `process_inheritance_batch` does not exist yet (implemented in T029);
+# the import above therefore fails at collection time with "cannot import
+# name 'process_inheritance_batch'", this file's established RED-first
+# signal (see e.g. T016/T018/T020/T023/T024/T026's own RED commits).
+
+
+def _set_demography_template(sim, template_name: str) -> None:
+    """Point `sim.config["demography_template"]` at `template_name`.
+
+    Mirrors `apply_inheritance_at_birth`'s own
+    `simulation.config.get("demography_template", ...)` lookup -- the
+    established convention this module uses to resolve which era template
+    a Simulation-scoped call reads. Sets it both in memory (what a
+    function reading `simulation.config` directly off the passed instance
+    sees immediately, no extra query) and persisted (defensive, in case a
+    future implementation re-fetches `simulation` from the database).
+    """
+    sim.config = {"demography_template": template_name}
+    sim.save(update_fields=["config"])
+
+
+class TestProcessInheritanceBatchNoIntraTickChaining:
+    """Fix MISS-5, same-tick case (design spec Sezione 5): a deceased's own
+    child who ALSO died in this same batch is never a bequest conduit --
+    `resolve_heirs`'s `is_alive=True` filter excludes them exactly like it
+    would exclude anyone else already dead. PRECONDITION: both agents
+    below are constructed already `is_alive=False`, as `deceased_agents`
+    always arrives.
+    """
+
+    @pytest.mark.django_db
+    def test_dead_child_in_batch_receives_nothing_full_estate_goes_to_treasury(
+        self, sim_with_government
+    ):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        template = load_template("industrial")
+        rate = template["economic_inheritance"]["estate_tax_rate"]
+
+        grandfather = _make_agent(
+            sim, zone, "Grandfather", is_alive=False, wealth=1000.0, age=90, birth_tick=-400
+        )
+        father = _make_agent(
+            sim,
+            zone,
+            "Father",
+            parent_agent=grandfather,
+            is_alive=False,
+            wealth=0.0,
+            age=60,
+            birth_tick=-300,
+        )
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[grandfather, father])
+
+        father.refresh_from_db()
+        grandfather.refresh_from_db()
+        assert father.wealth == pytest.approx(0.0, abs=_CONSERVATION_TOLERANCE)
+        assert grandfather.wealth == pytest.approx(0.0, abs=_CONSERVATION_TOLERANCE)
+
+        assert not DemographyEvent.objects.filter(
+            simulation=sim,
+            event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER,
+            primary_agent=grandfather,
+            secondary_agent=father,
+        ).exists()
+
+        # No living heir at all (father excluded, no siblings, no extended
+        # family) -- distribute_estate's own documented "empty allocation
+        # -> route the entire inheritable remainder to the treasury"
+        # contract means BOTH the tax leg and the remainder land in the
+        # treasury, summing to the full pre-tax estate. Currency-agnostic
+        # on purpose: neither the settled contract nor the codebase
+        # declares a canonical currency code for this orchestrator (every
+        # existing apply_estate_tax test hardcodes an illustrative "USD"),
+        # so summing every currency key sidesteps guessing T029's choice.
+        government.refresh_from_db()
+        assert sum(government.government_treasury.values()) == pytest.approx(
+            1000.0, abs=_CONSERVATION_TOLERANCE
+        )
+        # Self-check that the rate is genuinely non-zero, or the test
+        # would not distinguish "taxed once" from "never taxed".
+        assert rate > 0.0
+
+
+class TestProcessInheritanceBatchTwoIndependentTransfersToOneHeir:
+    """The real chain case (design spec Sezione 5): a living heir who
+    qualifies as a direct heir of TWO different same-tick decedents
+    receives TWO separate transfers, each taxed once against its OWN
+    source estate -- never a single combined transfer taxed once against
+    the sum, and never taxed twice on either leg. See the FAMILY-TOPOLOGY
+    NOTE above for why the shared heir is built as a common child (one
+    parentage FK per decedent) rather than a literal grandchild.
+    """
+
+    @pytest.mark.django_db
+    def test_heir_receives_two_separately_taxed_transfers_summing_correctly(
+        self, sim_with_government
+    ):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        template = load_template("industrial")
+        rate = template["economic_inheritance"]["estate_tax_rate"]
+
+        grandfather = _make_agent(
+            sim, zone, "Grandfather", is_alive=False, wealth=1000.0, age=90, birth_tick=-400
+        )
+        father = _make_agent(
+            sim, zone, "Father", is_alive=False, wealth=500.0, age=60, birth_tick=-300
+        )
+        grandson = _make_agent(
+            sim,
+            zone,
+            "Grandson",
+            parent_agent=grandfather,
+            other_parent_agent=father,
+            wealth=0.0,
+            birth_tick=-30,
+        )
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[grandfather, father])
+
+        grandson.refresh_from_db()
+        grandfather.refresh_from_db()
+        father.refresh_from_db()
+        government.refresh_from_db()
+
+        inheritable_from_grandfather = 1000.0 * (1 - rate)
+        inheritable_from_father = 500.0 * (1 - rate)
+        expected_total_tax = 1000.0 * rate + 500.0 * rate
+
+        assert grandson.wealth == pytest.approx(
+            inheritable_from_grandfather + inheritable_from_father, abs=_CONSERVATION_TOLERANCE
+        )
+        assert grandfather.wealth == pytest.approx(0.0, abs=_CONSERVATION_TOLERANCE)
+        assert father.wealth == pytest.approx(0.0, abs=_CONSERVATION_TOLERANCE)
+        assert sum(government.government_treasury.values()) == pytest.approx(
+            expected_total_tax, abs=_CONSERVATION_TOLERANCE
+        )
+
+        transfer_events = DemographyEvent.objects.filter(
+            simulation=sim,
+            event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER,
+            secondary_agent=grandson,
+        )
+        assert transfer_events.count() == 2
+
+        event_from_grandfather = transfer_events.get(primary_agent=grandfather)
+        event_from_father = transfer_events.get(primary_agent=father)
+        assert event_from_grandfather.payload["assets"]["cash"] == pytest.approx(
+            inheritable_from_grandfather, abs=_CONSERVATION_TOLERANCE
+        )
+        assert event_from_father.payload["assets"]["cash"] == pytest.approx(
+            inheritable_from_father, abs=_CONSERVATION_TOLERANCE
+        )
+
+
+class TestProcessInheritanceBatchCrossTickMiss5:
+    """Fix MISS-5, cross-tick case: a father who died in an EARLIER tick
+    (already `is_alive=False`, `death_tick` before the current tick, and
+    NOT included in this batch's `deceased_agents`) is never a bequest
+    conduit either -- the estate falls through to the next living
+    category exactly as if he had never existed. See the FAMILY-TOPOLOGY
+    NOTE above: the fallback recipient here is a second living child of
+    the same decedent (the same-generation category `resolve_heirs`
+    actually provides), not a literal grandchild.
+    """
+
+    @pytest.mark.django_db
+    def test_earlier_tick_dead_child_excluded_falls_to_next_living_child(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        template = load_template("industrial")
+        rate = template["economic_inheritance"]["estate_tax_rate"]
+
+        grandfather = _make_agent(
+            sim, zone, "Grandfather", is_alive=False, wealth=1000.0, age=90, birth_tick=-400
+        )
+        father = _make_agent(
+            sim,
+            zone,
+            "Father",
+            parent_agent=grandfather,
+            is_alive=False,
+            death_tick=10,
+            wealth=0.0,
+            age=60,
+            birth_tick=-300,
+        )
+        second_child = _make_agent(
+            sim, zone, "SecondChild", parent_agent=grandfather, wealth=0.0, birth_tick=-250
+        )
+
+        # father died at tick 10 -- strictly before this batch's tick 50 --
+        # and is deliberately NOT in deceased_agents.
+        process_inheritance_batch(sim, tick=50, deceased_agents=[grandfather])
+
+        father.refresh_from_db()
+        second_child.refresh_from_db()
+        government.refresh_from_db()
+
+        assert father.wealth == pytest.approx(0.0, abs=_CONSERVATION_TOLERANCE)
+        expected_inheritable = 1000.0 * (1 - rate)
+        assert second_child.wealth == pytest.approx(
+            expected_inheritable, abs=_CONSERVATION_TOLERANCE
+        )
+        assert not DemographyEvent.objects.filter(
+            simulation=sim,
+            event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER,
+            primary_agent=grandfather,
+            secondary_agent=father,
+        ).exists()
+        # Taxed exactly once (the single actual transfer to second_child),
+        # never re-applied on account of father's exclusion.
+        assert sum(government.government_treasury.values()) == pytest.approx(
+            1000.0 * rate, abs=_CONSERVATION_TOLERANCE
+        )
+
+
+class TestProcessInheritanceBatchEventPayload:
+    """`DemographyEvent` shape for an actual heir transfer (design spec
+    Sezione 5, DemographyEvent payload schemas, `inheritance_transfer`
+    row): `event_type=INHERITANCE_TRANSFER`, `simulation`, `tick`,
+    `primary_agent=deceased`, `secondary_agent=heir`, and a payload
+    carrying `deceased_id`, `heir_id`, `assets: {cash, property_ids,
+    loans_as_lender}`, `estate_tax_applied`, `rule_used`.
+
+    `estate_tax_applied` and `rule_used`'s exact meaning is not specified
+    anywhere upstream of this task (the design spec names the keys but not
+    their semantics) -- this test PINS them explicitly: `estate_tax_applied`
+    is the absolute tax AMOUNT (a float) subtracted from this transfer's
+    own source estate, and `rule_used` is the era template's
+    `economic_inheritance.rule` string. `property_ids` / `loans_as_lender`
+    are asserted only to be lists, per the settled contract leaving their
+    population to T029.
+    """
+
+    @pytest.mark.django_db
+    def test_event_carries_the_full_payload_shape(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        template = load_template("industrial")
+        rate = template["economic_inheritance"]["estate_tax_rate"]
+        rule = template["economic_inheritance"]["rule"]
+
+        deceased = _make_agent(
+            sim, zone, "Deceased", is_alive=False, wealth=1000.0, age=70, birth_tick=-300
+        )
+        heir = _make_agent(sim, zone, "Heir", parent_agent=deceased, wealth=0.0, birth_tick=-30)
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        event = DemographyEvent.objects.get(
+            simulation=sim,
+            event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER,
+            primary_agent=deceased,
+            secondary_agent=heir,
+        )
+        assert event.tick == 50
+
+        payload = event.payload
+        assert "deceased_id" in payload
+        assert "heir_id" in payload
+        assert "assets" in payload
+        assert "estate_tax_applied" in payload
+        assert "rule_used" in payload
+        assert payload["deceased_id"] == deceased.id
+        assert payload["heir_id"] == heir.id
+        assert payload["rule_used"] == rule
+
+        expected_tax = 1000.0 * rate
+        expected_cash = 1000.0 - expected_tax
+        assert payload["estate_tax_applied"] == pytest.approx(
+            expected_tax, abs=_CONSERVATION_TOLERANCE
+        )
+
+        assets = payload["assets"]
+        assert "cash" in assets
+        assert "property_ids" in assets
+        assert "loans_as_lender" in assets
+        assert assets["cash"] == pytest.approx(expected_cash, abs=_CONSERVATION_TOLERANCE)
+        assert isinstance(assets["property_ids"], list)
+        assert isinstance(assets["loans_as_lender"], list)
+
+
+class TestProcessInheritanceBatchOrderingC3:
+    """Fix C-3: the batch processes deceased agents oldest (`age`
+    descending) first, `id` ascending as the deterministic tiebreak for
+    equal age -- the Simultaneous Death Act convention. Observed via the
+    ORDER of the emitted `DemographyEvent` rows (queried by `id`, which
+    reflects creation/processing order).
+    """
+
+    @pytest.mark.django_db
+    def test_events_are_emitted_oldest_first_regardless_of_input_order(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        older = _make_agent(
+            sim, zone, "Older", is_alive=False, wealth=100.0, age=85, birth_tick=-500
+        )
+        _make_agent(sim, zone, "OlderHeir", parent_agent=older, wealth=0.0, birth_tick=-100)
+        younger = _make_agent(
+            sim, zone, "Younger", is_alive=False, wealth=100.0, age=40, birth_tick=-200
+        )
+        _make_agent(sim, zone, "YoungerHeir", parent_agent=younger, wealth=0.0, birth_tick=-50)
+
+        # Deliberately passed younger-first -- the OPPOSITE of the required
+        # processing order -- so this test cannot pass by accident of
+        # input order matching the expected output order.
+        process_inheritance_batch(sim, tick=50, deceased_agents=[younger, older])
+
+        events = list(
+            DemographyEvent.objects.filter(
+                simulation=sim, event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER
+            ).order_by("id")
+        )
+        assert [event.primary_agent_id for event in events] == [older.id, younger.id]
+
+    @pytest.mark.django_db
+    def test_equal_age_tiebreak_is_id_ascending(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        first_created = _make_agent(
+            sim, zone, "FirstCreated", is_alive=False, wealth=100.0, age=50, birth_tick=-200
+        )
+        _make_agent(sim, zone, "FirstHeir", parent_agent=first_created, wealth=0.0, birth_tick=-50)
+        second_created = _make_agent(
+            sim, zone, "SecondCreated", is_alive=False, wealth=100.0, age=50, birth_tick=-200
+        )
+        _make_agent(
+            sim, zone, "SecondHeir", parent_agent=second_created, wealth=0.0, birth_tick=-50
+        )
+        assert first_created.id < second_created.id  # self-check
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[second_created, first_created])
+
+        events = list(
+            DemographyEvent.objects.filter(
+                simulation=sim, event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER
+            ).order_by("id")
+        )
+        assert [event.primary_agent_id for event in events] == [
+            first_created.id,
+            second_created.id,
+        ]
+
+
+class TestProcessInheritanceBatchCoupleDissolution:
+    """Composition (design spec Sezione 5): the batch calls
+    `dissolve_on_death` per deceased (decision D1), observable as the
+    `Couple` row's own state -- including fix MISS-4, both partners of one
+    couple dying in the same batch.
+    """
+
+    @pytest.mark.django_db
+    def test_single_partner_death_dissolves_couple_with_death_reason(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        deceased = _make_agent(
+            sim, zone, "Deceased", is_alive=False, wealth=0.0, age=70, birth_tick=-300
+        )
+        partner = _make_agent(sim, zone, "Partner", wealth=0.0, birth_tick=-290)
+        form_couple(deceased, partner, formed_at_tick=1)
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        couple = Couple.objects.get(simulation=sim)
+        assert couple.dissolved_at_tick == 50
+        assert couple.dissolution_reason == Couple.DissolutionReason.DEATH
+        if deceased.id < partner.id:
+            assert couple.agent_a_id is None
+            assert couple.agent_a_name_snapshot == deceased.name
+            assert couple.agent_b_id == partner.id
+        else:
+            assert couple.agent_b_id is None
+            assert couple.agent_b_name_snapshot == deceased.name
+            assert couple.agent_a_id == partner.id
+
+    @pytest.mark.django_db
+    def test_miss4_both_partners_die_in_same_batch_couple_dissolved_once(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        partner_one = _make_agent(
+            sim, zone, "PartnerOne", is_alive=False, wealth=0.0, age=70, birth_tick=-300
+        )
+        partner_two = _make_agent(
+            sim, zone, "PartnerTwo", is_alive=False, wealth=0.0, age=68, birth_tick=-290
+        )
+        form_couple(partner_one, partner_two, formed_at_tick=1)
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[partner_one, partner_two])
+
+        assert Couple.objects.filter(simulation=sim).count() == 1
+        couple = Couple.objects.get(simulation=sim)
+        assert couple.agent_a_id is None
+        assert couple.agent_b_id is None
+        assert couple.dissolved_at_tick == 50
+        assert couple.dissolution_reason == Couple.DissolutionReason.DEATH
+        assert {couple.agent_a_name_snapshot, couple.agent_b_name_snapshot} == {
+            partner_one.name,
+            partner_two.name,
+        }
+
+
+class TestProcessInheritanceBatchMourningMemories:
+    """Composition: the batch calls `generate_mourning_memories` per
+    deceased, observable as `Memory` rows for survivors.
+    """
+
+    @pytest.mark.django_db
+    def test_batch_generates_a_mourning_memory_for_the_surviving_partner(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        deceased = _make_agent(
+            sim, zone, "Deceased", is_alive=False, wealth=0.0, age=70, birth_tick=-300
+        )
+        partner = _make_agent(sim, zone, "Partner", wealth=0.0, birth_tick=-290)
+        form_couple(deceased, partner, formed_at_tick=1)
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        assert Memory.objects.filter(agent=partner, origin_agent=deceased).exists()
+
+
+class TestProcessInheritanceBatchOrphanCaretaker:
+    """Composition: the batch calls `assign_orphan_caretaker` for a minor
+    newly orphaned by this same batch, observable as the minor's
+    persisted `caretaker_agent`.
+    """
+
+    @pytest.mark.django_db
+    def test_batch_assigns_a_caretaker_to_a_newly_orphaned_minor(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        mother = _make_agent(
+            sim, zone, "Mother", is_alive=False, wealth=0.0, age=40, birth_tick=-400
+        )
+        father = _make_agent(
+            sim, zone, "Father", is_alive=False, wealth=0.0, age=42, birth_tick=-420
+        )
+        sibling = _make_agent(
+            sim,
+            zone,
+            "Sibling",
+            parent_agent=mother,
+            other_parent_agent=father,
+            wealth=0.0,
+            birth_tick=-100,
+        )
+        minor = _make_agent(
+            sim,
+            zone,
+            "Minor",
+            parent_agent=mother,
+            other_parent_agent=father,
+            age=10,
+            wealth=0.0,
+            birth_tick=-10,
+        )
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[mother, father])
+
+        persisted_minor = Agent.objects.get(id=minor.id)
+        assert persisted_minor.caretaker_agent_id == sibling.id
+
+
+class TestProcessInheritanceBatchLoanTransfer:
+    """Composition: the batch calls `transfer_loans_as_lender` per
+    deceased, observable as the reassigned `Loan.lender`.
+    """
+
+    @pytest.mark.django_db
+    def test_batch_transfers_an_active_lender_side_loan_to_the_living_heir(
+        self, sim_with_government
+    ):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        deceased = _make_agent(
+            sim, zone, "Deceased", is_alive=False, wealth=0.0, age=70, birth_tick=-300
+        )
+        heir = _make_agent(sim, zone, "Heir", parent_agent=deceased, wealth=0.0, birth_tick=-30)
+        borrower = _make_agent(sim, zone, "Borrower", wealth=0.0, birth_tick=-30)
+        loan = _make_loan(sim, borrower, lender=deceased)
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        loan.refresh_from_db()
+        assert loan.lender_id == heir.id
+
+
+class TestProcessInheritanceBatchPersistence:
+    """Unlike this module's pure resolvers, `process_inheritance_batch` IS
+    the orchestrated entry point and DOES persist: heir wealth credits and
+    the deceased's zeroed wealth must survive a FRESH query (`Agent.
+    objects.get`), not merely live on the in-memory instances the caller
+    happens to still hold.
+    """
+
+    @pytest.mark.django_db
+    def test_heir_and_deceased_wealth_are_persisted_not_only_in_memory(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        template = load_template("industrial")
+        rate = template["economic_inheritance"]["estate_tax_rate"]
+
+        deceased = _make_agent(
+            sim, zone, "Deceased", is_alive=False, wealth=1000.0, age=70, birth_tick=-300
+        )
+        heir = _make_agent(sim, zone, "Heir", parent_agent=deceased, wealth=0.0, birth_tick=-30)
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        persisted_deceased = Agent.objects.get(id=deceased.id)
+        persisted_heir = Agent.objects.get(id=heir.id)
+
+        assert persisted_deceased.wealth == pytest.approx(0.0, abs=_CONSERVATION_TOLERANCE)
+        assert persisted_heir.wealth == pytest.approx(
+            1000.0 * (1 - rate), abs=_CONSERVATION_TOLERANCE
+        )
+
+
+class TestProcessInheritanceBatchEmptyBatch:
+    """An empty batch is a no-op: no events, no exceptions."""
+
+    @pytest.mark.django_db
+    def test_empty_batch_creates_no_events_and_does_not_raise(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[])
+
+        assert not DemographyEvent.objects.filter(simulation=sim).exists()
