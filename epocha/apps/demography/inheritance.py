@@ -205,6 +205,25 @@ def inherit_trait(
     simplification for genealogies where only one parent is resolved (adoption
     scenarios, or synthetic tick-0 genealogies without both parents recorded).
 
+    Fix I-3 (phase-6 audit round 1, T046) -- neither parent known: when
+    BOTH mother_val and father_val are None, the midparent term degrades
+    further, to `era_mean` itself:
+
+        child_T = h2 * era_mean + (1 - h2) * noise_T
+
+    No parental signal survives here, so the child is drawn entirely from
+    the era distribution -- genetically, this is the same statement the
+    single-parent fallback makes taken to its limit (parental information
+    degrades from two values, to one, to none). Mirrors
+    `_regress_education_level`'s already-correct four-way fallback
+    (mother-only / father-only / both / neither -> era_mean_education).
+    Reachable from the real birth pipeline: none of the five Big Five
+    personality traits is an `Agent` model column, so their values come
+    from `(parent.personality or {}).get(name)` in `apply_trait_
+    inheritance`, which returns None whenever neither parent's personality
+    dict happens to carry that key -- before this fix, any such birth
+    raised `TypeError` uncaught.
+
     The result is clamped to [lo, hi] (default [0.0, 1.0], the typical range
     for Agent personality/trait scalars); callers pass the trait-specific
     range when it differs.
@@ -216,7 +235,8 @@ def inherit_trait(
     Args:
         mother_val: mother's trait value, or None if the mother is unknown.
         father_val: father's trait value, or None if the father is unknown.
-            At least one of mother_val / father_val must be provided.
+            Both may be None (fix I-3): the midparent term then falls back
+            to era_mean rather than raising.
         h2: heritability coefficient for this trait, in [0, 1].
         era_mean: mean of the era-specific environmental noise distribution.
         era_sd: standard deviation of the era-specific environmental noise
@@ -232,8 +252,10 @@ def inherit_trait(
         midparent = (mother_val + father_val) / 2
     elif mother_val is not None:
         midparent = mother_val
-    else:
+    elif father_val is not None:
         midparent = father_val
+    else:
+        midparent = era_mean
 
     noise = rng.gauss(era_mean, era_sd)
     result = h2 * midparent + (1 - h2) * noise
@@ -333,6 +355,14 @@ def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict
 
     Args:
         child: the newborn Agent instance (need not be saved yet).
+            Precondition (fix M-2, phase-6 audit round 1, T046):
+            `child.personality` must be a mutable dict by the time this
+            function returns any personality-routed trait -- this function
+            establishes that itself (initializing `None` to `{}`) rather
+            than requiring the caller to guarantee it, since `child` is
+            routinely unsaved at this point and Django only applies the
+            `Agent.personality` field's `default=dict` when the
+            constructor is called with the kwarg omitted entirely.
         mother: the mother Agent instance, or None if unresolved.
         father: the father Agent instance, or None if unresolved.
         template: a demography era template dict as returned by
@@ -344,6 +374,15 @@ def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict
             `demography.rng.get_seeded_rng`), consumed in the deterministic
             trait order described above.
     """
+    # Fix M-2: guard child.personality before ANY personality-routed write
+    # in this function or in _apply_derived_traits below (both share this
+    # one child instance within the same call). The parent-side reads two
+    # lines below are already defensive (`parent.personality or {}`); this
+    # makes the child-side write equally so, instead of leaving it as an
+    # undeclared precondition on the caller.
+    if child.personality is None:
+        child.personality = {}
+
     trait_inheritance = template["trait_inheritance"]
     heritability = trait_inheritance["heritability"]
     default_h2 = heritability.get("default", 0.30)
@@ -531,7 +570,26 @@ def _apply_derived_traits(
 # outside this task's scope.
 _EXTENDED_CLASS_RANK: dict[str, int] = {**_CLASS_RANK, "enslaved": max(_CLASS_RANK.values()) + 1}
 _RANK_TO_CLASS_LABEL: dict[int, str] = {rank: label for label, rank in _EXTENDED_CLASS_RANK.items()}
-_MAX_CLASS_RANK = max(_EXTENDED_CLASS_RANK.values())
+
+# Fix I-1 (phase-6 audit round 1, T046): _MAX_CLASS_RANK is the OUTPUT
+# ceiling used by _rank_to_class_label's own clamp, and is deliberately
+# _CLASS_RANK's max (4, "poor"), NOT _EXTENDED_CLASS_RANK's max (5,
+# "enslaved"). Before this fix the clamp used the extended value, so any
+# sampled-rule rank arithmetic (clark_regression, becker_tomes_elasticity_0.4,
+# meritocratic) that rounded to 5 resolved to "enslaved" out of ordinary
+# weighted-average-plus-noise math, with no enslaved parent anywhere --
+# measured at 25.09% of children for two "poor" parents in an all-"poor"
+# zone under becker_tomes (200,000-draw Monte Carlo, post-fix; matches the
+# audit's own independent 25.4%/25.23% figures within Monte Carlo
+# variance). "enslaved" as INPUT is still read correctly everywhere via
+# _class_rank/_resolve_parent_rank against _EXTENDED_CLASS_RANK, unchanged
+# by this fix -- only the numeric OUTPUT of _rank_to_class_label is capped.
+# Rank 5 remains reachable exactly one way: patrilineal_rigid's string copy
+# of an already-enslaved parent's own label, which never calls
+# _rank_to_class_label at all. Mirrors _MERIT_RANK_SPAN below, which
+# already excludes "enslaved" from meritocratic's span for the identical
+# reason.
+_MAX_CLASS_RANK = max(_CLASS_RANK.values())
 
 # Fallback rank for a social_class value absent from _EXTENDED_CLASS_RANK
 # (defensive: a corrupted fixture, or a future class label added to
@@ -551,6 +609,22 @@ _UNKNOWN_CLASS_FALLBACK_RANK = _EXTENDED_CLASS_RANK["working"]
 # visible sampling variability around the shifted mean without letting
 # noise dominate the elasticity signal; it is not itself sourced from Solon
 # or Chetty.
+#
+# U-2 (phase-6 audit round 1, T046): clamping the output at both ladder ends
+# (fix I-1) means the realized rank distribution under this SD is NOT the
+# unclamped Gaussian the 0.4 elasticity implies -- probability mass that
+# would fall outside [0, 4] piles up at the nearest boundary instead.
+# Measured at 200,000 draws per case (worst-case inputs, base_rank already
+# at the pre-perturbation ladder boundary before noise is added): two
+# "poor" parents in an all-"poor" zone (base_rank=4) put 74.61% of children
+# at rank 4 "poor" and 23.12% at rank 3 "working", versus a floor-clamped-
+# only baseline of 49.91% + 0.00% "enslaved" before this fix (the missing
+# ~25 points is exactly the mass this fix moves off "enslaved"); two
+# "elite" parents in an all-"elite" zone (base_rank=0) put 74.91% of
+# children at rank 0 "elite" and 22.85% at rank 1 "wealthy", symmetric and
+# unaffected by this fix since the low end was already correctly floored.
+# Value left at 0.75 per instruction: this comment reports the measured
+# effect, it does not retune the parameter.
 _BECKER_TOMES_RANK_NOISE_SD = 0.75
 
 # Rank span the meritocratic rule maps merit onto: elite=0 .. poor=4, i.e.
@@ -687,6 +761,13 @@ def _apply_meritocratic(child: Any, mother: Any, father: Any) -> None:
     and `education_level` (both in [0, 1]); higher merit maps to a better,
     i.e. numerically lower, rank via `merit_rank = (1 - merit) *
     _MERIT_RANK_SPAN`. Deterministic: no `rng` draw.
+
+    Precondition (fix I-2, phase-6 audit round 1, T046): `child.education_
+    level` must already hold the regressed value by the time this runs --
+    `apply_social_inheritance` guarantees this by running education-level
+    regression before dispatching to this function. Calling this helper
+    directly on a child whose `education_level` has not yet been regressed
+    reproduces I-2's bug (merit computed from a stale/default value).
     """
     parent_rank = _resolve_parent_rank(mother, father)
     merit = (child.intelligence + child.education_level) / 2.0
@@ -732,8 +813,13 @@ def apply_social_inheritance(
 
     Two strictly ordered steps:
 
-    1. `template["social_inheritance"]["class_rule"]` selects one of four
-       branches -- `patrilineal_rigid`, `clark_regression`,
+    1. Education-level regression runs FIRST (see `_regress_education_level`),
+       using `template["social_inheritance"]["education_regression_rho"]`
+       and `template["social_inheritance"].get("era_mean_education",
+       DEFAULT_ERA_MEAN_EDUCATION)`, and writes `child.education_level`
+       before anything else touches it.
+    2. `template["social_inheritance"]["class_rule"]` then selects one of
+       four branches -- `patrilineal_rigid`, `clark_regression`,
        `becker_tomes_elasticity_0.4`, `meritocratic` (see the per-branch
        helpers for citations and formulas). An unrecognized `class_rule`
        logs a warning and falls back to `patrilineal_rigid` rather than
@@ -741,11 +827,20 @@ def apply_social_inheritance(
        template data" posture (see `evaluate_derived_formula`'s
        fractional-tail handling in `resolve_birth_attributes` for the same
        philosophy applied elsewhere).
-    2. Every branch is followed by the education-level regression (see
-       `_regress_education_level`), using
-       `template["social_inheritance"]["education_regression_rho"]` and
-       `template["social_inheritance"].get("era_mean_education",
-       DEFAULT_ERA_MEAN_EDUCATION)`.
+
+    Fix I-2 (phase-6 audit round 1, T046): this order was originally
+    reversed -- class_rule ran first, education-level regression last. That
+    put `meritocratic` (the only branch that reads `child.education_level`)
+    in the position of reading a fresh newborn's untouched `Agent` field
+    default (0.3) instead of the value this same function was about to
+    compute for it, silently understating merit in the one era (sci_fi)
+    whose whole premise is that education determines standing. Running
+    regression first makes `child.education_level` correct and available
+    to every branch that might come to depend on it, not just the one that
+    does today, and it costs nothing: no branch other than `meritocratic`
+    reads `education_level`, and `_regress_education_level` never reads
+    `child.social_class`, so the two steps have no cyclic dependency and
+    can run in either order except for this one read.
 
     `zone_class_mean` is supplied by the caller as the mean class rank
     (on the `_EXTENDED_CLASS_RANK` scale) for the child's zone; this
@@ -770,6 +865,15 @@ def apply_social_inheritance(
             sigma)`.
     """
     social_inheritance = template["social_inheritance"]
+
+    # Fix I-2: regression runs BEFORE class_rule dispatch so that
+    # `_apply_meritocratic` (the only branch reading `child.education_level`)
+    # sees the correctly regressed value, not the untouched Agent field
+    # default. See the docstring above for the full rationale.
+    rho = social_inheritance["education_regression_rho"]
+    era_mean_education = social_inheritance.get("era_mean_education", DEFAULT_ERA_MEAN_EDUCATION)
+    child.education_level = _regress_education_level(mother, father, rho, era_mean_education)
+
     class_rule = social_inheritance["class_rule"]
 
     if class_rule == "patrilineal_rigid":
@@ -786,10 +890,6 @@ def apply_social_inheritance(
             class_rule,
         )
         _apply_patrilineal_rigid(child, mother, father)
-
-    rho = social_inheritance["education_regression_rho"]
-    era_mean_education = social_inheritance.get("era_mean_education", DEFAULT_ERA_MEAN_EDUCATION)
-    child.education_level = _regress_education_level(mother, father, rho, era_mean_education)
 
 
 # ---------------------------------------------------------------------------
@@ -1602,12 +1702,32 @@ def _distribute_equal_split(heirs: dict[str, list], inheritable: float) -> dict[
     order -- the spouse when present, otherwise the youngest child --
     absorbs the floating-point remainder so the total conserves exactly.
 
+    Fix C-2 (phase-6 audit round 1, T046) -- DEDUPLICATED by id, first
+    occurrence wins: `_allocate_with_exact_remainder` assumes every id in
+    its input appears exactly once; a heir whose id appeared TWICE in
+    `[*children, *spouse]` would collapse to one dict key while the
+    remainder-absorbing `running_sum` still counted it twice, silently
+    losing one full share's worth of value. One person occupying two
+    categories (a data anomaly this module does not otherwise validate
+    against) still receives exactly ONE equal share, never two, and the
+    conservation invariant below holds regardless. The membership set
+    below is used only to filter, never iterated for output order --
+    `recipients`' own order is built by iterating the original list, so
+    this does not reintroduce the "observable result from a bare set"
+    hazard this module avoids elsewhere.
+
     Returns an empty allocation (the treasury fallback) when there are
     neither children nor a spouse.
     """
     children = heirs.get("children", [])
     spouse = heirs.get("spouse", [])
-    recipients = [*children, *spouse]
+
+    seen_ids: set[int] = set()
+    recipients = []
+    for agent in [*children, *spouse]:
+        if agent.id not in seen_ids:
+            seen_ids.add(agent.id)
+            recipients.append(agent)
 
     if not recipients:
         return {}
@@ -1654,12 +1774,28 @@ def _distribute_sharia(heirs: dict[str, list], inheritable: float) -> dict[int, 
        fallback.
 
     The spouse's own fixed-fraction entry (1/8 or 1/4) is exact ONLY when
-    step 1 actually receives the rest; step 2 is the degenerate case where
-    the spouse is topped up beyond that fraction.
+    step 1 actually receives the rest AND the spouse is not also a member
+    of `pool`; step 2 is the degenerate case where the spouse is topped up
+    beyond that fraction.
+
+    Fix C-2 (phase-6 audit round 1, T046) -- SPOUSE ALSO A RESIDUARY HEIR:
+    when `pool` is `siblings` (no children), the spouse can also BE one of
+    those siblings (`form_couple` in `couple.py` performs no consanguinity
+    check anywhere, and `marriage_market_radius: "same_zone"` concentrates
+    marriage candidates in a small, often-related pool -- reachable, not
+    theoretical). That person is then entitled to TWO genuinely separate
+    amounts: their fixed spousal fraction, and their own residuary share
+    from `_split_two_to_one(pool, residual)`. The assignment below ADDS the
+    spousal fraction on top of whatever `_split_two_to_one` already
+    computed for that same id, rather than overwriting it -- overwriting
+    would silently destroy the residuary share and break the conservation
+    invariant this whole user story exists to protect.
 
     Conservation: `spouse_amount + sum(residuary allocation) ==
     inheritable` exactly (see `_allocate_with_exact_remainder`, used
-    inside `_split_two_to_one` for the residuary split).
+    inside `_split_two_to_one` for the residuary split) -- holds whether or
+    not the spouse is also a residuary heir, since ADDING preserves
+    whatever `_split_two_to_one` already summed to `residual`.
 
     Returns an empty allocation (the treasury fallback) when there is
     neither a spouse, nor children, nor siblings.
@@ -1683,7 +1819,7 @@ def _distribute_sharia(heirs: dict[str, list], inheritable: float) -> dict[int, 
     if pool:
         allocation = _split_two_to_one(pool, residual)
         if spouse:
-            allocation[spouse[0].id] = spouse_amount
+            allocation[spouse[0].id] = allocation.get(spouse[0].id, 0.0) + spouse_amount
     elif spouse:
         # No sibling found either: the spouse is the sole heir and
         # absorbs the whole residual too (see docstring, step 2).
@@ -1898,7 +2034,9 @@ def distribute_estate(
 # ---------------------------------------------------------------------------
 
 
-def transfer_loans_as_lender(deceased: Any, heirs: dict[str, list]) -> None:
+def transfer_loans_as_lender(
+    deceased: Any, heirs: dict[str, list], cash_allocation: dict[int, float]
+) -> None:
     """Reassign the deceased's active lender-side loans to a living heir,
     or to the banking system when there is none.
 
@@ -1910,6 +2048,55 @@ def transfer_loans_as_lender(deceased: Any, heirs: dict[str, list]) -> None:
     must not evaporate merely because its holder died, on the same
     conservation posture `apply_estate_tax` and `distribute_estate` above
     already establish for cash and property.
+
+    Fix I-6 (phase-6 audit round 1, T046) -- SIGNATURE CHANGE, THIRD
+    ARGUMENT ADDED: before this fix, this function ignored `rule` entirely
+    and round-robinned loans across EVERY category `heirs` happened to
+    contain, regardless of which categories the era's actual succession
+    rule would ever pay CASH to. Two concrete failures this produced: (1)
+    under `nationalized`, cash is 100% seized by the treasury
+    (`distribute_estate` always returns `{}`) while loans still went
+    round-robin to the spouse and children -- the opposite of the modelled
+    institution; (2) under `primogeniture`, cash goes 100% to ONE heir
+    while loans spread across the spouse, every child, every sibling, AND
+    `extended_family` -- a category NO succession rule ever pays cash to
+    at all. The fix takes "the same distribution rule" (design spec
+    Sezione 5's own words) at face value: `cash_allocation` is the exact
+    dict `distribute_estate(deceased, heirs, rule, inheritable)` already
+    returned to the caller for this SAME deceased -- its ids (never its
+    amounts; a zero-value cash transfer still marks a real entitlement,
+    see `process_inheritance_batch`'s ZERO-VALUE TRANSFERS note) are the
+    ONLY population loans now round-robin across. `nationalized` therefore
+    falls out of this rule for free (`cash_allocation == {}` routes to
+    banking, the empty-allocation branch below), with no `rule`-specific
+    branching needed inside this function at all.
+
+    WHAT THIS STILL GENERALISES, AND WHAT IT NO LONGER DOES: the
+    round-robin split across N eligible heirs (`heir_index = loan_index %
+    N`) is unchanged and still the deliberately simple policy this
+    docstring documented before -- the design spec does not specify HOW
+    multiple loans should split among multiple CASH-eligible heirs, only
+    that they follow the same rule's PRIORITY. What no longer happens:
+    loans reaching a heir category the cash rule itself did not pay this
+    time (an idle sibling under `primogeniture` when there was a child to
+    inherit; `extended_family`, unconditionally, under every rule). The
+    two are no longer independent mechanisms re-deriving overlapping but
+    inconsistent heir sets -- they are now the same set, computed once by
+    `distribute_estate` and threaded through.
+
+    WHY `cash_allocation` IS PASSED IN RATHER THAN THIS FUNCTION CALLING
+    `distribute_estate` ITSELF (a `rule: str` parameter was considered and
+    rejected): the caller (`process_inheritance_batch`) already calls
+    `distribute_estate(deceased, heirs, rule, inheritable)` once per
+    deceased and has the result on hand. A second internal call here would
+    not just waste a redundant pure-Python computation -- under
+    `matrilineal` specifically it would DOUBLE this function's query cost,
+    since `_distribute_matrilineal` -> `_resolve_matrilineal_heirs` issues
+    one real query per sister (unlike every other rule, which is pure
+    Python arithmetic with zero queries), silently breaking the "up to 2
+    queries" budget this function and `process_inheritance_batch`'s own
+    docstring both cite. Accepting the already-computed dict keeps this
+    function's own query cost exactly what it always was.
 
     Scope (CRITICAL, read before touching this function): only loans where
     `deceased` is `lender` are considered. Loans where `deceased` is
@@ -1945,25 +2132,26 @@ def transfer_loans_as_lender(deceased: Any, heirs: dict[str, list]) -> None:
     document itself; until then, this docstring is the authoritative record
     of which reading the code implements and why.
 
-    Heir selection: `heirs` is the dict `resolve_heirs(deceased, template)`
-    already returned -- categories in `heir_priority` order (typically
-    "spouse", "children", "siblings", "extended_family"), each a list of
-    living heirs in the module's established oldest-first order (see
-    `resolve_heirs`'s own docstring). This function flattens `heirs` by
-    iterating its values in that same insertion order -- never re-sorted,
-    never routed through a `set` -- reproducing the identical spouse-first,
-    children-oldest-first priority ladder `distribute_estate` already
-    applies to the estate's cash. Loans are then assigned ROUND-ROBIN across
-    that flattened list (`heir_index = loan_index % len(flattened_heirs)`):
-    a documented, deliberately simple policy choice -- the design spec does
-    not specify HOW multiple loans should split across multiple heirs
-    (only that they "transfer... using the same distribution rule" for the
-    single-recipient primogeniture case; round-robin is the natural,
-    deterministic generalization to N heirs that guarantees every heir with
-    at least one loan-slot receives at least one loan when loans outnumber
-    heirs, without requiring this function to re-run a full
-    `distribute_estate`-style proportional split for a fundamentally
-    different asset class).
+    Heir selection: `cash_allocation`'s keys, in that dict's own insertion
+    order (Python dicts preserve insertion order; every `_distribute_*`
+    helper inside `distribute_estate` inserts keys in the module's
+    established spouse-first / oldest-first priority order, so this order
+    is already correct with no re-sorting needed here). `heirs` is still
+    required alongside it, to resolve those bare ids back to the Agent
+    instances a `Loan.lender` FK assignment needs (`cash_allocation` itself
+    carries only ids and cash amounts, never Agent references) -- built as
+    an id-to-Agent lookup from every category `heirs` contains, since a
+    cash-eligible id is always drawn from `heirs` in the first place, by
+    `distribute_estate`'s own construction. Loans are assigned ROUND-ROBIN
+    across the eligible heirs (`heir_index = loan_index %
+    len(eligible_heirs)`): a documented, deliberately simple policy choice
+    unchanged by this fix -- the design spec does not specify HOW multiple
+    loans should split among multiple heirs the rule entitles to cash, only
+    THAT they follow the same rule's priority; round-robin is the natural,
+    deterministic generalization to N heirs that guarantees every eligible
+    heir receives at least one loan when loans outnumber heirs, without
+    requiring this function to re-run a `distribute_estate`-style
+    proportional split for a fundamentally different asset class.
 
     Write path (efficiency requirement, load-bearing once Plan 4 wires this
     into the per-tick death pipeline): exactly ONE `SELECT` (the active
@@ -1989,9 +2177,15 @@ def transfer_loans_as_lender(deceased: Any, heirs: dict[str, list]) -> None:
             `id` against `Loan.lender`).
         heirs: the dict `resolve_heirs(deceased, template)` returned --
             values are lists of living heir Agent instances, in the
-            established priority/oldest-first order. An empty dict, or a
-            dict whose every value is an empty list, is treated identically
-            to "no living heir".
+            established priority/oldest-first order. Used here only to
+            resolve `cash_allocation`'s ids back to Agent instances.
+        cash_allocation: the dict `distribute_estate(deceased, heirs, rule,
+            inheritable)` already returned for this SAME deceased (fix
+            I-6) -- an id-to-cash-amount mapping; only its KEYS, in their
+            existing insertion order, determine which heirs are eligible
+            for a loan and in what round-robin order. An empty dict (the
+            `nationalized` rule, always; any other rule when it resolved
+            no heir at all) is treated identically to "no living heir".
 
     Returns:
         None. Mutates `Loan` rows in the database directly.
@@ -2002,18 +2196,19 @@ def transfer_loans_as_lender(deceased: Any, heirs: dict[str, list]) -> None:
     if not active_loans:
         return
 
-    flattened_heirs = [heir for pool in heirs.values() for heir in pool]
-
-    if not flattened_heirs:
+    if not cash_allocation:
         for loan in active_loans:
             loan.lender = None
             loan.lender_type = "banking"
         Loan.objects.bulk_update(active_loans, ["lender", "lender_type"])
         return
 
-    heir_count = len(flattened_heirs)
+    agents_by_id = {heir.id: heir for pool in heirs.values() for heir in pool}
+    eligible_heirs = [agents_by_id[heir_id] for heir_id in cash_allocation]
+
+    heir_count = len(eligible_heirs)
     for index, loan in enumerate(active_loans):
-        loan.lender = flattened_heirs[index % heir_count]
+        loan.lender = eligible_heirs[index % heir_count]
 
     Loan.objects.bulk_update(active_loans, ["lender"])
 
@@ -2402,24 +2597,21 @@ def generate_mourning_memories(deceased: Any, tick: int) -> None:
 # makes once per tick, given that tick's freshly-deceased agents.
 # ---------------------------------------------------------------------------
 
-# MVP placeholder currency code for Government.government_treasury credits
-# (a plain {currency_code: amount} dict, see world/models.py). No
-# simulation-level "primary currency code" field exists for Agent.wealth's
-# simplified economy layer -- Agent.wealth is a single scalar float,
-# distinct from the full economy app's per-currency Currency/AgentInventory
-# model (gated behind World.economy_level = "full"). Every existing
-# apply_estate_tax test already treats the currency code as an arbitrary
-# illustrative bookkeeping label ("USD" / "EUR" / "gold_solidus"), never
-# tied to a real Currency row -- this constant mirrors that established
-# convention rather than reaching into economy.property_market's
-# `_get_primary_currency(simulation)` (which returns None for a
-# "simplified"-tier simulation with zero Currency rows, and would add a
-# demography -> economy cross-app read for a value with no functional
-# bearing beyond a dict key). Documented MVP simplification, not a
-# verified design decision: a future integration should resolve this from
-# the simulation's actual primary Currency once demography and the full
-# economy layer are unified for a given simulation.
-ESTATE_TAX_CURRENCY_CODE = "USD"
+# Fix I-10 (phase-6 audit round 1, T046): FALLBACK currency code for
+# Government.government_treasury credits (a plain {currency_code: amount}
+# dict, see world/models.py) -- used ONLY when the simulation has no
+# Currency row at all (the "simplified" economy tier, World.economy_level;
+# Agent.wealth's own scalar-float layer needs no Currency row to function).
+# Before this fix this constant (then named ESTATE_TAX_CURRENCY_CODE) was
+# used UNCONDITIONALLY, so any simulation with a REAL primary currency --
+# the design's own worked example uses LVR -- had its estate tax and
+# heirless-estate credits pile into a "USD" treasury key no spending path
+# ever reads: a permanently sequestered 40% of every estate under
+# modern_democracy. process_inheritance_batch now resolves the
+# simulation's actual primary Currency first (see PRIMARY CURRENCY
+# RESOLUTION in that function's own docstring) and falls back to this
+# constant only when no Currency row exists.
+ESTATE_TAX_CURRENCY_FALLBACK_CODE = "USD"
 
 
 def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) -> None:
@@ -2456,14 +2648,27 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     immediately, before reading `simulation.config` or opening a
     transaction).
 
+    PRIMARY CURRENCY RESOLUTION (fix I-10, phase-6 audit round 1, T046):
+    resolved ONCE for the whole batch, before the per-deceased loop --
+    `Currency.objects.filter(simulation=simulation, is_primary=True).
+    order_by("id").first()`, the exact same query every other treasury-
+    adjacent caller in the codebase already uses (`economy/property_
+    market.py`, `economy/credit.py`, `economy/context.py` all inline this
+    identical filter; there is no shared PUBLIC helper to import instead --
+    every existing caller inlines its own copy, so inlining here too is
+    the consistent choice). Falls back to `ESTATE_TAX_CURRENCY_FALLBACK_
+    CODE` ("USD") only when the simulation has no Currency row at all (the
+    "simplified" economy tier). One extra query for the entire batch, not
+    per deceased.
+
     PER-DECEASED STEPS:
     1. `resolve_heirs(deceased, template)`.
     2. `apply_estate_tax(deceased.wealth, rate, government,
-       ESTATE_TAX_CURRENCY_CODE)` -- `deceased.wealth` IS the estate's
-       total cash value; this is the one place in the whole chain that
-       decides that wiring (every pure resolver upstream takes
-       `total_estate_value` as an opaque float precisely so this
-       orchestrator, not they, makes that call).
+       primary_currency_code)` -- `deceased.wealth` IS the estate's total
+       cash value; this is the one place in the whole chain that decides
+       that wiring (every pure resolver upstream takes `total_estate_value`
+       as an opaque float precisely so this orchestrator, not they, makes
+       that call).
     3. `distribute_estate(deceased, heirs, rule, inheritable)`.
     4. Accumulate this transfer into the batch-wide pending wealth-credit
        ledger (see WEALTH CREDITING below) rather than crediting
@@ -2472,7 +2677,9 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
        case), and crediting immediately per deceased would require a
        second read-modify-write that could double-apply or lose a credit
        under `bulk_update`'s all-at-once semantics.
-    5. `transfer_loans_as_lender(deceased, heirs)`.
+    5. `transfer_loans_as_lender(deceased, heirs, allocation)` -- fix I-6:
+       `allocation` (step 3's own result) is threaded straight through, so
+       loans follow the exact same rule-entitled heir set cash just did.
     6. `generate_mourning_memories(deceased, tick)`.
     7. `dissolve_on_death(deceased, tick)` (decision D1) -- deliberately
        LAST among these steps, not first; see ORDERING CORRECTION below.
@@ -2561,12 +2768,17 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     "estate_tax_applied", "rule_used"}`. The design spec names these keys
     but not their exact semantics; this implementation PINS (per T028's
     own ratified decision): `cash` is this specific transfer's post-tax
-    amount; `estate_tax_applied` is the ABSOLUTE tax amount
-    (`deceased.wealth * rate`) deducted from the deceased's WHOLE estate
-    -- identical across every event sharing the same `deceased`, never a
-    per-heir proportional fraction, since the design spec does not define
-    one and inventing an unrequested split would be worse than repeating
-    the estate-level figure; `rule_used` is the era template's
+    amount; `estate_tax_applied` is the ABSOLUTE tax amount ACTUALLY
+    credited to the treasury by `apply_estate_tax` (fix C-3, phase-6 audit
+    round 1, T046: `total_estate_value - inheritable`, which reproduces
+    `apply_estate_tax`'s own internally-clamped rate exactly via its
+    conservation contract, never the raw unclamped
+    `economic_inheritance.estate_tax_rate` template value) deducted from
+    the deceased's WHOLE estate -- identical across every event sharing
+    the same `deceased`, never a per-heir proportional fraction, since the
+    design spec does not define one and inventing an unrequested split
+    would be worse than repeating the estate-level figure; `rule_used` is
+    the era template's
     `economic_inheritance.rule` string. `property_ids` and
     `loans_as_lender` are populated as empty lists -- a documented MVP
     simplification: no property-transfer mechanism exists in this module
@@ -2598,9 +2810,10 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     treasury write (0 when the estate is non-positive) +
     `transfer_loans_as_lender`'s own cost (up to 2) +
     `generate_mourning_memories`'s own cost (up to 5). PLUS, once for the
-    whole batch (not per deceased): 1 fetch + 1 `bulk_update` for wealth,
-    1 query + 1 `bulk_update` for caretakers (skipped entirely when there
-    are no orphan candidates), 1 `bulk_create` for events. On top of that,
+    whole batch (not per deceased): 1 query to resolve the primary
+    currency (fix I-10), 1 fetch + 1 `bulk_update` for wealth, 1 query + 1
+    `bulk_update` for caretakers (skipped entirely when there are no
+    orphan candidates), 1 `bulk_create` for events. On top of that,
     each ACTUAL newly-orphaned minor costs `assign_orphan_caretaker`'s own
     up-to-4-query search. TOTAL COST SCALES LINEARLY WITH THE NUMBER OF
     DEATHS THIS TICK (and, for the caretaker pass, with the number of
@@ -2629,6 +2842,7 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     from epocha.apps.demography.couple import dissolve_on_death
     from epocha.apps.demography.models import DemographyEvent
     from epocha.apps.demography.template_loader import load_template
+    from epocha.apps.economy.models import Currency
     from epocha.apps.world.government import add_to_treasury
     from epocha.apps.world.models import Government
 
@@ -2640,6 +2854,18 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     template = load_template(template_name)
     rate = template["economic_inheritance"]["estate_tax_rate"]
     rule = template["economic_inheritance"]["rule"]
+
+    # Fix I-10: resolve the simulation's REAL primary currency once for the
+    # whole batch (one extra query total, not per deceased) -- see
+    # PRIMARY CURRENCY RESOLUTION above for why this mirrors economy/
+    # property_market.py, economy/credit.py, and economy/context.py's own
+    # identical inline query rather than a new cross-app helper.
+    primary_currency = (
+        Currency.objects.filter(simulation=simulation, is_primary=True).order_by("id").first()
+    )
+    primary_currency_code = (
+        primary_currency.code if primary_currency is not None else ESTATE_TAX_CURRENCY_FALLBACK_CODE
+    )
     adulthood_age = template["migration"]["adulthood_age"]
 
     with transaction.atomic():
@@ -2665,9 +2891,21 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
 
             total_estate_value = deceased.wealth
             inheritable = apply_estate_tax(
-                total_estate_value, rate, government, ESTATE_TAX_CURRENCY_CODE
+                total_estate_value, rate, government, primary_currency_code
             )
-            tax_amount = total_estate_value * rate if total_estate_value > 0.0 else 0.0
+            # Fix C-3 (phase-6 audit round 1, T046): derive the tax actually
+            # applied from apply_estate_tax's own conservation contract
+            # (total_estate_value == inheritable + tax_revenue, exactly,
+            # per that function's own docstring) instead of recomputing
+            # `total_estate_value * rate` with the RAW, unclamped template
+            # rate. apply_estate_tax clamps rate into [0, 1] internally
+            # before crediting the treasury -- a malformed rate (e.g. "40"
+            # typed instead of "0.40") would otherwise make this payload
+            # report a figure up to 100x the amount the treasury actually
+            # received. total_estate_value - inheritable reproduces the
+            # CLAMPED tax exactly, with no duplicated clamping logic and no
+            # change to apply_estate_tax's own signature.
+            tax_amount = (total_estate_value - inheritable) if total_estate_value > 0.0 else 0.0
 
             allocation = distribute_estate(deceased, heirs, rule, inheritable)
 
@@ -2702,9 +2940,9 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
                 # design) -- either way, distribute_estate's own contract
                 # is that the entire post-tax remainder routes to the
                 # treasury.
-                add_to_treasury(government, ESTATE_TAX_CURRENCY_CODE, inheritable)
+                add_to_treasury(government, primary_currency_code, inheritable)
 
-            transfer_loans_as_lender(deceased, heirs)
+            transfer_loans_as_lender(deceased, heirs, allocation)
             generate_mourning_memories(deceased, tick)
 
             # Safe to dissolve now: both couple-dependent reads above have

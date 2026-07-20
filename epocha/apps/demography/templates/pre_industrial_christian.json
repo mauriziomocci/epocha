@@ -53,7 +53,7 @@
       "intelligence": 0.55, "emotional_intelligence": 0.40,
       "creativity": 0.22,
       "strength": 0.55, "stamina": 0.52, "agility": 0.45,
-      "fertility": 0.50, "mental_health_baseline": 0.40,
+      "fertility": 0.50, "mental_health": 0.40,
       "default": 0.30
     },
     "derived_trait_formulas": {

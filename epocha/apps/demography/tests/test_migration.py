@@ -200,17 +200,26 @@ def _make_zone_at(world, x, y, name):
 # ---------------------------------------------------------------------------
 #
 # Operational definition PINNED by these tests (not otherwise specified
-# upstream of this task): compute_zone_wage returns the mean per-capita,
-# per-tick wage income in `zone` over the trailing window -- SUM(
-# total_amount) for `wage`-type EconomicLedger rows credited to a worker
-# in `zone` (`to_agent__zone`) within the CLOSED interval [tick - window,
-# tick] (BOTH ends inclusive -- window=5 therefore spans 6 distinct tick
-# values when every one has data), divided by (living population *
-# window). Dividing by `window` in addition to population is what turns a
-# window-cumulative sum into a single per-tick flow figure, comparable
-# directly against another zone's own per-tick wage (T033's
+# upstream of this task; corrected under fix I-8, phase-6 audit T046):
+# compute_zone_wage returns the mean per-capita, per-tick wage income in
+# `zone` over the trailing window -- SUM(total_amount) for `wage`-type
+# EconomicLedger rows credited to a worker in `zone` (`to_agent__zone`)
+# within the HALF-OPEN interval (tick - window, tick] (`tick` itself
+# INCLUDED, `tick - window` EXCLUDED -- window=5 therefore spans EXACTLY
+# 5 distinct tick values, matching the divisor), divided by (living
+# population * window). Dividing by `window` in addition to population is
+# what turns a window-cumulative sum into a single per-tick flow figure,
+# comparable directly against another zone's own per-tick wage (T033's
 # `compute_expected_gain` needs `wage_j` and `wage_current` on the same
 # footing). Zero population returns 0.0 without dividing by zero (FR-028).
+# PRE-FIX this function used the CLOSED interval [tick - window, tick]
+# (6 ticks for window=5) while still dividing by `window` (5), a 20%
+# overstatement at the default window for any zone with wage activity
+# spread across the window -- see
+# `test_wage_activity_in_every_tick_of_window_averages_to_the_true_per_tick_rate`
+# below, the one fixture in this suite with wage rows in every tick of
+# the window rather than a single tick, which is precisely what makes the
+# divisor/filter mismatch visible.
 
 
 class TestComputeZoneWage:
@@ -250,7 +259,11 @@ class TestComputeZoneWage:
         assert wage == pytest.approx(35.0)
 
     @pytest.mark.django_db
-    def test_wage_row_exactly_at_lower_window_bound_is_included(self, sim_with_zone, currency):
+    def test_wage_row_exactly_at_tick_minus_window_is_excluded(self, sim_with_zone, currency):
+        """Fix I-8: the window is now HALF-OPEN, `(tick - window, tick]`
+        -- a row at exactly `tick - window` is the one row the OLD closed
+        interval counted that the fixed interval does not.
+        """
         sim, zone = sim_with_zone
         alice = _make_agent(sim, zone, "Alice")
         tick = 50
@@ -258,10 +271,10 @@ class TestComputeZoneWage:
 
         wage = compute_zone_wage(sim, zone, tick, window=5)
 
-        assert wage == pytest.approx(100.0 / (1 * 5))
+        assert wage == pytest.approx(0.0)
 
     @pytest.mark.django_db
-    def test_wage_row_just_before_lower_window_bound_is_excluded(self, sim_with_zone, currency):
+    def test_wage_row_just_before_tick_minus_window_is_excluded(self, sim_with_zone, currency):
         sim, zone = sim_with_zone
         alice = _make_agent(sim, zone, "Alice")
         tick = 50
@@ -270,6 +283,22 @@ class TestComputeZoneWage:
         wage = compute_zone_wage(sim, zone, tick, window=5)
 
         assert wage == pytest.approx(0.0)
+
+    @pytest.mark.django_db
+    def test_wage_row_at_the_new_lower_window_bound_is_included(self, sim_with_zone, currency):
+        """Fix I-8: `tick - window + 1` is the LOWEST tick the half-open
+        interval `(tick - window, tick]` admits -- the actual lower
+        boundary after the fix, distinct from the excluded `tick -
+        window` case above.
+        """
+        sim, zone = sim_with_zone
+        alice = _make_agent(sim, zone, "Alice")
+        tick = 50
+        _make_wage(sim, currency, alice, tick=tick - 4, amount=100.0)  # tick - window + 1
+
+        wage = compute_zone_wage(sim, zone, tick, window=5)
+
+        assert wage == pytest.approx(100.0 / (1 * 5))
 
     @pytest.mark.django_db
     def test_wage_row_exactly_at_current_tick_is_included(self, sim_with_zone, currency):
@@ -291,6 +320,31 @@ class TestComputeZoneWage:
         wage = compute_zone_wage(sim, zone, tick=50, window=5)
 
         assert wage == pytest.approx(0.0)
+
+    @pytest.mark.django_db
+    def test_wage_activity_in_every_tick_of_window_averages_to_the_true_per_tick_rate(
+        self, sim_with_zone, currency
+    ):
+        """Fix I-8: with a 100.0 wage row in EVERY tick of the window
+        (steady employment -- the case no PRE-FIX fixture ever exercised,
+        since every one of them placed wage activity in a single tick
+        only, per the audit finding's own text), the TRUE per-capita
+        per-tick wage is exactly 100.0. Before the fix, the CLOSED
+        interval `[tick-5, tick]` spans 6 distinct ticks (as this
+        function's own docstring already stated) while the divisor was
+        `window` (5) -- summing 6 rows of 100.0 and dividing by 5 gives
+        120.0, a 20% overstatement of the true per-tick rate purely from
+        the divisor/filter mismatch, not from any real economic signal.
+        """
+        sim, zone = sim_with_zone
+        alice = _make_agent(sim, zone, "Alice")
+        tick = 50
+        for t in range(tick - 5, tick + 1):  # every tick in the old closed [tick-5, tick] span
+            _make_wage(sim, currency, alice, tick=t, amount=100.0)
+
+        wage = compute_zone_wage(sim, zone, tick, window=5)
+
+        assert wage == pytest.approx(100.0)
 
     @pytest.mark.django_db
     def test_dead_agent_excluded_from_population_denominator(self, sim_with_zone, currency):
@@ -920,6 +974,113 @@ class TestCoordinateFamilyMigration:
 
         minor_child.refresh_from_db()
         assert minor_child.zone_id == target_zone.id
+
+    @pytest.mark.django_db
+    def test_movers_location_falls_back_to_target_zone_center_without_rng_fix_i12(
+        self, sim_with_zone
+    ):
+        """Fix I-12: `agents/movement.py`'s `execute_movement` treats
+        `zone` and `location` as a matched pair -- any spatial consumer
+        reading `location` expects it to sit inside whatever `zone` names.
+        Every `_make_agent` fixture defaults `location` to Point(50, 50),
+        which happens to equal `sim_with_zone`'s OWN zone center -- so a
+        mover whose `location` is never rewritten stays stuck there even
+        after their `zone` FK changes to `target_zone` (center (250,
+        250), see `_make_other_zone`), a direct contradiction between the
+        two fields. Without an `rng` (this function's default -- no
+        caller-supplied seeded stream), the fix falls back to the exact
+        `target_zone.center` point: no randomness needed, and strictly
+        better than the pre-fix silence.
+        """
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(agent, partner, formed_at_tick=1)
+        minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10)
+
+        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
+
+        partner.refresh_from_db()
+        minor_child.refresh_from_db()
+        assert partner.location.x == pytest.approx(target_zone.center.x)
+        assert partner.location.y == pytest.approx(target_zone.center.y)
+        assert minor_child.location.x == pytest.approx(target_zone.center.x)
+        assert minor_child.location.y == pytest.approx(target_zone.center.y)
+
+    @pytest.mark.django_db
+    def test_movers_location_is_scattered_within_the_target_zone_when_rng_is_supplied_fix_i12(
+        self, sim_with_zone
+    ):
+        """Fix I-12: when the caller supplies a seeded `rng` (the
+        production path -- `process_emergency_flight` threads one
+        through), movers land at a SCATTERED position around
+        `target_zone`'s center, reusing `agents/movement.py`'s own
+        arrival-scatter convention (`_ARRIVAL_SCATTER_RANGE`) rather than
+        clustering every mover on the exact centroid.
+        """
+        from epocha.apps.agents.movement import _ARRIVAL_SCATTER_RANGE
+        from epocha.apps.demography.rng import get_seeded_rng
+
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(agent, partner, formed_at_tick=1)
+
+        rng = get_seeded_rng(sim, tick=50, phase="migration")
+        coordinate_family_migration(
+            agent, target_zone, tick=50, template=_minimal_template(), rng=rng
+        )
+
+        partner.refresh_from_db()
+        dx = partner.location.x - target_zone.center.x
+        dy = partner.location.y - target_zone.center.y
+        assert abs(dx) <= _ARRIVAL_SCATTER_RANGE
+        assert abs(dy) <= _ARRIVAL_SCATTER_RANGE
+        # Scattered, not pinned exactly to the centroid (astronomically
+        # unlikely to land on it by chance -- this is the discriminating
+        # assertion between the "no rng" fallback above and this path).
+        assert (dx, dy) != (0.0, 0.0)
+
+    @pytest.mark.django_db
+    def test_movers_location_scatter_is_deterministic_given_the_same_seeded_rng_fix_i12(
+        self, sim_with_zone
+    ):
+        """Fix I-12: the scatter draw must come from the module's own
+        seeded determinism discipline (`demography.rng.get_seeded_rng`),
+        never an unseeded `random` call -- two independently-derived RNGs
+        for the SAME (simulation, tick, phase) reproduce the identical
+        scattered coordinate.
+        """
+        from epocha.apps.demography.rng import get_seeded_rng
+
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+
+        agent_a = _make_agent(sim, zone, "AgentA")
+        partner_a = _make_agent(sim, zone, "PartnerA")
+        form_couple(agent_a, partner_a, formed_at_tick=1)
+        agent_b = _make_agent(sim, zone, "AgentB")
+        partner_b = _make_agent(sim, zone, "PartnerB")
+        form_couple(agent_b, partner_b, formed_at_tick=1)
+
+        rng_one = get_seeded_rng(sim, tick=50, phase="migration")
+        coordinate_family_migration(
+            agent_a, target_zone, tick=50, template=_minimal_template(), rng=rng_one
+        )
+        rng_two = get_seeded_rng(sim, tick=50, phase="migration")
+        coordinate_family_migration(
+            agent_b, target_zone, tick=50, template=_minimal_template(), rng=rng_two
+        )
+
+        partner_a.refresh_from_db()
+        partner_b.refresh_from_db()
+        assert partner_a.location.x == pytest.approx(partner_b.location.x)
+        assert partner_a.location.y == pytest.approx(partner_b.location.y)
 
     @pytest.mark.django_db
     def test_adult_child_does_not_move(self, sim_with_zone):
@@ -1633,6 +1794,45 @@ class TestProcessEmergencyFlightFlees:
         assert minor_child.zone_id == other_zone.id
 
     @pytest.mark.django_db
+    def test_triggered_flight_relocates_location_alongside_zone_fix_i12(self, sim_with_zone):
+        """Fix I-12, the second call site (`migration.py:1261`, the
+        `agents_to_relocate` bulk_update): the FLEEING agent's own
+        `location`, not only their household's, must move with `zone` --
+        `process_emergency_flight` bypasses `agents/movement.py`'s
+        `execute_movement` entirely for the decider (it sets `zone`
+        directly), so nothing else in this call graph ever touches their
+        `location`. `other_zone` sits at a DIFFERENT center than the
+        origin zone's default agent location (Point(50, 50), see
+        `_make_agent`) specifically so a stale location is observable.
+        """
+        sim, zone = sim_with_zone
+        _make_government(sim)
+        world = zone.world
+        other_zone = _make_zone_at(world, 300, 300, "OtherZone")
+        currency = Currency.objects.create(
+            simulation=sim, code="LVR", name="Livre", symbol="L", total_supply=50_000.0
+        )
+        worker = _make_agent(sim, other_zone, "Worker", role="")
+        _make_wage(sim, currency, worker, tick=50, amount=250.0)
+        _make_subsistence_threshold_of_five(sim, zone)
+        agent = _make_agent(sim, zone, "Agent", wealth=4.0)
+        partner = _make_agent(sim, zone, "Partner", wealth=100.0)
+        form_couple(agent, partner, formed_at_tick=1)
+
+        process_emergency_flight(
+            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
+        )
+
+        agent.refresh_from_db()
+        partner.refresh_from_db()
+        for mover, label in ((agent, "agent"), (partner, "partner")):
+            distance_to_target_center = mover.location.distance(other_zone.center)
+            distance_to_origin_default = mover.location.distance(Point(50, 50))
+            assert distance_to_target_center < distance_to_origin_default, (
+                f"{label}'s location did not move toward the target zone"
+            )
+
+    @pytest.mark.django_db
     def test_triggered_flight_writes_a_memory_at_weight_0_85(self, sim_with_zone):
         sim, zone = sim_with_zone
         _make_government(sim)
@@ -1746,6 +1946,66 @@ class TestProcessEmergencyFlightTrapped:
             assert memory.emotional_weight == pytest.approx(TRAPPED_CRISIS_MEMORY_WEIGHT)
             assert memory.emotional_weight == pytest.approx(0.95)
             assert memory.source_type == Memory.SourceType.PUBLIC
+
+    @pytest.mark.django_db
+    def test_witness_memory_row_count_is_linear_in_zone_population_not_quadratic_fix_m3(
+        self, sim_with_zone
+    ):
+        """Fix M-3: `migration.py:1277-1307` (pre-fix) created ONE Memory
+        per (trapped agent, witness) PAIR -- N trapped agents among M
+        living agents in a zone produced N * (M - N) rows. At the
+        templates' own `max_population` of 500 in a famine (this
+        module's own calibration target, O'Rourke 1994), N approaches M
+        and the row count approaches 500 * 499 ~= 250,000 IN ONE TICK.
+
+        This test uses a tractable but structurally identical shape: a
+        SINGLE zone world (no reachable destination anywhere, so every
+        agent meeting the wealth/ticks preconditions is unconditionally
+        trapped, mirroring `_make_trapped_agent_setup`'s own documented
+        rationale) with 4 trapped agents among 6 total living agents (2
+        non-trapped witnesses). The PRE-FIX pairing would create
+        4 * (6 - 1) = 20 Memory rows; the fix creates exactly ONE
+        aggregate zone-crisis memory per non-trapped witness (2), a count
+        that does not grow with the number of trapped agents N at all,
+        only with the zone's population.
+        """
+        sim, zone = sim_with_zone
+        _make_government(sim)
+        _make_subsistence_threshold_of_five(sim, zone)
+
+        trapped = [_make_agent(sim, zone, f"Trapped{i}", wealth=4.0) for i in range(4)]
+        witnesses = [_make_agent(sim, zone, f"Witness{i}", wealth=100.0) for i in range(2)]
+
+        counters = {agent.id: 30 for agent in trapped}
+        process_emergency_flight(
+            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id=counters
+        )
+
+        # TRAPPED_CRISIS events remain one per trapped agent -- M-3 is
+        # about the WITNESS MEMORY fan-out, not the event count.
+        assert (
+            DemographyEvent.objects.filter(
+                simulation=sim, event_type=DemographyEvent.EventType.TRAPPED_CRISIS
+            ).count()
+            == 4
+        )
+
+        public_crisis_memories = Memory.objects.filter(
+            source_type=Memory.SourceType.PUBLIC,
+            emotional_weight=TRAPPED_CRISIS_MEMORY_WEIGHT,
+        )
+        # Fixed: exactly one memory per non-trapped witness (2), never
+        # one per (trapped, witness) pair (which would be 20 here).
+        assert public_crisis_memories.count() == 2
+        for witness in witnesses:
+            assert (
+                Memory.objects.filter(agent=witness, source_type=Memory.SourceType.PUBLIC).count()
+                == 1
+            )
+        for victim in trapped:
+            assert not Memory.objects.filter(
+                agent=victim, source_type=Memory.SourceType.PUBLIC
+            ).exists()
 
     @pytest.mark.django_db
     def test_trapped_agent_does_not_receive_a_public_memory_about_their_own_crisis(
@@ -1950,6 +2210,83 @@ class TestProcessEmergencyFlightMassFlight:
             simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
         )
         assert set(event.payload["agents"]) == {historical_agent.id, new_fleeing.id}
+
+    @pytest.mark.django_db
+    def test_denominator_is_population_at_window_start_not_current_zone_population_fix_i11(
+        self, sim_with_zone
+    ):
+        """Fix I-11: a 10-agent zone loses exactly ONE agent per tick, one
+        distinct agent fleeing on each of three consecutive calls (ticks
+        10, 11, 12), with `flight_trigger_ticks=30` keeping every flight
+        inside the rolling window throughout. This reproduces, at a
+        tractable scale, the audit's own 100-agent illustration: a
+        constant per-tick departure rate must never make the reported
+        fraction CLIMB relative to the population that was actually
+        there when the window opened.
+
+        By the THIRD call (tick=12), 3 of the ORIGINAL 10 agents have
+        fled -- a true cumulative share of exactly 3/10 = 0.30, at the
+        STRICT threshold, so MASS_FLIGHT must NOT fire.
+
+        Under the PRE-FIX arithmetic (denominator = the zone's CURRENT
+        living population, captured at tick=12 BEFORE this tick's own
+        3rd flight, i.e. 10 - 2 = 8, since the first two fleeing agents
+        already left the zone entirely by then), the fraction comes out
+        3/8 = 0.375 > 0.30 -- MASS_FLIGHT fires incorrectly, purely
+        because agents who already left in EARLIER ticks stay in the
+        (windowed) numerator while dropping out of the (point-in-time)
+        denominator. The fixed denominator reconstructs the zone's
+        population as it stood at WINDOW START: the current living
+        population PLUS every agent already known to have fled during
+        the window (the two earlier departures), giving 8 + 2 = 10 --
+        the correct, constant original population -- and 3/10 = 0.30,
+        which is NOT strictly greater than 0.30.
+        """
+        sim, zone = sim_with_zone
+        _make_government(sim)
+        world = zone.world
+        other_zone = _make_zone_at(world, 50, 50, "OtherZone")  # 0 distance cost
+        currency = Currency.objects.create(
+            simulation=sim, code="LVR", name="Livre", symbol="L", total_supply=50_000.0
+        )
+        worker = _make_agent(sim, other_zone, "Worker", role="")
+        _make_subsistence_threshold_of_five(sim, zone)
+
+        # role="" keeps each candidate out of other_zone's unemployment
+        # denominator once they arrive there (mirrors the established
+        # "HistoricalFled" pattern in
+        # test_mass_flight_window_combines_historical_and_new_flights) --
+        # otherwise an EARLIER-arrived candidate, now a role-holder in
+        # other_zone with no wage credit of their own, would push
+        # other_zone's unemployment toward 1.0 and defeat expected_gain
+        # for the candidates still deciding whether to flee.
+        candidates = [
+            _make_agent(sim, zone, f"Candidate{i}", wealth=4.0, role="") for i in range(3)
+        ]
+        for i in range(7):
+            _make_agent(sim, zone, f"Stays{i}", wealth=100.0)
+
+        for offset, candidate in enumerate(candidates):
+            tick = 10 + offset
+            # Fresh wage data at THIS exact tick keeps other_zone's
+            # expected gain positive at every one of the three calls,
+            # independent of compute_zone_wage's own window semantics
+            # (I-8 is a separate, already-fixed defect; this test does
+            # not want to depend on its exact boundary behavior).
+            _make_wage(sim, currency, worker, tick=tick, amount=250.0)
+            process_emergency_flight(
+                sim,
+                tick=tick,
+                consecutive_ticks_under_subsistence_by_agent_id={candidate.id: 30},
+            )
+
+        for candidate in candidates:
+            candidate.refresh_from_db()
+            assert candidate.zone_id == other_zone.id  # self-check: all three did flee
+
+        assert not DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
+        ).exists()
 
     @pytest.mark.django_db
     def test_query_count_stays_flat_as_population_grows(

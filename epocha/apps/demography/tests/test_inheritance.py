@@ -125,7 +125,7 @@ from epocha.apps.demography.migration import (
 from epocha.apps.demography.models import Couple, DemographyEvent
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.demography.template_loader import load_template
-from epocha.apps.economy.models import Loan
+from epocha.apps.economy.models import Currency, Loan
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.government import add_to_treasury
@@ -260,6 +260,56 @@ class TestInheritTraitSingleParentFallback:
         assert isinstance(result, float)
 
 
+class TestInheritTraitBothParentsUnknown:
+    """Fix I-3 (phase-6 audit round 1, T046): `inherit_trait(None, None,
+    ...)` must fall back to `era_mean` instead of raising `TypeError`.
+
+    Before this fix, the two-branch `if mother_val is not None and
+    father_val is not None / elif mother_val is not None / else` chain
+    left `midparent = father_val` on the final `else`, so when BOTH
+    parent values are None, `midparent` is None too, and the `h2 *
+    midparent` arithmetic two lines later raises `TypeError: unsupported
+    operand type(s) for *: 'float' and 'NoneType'`. This state is
+    reachable from the real birth pipeline: none of the five Big Five
+    personality traits is an `Agent` model column, so their values come
+    from `(parent.personality or {}).get(name)` in `apply_trait_
+    inheritance`, which is None whenever neither parent happens to carry
+    that particular key -- any such birth crashes uncaught. The fix
+    mirrors `_regress_education_level`'s already-correct four-way
+    fallback (mother-only / father-only / both / neither -> era_mean).
+    """
+
+    def test_both_parents_none_falls_back_to_era_mean_instead_of_raising(self):
+        h2 = 0.4
+        era_mean = 0.5
+        era_sd = 0.1
+
+        expected_rng = random.Random(11)
+        expected_noise = expected_rng.gauss(era_mean, era_sd)
+        # No parental signal: midparent degrades to era_mean itself, exactly
+        # mirroring _regress_education_level's own neither-parent branch.
+        expected = h2 * era_mean + (1 - h2) * expected_noise
+
+        actual_rng = random.Random(11)
+        actual = inherit_trait(None, None, h2, era_mean, era_sd, actual_rng)
+
+        assert actual == pytest.approx(expected)
+
+    def test_both_parents_none_still_draws_gauss_exactly_once(self):
+        """RNG-sequence contract preserved: the neither-parent branch must
+        not change how many draws this function consumes, or every OTHER
+        trait's RNG position downstream in apply_trait_inheritance's fixed
+        draw order would silently shift.
+        """
+        rng_under_test = random.Random(99)
+        rng_reference = random.Random(99)
+
+        inherit_trait(None, None, 0.5, 0.5, 0.1, rng_under_test)
+        rng_reference.gauss(0.5, 0.1)
+
+        assert rng_under_test.random() == rng_reference.random()
+
+
 class TestEvaluateDerivedFormulaHappyPath:
     """Arithmetic-only formulas resolve against the provided symbol table."""
 
@@ -345,11 +395,21 @@ class TestEvaluateDerivedFormulaRefusals:
 # a concrete Agent model FloatField, versus keys with no matching field that
 # therefore live inside Agent.personality JSONB. Split verified directly
 # against epocha/apps/agents/models.py: Agent has intelligence,
-# emotional_intelligence, creativity, strength, stamina, agility, fertility
-# as scalar fields, but no field named mental_health_baseline (only the
-# unrelated `mental_health`), openness, conscientiousness, extraversion,
-# agreeableness, or neuroticism -- those five plus mental_health_baseline
+# emotional_intelligence, creativity, strength, stamina, agility, fertility,
+# and mental_health as scalar fields; openness, conscientiousness,
+# extraversion, agreeableness, and neuroticism have no matching field and
 # only exist inside the JSONB personality blob.
+#
+# Fix I-9 (phase-6 audit round 1, T046): mental_health moved here from
+# PERSONALITY_HERITABLE_TRAITS. Every era template previously declared the
+# heritability key as `mental_health_baseline`, which matches no Agent
+# field -- the inherited value landed in `child.personality
+# ["mental_health_baseline"]` (a dead JSONB key nothing reads) while
+# `Agent.mental_health` never moved from its model default. All five
+# template JSON files now declare `mental_health` (matching the field
+# exactly), so `_agent_has_field`'s existing un-special-cased routing picks
+# it up as a scalar automatically -- no routing code changed for this fix,
+# only the template data.
 SCALAR_HERITABLE_TRAITS = {
     "intelligence",
     "emotional_intelligence",
@@ -358,6 +418,7 @@ SCALAR_HERITABLE_TRAITS = {
     "stamina",
     "agility",
     "fertility",
+    "mental_health",
 }
 PERSONALITY_HERITABLE_TRAITS = {
     "openness",
@@ -365,7 +426,6 @@ PERSONALITY_HERITABLE_TRAITS = {
     "extraversion",
     "agreeableness",
     "neuroticism",
-    "mental_health_baseline",
 }
 
 
@@ -418,8 +478,9 @@ class TestApplyTraitInheritanceHeritabilityCoverage:
 
     @pytest.mark.django_db
     def test_writes_every_heritability_trait_to_child(self, sim_with_zone):
-        """Requirement 1: scalars via getattr, Big Five/mental_health_baseline
-        via child.personality, for every key in heritability except "default".
+        """Requirement 1: scalars (including mental_health, fix I-9) via
+        getattr, Big Five via child.personality, for every key in
+        heritability except "default".
         """
         sim, zone = sim_with_zone
         template = load_template("pre_industrial_christian")
@@ -505,6 +566,46 @@ class TestApplyTraitInheritanceDefaultHeritability:
         assert child.personality["humor_style"] == pytest.approx(expected)
 
 
+class TestApplyTraitInheritanceNeitherParentCarriesTheKey:
+    """Fix I-3 (phase-6 audit round 1, T046): the birth pipeline itself
+    reaches `inherit_trait(None, None, ...)`, not just a synthetic unit
+    call. Every heritable personality trait routes through `(parent.
+    personality or {}).get(name)`, which is None whenever a parent's
+    personality dict does not happen to carry that key -- and unlike
+    scalar Agent fields (which always have a real float default),
+    nothing guarantees every parent's personality blob carries every
+    heritability key. Before this fix, a birth where NEITHER parent
+    carries a given key crashed the entire `apply_trait_inheritance` call
+    -- and by extension the whole birth -- with an uncaught `TypeError`,
+    invisible to the pre-existing suite only because every fixture there
+    happens to populate all six personality keys on both parents.
+    """
+
+    @pytest.mark.django_db
+    def test_neither_parent_carrying_a_heritable_personality_key_does_not_crash_the_birth(
+        self, sim_with_zone
+    ):
+        sim, zone = sim_with_zone
+        synthetic_template = {
+            "trait_inheritance": {
+                "heritability": {"default": 0.30, "openness": 0.55},
+                "derived_trait_formulas": {},
+            }
+        }
+        # Neither parent's personality dict carries "openness" -- both
+        # parent reads resolve to None, reproducing I-3's exact trigger.
+        mother = _make_agent(sim, zone, "Mother", personality={})
+        father = _make_agent(sim, zone, "Father", personality={})
+        child = _make_agent(sim, zone, "Child")
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_trait_inheritance(child, mother, father, synthetic_template, rng)
+
+        assert "openness" in child.personality
+        assert isinstance(child.personality["openness"], float)
+        assert 0.0 <= child.personality["openness"] <= 1.0
+
+
 class TestApplyTraitInheritanceDerivedTrait:
     """cunning is computed at birth from the derived formula, not inherited."""
 
@@ -553,6 +654,182 @@ class TestApplyTraitInheritanceDerivedTrait:
 
         assert child.cunning == pytest.approx(expected_cunning)
         assert not (heritability.get("cunning"))  # cunning has no published h2 entry
+
+
+class TestApplyTraitInheritanceRequiresMutablePersonalityDict:
+    """Fix M-2 (phase-6 audit round 1, T046): `child.personality[name] =
+    value` (the personality-routed write inside the main trait loop)
+    writes without a guard, while both parent reads two lines above
+    (`(mother.personality or {}).get(name)`) are defensive. This is an
+    undeclared precondition: `apply_trait_inheritance` never calls
+    `child.save()` (see its own docstring), so `child` is routinely an
+    unsaved, in-memory `Agent` at the point this function runs -- and
+    Django only applies `Agent.personality`'s `default=dict` when the
+    constructor is called with the `personality` kwarg omitted entirely.
+    Any caller that explicitly sets `child.personality = None` (or passes
+    `personality=None` to the constructor) before calling this function
+    hits `TypeError: 'NoneType' object does not support item assignment`
+    on the very first personality-routed trait.
+    """
+
+    @pytest.mark.django_db
+    def test_child_personality_none_does_not_crash_on_first_personality_trait(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        synthetic_template = {
+            "trait_inheritance": {
+                "heritability": {"default": 0.30, "openness": 0.55},
+                "derived_trait_formulas": {},
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", personality={"openness": 0.7})
+        father = _make_agent(sim, zone, "Father", personality={"openness": 0.3})
+        child = _make_agent(sim, zone, "Child")
+        # Simulate the undeclared-precondition violation: an unsaved child
+        # (this function never calls .save(), per its own docstring) whose
+        # personality has not been initialized to a dict.
+        child.personality = None
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_trait_inheritance(child, mother, father, synthetic_template, rng)
+
+        assert isinstance(child.personality, dict), (
+            f"child.personality={child.personality!r} after apply_trait_"
+            "inheritance -- the function must initialize it to a dict "
+            "rather than requiring the caller to guarantee one"
+        )
+        assert "openness" in child.personality
+
+
+class TestApplyTraitInheritanceMentalHealthKeyMatchesAgentField:
+    """Fix I-9 (phase-6 audit round 1, T046): every era template must
+    declare heritability under the key `mental_health`, matching
+    `Agent.mental_health` (`epocha/apps/agents/models.py`) exactly --
+    NOT `mental_health_baseline`, a name with no matching Agent field.
+    Before this fix, all five templates declared `mental_health_baseline:
+    0.40`, so the inherited value landed in `child.personality
+    ["mental_health_baseline"]` (a JSONB key nothing reads) while `Agent.
+    mental_health` never moved from its model default (0.8) -- mental
+    health was silently never inherited, in every era, despite every
+    template's own heritability table claiming h2=0.40 for it.
+
+    `_agent_has_field` (see its docstring) special-cases nothing: once the
+    template key matches the Agent field name, the existing scalar/
+    personality routing in `apply_trait_inheritance` picks it up with no
+    further code change -- this fix is a data change (template JSON), not
+    a code change, exactly as `_agent_has_field`'s own documented design
+    promises for a "template change (renaming ... a heritability key)".
+    """
+
+    @pytest.mark.parametrize(
+        "template_name",
+        [
+            "pre_industrial_christian",
+            "pre_industrial_islamic",
+            "industrial",
+            "modern_democracy",
+            "sci_fi",
+        ],
+    )
+    def test_every_era_template_declares_mental_health_at_h2_040(self, template_name):
+        """Guards all five template JSON files independently -- a typo or
+        incomplete rename in any single file would otherwise pass silently
+        as long as the one template exercised by the exact-value test
+        below happened to be correct.
+        """
+        template = load_template(template_name)
+        heritability = template["trait_inheritance"]["heritability"]
+
+        assert "mental_health_baseline" not in heritability, (
+            f"{template_name}.json still declares the dead key "
+            "'mental_health_baseline', which matches no Agent field"
+        )
+        assert heritability.get("mental_health") == pytest.approx(0.40), (
+            f"{template_name}.json does not declare 'mental_health': 0.40 "
+            f"-- got {heritability.get('mental_health')!r}"
+        )
+
+    @pytest.mark.django_db
+    def test_agent_mental_health_field_is_actually_inherited_at_h2_040(self, sim_with_zone):
+        """End-to-end proof, not just a JSON-shape check: Agent.mental_
+        health must move away from its field default (0.8) in a manner
+        that exactly matches inherit_trait's own h2=0.40 formula -- the
+        same exact-match style as TestApplyTraitInheritanceDefaultHeritability
+        above, replaying an identically seeded rng independently.
+        """
+        sim, zone = sim_with_zone
+        template = load_template("pre_industrial_christian")
+        heritability = template["trait_inheritance"]["heritability"]
+        mental_health_h2 = heritability["mental_health"]
+        assert mental_health_h2 == pytest.approx(0.40)
+
+        mother_personality = {name: 0.65 for name in PERSONALITY_HERITABLE_TRAITS}
+        father_personality = {name: 0.35 for name in PERSONALITY_HERITABLE_TRAITS}
+        mother_mental_health = 0.9
+        father_mental_health = 0.1
+        # mental_health is set to a distinct value from the other scalar
+        # traits' uniform 0.65/0.35 (rather than left to the generic
+        # SCALAR_HERITABLE_TRAITS spread) so this test does not depend on
+        # every other scalar trait coincidentally sharing the same value.
+        other_scalar_traits = SCALAR_HERITABLE_TRAITS - {"mental_health"}
+        mother = _make_agent(
+            sim,
+            zone,
+            "Mother",
+            personality=mother_personality,
+            mental_health=mother_mental_health,
+            **{name: 0.65 for name in other_scalar_traits},
+        )
+        father = _make_agent(
+            sim,
+            zone,
+            "Father",
+            personality=father_personality,
+            mental_health=father_mental_health,
+            **{name: 0.35 for name in other_scalar_traits},
+        )
+        child = _make_agent(sim, zone, "Child")
+
+        expected_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        actual_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_trait_inheritance(child, mother, father, template, actual_rng)
+
+        # Independently replay the same deterministic trait order
+        # (heritability dict order, "default" excluded) that apply_trait_
+        # inheritance itself documents, consuming the identically seeded
+        # expected_rng in lockstep, to compute mental_health's expected
+        # value without depending on the implementation's own result.
+        trait_names = [name for name in heritability if name != "default"]
+        expected_mental_health = None
+        for name in trait_names:
+            h2 = heritability.get(name, heritability.get("default", 0.30))
+            if name == "mental_health":
+                expected_mental_health = inherit_trait(
+                    mother_mental_health,
+                    father_mental_health,
+                    h2,
+                    DEFAULT_ERA_MEAN,
+                    DEFAULT_ERA_SD,
+                    expected_rng,
+                )
+            else:
+                # Consume the same single gauss draw every other trait in
+                # the fixed order takes, to keep expected_rng's position
+                # synchronized with actual_rng's up to and including
+                # mental_health's own draw.
+                is_scalar = name in SCALAR_HERITABLE_TRAITS
+                m_val = getattr(mother, name) if is_scalar else mother_personality.get(name)
+                f_val = getattr(father, name) if is_scalar else father_personality.get(name)
+                inherit_trait(m_val, f_val, h2, DEFAULT_ERA_MEAN, DEFAULT_ERA_SD, expected_rng)
+
+        assert expected_mental_health is not None, "mental_health missing from heritability order"
+        assert child.mental_health == pytest.approx(expected_mental_health)
+        assert child.mental_health != pytest.approx(0.8), (
+            "child.mental_health is still the Agent field default -- "
+            "mental_health was not inherited"
+        )
+        assert "mental_health_baseline" not in child.personality, (
+            "the dead key 'mental_health_baseline' is still being written to child.personality"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -725,6 +1002,19 @@ _TEST_CLASS_RANK = {
 }
 _TEST_VALID_CLASS_LABELS = set(_TEST_CLASS_RANK)
 
+# Fix I-1 test remediation (phase-6 audit round 1, T046): a set membership
+# assertion against _TEST_VALID_CLASS_LABELS cannot catch I-1, because
+# "enslaved" is itself a member -- a test asserting `result in
+# _TEST_VALID_CLASS_LABELS` passes whether or not the sampled-rule output
+# clamp is active. The three SAMPLED rules (clark_regression,
+# becker_tomes_elasticity_0.4, meritocratic) must never resolve to
+# "enslaved" from non-enslaved inputs (see TestSampledClassRulesNever
+# ProduceEnslaved below for the airtight Monte Carlo proof); their output-
+# range assertions use this narrower set instead. patrilineal_rigid keeps
+# using the full _TEST_VALID_CLASS_LABELS, since its string copy of an
+# already-enslaved father legitimately produces "enslaved".
+_TEST_VALID_SAMPLED_CLASS_LABELS = _TEST_VALID_CLASS_LABELS - {"enslaved"}
+
 
 class TestApplySocialInheritancePatrilinealRigid:
     """class_rule = "patrilineal_rigid": verbatim copy of the father's class
@@ -803,9 +1093,109 @@ class TestApplySocialInheritanceClarkRegression:
         rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
         apply_social_inheritance(child, mother, father, template, zone_class_mean=4.0, rng=rng)
 
-        assert child.social_class in _TEST_VALID_CLASS_LABELS
+        assert child.social_class in _TEST_VALID_SAMPLED_CLASS_LABELS
         child_rank = _TEST_CLASS_RANK[child.social_class]
         assert 0 < child_rank < 4.0
+
+
+class TestSampledClassRulesNeverProduceEnslaved:
+    """Fix I-1 (phase-6 audit round 1, T046 -- the audit's own top finding):
+    a rank arithmetic result from any of the three SAMPLED social-class
+    rules (clark_regression, becker_tomes_elasticity_0.4, meritocratic)
+    must NEVER resolve to "enslaved", even when both parents are already
+    at the ladder's own worst non-enslaved rank ("poor") and the zone
+    mean is equally poor. Rank 5 ("enslaved") is reserved exclusively for
+    `patrilineal_rigid`'s pure string copy of an ALREADY-enslaved parent's
+    own label (`_apply_patrilineal_rigid` never calls `_rank_to_class_label`
+    at all) -- never a rounded numeric output from a weighted average plus
+    Gaussian noise.
+
+    MONTE CARLO, NOT A SINGLE DRAW: `becker_tomes_elasticity_0.4`'s
+    additive Gaussian perturbation (`_BECKER_TOMES_RANK_NOISE_SD = 0.75`)
+    means one seed proves nothing about whether the CLAMP itself is
+    active -- it would only show that one particular draw happened to
+    round below 5. 5,000 independently seeded trials from the exact
+    worst-case input (poor parent, poor zone -- `base_rank` already at
+    the un-extended ladder's own ceiling of 4 before any perturbation is
+    even added) makes the assertion airtight: verified independently
+    before this fix, at 200,000 draws, today's code produces "enslaved"
+    in 25.09% of them (matching the phase-6 audit's own independently
+    measured 25.4% and 25.23% figures within ordinary Monte Carlo
+    variance across different seed sequences) -- at 5,000 trials, the
+    probability of the clamp accidentally passing this test by chance
+    (zero hits at a true ~25% rate) is on the order of 10^-622. After the
+    fix it must be EXACTLY zero, not merely rare.
+    """
+
+    @pytest.mark.django_db
+    def test_becker_tomes_never_produces_enslaved_from_poor_parents_in_a_poor_zone(
+        self, sim_with_zone
+    ):
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "becker_tomes_elasticity_0.4",
+                "education_regression_rho": 0.4,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="poor", education_level=0.2)
+        father = _make_agent(sim, zone, "Father", social_class="poor", education_level=0.2)
+        # One child instance reused across every trial -- apply_social_
+        # inheritance only ever reads mother/father/zone_class_mean for
+        # becker_tomes, never any pre-existing child state, so re-creating
+        # a fresh Agent row per trial would only slow the test down for
+        # no added rigor.
+        child = _make_agent(sim, zone, "Child")
+
+        trials = 5000
+        enslaved_count = 0
+        for seed in range(trials):
+            rng = random.Random(seed)
+            apply_social_inheritance(child, mother, father, template, zone_class_mean=4.0, rng=rng)
+            if child.social_class == "enslaved":
+                enslaved_count += 1
+
+        assert enslaved_count == 0, (
+            f"{enslaved_count}/{trials} children of two 'poor' (non-enslaved) "
+            "parents in an all-'poor' (non-enslaved) zone were assigned "
+            "'enslaved' -- the sampled-rule output clamp (fix I-1) is not "
+            "active"
+        )
+
+    @pytest.mark.django_db
+    def test_clark_regression_never_produces_enslaved_even_from_an_enslaved_father(
+        self, sim_with_zone
+    ):
+        """clark_regression has no additive noise term (deterministic) --
+        unlike becker_tomes, it cannot organically drift above the ladder's
+        ceiling from ordinary poor-but-not-enslaved inputs, since it is a
+        pure convex combination of two ranks each already <= 4 (a weighted
+        average of two values can never exceed the larger of the two). But
+        an ENSLAVED father (rank 5, read as legitimate INPUT via
+        `_resolve_parent_rank` -- `_class_rank` must still resolve
+        "enslaved" correctly for reads, only the numeric OUTPUT is
+        clamped) combined with a zone whose OWN mean is already 5.0 (every
+        agent in the zone enslaved) drives `rank = 0.7*5 + 0.3*5.0 = 5.0`
+        exactly, `round(5.0) == 5` -- reachable and, verified independently
+        before this fix, resolves to "enslaved" today. Reserving rank 5
+        for `patrilineal_rigid`'s string copy means clark_regression must
+        cap this at "poor" (rank 4) instead, even when it is regressing
+        FROM an enslaved parent, not just from ordinary poor ones.
+        """
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "clark_regression",
+                "education_regression_rho": 0.4,
+            }
+        }
+        father = _make_agent(sim, zone, "Father", social_class="enslaved")
+        child = _make_agent(sim, zone, "Child")
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(child, None, father, template, zone_class_mean=5.0, rng=rng)
+
+        assert child.social_class != "enslaved"
 
 
 class TestApplySocialInheritanceBeckerTomes:
@@ -838,7 +1228,7 @@ class TestApplySocialInheritanceBeckerTomes:
             apply_social_inheritance(child, mother, father, template, zone_class_mean=3.0, rng=rng)
             results.add(child.social_class)
 
-        assert results <= _TEST_VALID_CLASS_LABELS
+        assert results <= _TEST_VALID_SAMPLED_CLASS_LABELS
         assert len(results) > 1, "expected sampling variability, got a deterministic copy"
 
 
@@ -851,11 +1241,22 @@ class TestApplySocialInheritanceMeritocratic:
 
     @pytest.mark.django_db
     def test_higher_merit_yields_a_numerically_lower_better_rank(self, sim_with_zone):
-        """Two children of the same parents/zone, differing only in their
-        already-inherited intelligence/education_level, must resolve to a
-        strictly better (lower) rank for the high-merit child than for the
-        low-merit child. Deterministic -- meritocratic consumes no rng
-        draws -- so the comparison holds exactly, not just on average.
+        """Two children of the same parents/zone, differing only in
+        intelligence, must resolve to a strictly better (lower) rank for
+        the high-merit child than for the low-merit child. Deterministic --
+        meritocratic consumes no rng draws -- so the comparison holds
+        exactly, not just on average.
+
+        Since fix I-2 (phase-6 audit round 1, T046), `apply_social_
+        inheritance` regresses `child.education_level` from the PARENTS
+        before dispatching to `_apply_meritocratic`, overwriting whatever
+        `education_level` a child was constructed with -- both children
+        share the same mother/father here, so both end up with the exact
+        same regressed education_level regardless of what this test passes
+        to `_make_agent`. Only the `intelligence` each child is
+        constructed with (a value `_apply_meritocratic` never overwrites)
+        still differentiates merit, which is why it is the only field this
+        test varies.
         """
         sim, zone = sim_with_zone
         template = {
@@ -867,12 +1268,8 @@ class TestApplySocialInheritanceMeritocratic:
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
         father = _make_agent(sim, zone, "Father", social_class="middle", education_level=0.5)
 
-        high_merit_child = _make_agent(
-            sim, zone, "HighMeritChild", intelligence=0.95, education_level=0.95
-        )
-        low_merit_child = _make_agent(
-            sim, zone, "LowMeritChild", intelligence=0.05, education_level=0.05
-        )
+        high_merit_child = _make_agent(sim, zone, "HighMeritChild", intelligence=0.95)
+        low_merit_child = _make_agent(sim, zone, "LowMeritChild", intelligence=0.05)
 
         rng_high = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
         apply_social_inheritance(
@@ -886,6 +1283,84 @@ class TestApplySocialInheritanceMeritocratic:
         high_rank = _TEST_CLASS_RANK[high_merit_child.social_class]
         low_rank = _TEST_CLASS_RANK[low_merit_child.social_class]
         assert high_rank < low_rank
+
+
+class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
+    """Fix I-2 (phase-6 audit round 1, T046): `_apply_meritocratic` must
+    read the CHILD'S OWN regressed `education_level` (the value
+    `_regress_education_level` computes from the parents), not the bare
+    `Agent` model field default (0.3) that a fresh, not-yet-processed
+    newborn still carries at the moment the `class_rule` branch used to
+    run. Before this fix `apply_social_inheritance` dispatched the
+    `class_rule` branch BEFORE its own education-level regression step, so
+    every sampled/deterministic merit calculation silently used 0.3
+    regardless of how educated the parents were.
+
+    Two "middle" parents (rank 2) both at education_level=0.9, under
+    sci_fi's own declared parameters (meritocratic, rho=0.2, era_mean_
+    education defaults to 0.3 -- no era template overrides it): the
+    correctly regressed child education_level is `0.2*0.9 + 0.8*0.3 =
+    0.42` (matching the audit's own hand-computed figure exactly), giving
+    merit `(0.9 + 0.42) / 2 = 0.66`, merit_rank `(1 - 0.66) * 4 = 1.36`,
+    final rank `0.2*2 + 0.8*1.36 = 1.488`, rounding to 1 ("wealthy"). Read
+    before regression (today's bug), the same child's education_level is
+    still whatever it was set to going in -- 0.3 here, matching a fresh
+    newborn's Agent field default -- giving merit 0.6, merit_rank 1.6,
+    final rank 1.68, rounding to 2 ("middle") -- a full class worse,
+    exactly the "demotes a child a full class" effect the audit measured.
+
+    NOTE: `child.education_level` ends up 0.42 EITHER WAY once
+    `apply_social_inheritance` returns, because the regression step at the
+    end of that function is unconditional regardless of dispatch order --
+    it is not itself a valid probe for I-2. Only `child.social_class`
+    (computed from whichever value `_apply_meritocratic` read DURING its
+    own execution, before or after regression depending on the fix)
+    discriminates the bug.
+    """
+
+    @pytest.mark.django_db
+    def test_meritocratic_uses_the_regressed_education_level_not_the_field_default(
+        self, sim_with_zone
+    ):
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "meritocratic",
+                "education_regression_rho": 0.2,
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.9)
+        father = _make_agent(sim, zone, "Father", social_class="middle", education_level=0.9)
+        # intelligence is set directly (a SCALAR_HERITABLE_TRAIT already
+        # inherited by the time the full apply_inheritance_at_birth
+        # pipeline reaches this step). education_level is set explicitly to
+        # the Agent MODEL field's own default (0.3, epocha/apps/agents/
+        # models.py) rather than left at the _make_agent test helper's
+        # unrelated convenience default (0.5) -- this reproduces the exact
+        # "fresh, not-yet-processed newborn" state I-2 describes, where
+        # nothing has written education_level yet. The unconditional
+        # regression step at the end of apply_social_inheritance overwrites
+        # child.education_level to 0.42 regardless of dispatch order, so
+        # only child.social_class (computed from whatever education_level
+        # _apply_meritocratic read AT THE TIME it ran) can discriminate the
+        # bug -- the final education_level value is not a valid probe.
+        child = _make_agent(sim, zone, "Child", intelligence=0.9, education_level=0.3)
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
+
+        assert child.education_level == pytest.approx(0.42), (
+            f"child.education_level={child.education_level!r}, expected the "
+            "regressed value 0.42 regardless of dispatch order -- this "
+            "assertion documents the unconditional regression step, it does "
+            "not by itself discriminate I-2"
+        )
+        assert child.social_class == "wealthy", (
+            f"child.social_class={child.social_class!r}, expected 'wealthy' "
+            "(rank 1) -- reading the unregressed field default (0.3) instead "
+            "of 0.42 understates merit and demotes the child to 'middle' "
+            "(rank 2)"
+        )
 
 
 class TestApplySocialInheritanceEducationRegression:
@@ -1204,7 +1679,7 @@ class TestApplyInheritanceAtBirthEmptyZoneGuard:
         # fallback were anything else (e.g. 0.0 from an unguarded empty
         # mean), this would resolve to a different label.
         assert child.social_class == "middle"
-        assert child.social_class in _TEST_VALID_CLASS_LABELS
+        assert child.social_class in _TEST_VALID_SAMPLED_CLASS_LABELS
         assert child.zone == empty_zone
 
 
@@ -1928,6 +2403,127 @@ class TestDistributeEstateSharia:
         assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
 
 
+class TestDistributeShariaSpouseAlsoSiblingConservesValue:
+    """Fix C-2 (phase-6 audit round 1, T046): `_distribute_sharia` splits
+    the residual among `pool` (the deceased's siblings, absent children)
+    via `_split_two_to_one`, then OVERWRITES `allocation[spouse[0].id]`
+    with the spouse's fixed fraction -- if the spouse is ALSO one of the
+    siblings in `pool` (reachable: `couple.py`'s `form_couple` has no
+    consanguinity check anywhere, and `marriage_market_radius: "same_zone"`
+    concentrates candidates in a small, often-related pool), that
+    overwrite silently destroys the sibling residuary share
+    `_split_two_to_one` already computed for the very same person, instead
+    of the two shares -- fixed spousal fraction and residuary sibling
+    share -- adding together as two genuinely separate entitlements.
+    """
+
+    @pytest.mark.django_db
+    def test_spouse_who_is_also_a_sibling_receives_both_shares_not_just_one(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(
+            sim,
+            zone,
+            "Deceased",
+            parent_agent=common_parent,
+            birth_tick=10,
+            gender=Agent.Gender.MALE,
+        )
+        # form_couple performs no consanguinity check (verified: no such
+        # check exists anywhere in couple.py) -- a same-zone sibling is as
+        # valid a marriage candidate as any other agent to this module.
+        spouse_and_sibling = _make_agent(
+            sim,
+            zone,
+            "SpouseSibling",
+            parent_agent=common_parent,
+            birth_tick=8,
+            gender=Agent.Gender.MALE,
+        )
+        other_sibling = _make_agent(
+            sim,
+            zone,
+            "OtherSibling",
+            parent_agent=common_parent,
+            birth_tick=6,
+            gender=Agent.Gender.MALE,
+        )
+        form_couple(deceased, spouse_and_sibling, formed_at_tick=1)
+
+        inheritable = 1_000.0
+        heirs = resolve_heirs(deceased, _heir_template())
+        assert {agent.id for agent in heirs["siblings"]} == {
+            spouse_and_sibling.id,
+            other_sibling.id,
+        }
+        assert [agent.id for agent in heirs["spouse"]] == [spouse_and_sibling.id]
+
+        allocation = distribute_estate(deceased, heirs, "shari'a", inheritable)
+
+        assert sum(allocation.values()) == pytest.approx(
+            inheritable, abs=_CONSERVATION_TOLERANCE
+        ), (
+            f"allocation {allocation} sums to {sum(allocation.values())}, not the "
+            f"full {inheritable} -- the spouse-is-also-sibling overwrite destroyed value"
+        )
+        # No children: spouse_fraction = 0.25 -> spouse_amount = 250.0;
+        # residual = 750.0 split 2:1 male:male between the two brothers,
+        # 375.0 each via _split_two_to_one. The spouse-sibling receives
+        # BOTH entitlements added together (625.0 = 250.0 + 375.0), not
+        # merely one or the other.
+        assert allocation[spouse_and_sibling.id] == pytest.approx(
+            625.0, abs=_CONSERVATION_TOLERANCE
+        )
+        assert allocation[other_sibling.id] == pytest.approx(375.0, abs=_CONSERVATION_TOLERANCE)
+
+
+class TestDistributeEqualSplitDuplicateHeirConservesValue:
+    """Fix C-2 (phase-6 audit round 1, T046): `_distribute_equal_split`
+    builds `recipients = [*children, *spouse]` and hands it straight to
+    `_allocate_with_exact_remainder` -- if the SAME id appears twice in
+    that list, the returned dict collapses the two entries into one key
+    while `_allocate_with_exact_remainder`'s own `running_sum` still
+    counts the share twice (once per LIST entry, not per unique id), so
+    the final entry's `total - running_sum` absorbs a share nobody's
+    dict key actually holds, and the allocation's total falls short of
+    `inheritable`.
+
+    Unlike the sharia case above (realistically reachable via a same-zone,
+    consanguinity-unchecked marriage), a spouse who is ALSO a CHILD of the
+    same deceased has no realistic path through this module's own heir
+    resolution -- parentage and spousal edges are structurally distinct
+    relations resolved by different mechanisms. This test constructs the
+    duplicate directly, proving the shared `_allocate_with_exact_remainder`
+    shape is not silently exploitable by any future caller that builds
+    `recipients` less carefully, not that today's pipeline currently
+    reaches this exact combination on its own.
+    """
+
+    @pytest.mark.django_db
+    def test_a_duplicate_id_in_recipients_does_not_lose_value(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        shared_agent = _make_agent(sim, zone, "SharedAgent", parent_agent=deceased, birth_tick=1)
+        other_child = _make_agent(sim, zone, "OtherChild", parent_agent=deceased, birth_tick=2)
+
+        # shared_agent appears in BOTH categories -- the duplicate-id shape
+        # C-2 flags, constructed directly since this exact combination has
+        # no realistic path through resolve_heirs.
+        heirs = {"children": [shared_agent, other_child], "spouse": [shared_agent]}
+
+        allocation = distribute_estate(deceased, heirs, "equal_split", 900.0)
+
+        assert sum(allocation.values()) == pytest.approx(900.0), (
+            f"allocation {allocation} sums to {sum(allocation.values())}, not the "
+            "full 900.0 -- the duplicate id silently lost a share"
+        )
+        # Deduplicated: 2 unique heirs, 450.0 each -- not 300.0 (as if 3
+        # positional slots were each paid independently) and not 600.0 (as
+        # if the duplicate were paid twice under one key).
+        assert allocation[shared_agent.id] == pytest.approx(450.0)
+        assert allocation[other_child.id] == pytest.approx(450.0)
+
+
 class TestDistributeEstateMatrilineal:
     """Estate passes to the children of the deceased's SISTERS (Schneider
     & Gough 1961); the deceased's own children never receive anything
@@ -2335,7 +2931,7 @@ class TestTransferLoansAsLenderToLivingHeir:
         borrower = _make_agent(sim, zone, "Borrower")
         loan = _make_loan(sim, borrower, lender=deceased)
 
-        transfer_loans_as_lender(deceased, {"children": [heir]})
+        transfer_loans_as_lender(deceased, {"children": [heir]}, {heir.id: 0.0})
 
         loan.refresh_from_db()
         assert loan.lender_id == heir.id
@@ -2361,7 +2957,11 @@ class TestTransferLoansAsLenderToLivingHeir:
         assert [agent.id for agent in heirs["spouse"]] == [spouse.id]
         assert [agent.id for agent in heirs["children"]] == [child.id]
 
-        transfer_loans_as_lender(deceased, heirs)
+        # Same spouse-first / oldest-first order distribute_estate itself
+        # would have produced (e.g. under equal_split) -- this test is
+        # about round-robin ordering, not any specific rule's formula.
+        cash_allocation = {spouse.id: 0.0, child.id: 0.0}
+        transfer_loans_as_lender(deceased, heirs, cash_allocation)
 
         for loan in loans:
             loan.refresh_from_db()
@@ -2372,6 +2972,93 @@ class TestTransferLoansAsLenderToLivingHeir:
         assert loans[0].lender_id == spouse.id
         assert loans[1].lender_id == child.id
         assert loans[2].lender_id == spouse.id
+
+
+class TestTransferLoansAsLenderFollowsTheCashDistributionRule:
+    """Fix I-6 (phase-6 audit round 1, T046): loans must follow the SAME
+    distribution rule cash uses (design spec Sezione 5, "Loans ereditati
+    (come lender)": "usando la stessa regola di distribuzione"), not an
+    unconditional round-robin across every heir category `resolve_heirs`
+    happens to return regardless of `rule`. The fix reuses the caller's
+    OWN already-computed `cash_allocation` (`distribute_estate`'s return
+    value) as the third argument -- rather than re-deriving heir
+    eligibility inside this function via a second `distribute_estate`
+    call, which would double this function's query cost under
+    `matrilineal` specifically (`_resolve_matrilineal_heirs` issues one
+    query per sister, unlike every other rule which is pure Python) and
+    contradict the documented "up to 2 queries" budget this function and
+    `process_inheritance_batch` both cite.
+
+    Under `nationalized`, `distribute_estate` always returns `{}` even
+    with living heirs present, so loans now correctly follow cash to the
+    banking system instead of escaping nationalization. Under every other
+    rule, only the ids `cash_allocation` actually contains receive a loan
+    -- never a category (e.g. `extended_family`) no rule ever pays cash to,
+    and never a category (e.g. `siblings`, absent under `primogeniture`
+    when there are children or a spouse) the rule's own cascade did not
+    reach this time.
+    """
+
+    @pytest.mark.django_db
+    def test_nationalized_routes_loans_to_banking_even_with_a_living_heir(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        heir = _make_agent(sim, zone, "Heir", parent_agent=deceased, birth_tick=1)
+        borrower = _make_agent(sim, zone, "Borrower")
+        loan = _make_loan(sim, borrower, lender=deceased)
+
+        heirs = {"children": [heir]}
+        cash_allocation = distribute_estate(deceased, heirs, "nationalized", 1_000.0)
+        assert cash_allocation == {}, (
+            "sanity check: nationalized must yield an empty cash allocation"
+        )
+
+        transfer_loans_as_lender(deceased, heirs, cash_allocation)
+
+        loan.refresh_from_db()
+        assert loan.lender_id is None
+        assert loan.lender_type == "banking"
+
+    @pytest.mark.django_db
+    def test_primogeniture_routes_loans_only_to_the_single_cash_heir_not_the_whole_family(
+        self, sim_with_zone
+    ):
+        """Primogeniture pays 100% of CASH to a single heir (the eldest
+        son, or eldest daughter absent a son) -- loans must follow that
+        SAME single heir, never spread to the spouse, other children, or
+        siblings the cash rule never touches this time.
+        """
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        spouse = _make_agent(sim, zone, "Spouse")
+        form_couple(deceased, spouse, formed_at_tick=1)
+        eldest_son = _make_agent(
+            sim, zone, "EldestSon", parent_agent=deceased, gender=Agent.Gender.MALE, birth_tick=1
+        )
+        younger_daughter = _make_agent(
+            sim,
+            zone,
+            "YoungerDaughter",
+            parent_agent=deceased,
+            gender=Agent.Gender.FEMALE,
+            birth_tick=5,
+        )
+        borrower = _make_agent(sim, zone, "Borrower")
+        loans = [_make_loan(sim, borrower, lender=deceased) for _ in range(3)]
+
+        heirs = {"spouse": [spouse], "children": [eldest_son, younger_daughter]}
+        cash_allocation = distribute_estate(deceased, heirs, "primogeniture", 1_000.0)
+        assert cash_allocation == {eldest_son.id: 1_000.0}
+
+        transfer_loans_as_lender(deceased, heirs, cash_allocation)
+
+        for loan in loans:
+            loan.refresh_from_db()
+        lender_ids = {loan.lender_id for loan in loans}
+        assert lender_ids == {eldest_son.id}, (
+            f"loans went to {lender_ids}, expected only the eldest son "
+            f"{eldest_son.id} -- the same heir primogeniture pays cash to"
+        )
 
 
 class TestTransferLoansAsLenderNoLivingHeir:
@@ -2388,7 +3075,7 @@ class TestTransferLoansAsLenderNoLivingHeir:
         borrower = _make_agent(sim, zone, "Borrower")
         loan = _make_loan(sim, borrower, lender=deceased)
 
-        transfer_loans_as_lender(deceased, {"spouse": [], "children": [], "siblings": []})
+        transfer_loans_as_lender(deceased, {"spouse": [], "children": [], "siblings": []}, {})
 
         loan.refresh_from_db()
         assert loan.lender_id is None
@@ -2408,7 +3095,7 @@ class TestTransferLoansAsLenderScopeGuards:
         borrower = _make_agent(sim, zone, "Borrower")
         loan = _make_loan(sim, borrower, lender=deceased, status=status)
 
-        transfer_loans_as_lender(deceased, {"children": [heir]})
+        transfer_loans_as_lender(deceased, {"children": [heir]}, {heir.id: 0.0})
 
         loan.refresh_from_db()
         assert loan.lender_id == deceased.id
@@ -2423,7 +3110,7 @@ class TestTransferLoansAsLenderScopeGuards:
         other_lender = _make_agent(sim, zone, "OtherLender")
         loan = _make_loan(sim, deceased, lender=other_lender)
 
-        transfer_loans_as_lender(deceased, {"children": [heir]})
+        transfer_loans_as_lender(deceased, {"children": [heir]}, {heir.id: 0.0})
 
         loan.refresh_from_db()
         assert loan.lender_id == other_lender.id
@@ -2443,7 +3130,7 @@ class TestTransferLoansAsLenderScopeGuards:
         borrower = _make_agent(sim, zone, "Borrower")
         loan = _make_loan(sim, borrower, lender=None, lender_type="banking")
 
-        transfer_loans_as_lender(deceased, {"children": [heir]})
+        transfer_loans_as_lender(deceased, {"children": [heir]}, {heir.id: 0.0})
 
         loan.refresh_from_db()
         assert loan.lender_id is None
@@ -2471,12 +3158,15 @@ class TestTransferLoansAsLenderQueryBudget:
             _make_loan(sim, borrower, lender=deceased)
 
         heirs = {"spouse": [spouse], "children": [child]}
+        cash_allocation = {spouse.id: 0.0, child.id: 0.0}
 
         # 1 query to fetch the deceased's active lender-side loans, plus 1
         # bulk_update UPDATE for the reassignment -- 2 queries regardless
-        # of loan count, never N+1 individual .save() calls.
+        # of loan count, never N+1 individual .save() calls. Resolving
+        # eligible_heirs from cash_allocation's ids is pure Python (no
+        # query), so fix I-6 does not change this budget.
         with django_assert_num_queries(2):
-            transfer_loans_as_lender(deceased, heirs)
+            transfer_loans_as_lender(deceased, heirs, cash_allocation)
 
 
 # ---------------------------------------------------------------------------
@@ -3521,6 +4211,173 @@ class TestProcessInheritanceBatchEventPayload:
         assert assets["cash"] == pytest.approx(expected_cash, abs=_CONSERVATION_TOLERANCE)
         assert isinstance(assets["property_ids"], list)
         assert isinstance(assets["loans_as_lender"], list)
+
+
+class TestProcessInheritanceBatchEventPayloadReportsTheClampedTax:
+    """Fix C-3 (phase-6 audit round 1, T046): `estate_tax_applied` in the
+    event payload must report the tax `apply_estate_tax` ACTUALLY applied
+    (the rate clamped into [0, 1] internally), never the raw
+    `economic_inheritance.estate_tax_rate` template value before clamping.
+    Before this fix, `process_inheritance_batch` computed `tax_amount =
+    total_estate_value * rate` using the RAW rate in a completely separate
+    expression from `apply_estate_tax`'s own internal clamp -- a malformed
+    template rate (the "40 instead of 0.40" authoring error the clamp
+    exists to survive, per `apply_estate_tax`'s own docstring) credited
+    the treasury correctly (clamped) while reporting a wildly wrong figure
+    in every `inheritance_transfer` event for that estate.
+
+    REPRODUCTION CHOICE, EXPLAINED: the audit's own illustrative example
+    is a rate ABOVE 1 ("40 instead of 0.40"). A rate above 1 clamps to
+    EXACTLY 1.0, meaning `apply_estate_tax` returns a remainder of EXACTLY
+    0.0 for ANY estate value -- and `process_inheritance_batch`'s own
+    documented ZERO-VALUE TRANSFERS rule skips a 0.0 allocation entry
+    entirely (no wealth credit, no event). That case is therefore
+    impossible to observe through the event payload at all, regardless of
+    estate size or heir count -- there is no non-zero transfer to inspect.
+    A rate BELOW 0 is the same underlying defect (raw unclamped rate used
+    for the payload) in the one variant that IS observable this way: it
+    clamps to 0.0 (a NON-zero remainder -- the full estate transfers, a
+    real event is created), while the buggy code's raw-rate computation
+    produces a nonsensical NEGATIVE "tax applied".
+    """
+
+    @pytest.mark.django_db
+    def test_negative_template_rate_clamps_to_zero_tax_in_the_payload(
+        self, sim_with_government, monkeypatch
+    ):
+        import copy
+
+        import epocha.apps.demography.template_loader as template_loader_module
+
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        malformed_template = copy.deepcopy(load_template("industrial"))
+        malformed_template["economic_inheritance"]["estate_tax_rate"] = -0.5
+        real_load_template = template_loader_module.load_template
+        monkeypatch.setattr(
+            template_loader_module,
+            "load_template",
+            lambda name: malformed_template if name == "industrial" else real_load_template(name),
+        )
+
+        deceased = _make_agent(
+            sim, zone, "Deceased", is_alive=False, wealth=1000.0, age=70, birth_tick=-300
+        )
+        heir = _make_agent(sim, zone, "Heir", parent_agent=deceased, wealth=0.0, birth_tick=-30)
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        event = DemographyEvent.objects.get(
+            simulation=sim,
+            event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER,
+            primary_agent=deceased,
+            secondary_agent=heir,
+        )
+        # apply_estate_tax clamps rate=-0.5 into [0, 1] -> 0.0 internally,
+        # so the ACTUALLY applied tax is 0.0 and the full 1000.0 transfers
+        # as cash -- the payload must report that clamped 0.0, never
+        # 1000.0 * -0.5 = -500.0 (the raw, unclamped, nonsensical figure).
+        assert event.payload["estate_tax_applied"] == pytest.approx(
+            0.0, abs=_CONSERVATION_TOLERANCE
+        )
+        assert event.payload["assets"]["cash"] == pytest.approx(1000.0, abs=_CONSERVATION_TOLERANCE)
+
+        # Treasury received nothing under the clamped 0.0 rate.
+        government.refresh_from_db()
+        treasury = government.government_treasury or {}
+        assert treasury.get("USD", 0.0) == pytest.approx(0.0, abs=_CONSERVATION_TOLERANCE)
+
+
+class TestProcessInheritanceBatchResolvesTheSimulationsRealPrimaryCurrency:
+    """Fix I-10 (phase-6 audit round 1, T046): estate tax and heirless-
+    estate treasury credits must land under the simulation's REAL primary
+    currency code when one exists, not an unconditional hardcoded "USD" no
+    other treasury caller in the codebase uses. Every other `add_to_
+    treasury` caller resolves it the same way: `economy/property_market.py`
+    and `economy/credit.py` both query `Currency.objects.filter(simulation=
+    simulation, is_primary=True).order_by("id").first()`, and `economy/
+    context.py` inlines the identical filter -- this fix follows that same
+    established, repeated pattern (there is no shared PUBLIC helper to
+    import; every existing caller inlines its own copy, so inlining here
+    too is the consistent choice, not a new one).
+
+    Before this fix, in any simulation not literally denominated USD --
+    the design's own example uses LVR -- estate tax and heirless estates
+    piled into a treasury key no spending path reads: a permanently
+    sequestered 40% of every estate under `modern_democracy`.
+
+    The fallback (`ESTATE_TAX_CURRENCY_FALLBACK_CODE`, still "USD") is preserved
+    for the "simplified" economy tier, where a simulation may have zero
+    Currency rows at all (verified: `sim_with_government` -- reused by
+    every other test in this class family -- creates no Currency row, and
+    those tests already pass under exactly this fallback).
+    """
+
+    @pytest.mark.django_db
+    def test_estate_tax_credits_the_simulations_own_primary_currency_not_usd(
+        self, sim_with_government
+    ):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "modern_democracy")
+        Currency.objects.create(
+            simulation=sim, code="LVR", name="Livre", symbol="L", is_primary=True, total_supply=0.0
+        )
+
+        deceased = _make_agent(
+            sim, zone, "Deceased", is_alive=False, wealth=1000.0, age=70, birth_tick=-300
+        )
+        _make_agent(sim, zone, "Heir", parent_agent=deceased, wealth=0.0, birth_tick=-30)
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        template = load_template("modern_democracy")
+        rate = template["economic_inheritance"]["estate_tax_rate"]
+        expected_tax = 1000.0 * rate
+
+        government.refresh_from_db()
+        treasury = government.government_treasury or {}
+        assert treasury.get("LVR", 0.0) == pytest.approx(
+            expected_tax, abs=_CONSERVATION_TOLERANCE
+        ), (
+            f"treasury={treasury} -- estate tax did not land under the simulation's "
+            "own primary currency LVR"
+        )
+        assert "USD" not in treasury, (
+            f"treasury={treasury} -- estate tax landed under the hardcoded USD "
+            "fallback even though a real primary Currency (LVR) exists"
+        )
+
+    @pytest.mark.django_db
+    def test_heirless_estate_credits_the_simulations_own_primary_currency_not_usd(
+        self, sim_with_government
+    ):
+        """The SECOND treasury-crediting site (the empty-allocation
+        fallback for a heirless or nationalized estate) must resolve the
+        same real currency, not just apply_estate_tax's own call site.
+        """
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "modern_democracy")
+        Currency.objects.create(
+            simulation=sim, code="LVR", name="Livre", symbol="L", is_primary=True, total_supply=0.0
+        )
+        template = load_template("modern_democracy")
+        rate = template["economic_inheritance"]["estate_tax_rate"]
+
+        # No heirs at all: the entire post-tax remainder routes to treasury.
+        deceased = _make_agent(
+            sim, zone, "Deceased", is_alive=False, wealth=1000.0, age=70, birth_tick=-300
+        )
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        expected_total = 1000.0 * rate + 1000.0 * (1.0 - rate)  # tax + heirless remainder
+        government.refresh_from_db()
+        treasury = government.government_treasury or {}
+        assert treasury.get("LVR", 0.0) == pytest.approx(
+            expected_total, abs=_CONSERVATION_TOLERANCE
+        )
+        assert "USD" not in treasury
 
 
 class TestProcessInheritanceBatchOrderingC3:

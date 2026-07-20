@@ -7,7 +7,7 @@
 
 **Verdict: NOT CONVERGED.** Twelve INCORRECT, three UNJUSTIFIED, four INCONSISTENT, three MISSING.
 
-Four findings were re-verified independently by the coordinator before this report was accepted, and all four reproduce exactly: I-1 (25.23% of children of poor parents in a poor zone are born `enslaved` under `becker_tomes`), I-9 (`mental_health_baseline` is not an `Agent` field; `mental_health` is, and no template declares heritability for it), I-3 (`inherit_trait(None, None, ...)` raises `TypeError`), and the rank-5 label mapping that produces I-1.
+Four findings were re-verified independently by the coordinator before this report was accepted, and all four reproduce exactly: I-1 (25.23% of children of poor parents in a poor zone are born `enslaved` under `becker_tomes`; the auditor's own figure below is 25.4%, and the small gap is simply two Monte Carlo estimates of the same quantity under different seeds, not a disagreement), I-9 (`mental_health_baseline` is not an `Agent` field; `mental_health` is, and no template declares heritability for it), I-3 (`inherit_trait(None, None, ...)` raises `TypeError`), and the rank-5 label mapping that produces I-1.
 
 ---
 

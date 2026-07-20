@@ -101,20 +101,32 @@ def compute_zone_wage(
     treasury, is irrelevant to where the labor market this figure
     describes actually is).
 
-    WINDOW (explicit, pinned by this function's own test suite): the
-    CLOSED interval `[tick - window, tick]`, both ends inclusive -- a
-    wage row at exactly `tick - window` counts, one at `tick - window - 1`
-    does not; a wage row at exactly `tick` counts. For `window=5` this
-    spans 6 distinct tick values when every one has data (5 ticks of
-    look-back PLUS the current tick), not 5 -- "5-tick window" names the
-    look-back span, not a row count. Averaging over ticks in addition to
-    dividing by population is what turns a window-cumulative sum into a
-    single PER-TICK flow figure: without it, doubling `window` would
-    double the returned value for identical underlying wage activity,
-    making zones' wage levels incomparable across different window
-    sizes and breaking the apples-to-apples comparison T033's
-    `compute_expected_gain` needs between `wage_j` (a candidate zone) and
-    `wage_current` (the agent's own zone).
+    WINDOW (explicit, pinned by this function's own test suite; corrected
+    under fix I-8, phase-6 audit T046): the HALF-OPEN interval `(tick -
+    window, tick]` -- a wage row at exactly `tick` counts, one at exactly
+    `tick - window` does NOT (it fell inside the OLD closed interval this
+    function used before the fix), one at `tick - window - 1` never did.
+    For `window=5` this spans EXACTLY 5 distinct tick values (`tick-4`
+    through `tick`), matching the divisor below one-for-one -- "a 5-tick
+    window" is read here as "the trailing 5 ticks, current tick
+    included", the plain-language meaning of the phrase, and the ONE
+    reading under which the divisor `window` needs no adjustment of its
+    own. PRE-FIX, this function used the CLOSED interval `[tick - window,
+    tick]` (6 distinct ticks for `window=5`) while still dividing by
+    `window` (5), silently overstating the true per-tick wage by 20% at
+    the default window (33% at window=3, 100% at window=1) for any zone
+    with wage activity spread across the window -- fixed here by
+    narrowing the filter to match the divisor, rather than widening the
+    divisor to match the filter, precisely because "N-tick window" reads
+    more naturally as an N-tick span than as an (N+1)-tick span plus one.
+    Averaging over ticks in addition to dividing by population is what
+    turns a window-cumulative sum into a single PER-TICK flow figure:
+    without it, doubling `window` would double the returned value for
+    identical underlying wage activity, making zones' wage levels
+    incomparable across different window sizes and breaking the
+    apples-to-apples comparison T033's `compute_expected_gain` needs
+    between `wage_j` (a candidate zone) and `wage_current` (the agent's
+    own zone).
 
     PER CAPITA: divided by the zone's LIVING population
     (`Agent.objects.filter(zone=zone, is_alive=True)`, this codebase's
@@ -155,7 +167,7 @@ def compute_zone_wage(
             simulation=simulation,
             transaction_type="wage",
             to_agent__zone=zone,
-            tick__gte=tick - window,
+            tick__gt=tick - window,
             tick__lte=tick,
         ).aggregate(total=Sum("total_amount"))["total"]
         or 0.0
@@ -553,6 +565,76 @@ def build_migration_outlook(
 # ---------------------------------------------------------------------------
 
 
+def _scatter_location_in_zone(zone: Any, rng: Any | None) -> Any:
+    """Return a `Point` for a relocated agent's `location` inside `zone`
+    (fix I-12, phase-6 audit T046): every mechanism in this module that
+    changes an agent's `zone` FK writes `location` alongside it, so the
+    two fields never contradict each other the way `agents/movement.py`'s
+    `execute_movement` documents them as a matched pair.
+
+    REUSE, NOT REINVENTION: the scatter shape (a uniform offset on each
+    axis, bounded by `_ARRIVAL_SCATTER_RANGE`) is `execute_movement`'s
+    own arrival-scatter convention, imported directly rather than
+    duplicating the magic number -- this codebase already has precedent
+    for importing a leading-underscore "private" constant across app
+    boundaries when it is the SAME quantity (e.g. `economy/engine.py`
+    importing `_ROLE_PRODUCTION` from `template_loader`,
+    `world/election.py` importing `_personality_similarity` from
+    `agents/affinity`).
+
+    SEEDED, UNLIKE `execute_movement`'S OWN CALL: `execute_movement`
+    draws this same offset from the unseeded module-level `random`
+    (verified directly in `agents/movement.py`) -- a pre-existing gap in
+    that module, out of this module's scope to fix (touching
+    `agents/movement.py` is explicitly out of bounds for this fix). This
+    function instead draws from the caller-supplied `rng`, obtained via
+    `demography.rng.get_seeded_rng(simulation, tick, phase="migration")`,
+    so the same `(simulation.seed, simulation.id, tick)` triple
+    reproduces the identical scattered coordinate every run -- the
+    determinism discipline `inheritance.py`'s own birth pipeline already
+    established for this app.
+
+    `rng is None` FALLBACK: `zone.center` exactly, with NO random draw.
+    This is the path every caller that cannot supply a properly seeded
+    `rng` falls back to (see `coordinate_family_migration`'s own
+    docstring for why that caller cannot always derive one). A fixed
+    centroid is a strictly better answer than the pre-fix bug (a location
+    silently left in the ORIGIN zone, contradicting the new `zone` FK):
+    it is deterministic, needs no RNG, and satisfies the zone/location
+    consistency invariant fix I-12 exists for, even if every mover
+    without an `rng` clusters on the exact same point rather than
+    scattering.
+
+    Falls back to `zone.center` (skipping the draw entirely) when
+    `zone.boundary` is falsy too, matching `execute_movement`'s own guard
+    for a zone with no boundary geometry.
+
+    Args:
+        zone: the destination Zone; `.center` and `.boundary` are read.
+        rng: a seeded `random.Random`-compatible instance (must expose
+            `.uniform(a, b)`), or `None` for the deterministic
+            zone-center fallback. Consumes exactly two draws (`.uniform`
+            for the x offset, then the y offset) when not `None` and
+            `zone.boundary` is truthy; zero otherwise.
+
+    Returns:
+        A `django.contrib.gis.geos.Point` inside (or at the center of)
+        `zone`.
+    """
+    from django.contrib.gis.geos import Point
+
+    from epocha.apps.agents.movement import _ARRIVAL_SCATTER_RANGE
+
+    if rng is None or not zone.boundary:
+        return zone.center
+
+    cx, cy = zone.center.x, zone.center.y
+    return Point(
+        cx + rng.uniform(-_ARRIVAL_SCATTER_RANGE, _ARRIVAL_SCATTER_RANGE),
+        cy + rng.uniform(-_ARRIVAL_SCATTER_RANGE, _ARRIVAL_SCATTER_RANGE),
+    )
+
+
 def coordinate_family_migration(
     agent: Any,
     target_zone: Any,
@@ -560,6 +642,7 @@ def coordinate_family_migration(
     template: dict,
     reason: str = "voluntary",
     emit_event_even_if_empty: bool = False,
+    rng: Any | None = None,
 ) -> list:
     """Move `agent`'s partner and minor children into `target_zone` in
     the same tick as `agent`'s own `move_to` decision, emitting one
@@ -587,6 +670,28 @@ def coordinate_family_migration(
       any dependents -- a solo agent fleeing alone still must produce the
       event; only the FAMILY-COORDINATION side of this function (moving
       dependents) is naturally a no-op when there are none.
+    - `rng` (fix I-12, phase-6 audit T046, additive the same way):
+      an OPTIONAL seeded `random.Random`-compatible instance, forwarded
+      to `_scatter_location_in_zone` for every mover's `location` write.
+      Defaults to `None`. `process_emergency_flight` derives ONE
+      `demography.rng.get_seeded_rng(simulation, tick, phase="migration")`
+      instance per call and threads it through every household this
+      function moves that tick, so households processed earlier in the
+      SAME tick consume earlier draws from the SAME deterministic stream
+      -- consistent with `inheritance.py`'s own "one shared stream per
+      call, consumed in a fixed order" discipline, generalized here to
+      the whole-tick batch rather than a single birth. `rng` CANNOT
+      always be derived internally: doing so needs the full `Simulation`
+      instance (for `.seed`), which this function does not receive (only
+      `agent.simulation_id`, the bare FK integer, to keep this function's
+      query-cost contract at zero for that lookup) -- and this function's
+      own existing signature cannot grow a new REQUIRED parameter without
+      breaking `test_inheritance.py`'s own direct call, a file this fix
+      is not permitted to touch. `rng=None` (the default, exercised by
+      every caller that does not pass one, including that call) falls
+      back to the deterministic zone-center placement `_scatter_location_
+      in_zone` documents for that case -- see that function's own
+      docstring for the full account.
 
     SCOPE -- WHAT THIS FUNCTION DOES NOT DO: it never touches `agent.zone`
     itself. `agent`'s own zone change is the outcome of whichever
@@ -658,7 +763,13 @@ def coordinate_family_migration(
     unpersisted, so, following the precedent `process_inheritance_batch`
     set (orchestrating entry points persist; pure resolvers do not), this
     function writes directly via ONE `Agent.objects.bulk_update(...,
-    ["zone"])` for every household member, never a per-member `.save()`.
+    ["zone", "location"])` for every household member, never a
+    per-member `.save()`. `location` is written alongside `zone` (fix
+    I-12, phase-6 audit T046): `agents/movement.py` treats the two as a
+    matched pair, and a mover left with a stale `location` from the
+    origin zone would contradict their own `zone` FK for any spatial
+    consumer -- see `_scatter_location_in_zone`'s own docstring for the
+    placement itself.
 
     Query cost contract: up to 5 queries, bounded, independent of
     household size -- (1) `active_couple_for` (the `Couple` lookup), (2)
@@ -667,7 +778,9 @@ def coordinate_family_migration(
     filter, mirrors `_resolve_children_heirs`'s own shape in
     `inheritance.py`), (4) one `bulk_update` for every mover at once
     (skipped when the household is empty), (5) one `DemographyEvent`
-    `create` (skipped when the household is empty).
+    `create` (skipped when the household is empty). `_scatter_location_
+    in_zone` and the `rng` it consumes are pure Python (no ORM access),
+    so adding `location` to the write does not change this count.
 
     Args:
         agent: the deciding Agent instance. Must be saved. Its own `zone`
@@ -682,6 +795,10 @@ def coordinate_family_migration(
             `"voluntary"`.
         emit_event_even_if_empty: when `True`, creates the event even for
             an empty household. Defaults to `False`.
+        rng: an optional seeded `random.Random`-compatible instance
+            forwarded to `_scatter_location_in_zone` for every mover's
+            `location`. Defaults to `None` (deterministic zone-center
+            fallback). See the ADDITIVE EXTENSION section above.
 
     Returns:
         The list of household member ids (partner, if any, then minor
@@ -719,7 +836,8 @@ def coordinate_family_migration(
     if movers:
         for mover in movers:
             mover.zone = target_zone
-        Agent.objects.bulk_update(movers, ["zone"])
+            mover.location = _scatter_location_in_zone(target_zone, rng)
+        Agent.objects.bulk_update(movers, ["zone", "location"])
 
     household_member_ids = [mover.id for mover in movers]
 
@@ -1025,10 +1143,13 @@ def process_emergency_flight(
        own `payload["from_zone"]` reads correctly -- see that function's
        own docstring note), `reason="emergency_flight"`,
        `emit_event_even_if_empty=True` (the design requires the flight
-       event even for a solo agent with no dependents). `agent.zone` is
-       then set to `target_zone` in memory, deferred to ONE batched
-       `bulk_update` at the end covering every fleeing agent this tick.
-       A `Memory` at `EMERGENCY_FLIGHT_MEMORY_WEIGHT` (0.85),
+       event even for a solo agent with no dependents), `rng=rng` (fix
+       I-12 -- see below). `agent.zone` AND `agent.location` (fix I-12:
+       this decider bypasses `agents/movement.py`'s `execute_movement`
+       entirely -- nothing else in this call graph would otherwise ever
+       write their `location`) are then set in memory, deferred to ONE
+       batched `bulk_update` at the end covering every fleeing agent this
+       tick. A `Memory` at `EMERGENCY_FLIGHT_MEMORY_WEIGHT` (0.85),
        `source_type=DIRECT`, `origin_agent=agent` (self-referential: this
        is the fleeing agent's own first-hand experience) is queued.
     3. `meets_preconditions and target_zone is None` -> TRAPPED: a
@@ -1052,38 +1173,118 @@ def process_emergency_flight(
     one. Skipping them is cheap (a Python `set` membership check, no
     query) and avoids it entirely.
 
-    MISS-3 CO-ZONE PROPAGATION, BATCHED (not per trapped agent): after
-    the main loop, ONE query fetches every living agent across EVERY
-    zone that has at least one trapped agent this tick (`zone_id__in=
-    {trapped zones}`), grouped in Python by zone -- so two trapped agents
-    sharing a zone reuse the SAME fetched witness list instead of
-    querying it twice. EXCLUDED from a given trapped agent's own witness
-    list: the trapped agent themselves -- design spec: "Altri agenti
-    testimoni di trapped_crisis formano memorie..." ("OTHER witnessing
-    agents form memories..."); read as excluding the person the crisis is
-    HAPPENING TO, who is living it, not witnessing it as public news (an
+    MISS-3 CO-ZONE PROPAGATION, BATCHED (not per trapped agent, and --
+    fix M-3, phase-6 audit T046 -- NOT per (trapped agent, witness) PAIR
+    either): after the main loop, ONE query fetches every living agent
+    across EVERY zone that has at least one trapped agent this tick
+    (`zone_id__in={trapped zones}`), grouped in Python by zone -- so two
+    trapped agents sharing a zone reuse the SAME fetched witness list
+    instead of querying it twice. EXCLUDED from a given ZONE's witness
+    list: every agent trapped in THAT zone this tick, not merely "the
+    trapped agent themselves" -- design spec: "Altri agenti testimoni di
+    trapped_crisis formano memorie..." ("OTHER witnessing agents form
+    memories..."); read as excluding the people the crisis is HAPPENING
+    TO, who are living it, not witnessing it as public news (an
     interpretive choice, since the design's own payload/effect sentence
-    does not say so as explicitly as the rationale sentence does -- flagged
-    here as such, not asserted as an unambiguous fact). Each witness
-    memory: `TRAPPED_CRISIS_MEMORY_WEIGHT` (0.95), `source_type=PUBLIC`,
-    `origin_agent=<the trapped agent>`.
+    does not say so as explicitly as the rationale sentence does --
+    flagged here as such, not asserted as an unambiguous fact).
+
+    ROW VOLUME (fix M-3): PRE-FIX, this pass created ONE `Memory` per
+    (trapped agent, witness) PAIR -- N trapped agents among M living
+    agents in a zone produced N * (M - N) rows. Starvation is zone-wide,
+    so in the module's own calibration scenario (O'Rourke 1994, the
+    Irish Famine) N approaches the templates' `max_population` (500)
+    right alongside M, giving roughly 500 * 499 ~= 250,000 rows IN ONE
+    TICK -- the docstring's OLD query-budget claim was true of query
+    COUNT (still exactly 1 witness-fetch query, unaffected by this fix)
+    and false of ROW VOLUME, which is what would actually exhaust the
+    database. Fixed by aggregating: ONE memory per WITNESS PER ZONE
+    (never per trapped agent), grouping `trapped_agents` by `zone_id` in
+    the SAME `id`-ascending order the main loop above already produced
+    (no bare `set` iteration -- the per-zone trapped-id list is a plain,
+    already-ordered `list`), so the row count for a zone scales with its
+    POPULATION, never with how many of its agents happen to be trapped
+    this tick. Content and `origin_agent` are computed ONCE per zone
+    (content mentions the zone name and the trapped COUNT, not every
+    victim's name -- naming all N would reintroduce an O(N) content
+    string per row, and MISS-3's own rationale is that a witness should
+    learn "this zone is a starvation crisis", not receive a per-victim
+    biography); `origin_agent` is the id-ascending FIRST trapped agent in
+    that zone this tick, a deterministic representative for the field's
+    own "dedup and traceability" purpose (`Memory.origin_agent`'s own
+    help_text), not an implied claim that they alone caused the crisis.
+    INFORMATION LOST relative to the pre-fix shape: a witness in a zone
+    with several trapped agents no longer receives one SEPARATE memory
+    per victim naming that specific individual -- only one aggregate
+    memory about the zone's crisis, with `origin_agent` pointing at a
+    single representative victim rather than all of them. Any consumer
+    needing the COMPLETE per-victim record (not per-witness belief) still
+    has it: every trapped agent still gets their own `TRAPPED_CRISIS`
+    `DemographyEvent` (`primary_agent=<that agent>`), UNCHANGED by this
+    fix and still O(N), since the event log -- unlike the witness memory
+    fan-out -- was never the quadratic term. Each witness memory:
+    `TRAPPED_CRISIS_MEMORY_WEIGHT` (0.95), `source_type=PUBLIC`,
+    `origin_agent=<the zone's id-ascending first trapped agent>`.
 
     MASS-FLIGHT DENOMINATOR AND WINDOW (pinned precisely, since an
-    ambiguous denominator is not reproducible): the denominator for each
-    zone is its LIVING population captured ONCE via a single aggregate
-    query at the START of this call, BEFORE any of this tick's flights
-    execute -- the natural "baseline" a fleeing fraction is measured
-    against (a POST-flight, already-depleted denominator would inflate
-    the fraction for the identical underlying event). The numerator is
-    every DISTINCT agent who fled that zone -- HISTORICAL flights already
-    persisted by EARLIER calls to this function
+    ambiguous denominator is not reproducible; denominator corrected
+    under fix I-11, phase-6 audit T046): the numerator is every DISTINCT
+    agent who fled that zone -- HISTORICAL flights already persisted by
+    EARLIER calls to this function
     (`DemographyEvent.payload__reason="emergency_flight"`, `tick` in the
     closed-open window `[tick - flight_trigger_ticks, tick)`, fetched
     with ONE query) PLUS agents fleeing in THIS call -- combined, this is
     exactly the `flight_trigger_ticks`-tick rolling window the design's
-    "fugge entro flight_trigger_ticks" wording describes. When
-    `len(fled) / population > MASS_FLIGHT_THRESHOLD_FRACTION` (STRICT,
-    0.30), a `MASS_FLIGHT` event is queued with `payload={"from_zone":
+    "fugge entro flight_trigger_ticks" wording describes.
+
+    The DENOMINATOR is each zone's living population AS IT STOOD AT
+    WINDOW START (`tick - flight_trigger_ticks`), not its CURRENT living
+    population -- a point-in-time denominator paired with a WINDOWED
+    numerator is not an apples-to-apples fraction: an agent who fled on
+    an earlier tick stays in the numerator (the window still covers that
+    tick) but has already left the zone's current population, so a
+    current-population denominator double-penalizes the same departure --
+    once by counting it in the numerator, again by shrinking the
+    denominator it would otherwise still be part of. Left uncorrected,
+    the reported fraction climbs over time at a CONSTANT departure rate
+    and can exceed 1.0, purely from this arithmetic mismatch, not from
+    any acceleration in actual flight.
+
+    RECONSTRUCTION (honest, not exact -- its own two limits are stated
+    below): population-at-window-start = the zone's CURRENT living
+    population, captured ONCE via a single aggregate query at the START
+    of this call BEFORE any of this tick's own flights execute (the
+    `baseline_population` local) PLUS every agent HISTORICALLY known to
+    have fled that zone during the window (the historical half of the
+    numerator above, captured BEFORE this tick's own new flights are
+    added into the same `fled_agent_ids_by_zone` structure -- an agent
+    fleeing IN this tick is still present in `baseline_population`, so
+    counting them a second time here would double them). This recovers
+    the population as it stood at window start under the assumption that
+    every agent who has since left did so via a recorded emergency
+    flight FROM this zone, which has two known limits, both accepted
+    rather than papered over:
+    - AGENTS WHO DIED in the zone during the window are not part of
+      `baseline_population` (they are no longer `is_alive`) and never
+      appear in `fled_agent_ids_by_zone` (death is not a flight) -- the
+      reconstruction UNDERSTATES population-at-window-start by exactly
+      that count, inflating the fraction slightly in a zone with
+      concurrent mortality.
+    - AGENTS WHO ARRIVED into the zone during the window (via any kind of
+      migration) ARE part of `baseline_population` despite not having
+      been present at window start -- the reconstruction OVERSTATES
+      population-at-window-start by exactly that count, deflating the
+      fraction slightly in a zone receiving migrants. Voluntary
+      out-migration (as opposed to emergency flight) during the window is
+      symmetrically NOT added back, for the same reason: this module
+      tracks only `payload__reason="emergency_flight"` events, matching
+      the numerator's own scope; Plan 4's orchestrator does not exist yet
+      (`simulation/engine.py` untouched), so no voluntary-migration
+      traffic can occur in a live run until it does.
+
+    When `len(fled) / population_at_window_start >
+    MASS_FLIGHT_THRESHOLD_FRACTION` (STRICT, 0.30), a `MASS_FLIGHT` event
+    is queued with `payload={"from_zone":
     zone.id, "agents": sorted(fled), "trigger_ticks":
     flight_trigger_ticks}` (the exact payload schema the design's own
     table specifies). Zones iterated `id` ascending for deterministic
@@ -1094,6 +1295,22 @@ def process_emergency_flight(
     phase-6 audit if event-ledger noise becomes a concern; not resolved
     here because doing so would require persisting an "already reported"
     flag this plan does not introduce.
+
+    RNG STREAM (fix I-12, phase-6 audit T046): ONE
+    `demography.rng.get_seeded_rng(simulation, tick, phase="migration")`
+    instance is drawn at the top of the transaction block below and
+    threaded through the ENTIRE per-agent loop -- every fleeing agent's
+    own `location` scatter and every `coordinate_family_migration` call
+    for that agent's household consume draws from this SAME stream, in
+    the loop's own `id`-ascending order, rather than each call deriving
+    its own fresh (and, for two agents fleeing the same tick, IDENTICALLY
+    seeded, since the derivation key is only `(simulation, tick, phase)`)
+    instance. This mirrors `inheritance.py`'s own `apply_inheritance_at_
+    birth` -- "one shared stream per call, consumed in a fixed order" --
+    generalized here from a single birth to this function's whole-tick
+    batch. `get_seeded_rng` is pure Python (a `hashlib` digest plus a
+    `random.Random` construction); it issues no database queries, so
+    this draw does not appear in the query cost contract below.
 
     TRANSACTION: the entire call -- zone_stats construction, every
     `coordinate_family_migration` invocation, the batched relocation
@@ -1148,6 +1365,7 @@ def process_emergency_flight(
     from epocha.apps.agents.models import Agent, Memory
     from epocha.apps.demography.context import compute_subsistence_threshold
     from epocha.apps.demography.models import DemographyEvent
+    from epocha.apps.demography.rng import get_seeded_rng
     from epocha.apps.demography.template_loader import load_template
     from epocha.apps.world.models import Government, World, Zone
 
@@ -1165,6 +1383,13 @@ def process_emergency_flight(
     government = Government.objects.get(simulation=simulation)
 
     with transaction.atomic():
+        # Fix I-12: one seeded stream for the whole tick, shared by every
+        # household coordination call and every primary-agent location
+        # scatter below -- see this function's own docstring, RNG STREAM
+        # section, for why it is derived exactly once here rather than
+        # once per fleeing agent.
+        rng = get_seeded_rng(simulation, tick, phase="migration")
+
         zone_stats = {
             "world": world,
             "government_stability": government.stability,
@@ -1204,6 +1429,22 @@ def process_emergency_flight(
             if from_zone_id is not None and row["primary_agent_id"] is not None:
                 fled_agent_ids_by_zone[int(from_zone_id)].add(row["primary_agent_id"])
 
+        # Fix I-11: snapshot of HISTORICAL-only fled counts per zone,
+        # taken BEFORE this tick's own new departures are added into
+        # `fled_agent_ids_by_zone` below. An agent fleeing THIS tick is
+        # still present in `baseline_population` above (captured before
+        # their own flight executes); an agent who fled on an EARLIER
+        # tick is not (they already left by the time `baseline_population`
+        # was queried). Adding only the HISTORICAL count back onto
+        # `baseline_population` reconstructs each zone's population as it
+        # stood at window start without double-counting this tick's own
+        # departures -- see this function's own docstring, MASS-FLIGHT
+        # DENOMINATOR AND WINDOW section, for the full derivation and its
+        # two accepted limits (deaths, arrivals).
+        historical_fled_counts_by_zone = {
+            zone_id: len(fled_ids) for zone_id, fled_ids in fled_agent_ids_by_zone.items()
+        }
+
         agents = Agent.objects.filter(zone__in=zones, is_alive=True).order_by("id")
 
         already_relocated_agent_ids: set[int] = set()
@@ -1231,10 +1472,16 @@ def process_emergency_flight(
                     template,
                     reason="emergency_flight",
                     emit_event_even_if_empty=True,
+                    rng=rng,
                 )
                 already_relocated_agent_ids.update(household_member_ids)
 
                 agent.zone = target_zone
+                # Fix I-12: the decider's own `location`, not only their
+                # household's -- this call graph bypasses
+                # `agents/movement.py`'s `execute_movement` entirely for
+                # the fleeing agent, so nothing else ever writes it.
+                agent.location = _scatter_location_in_zone(target_zone, rng)
                 agents_to_relocate.append(agent)
 
                 fled_agent_ids_by_zone[from_zone_id].add(agent.id)
@@ -1258,7 +1505,7 @@ def process_emergency_flight(
                 trapped_agents.append((agent, ticks))
 
         if agents_to_relocate:
-            Agent.objects.bulk_update(agents_to_relocate, ["zone"])
+            Agent.objects.bulk_update(agents_to_relocate, ["zone", "location"])
         if flight_memories:
             Memory.objects.bulk_create(flight_memories)
 
@@ -1274,6 +1521,15 @@ def process_emergency_flight(
             ):
                 members_by_zone[row["zone_id"]].append(row)
 
+            # Fix M-3: group trapped agents by zone, preserving the
+            # id-ascending order `trapped_agents` was already built in
+            # above (a plain list, never a bare set) -- the witness
+            # memory pass below then runs ONCE PER ZONE, not once per
+            # (trapped agent, witness) pair. See this function's own
+            # docstring, MISS-3 CO-ZONE PROPAGATION section, for the
+            # row-volume argument this restructuring fixes.
+            trapped_ids_by_zone: dict[int, list[int]] = defaultdict(list)
+            trapped_agent_by_id: dict[int, Any] = {}
             for agent, ticks in trapped_agents:
                 trapped_events.append(
                     DemographyEvent(
@@ -1287,22 +1543,37 @@ def process_emergency_flight(
                         },
                     )
                 )
-                zone_name = zone_stats["zones"][agent.zone_id]["zone"].name
-                for member_row in members_by_zone[agent.zone_id]:
-                    if member_row["id"] == agent.id:
+                trapped_ids_by_zone[agent.zone_id].append(agent.id)
+                trapped_agent_by_id[agent.id] = agent
+
+            for zone_id in sorted(trapped_ids_by_zone):
+                trapped_ids_in_zone = trapped_ids_by_zone[zone_id]
+                trapped_id_set = set(trapped_ids_in_zone)  # membership test only
+                # Deterministic representative for `origin_agent`
+                # (dedup/traceability, per that field's own help_text):
+                # the id-ascending first trapped agent in this zone this
+                # tick, matching `trapped_ids_in_zone`'s own construction
+                # order above.
+                representative_agent = trapped_agent_by_id[trapped_ids_in_zone[0]]
+                trapped_count = len(trapped_ids_in_zone)
+                zone_name = zone_stats["zones"][zone_id]["zone"].name
+                content = (
+                    f"{zone_name} is gripped by a starvation crisis: {trapped_count} "
+                    f"{'person is' if trapped_count == 1 else 'people are'} trapped, "
+                    "with nowhere better to go."
+                )
+                for member_row in members_by_zone[zone_id]:
+                    if member_row["id"] in trapped_id_set:
                         continue  # excluded: living it, not witnessing it -- see docstring
                     trapped_memories.append(
                         Memory(
                             agent_id=member_row["id"],
-                            content=(
-                                f"{agent.name} is trapped by starvation in {zone_name}, "
-                                "with nowhere better to go."
-                            ),
+                            content=content,
                             emotional_weight=TRAPPED_CRISIS_MEMORY_WEIGHT,
                             source_type=Memory.SourceType.PUBLIC,
                             reliability=1.0,
                             tick_created=tick,
-                            origin_agent=agent,
+                            origin_agent=representative_agent,
                         )
                     )
 
@@ -1313,13 +1584,19 @@ def process_emergency_flight(
 
         mass_flight_events: list = []
         for zone in zones:
-            population = baseline_population.get(zone.id, 0)
-            if population == 0:
+            # Fix I-11: population AT WINDOW START, not the zone's
+            # current living population -- see the historical-only
+            # snapshot's own comment above and this function's docstring
+            # for the full derivation.
+            population_at_window_start = baseline_population.get(
+                zone.id, 0
+            ) + historical_fled_counts_by_zone.get(zone.id, 0)
+            if population_at_window_start == 0:
                 continue
             fled_ids = fled_agent_ids_by_zone.get(zone.id, set())
             if not fled_ids:
                 continue
-            if len(fled_ids) / population > MASS_FLIGHT_THRESHOLD_FRACTION:
+            if len(fled_ids) / population_at_window_start > MASS_FLIGHT_THRESHOLD_FRACTION:
                 mass_flight_events.append(
                     DemographyEvent(
                         simulation=simulation,
