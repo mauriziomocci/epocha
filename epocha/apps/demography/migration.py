@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db.models import Sum
 
@@ -398,3 +398,298 @@ def compute_expected_gain(
         caveat disclosed above.
     """
     return (1.0 - unemployment_j) * wage_j - wage_current - distance_cost_j
+
+
+# ---------------------------------------------------------------------------
+# build_migration_outlook (Plan 3, T034, user story 4)
+# ---------------------------------------------------------------------------
+
+
+def build_migration_outlook(
+    agent: Any, simulation: Simulation, tick: int, zone_stats: dict
+) -> dict:
+    """Build the per-agent migration_outlook block (design spec Sezione
+    6): wage differential, unemployment, distance cost, zone stability,
+    and Harris-Todaro expected gain, for every reachable zone.
+
+    `zone_stats` CONTRACT (this function's own contract -- designed here,
+    not specified upstream of this task -- see the module test suite's
+    own header comment for the canonical shape description):
+
+        {
+            "world": <World instance>,
+            "government_stability": <float, Government.stability>,
+            "zones": {
+                zone_id: {
+                    "zone": <Zone instance>,
+                    "wage": <float, compute_zone_wage's return value>,
+                    "unemployment": <float, compute_zone_unemployment's
+                        return value>,
+                },
+                ...
+            },
+        }
+
+    THE N+1 RISK THIS CONTRACT EXISTS TO CLOSE (load-bearing, this is the
+    task's own acceptance criterion): `compute_zone_wage`,
+    `compute_zone_unemployment`, and `Government.stability` are ALL
+    per-tick CONSTANTS -- the same for every agent asking about the same
+    zone in the same tick. Recomputing them inside this function, called
+    once per agent per tick once Plan 4 wires migration into the decision
+    loop, would multiply their cost by the agent count for no new
+    information. `zone_stats` generalizes the task's own "compute zone
+    aggregates once per tick" instruction to EVERY such per-tick constant
+    this function needs, not only wage/unemployment: `Government` and
+    `World` are each exactly one row per simulation (`Government` is a
+    `OneToOneField` to `Simulation`, PREFLIGHT point 1), so bundling them
+    into the SAME once-per-tick structure is exactly as safe as bundling
+    the zone aggregates, and doing so is what lets this function issue
+    ZERO database queries of its own, not merely zero zone-specific ones
+    -- `agent.zone_id` (the plain FK column, no query) is used to locate
+    the agent's own entry inside `zone_stats["zones"]` rather than
+    touching the `agent.zone` descriptor, which would trigger one.
+
+    REACHABLE ZONE (a definition this function fixes, not one handed down
+    by the design spec): every zone present in `zone_stats["zones"]`
+    OTHER than the agent's own current zone (`agent.zone_id`). No
+    distance or radius bound is applied. There is no "maximum travel
+    range" concept anywhere in the schema, and `compute_distance_cost`
+    already assigns a (possibly large) whole-tick cost to every zone
+    pair, so no zone is ever truly unreachable -- it may simply be
+    expensive. The simplest defensible reading, and the one implemented,
+    is "every other zone of the agent's world" (`zone_stats["zones"]` is
+    expected to already carry every zone of that world, since the
+    caller's once-per-tick precomputation has no cheaper way to build it).
+
+    SIMULATION-WIDE STABILITY (PREFLIGHT point 1, logged as handoff open
+    question 12): `Government` carries exactly ONE `stability` scalar per
+    `Simulation` -- there is NO per-zone stability anywhere in the current
+    schema, even though the design spec's own worked example shows
+    stability differing by zone ("Paris crisi (0.3), qui stabile (0.7),
+    Countryside stabile (0.6)"). This function reports the SAME
+    simulation-wide `zone_stats["government_stability"]` value for EVERY
+    reachable zone rather than inventing a per-zone proxy (population
+    pressure, local unemployment, or anything else) -- the same
+    conflation already exists in merged code at
+    `demography/context.py`'s `compute_aggregate_outlook`, inherited here
+    knowingly, not "fixed". Adding real per-zone stability would require
+    a schema migration this plan's SC-005 forbids; the phase-6 audit
+    (T046) must rule on whether the migration model needs a genuine
+    per-zone signal.
+
+    WAGE DIFFERENTIAL: `zone_stats["zones"][zone_id]["wage"] -
+    zone_stats["zones"][agent.zone_id]["wage"]` -- destination minus the
+    agent's CURRENT zone, both already the same per-capita, per-tick
+    figure `compute_zone_wage` (T031) returns, keeping the units
+    consistent with what `compute_expected_gain` (T033) expects for its
+    own `wage_j` / `wage_current` arguments (the raw wage, NOT the
+    differential, is what that function takes -- this block reports the
+    differential for readability, per the design spec's own
+    `migration_outlook` prompt wording, while still passing the RAW
+    `wage` values into `compute_expected_gain` internally).
+
+    Query cost contract: exactly 0 database queries. Every input is
+    already resolved in `zone_stats` or already loaded on `agent`
+    (`agent.zone_id`); `compute_distance_cost` and `compute_expected_gain`
+    are both pure functions (see their own docstrings).
+
+    Args:
+        agent: the Agent instance considering migration. Only
+            `agent.id` and `agent.zone_id` are read (both already-loaded
+            plain columns).
+        simulation: the Simulation instance (currently unused by this
+            function's own body -- accepted for API symmetry with this
+            module's other per-agent functions and because a future
+            caller may need it; kept honest rather than silently dropped).
+        tick: the current simulation tick (currently unused by this
+            function's own body, for the same reason as `simulation`
+            above -- `zone_stats` already carries every tick-dependent
+            value this function reads).
+        zone_stats: the once-per-tick precomputed bundle described above.
+
+    Returns:
+        `{"current_zone_id": agent.zone_id, "reachable_zones": {zone_id:
+        {"wage_differential", "unemployment", "distance_cost",
+        "zone_stability", "expected_gain"}, ...}}`.
+    """
+    world = zone_stats["world"]
+    government_stability = zone_stats["government_stability"]
+    zones = zone_stats["zones"]
+
+    current_zone = zones[agent.zone_id]["zone"]
+    wage_current = zones[agent.zone_id]["wage"]
+
+    reachable_zones: dict[int, dict] = {}
+    for zone_id in sorted(zones):
+        if zone_id == agent.zone_id:
+            continue
+
+        entry = zones[zone_id]
+        wage_j = entry["wage"]
+        unemployment_j = entry["unemployment"]
+        distance_cost_j = compute_distance_cost(current_zone, entry["zone"], world)
+
+        reachable_zones[zone_id] = {
+            "wage_differential": wage_j - wage_current,
+            "unemployment": unemployment_j,
+            "distance_cost": distance_cost_j,
+            "zone_stability": government_stability,
+            "expected_gain": compute_expected_gain(
+                unemployment_j, wage_j, wage_current, distance_cost_j
+            ),
+        }
+
+    return {"current_zone_id": agent.zone_id, "reachable_zones": reachable_zones}
+
+
+# ---------------------------------------------------------------------------
+# coordinate_family_migration (Plan 3, T035, user story 4). Mincer, J.
+# (1978). Family Migration Decisions. Journal of Political Economy 86(5),
+# 749-773: migration is a HOUSEHOLD decision -- a "tied mover" (a spouse
+# or minor child) relocates along with the decision-maker even though the
+# move is not their own choice.
+# ---------------------------------------------------------------------------
+
+
+def coordinate_family_migration(agent: Any, target_zone: Any, tick: int, template: dict) -> list:
+    """Move `agent`'s partner and minor children into `target_zone` in
+    the same tick as `agent`'s own `move_to` decision, emitting one
+    `DemographyEvent` for the whole household (design spec Sezione 6,
+    "Coordinamento familiare").
+
+    SCOPE -- WHAT THIS FUNCTION DOES NOT DO: it never touches `agent.zone`
+    itself. `agent`'s own zone change is the outcome of whichever
+    mechanism processes their `move_to` decision (e.g.
+    `agents/movement.py`'s `execute_movement`, which additionally handles
+    multi-tick partial movement, arrival scattering, and mood/health
+    costs for the DECIDING agent) -- called separately by the orchestrator
+    BEFORE or AFTER this function, never by it. This function's sole
+    responsibility is the household members who follow, which is why its
+    name is "coordinate FAMILY migration", not "migrate agent and
+    family": conflating the two would duplicate `execute_movement`'s own
+    logic for the primary mover (a DRY violation) while giving the family
+    members a DIFFERENT, cruder direct-teleport treatment that the design
+    spec's own "nello stesso tick" (same tick) wording requires for them
+    specifically -- household members always arrive immediately,
+    unlike a decider whose own journey may still be a multi-tick partial
+    movement in progress.
+
+    HOUSEHOLD MEMBERSHIP:
+    - Partner: `couple.active_couple_for(agent)`'s resolved partner, INCLUDED
+      only if alive. `active_couple_for` does not itself filter on the
+      partner's own aliveness (the same documented edge case
+      `_resolve_spouse_heirs` and `generate_mourning_memories` already
+      account for in `inheritance.py`) -- this function applies the
+      "only if alive" qualifier itself.
+    - Minor children: living agents with `agent` as EITHER parentage FK
+      (`parent_agent` or `other_parent_agent`), with
+      `age < template["migration"]["adulthood_age"]` (16 for the
+      pre-industrial and industrial templates, 18 for modern_democracy
+      and sci_fi -- verified against all five era template JSON files).
+      ADULT children (`age >= adulthood_age`) are deliberately excluded:
+      per the design spec, "I figli adulti decidono indipendentemente"
+      (adult children decide independently) -- they are never moved by
+      this function and never appear in its return value.
+
+    MINORS ARE NOT CALLED TO THE DECISION LOOP: this function never
+    creates a `DecisionLog` row or an additional `DemographyEvent` for
+    any household member -- it moves them directly, structurally
+    bypassing whatever would otherwise offer them a `move_to` choice.
+    Enforcing that minors are never PRESENTED such a choice in the first
+    place is Plan 4 orchestrator's responsibility (this function has no
+    visibility into the decision loop itself); what this function
+    guarantees is the ABSENCE of any decision-loop artifact for them --
+    testable and tested as exactly that absence.
+
+    EVENT PAYLOAD (design spec Sezione 6, line 833): ONE
+    `DemographyEvent(event_type=MIGRATION, primary_agent=agent,
+    tick=tick)` per call (never one per household member), with
+    `payload = {"household_members": [...], "from_zone": agent.zone_id,
+    "to_zone": target_zone.id, "reason": "voluntary"}`. `from_zone` is
+    read as `agent.zone_id` (the already-loaded FK column, no query) --
+    the household's shared origin zone, since living together implies
+    the same starting zone regardless of whether `agent`'s own move has
+    already been applied elsewhere by the time this function runs. When
+    the household is empty (no living partner, no minor children), NO
+    event is created and an empty list is returned -- mirrors this
+    module's established "skip genuinely no-op work" convention (see
+    `transfer_loans_as_lender`'s own early return in `inheritance.py`).
+
+    PERSISTENCE: this IS the orchestrating entry point for family
+    coordination -- moving agents between zones has no meaning left
+    unpersisted, so, following the precedent `process_inheritance_batch`
+    set (orchestrating entry points persist; pure resolvers do not), this
+    function writes directly via ONE `Agent.objects.bulk_update(...,
+    ["zone"])` for every household member, never a per-member `.save()`.
+
+    Query cost contract: up to 5 queries, bounded, independent of
+    household size -- (1) `active_couple_for` (the `Couple` lookup), (2)
+    fetching the partner's own `Agent` row (skipped when there is no
+    active couple), (3) the minor-children fetch (one query, either-FK
+    filter, mirrors `_resolve_children_heirs`'s own shape in
+    `inheritance.py`), (4) one `bulk_update` for every mover at once
+    (skipped when the household is empty), (5) one `DemographyEvent`
+    `create` (skipped when the household is empty).
+
+    Args:
+        agent: the deciding Agent instance. Must be saved. Its own `zone`
+            is read (`.zone_id`, no query) but never written by this
+            function.
+        target_zone: the destination Zone instance the household moves
+            into.
+        tick: the current simulation tick.
+        template: the era template dict; only
+            `template["migration"]["adulthood_age"]` is read.
+
+    Returns:
+        The list of household member ids (partner, if any, then minor
+        children oldest-first by `birth_tick`/`id`) moved by this call --
+        identical to `payload["household_members"]` on the emitted event.
+        Empty when there was no partner and no minor child to move.
+    """
+    from django.db.models import Q
+
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.couple import active_couple_for
+    from epocha.apps.demography.models import DemographyEvent
+
+    adulthood_age = template["migration"]["adulthood_age"]
+
+    movers: list = []
+
+    couple = active_couple_for(agent)
+    if couple is not None:
+        partner = couple.agent_b if couple.agent_a_id == agent.id else couple.agent_a
+        if partner is not None and partner.is_alive:
+            movers.append(partner)
+
+    minor_children = Agent.objects.filter(
+        Q(parent_agent=agent) | Q(other_parent_agent=agent),
+        is_alive=True,
+        age__lt=adulthood_age,
+    ).order_by("birth_tick", "id")
+    movers.extend(minor_children)
+
+    if not movers:
+        return []
+
+    for mover in movers:
+        mover.zone = target_zone
+    Agent.objects.bulk_update(movers, ["zone"])
+
+    household_member_ids = [mover.id for mover in movers]
+
+    DemographyEvent.objects.create(
+        simulation_id=agent.simulation_id,
+        tick=tick,
+        event_type=DemographyEvent.EventType.MIGRATION,
+        primary_agent=agent,
+        payload={
+            "household_members": household_member_ids,
+            "from_zone": agent.zone_id,
+            "to_zone": target_zone.id,
+            "reason": "voluntary",
+        },
+    )
+
+    return household_member_ids

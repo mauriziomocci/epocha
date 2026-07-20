@@ -21,6 +21,18 @@ inconsistency (a currency-rate term minus a raw tick count) -- see
 `TestComputeExpectedGain`'s own module-level note and
 `compute_expected_gain`'s docstring for the full disclosure.
 
+Also covers `build_migration_outlook` (Plan 3, T034): the per-agent
+migration_outlook block (wage differential, unemployment, distance cost,
+zone stability, expected gain per reachable zone), built ENTIRELY from
+the caller-supplied `zone_stats` bundle with zero further database
+queries -- the N+1 risk the task explicitly flags, since Plan 4 will call
+this once per agent, per tick.
+
+Also covers `coordinate_family_migration` (Plan 3, T035, Mincer 1978):
+moving a decider's partner and minor children into the decider's target
+zone in the same tick, as the single persisting orchestrator entry point
+for family coordination.
+
 Fixture conventions (`sim_with_zone`, `_make_agent`) mirror
 `test_inheritance.py`'s own helpers by COPYING the pattern, not
 importing it -- this file, like every other test module in this app,
@@ -32,19 +44,23 @@ from __future__ import annotations
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
-from epocha.apps.agents.models import Agent
+from epocha.apps.agents.models import Agent, DecisionLog
+from epocha.apps.demography.couple import form_couple
 from epocha.apps.demography.migration import (
     ZONE_UNEMPLOYMENT_WINDOW_TICKS,
     ZONE_WAGE_WINDOW_TICKS,
+    build_migration_outlook,
     compute_distance_cost,
     compute_expected_gain,
     compute_zone_unemployment,
     compute_zone_wage,
+    coordinate_family_migration,
 )
+from epocha.apps.demography.models import DemographyEvent
 from epocha.apps.economy.models import Currency, EconomicLedger
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
-from epocha.apps.world.models import World, Zone
+from epocha.apps.world.models import Government, World, Zone
 
 
 @pytest.fixture
@@ -646,3 +662,404 @@ class TestComputeExpectedGain:
         )
 
         assert gain == pytest.approx(-9.72)
+
+
+# ---------------------------------------------------------------------------
+# build_migration_outlook (Plan 3, T034, user story 4)
+# ---------------------------------------------------------------------------
+#
+# zone_stats SHAPE (this function's own contract, designed and pinned by
+# these tests -- not specified upstream of this task):
+#
+#   {
+#       "world": <World instance>,
+#       "government_stability": <float, Government.stability>,
+#       "zones": {
+#           zone_id: {
+#               "zone": <Zone instance>,
+#               "wage": <float, compute_zone_wage's return value>,
+#               "unemployment": <float, compute_zone_unemployment's
+#                   return value>,
+#           },
+#           ...
+#       },
+#   }
+#
+# Generalizes the task's own "zone aggregates computed once per tick,
+# never recomputed per agent" principle to EVERY per-tick-constant input
+# build_migration_outlook needs, not only wage/unemployment: Government
+# has exactly one row per simulation (a OneToOneField, see PREFLIGHT
+# point 1), and World likewise -- both are exactly as safe to bundle into
+# a once-per-tick precomputed structure as the zone aggregates are, and
+# bundling them here is what lets the per-agent call below cost ZERO
+# database queries, not merely zero ZONE queries.
+#
+# "Reachable zone" definition PINNED by these tests: every zone present
+# in `zone_stats["zones"]` OTHER than the agent's own current zone
+# (`agent.zone_id`). No distance or radius bound is applied -- there is
+# no "maximum travel range" concept anywhere in the schema, and
+# `compute_distance_cost` already assigns a (possibly large) whole-tick
+# cost to every zone, so nothing is truly unreachable; the simplest
+# defensible reading, and the one implemented, is "every other zone of
+# the agent's world".
+
+
+def _make_government(sim, stability=0.7):
+    return Government.objects.create(simulation=sim, stability=stability)
+
+
+class TestBuildMigrationOutlook:
+    """build_migration_outlook: the per-agent migration_outlook block,
+    built entirely from `zone_stats` with zero further database queries.
+    """
+
+    @pytest.mark.django_db
+    def test_query_count_is_zero_for_the_per_agent_call(
+        self, sim_with_zone, currency, django_assert_num_queries
+    ):
+        """PRIMARY test (per T034's own acceptance criterion): the
+        per-agent call must add NO further queries -- not merely no zone
+        queries, literally none, since `zone_stats` (built here via real
+        T031 calls, OUTSIDE the asserted block, representing the
+        once-per-tick precomputation) already carries every per-tick
+        constant this function needs.
+        """
+        sim, zone = sim_with_zone
+        world = zone.world
+        other_zone = _make_other_zone(world)
+        government = _make_government(sim)
+        agent = _make_agent(sim, zone, "Agent")
+
+        zone_stats = {
+            "world": world,
+            "government_stability": government.stability,
+            "zones": {
+                z.id: {
+                    "zone": z,
+                    "wage": compute_zone_wage(sim, z, tick=50),
+                    "unemployment": compute_zone_unemployment(sim, z, tick=50),
+                }
+                for z in (zone, other_zone)
+            },
+        }
+
+        with django_assert_num_queries(0):
+            build_migration_outlook(agent, sim, tick=50, zone_stats=zone_stats)
+
+    @pytest.mark.django_db
+    def test_carries_all_five_metrics_per_reachable_zone(self, sim_with_zone):
+        """Hand-computed: wage_current=78.0 (agent's own zone), wage_j=
+        90.0 (other zone) -> wage_differential=12.0. unemployment_j=0.08.
+        distance_cost: the other zone sits at a (300, 400) grid offset
+        from the agent's zone (center (50, 50) from `sim_with_zone`) at
+        the default World scale -- the same hand-verified 3-tick result
+        `TestComputeDistanceCost.
+        test_matches_hand_computed_conversion_chain_at_default_world_scale`
+        pins. zone_stability=0.7 (the single simulation-wide Government
+        row). expected_gain = (1 - 0.08) * 90.0 - 78.0 - 3 = 1.8.
+        """
+        sim, zone = sim_with_zone
+        world = zone.world
+        other_zone = _make_zone_at(world, 350, 450, "OtherZone")  # (50,50) + (300,400)
+        government = _make_government(sim, stability=0.7)
+        agent = _make_agent(sim, zone, "Agent")
+
+        zone_stats = {
+            "world": world,
+            "government_stability": government.stability,
+            "zones": {
+                zone.id: {"zone": zone, "wage": 78.0, "unemployment": 0.5},
+                other_zone.id: {"zone": other_zone, "wage": 90.0, "unemployment": 0.08},
+            },
+        }
+
+        outlook = build_migration_outlook(agent, sim, tick=50, zone_stats=zone_stats)
+
+        entry = outlook["reachable_zones"][other_zone.id]
+        assert entry["wage_differential"] == pytest.approx(12.0)
+        assert entry["unemployment"] == pytest.approx(0.08)
+        assert entry["distance_cost"] == 3
+        assert entry["zone_stability"] == pytest.approx(0.7)
+        assert entry["expected_gain"] == pytest.approx(1.8)
+
+    @pytest.mark.django_db
+    def test_agents_own_zone_is_excluded_from_reachable_zones(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        other_zone = _make_other_zone(world)
+        government = _make_government(sim)
+        agent = _make_agent(sim, zone, "Agent")
+
+        zone_stats = {
+            "world": world,
+            "government_stability": government.stability,
+            "zones": {
+                zone.id: {"zone": zone, "wage": 50.0, "unemployment": 0.1},
+                other_zone.id: {"zone": other_zone, "wage": 60.0, "unemployment": 0.1},
+            },
+        }
+
+        outlook = build_migration_outlook(agent, sim, tick=50, zone_stats=zone_stats)
+
+        assert zone.id not in outlook["reachable_zones"]
+        assert other_zone.id in outlook["reachable_zones"]
+
+    @pytest.mark.django_db
+    def test_reports_the_simulation_wide_stability_for_every_reachable_zone(self, sim_with_zone):
+        """PREFLIGHT point 1: there is no per-zone stability anywhere in
+        the schema (`Government` is a `OneToOneField` to `Simulation`) --
+        every reachable zone must report the SAME simulation-wide value,
+        never a fabricated per-zone proxy.
+        """
+        sim, zone = sim_with_zone
+        world = zone.world
+        zone_b = _make_other_zone(world, "ZoneB")
+        zone_c = _make_zone_at(world, 500, 500, "ZoneC")
+        government = _make_government(sim, stability=0.42)
+        agent = _make_agent(sim, zone, "Agent")
+
+        zone_stats = {
+            "world": world,
+            "government_stability": government.stability,
+            "zones": {
+                zone.id: {"zone": zone, "wage": 50.0, "unemployment": 0.1},
+                zone_b.id: {"zone": zone_b, "wage": 55.0, "unemployment": 0.2},
+                zone_c.id: {"zone": zone_c, "wage": 45.0, "unemployment": 0.3},
+            },
+        }
+
+        outlook = build_migration_outlook(agent, sim, tick=50, zone_stats=zone_stats)
+
+        assert outlook["reachable_zones"][zone_b.id]["zone_stability"] == pytest.approx(0.42)
+        assert outlook["reachable_zones"][zone_c.id]["zone_stability"] == pytest.approx(0.42)
+
+    @pytest.mark.django_db
+    def test_reports_the_agents_current_zone_id(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        other_zone = _make_other_zone(world)
+        government = _make_government(sim)
+        agent = _make_agent(sim, zone, "Agent")
+
+        zone_stats = {
+            "world": world,
+            "government_stability": government.stability,
+            "zones": {
+                zone.id: {"zone": zone, "wage": 50.0, "unemployment": 0.1},
+                other_zone.id: {"zone": other_zone, "wage": 60.0, "unemployment": 0.1},
+            },
+        }
+
+        outlook = build_migration_outlook(agent, sim, tick=50, zone_stats=zone_stats)
+
+        assert outlook["current_zone_id"] == zone.id
+
+
+# ---------------------------------------------------------------------------
+# coordinate_family_migration (Plan 3, T035, user story 4, Mincer 1978)
+# ---------------------------------------------------------------------------
+
+
+def _minimal_template():
+    """The minimal template slice coordinate_family_migration reads --
+    mirrors `test_inheritance.py`'s own `_heir_template` pattern of
+    isolating tests from unrelated template sections.
+    """
+    return {"migration": {"adulthood_age": 16}}
+
+
+class TestCoordinateFamilyMigration:
+    """coordinate_family_migration: partner and minor children follow the
+    decider into `target_zone` in the same tick (Mincer 1978), as a
+    single persisting orchestrator call.
+    """
+
+    @pytest.mark.django_db
+    def test_partner_moves_with_the_agent(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(agent, partner, formed_at_tick=1)
+
+        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
+
+        partner.refresh_from_db()
+        assert partner.zone_id == target_zone.id
+
+    @pytest.mark.django_db
+    def test_minor_child_moves_with_the_agent(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10)
+
+        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
+
+        minor_child.refresh_from_db()
+        assert minor_child.zone_id == target_zone.id
+
+    @pytest.mark.django_db
+    def test_adult_child_does_not_move(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        adult_child = _make_agent(sim, zone, "AdultChild", parent_agent=agent, age=20)
+
+        result = coordinate_family_migration(
+            agent, target_zone, tick=50, template=_minimal_template()
+        )
+
+        adult_child.refresh_from_db()
+        assert adult_child.zone_id == zone.id  # unchanged
+        assert adult_child.id not in result
+
+    @pytest.mark.django_db
+    def test_dead_partner_is_excluded(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        dead_partner = _make_agent(sim, zone, "DeadPartner", is_alive=False)
+        form_couple(agent, dead_partner, formed_at_tick=1)
+
+        result = coordinate_family_migration(
+            agent, target_zone, tick=50, template=_minimal_template()
+        )
+
+        dead_partner.refresh_from_db()
+        assert dead_partner.zone_id == zone.id  # unchanged
+        assert dead_partner.id not in result
+
+    @pytest.mark.django_db
+    def test_dead_minor_child_is_excluded(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        dead_child = _make_agent(sim, zone, "DeadChild", parent_agent=agent, age=10, is_alive=False)
+
+        result = coordinate_family_migration(
+            agent, target_zone, tick=50, template=_minimal_template()
+        )
+
+        dead_child.refresh_from_db()
+        assert dead_child.zone_id == zone.id  # unchanged
+        assert dead_child.id not in result
+
+    @pytest.mark.django_db
+    def test_no_active_couple_yields_no_partner_in_household(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+
+        result = coordinate_family_migration(
+            agent, target_zone, tick=50, template=_minimal_template()
+        )
+
+        assert result == []
+
+    @pytest.mark.django_db
+    def test_return_value_matches_household_members_in_the_event_payload(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(agent, partner, formed_at_tick=1)
+        minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10)
+
+        result = coordinate_family_migration(
+            agent, target_zone, tick=50, template=_minimal_template()
+        )
+
+        event = DemographyEvent.objects.get(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION, primary_agent=agent
+        )
+        assert set(result) == {partner.id, minor_child.id}
+        assert set(event.payload["household_members"]) == set(result)
+
+    @pytest.mark.django_db
+    def test_single_migration_event_has_the_documented_payload_shape(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(agent, partner, formed_at_tick=1)
+
+        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
+
+        events = DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION, primary_agent=agent
+        )
+        assert events.count() == 1
+        event = events.get()
+        assert event.tick == 50
+        assert event.payload["from_zone"] == zone.id
+        assert event.payload["to_zone"] == target_zone.id
+        assert event.payload["reason"] == "voluntary"
+        assert event.payload["household_members"] == [partner.id]
+
+    @pytest.mark.django_db
+    def test_no_decision_log_rows_or_extra_events_are_created_for_minors(self, sim_with_zone):
+        """Pins the absence side of "minors are not called to the
+        decision loop": no `DecisionLog` row and no additional
+        `DemographyEvent` exist for the minor child -- enforcement of the
+        decision loop itself (i.e. never OFFERING a minor a `move_to`
+        choice) is Plan 4 orchestrator's responsibility, not asserted
+        here; this function simply never creates either kind of row for
+        anyone but the single household-level MIGRATION event.
+        """
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10)
+
+        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
+
+        assert not DecisionLog.objects.filter(agent=minor_child).exists()
+        assert (
+            DemographyEvent.objects.filter(
+                simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+            ).count()
+            == 1
+        )
+
+    @pytest.mark.django_db
+    def test_empty_household_creates_no_event_and_returns_empty_list(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+
+        result = coordinate_family_migration(
+            agent, target_zone, tick=50, template=_minimal_template()
+        )
+
+        assert result == []
+        assert not DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+        ).exists()
+
+    @pytest.mark.django_db
+    def test_query_count_is_bounded_not_per_child(self, sim_with_zone, django_assert_num_queries):
+        sim, zone = sim_with_zone
+        world = zone.world
+        target_zone = _make_other_zone(world)
+        agent = _make_agent(sim, zone, "Agent")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(agent, partner, formed_at_tick=1)
+        for i in range(5):
+            _make_agent(sim, zone, f"MinorChild{i}", parent_agent=agent, age=10)
+
+        # active_couple_for (1) + partner fetch (1) + minor-children fetch
+        # (1) + bulk_update (1) + event create (1) = 5, bounded regardless
+        # of how many minor children exist.
+        with django_assert_num_queries(5):
+            coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
