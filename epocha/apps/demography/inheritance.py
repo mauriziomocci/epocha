@@ -1068,6 +1068,59 @@ def _resolve_sibling_heirs(deceased: Any) -> list:
     )
 
 
+def _resolve_grandparent_ids(parent_ids: list[int]) -> set[int]:
+    """Grandparent ids: the recorded parents of the given `parent_ids`
+    (typically an agent's own `parent_agent_id`/`other_parent_agent_id`),
+    fetched with a single `values_list` query over at most `len(parent_ids)`
+    rows -- the query reads the PARENTS' rows to project their own
+    parentage columns, it never touches a grandparent row directly.
+
+    Returns an empty set (0 queries) when `parent_ids` is empty, or when
+    none of the given parents has a recorded parent of their own.
+
+    Shared by `_resolve_extended_family_heirs` (Plan 3, T016/T017 -- the
+    seed for the cousin traversal) and `assign_orphan_caretaker` (Plan 3,
+    T024/T025 -- the seed for grandparent and aunt/uncle caretaker
+    candidates), so the "grandparents of a given agent" lookup is defined
+    exactly once.
+    """
+    from epocha.apps.agents.models import Agent
+
+    if not parent_ids:
+        return set()
+
+    grandparent_id_pairs = Agent.objects.filter(id__in=parent_ids).values_list(
+        "parent_agent_id", "other_parent_agent_id"
+    )
+    return {gid for pair in grandparent_id_pairs for gid in pair if gid is not None}
+
+
+def _resolve_aunts_uncles(grandparent_ids: set[int], excluded_parent_ids: list[int]) -> list:
+    """Children of `grandparent_ids` (via either parentage FK), excluding
+    `excluded_parent_ids` -- typically the reference agent's own recorded
+    parents, who are not "extended family" to that agent.
+
+    Returns every matching row regardless of `is_alive`: callers filter on
+    aliveness themselves. `_resolve_extended_family_heirs` needs dead
+    aunts/uncles too, to walk down to their still-living children (first
+    cousins are alive-or-dead descendants of a possibly-dead aunt/uncle);
+    `assign_orphan_caretaker` filters to living ones directly, since a
+    dead aunt/uncle can never be a caretaker.
+
+    Query cost: exactly 1 query (0 when `grandparent_ids` is empty).
+    """
+    from epocha.apps.agents.models import Agent
+
+    if not grandparent_ids:
+        return []
+
+    return list(
+        Agent.objects.filter(
+            Q(parent_agent_id__in=grandparent_ids) | Q(other_parent_agent_id__in=grandparent_ids)
+        ).exclude(id__in=excluded_parent_ids)
+    )
+
+
 def _resolve_extended_family_heirs(deceased: Any, excluded_ids: set[int]) -> list:
     """Living descendants of the deceased's grandparents, bounded to two
     generations down from them -- aunts/uncles and first cousins.
@@ -1102,6 +1155,10 @@ def _resolve_extended_family_heirs(deceased: Any, excluded_ids: set[int]) -> lis
     and siblings, but a future template with unusual pedigree data should
     not double-count an heir across categories.
 
+    Steps 1-2 (grandparent ids, then their children) are delegated to
+    `_resolve_grandparent_ids` / `_resolve_aunts_uncles`, shared with
+    `assign_orphan_caretaker` below -- see those functions' own docstrings.
+
     Query cost: up to 3 queries -- (1) the deceased's parents' own parent
     ids (a `values_list` over at most 2 rows), (2) the aunts/uncles fetch,
     (3) the cousins fetch (skipped, 0 extra queries, when no aunts/uncles
@@ -1117,18 +1174,11 @@ def _resolve_extended_family_heirs(deceased: Any, excluded_ids: set[int]) -> lis
     if not parent_ids:
         return []
 
-    grandparent_id_pairs = Agent.objects.filter(id__in=parent_ids).values_list(
-        "parent_agent_id", "other_parent_agent_id"
-    )
-    grandparent_ids = {gid for pair in grandparent_id_pairs for gid in pair if gid is not None}
+    grandparent_ids = _resolve_grandparent_ids(parent_ids)
     if not grandparent_ids:
         return []
 
-    aunts_uncles = list(
-        Agent.objects.filter(
-            Q(parent_agent_id__in=grandparent_ids) | Q(other_parent_agent_id__in=grandparent_ids)
-        ).exclude(id__in=parent_ids)
-    )
+    aunts_uncles = _resolve_aunts_uncles(grandparent_ids, parent_ids)
     aunt_uncle_ids = {agent.id for agent in aunts_uncles}
 
     cousins: list = []
@@ -1966,3 +2016,177 @@ def transfer_loans_as_lender(deceased: Any, heirs: dict[str, list]) -> None:
         loan.lender = flattened_heirs[index % heir_count]
 
     Loan.objects.bulk_update(active_loans, ["lender"])
+
+
+# ---------------------------------------------------------------------------
+# Orphan caretaker assignment (Plan 3, T024/T025, user story 3 -- orphans
+# are taken in). Design spec Sezione 5, "Gestione orfani (fix MISS-1)":
+# "Quando entrambi i genitori biologici di un minorenne (age <
+# adulthood_age) sono morti, il minore viene assegnato un caretaker_agent
+# secondo la priorità seguente: parente vivente più vicino nella stessa
+# zona (fratello, nonno, zio/zia), poi qualsiasi parente vivente ovunque,
+# poi None (pupillo dello stato). Un orfano con caretaker_agent = None
+# viene flaggato e Government.government_treasury copre la sua
+# sussistenza (modellando il wardship statale). L'orfano riceve comunque
+# la sua eredità direttamente; il caretaker amministra ma non possiede gli
+# asset."
+# ---------------------------------------------------------------------------
+
+
+def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
+    """Assign `minor.caretaker_agent` to the nearest living relative, or
+    flag state wardship when none exists (design spec Sezione 5, "Gestione
+    orfani (fix MISS-1)").
+
+    THE TWO-STAGE LADDER: stage 1 looks for a living relative in the
+    minor's own zone, walking the kinship rungs in priority order --
+    sibling, then grandparent, then aunt/uncle. Only when stage 1 finds
+    NOBODY does stage 2 repeat the exact same kinship order across every
+    zone. This means a same-zone aunt/uncle (the lowest-priority rung)
+    outranks an other-zone sibling (the highest-priority rung) -- stage 1
+    is exhausted in full before stage 2 is even considered, matching the
+    design spec's own ordering: "parente vivente più vicino nella stessa
+    zona ... poi qualsiasi parente vivente ovunque". Rationale: the spec
+    prioritizes physical proximity (the same zone, where day-to-day care
+    is practical) over kinship closeness once wardship is being decided --
+    an orphan is better served by a present, if more distant, relative
+    than an absent close one. Within a single kinship rung, ties break by
+    `birth_tick` ascending (oldest first, on the same convention this
+    module already uses for heir ordering -- see `_resolve_sibling_heirs`
+    and `_resolve_extended_family_heirs`), then `id` ascending for a total,
+    deterministic order.
+
+    KINSHIP DEFINITIONS: sibling reuses `_resolve_sibling_heirs(minor)`
+    verbatim -- the "either parentage FK" broadening documented there
+    (a half-sibling sharing only `other_parent_agent` counts) applies here
+    identically, avoided by direct reuse rather than a parallel
+    re-implementation (DRY). Grandparent and aunt/uncle candidates reuse
+    `_resolve_grandparent_ids` / `_resolve_aunts_uncles`, the same helpers
+    `_resolve_extended_family_heirs` uses for its own grandparent-lineage
+    traversal -- grandparent means a parent (either FK) of either of the
+    minor's own two recorded parents; aunt/uncle means a living child
+    (either FK) of a grandparent, excluding the minor's own parents.
+
+    STATE WARD FLAG: when no living relative exists in either stage, this
+    function returns None, leaves `minor.caretaker_agent` at None, and
+    appends the string `"state_ward"` to `minor.conditions`. `conditions`
+    (an existing `Agent` JSONField list, normally used for diseases and
+    disabilities) is reused as the flag carrier because the plan is
+    constrained to zero migrations (SC-005) and this field is otherwise
+    unused for the minor at this point -- adding a dedicated boolean field
+    would require a migration this plan does not authorize. The treasury
+    actually covering the ward's subsistence (`Government.
+    government_treasury`) is NOT this function's job: it is the per-tick
+    job of the Plan 4 orchestrator, which reads the `"state_ward"` flag
+    every tick that follows. Only the flag itself is set here.
+
+    FIX MISS-1 (why this function exists at all): a caretaker only
+    ADMINISTERS the minor's estate; the minor keeps direct ownership of
+    whatever it inherited. This function enforces that boundary simply by
+    never touching `Agent.wealth` on either `minor` or the chosen
+    caretaker -- it writes exactly one field, `caretaker_agent`, and nothing
+    else. Wealth transfer, if any, already happened earlier in the death
+    pipeline via `distribute_estate`; this function never re-opens it.
+
+    NO ADULTHOOD REQUIREMENT ON THE CARETAKER: the design spec is silent
+    on whether a chosen caretaker must itself be an adult. This
+    implementation imposes none -- a minor sibling can be selected as
+    caretaker if it is the nearest living relative. Flagged here
+    explicitly for the phase-6 adversarial audit rather than silently
+    assumed; resolving it either way is a scientific/design decision, not
+    an implementation default this function should invent.
+
+    NO-SAVE CONTRACT (module-wide, matches `distribute_estate`'s "WITHOUT
+    persisting" contract, T021): this function mutates the passed `minor`
+    instance in memory ONLY -- it never calls `.save()`. Persisting the
+    `caretaker_agent` write (and, for the state-ward path, the `conditions`
+    write) is the caller's responsibility, exactly like every other
+    resolver in this module leaves persistence to its caller.
+
+    DECISION D3 (plan.md, "Pure functions, no global state"): this is one
+    of the two Plan 4 orchestrator entry points this plan introduces (the
+    other is `migration.py`'s `process_emergency_flight`). Neither module
+    decides tick ordering -- that is the orchestrator's job -- so every
+    input this function needs is passed explicitly rather than read from
+    module-level state. `tick` is accepted for exactly this reason (API
+    symmetry with the rest of the Plan 4 orchestrator surface, which
+    threads `tick` through every step) but currently plays NO
+    computational role inside this function -- there is no tick-dependent
+    branch here today. Documented honestly rather than inventing a use
+    for it: a future caller (e.g. one that logs a `DemographyEvent` at
+    the moment of assignment) may need it, but that is out of this
+    function's scope.
+
+    EDGE CASE, untested by design (out of this task's scope): if `minor`
+    has no recorded zone (`zone_id is None`), stage 1 is skipped entirely
+    -- "same zone as the minor" is not a meaningful comparison when the
+    minor itself is not located anywhere, so this falls straight through
+    to stage 2 rather than comparing `None == None` against any
+    equally-zoneless candidate.
+
+    Args:
+        minor: the orphaned minor `Agent` instance. Must be saved (have a
+            primary key). The caller (the Plan 4 death orchestrator)
+            guarantees `minor` is an orphaned minor -- this function does
+            not itself verify age or parental death.
+        tick: the current simulation tick, passed through for orchestrator
+            API symmetry (decision D3). See the docstring section above --
+            it has no computational effect in this implementation.
+
+    Returns:
+        The chosen caretaker `Agent`, or `None` when no living relative
+        exists anywhere (the state-ward case).
+
+    Query cost contract (bounded, independent of population size -- this
+    runs once per newly-orphaned minor, and the Plan 4 orchestrator will
+    call it every tick): up to 4 queries total -- (1) `_resolve_sibling_
+    heirs` (0 or 1), (2) `_resolve_grandparent_ids` (0 or 1), (3) the
+    grandparents' own `Agent` rows, fetched once to read their `zone_id` /
+    `birth_tick` for ranking (0 when no grandparent id was found), (4)
+    `_resolve_aunts_uncles` (0 or 1). 0 queries total when `minor` has no
+    recorded parent at all. Every query filters on a small, already-
+    resolved id set (the minor's own parent ids, then grandparent ids)
+    rather than scanning the population.
+    """
+    from epocha.apps.agents.models import Agent
+
+    def _sort_key(agent: Any) -> tuple[int, int]:
+        birth_tick = agent.birth_tick if agent.birth_tick is not None else 0
+        return (birth_tick, agent.id)
+
+    siblings = _resolve_sibling_heirs(minor)
+
+    parent_ids = [pid for pid in (minor.parent_agent_id, minor.other_parent_agent_id) if pid]
+    grandparent_ids = _resolve_grandparent_ids(parent_ids)
+
+    grandparents: list = []
+    if grandparent_ids:
+        grandparents = sorted(
+            Agent.objects.filter(id__in=grandparent_ids, is_alive=True), key=_sort_key
+        )
+
+    aunts_uncles_raw = _resolve_aunts_uncles(grandparent_ids, parent_ids)
+    aunts_uncles = sorted((agent for agent in aunts_uncles_raw if agent.is_alive), key=_sort_key)
+
+    # Kinship rungs in priority order -- each pool is already living-only
+    # and sorted ascending by (birth_tick, id).
+    kinship_pools = (siblings, grandparents, aunts_uncles)
+
+    def _first_match(zone_id: int | None) -> Any | None:
+        for pool in kinship_pools:
+            candidates = pool if zone_id is None else [a for a in pool if a.zone_id == zone_id]
+            if candidates:
+                return candidates[0]
+        return None
+
+    caretaker = None
+    if minor.zone_id is not None:
+        caretaker = _first_match(minor.zone_id)  # stage 1: same zone
+    if caretaker is None:
+        caretaker = _first_match(None)  # stage 2: any zone
+
+    minor.caretaker_agent = caretaker
+    if caretaker is None:
+        minor.conditions.append("state_ward")
+
+    return caretaker

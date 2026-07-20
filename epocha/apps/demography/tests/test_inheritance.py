@@ -44,6 +44,15 @@ Code, 1804), `shari'a` (Powers, D.S. (1986), "Studies in Qur'an and Hadith:
 The Formation of the Islamic Law of Inheritance"), `matrilineal` (Schneider,
 D.M. & Gough, K. (1961), "Matrilineal Kinship"), and `nationalized` (Nove,
 A. (1969), "An Economic History of the USSR").
+
+Also covers `assign_orphan_caretaker` (Plan 3, T024/T025, user story 3 --
+orphan caretaker assignment): the two-stage priority ladder (same zone,
+then any zone, each walked sibling > grandparent > aunt/uncle), the
+deterministic birth_tick/id tiebreak within a kinship rung, the state-ward
+fallback (conditions flag) when no living relative exists anywhere, the
+module-wide no-persistence contract, and fix MISS-1 -- the orphan keeps
+direct ownership of its inheritance, the caretaker only administers
+(design spec Sezione 5, "Gestione orfani (fix MISS-1)").
 """
 
 from __future__ import annotations
@@ -64,6 +73,7 @@ from epocha.apps.demography.inheritance import (
     apply_inheritance_at_birth,
     apply_social_inheritance,
     apply_trait_inheritance,
+    assign_orphan_caretaker,
     distribute_estate,
     evaluate_derived_formula,
     inherit_trait,
@@ -2425,3 +2435,407 @@ class TestTransferLoansAsLenderQueryBudget:
         # of loan count, never N+1 individual .save() calls.
         with django_assert_num_queries(2):
             transfer_loans_as_lender(deceased, heirs)
+
+
+# ---------------------------------------------------------------------------
+# assign_orphan_caretaker (Plan 3, T024/T025, user story 3 -- orphan
+# caretaker assignment, fix MISS-1)
+# ---------------------------------------------------------------------------
+#
+# Design spec Sezione 5, "Gestione orfani (fix MISS-1)": "Quando entrambi i
+# genitori biologici di un minorenne (age < adulthood_age) sono morti, il
+# minore viene assegnato un caretaker_agent secondo la priorità seguente:
+# parente vivente più vicino nella stessa zona (fratello, nonno, zio/zia),
+# poi qualsiasi parente vivente ovunque, poi None (pupillo dello stato). Un
+# orfano con caretaker_agent = None viene flaggato e
+# Government.government_treasury copre la sua sussistenza (modellando il
+# wardship statale). L'orfano riceve comunque la sua eredità direttamente;
+# il caretaker amministra ma non possiede gli asset."
+#
+# The treasury-subsistence flow itself is Plan 4's per-tick orchestrator
+# job and is NOT asserted here -- only the state-ward flag this function is
+# responsible for (a "state_ward" entry appended to Agent.conditions) is.
+#
+# `assign_orphan_caretaker` does not exist yet (implemented in T025); the
+# import above therefore fails at collection time with "cannot import name
+# 'assign_orphan_caretaker'", this file's established RED-first signal for
+# a not-yet-implemented function (see e.g. T016/T018/T020/T023's own RED
+# commits).
+#
+# The caller (the future Plan 4 death orchestrator) guarantees `minor` is
+# an orphaned minor before calling this function -- no test here exercises
+# adulthood, aliveness, or "still has a living parent" guards on `minor`
+# itself; those are explicitly out of scope for T024 per the task
+# description.
+
+
+def _make_other_zone(world, name="OtherZone"):
+    """A second `Zone` on the same `World`, for the cross-zone caretaker-
+    priority tests below (design spec Sezione 5, Gestione orfani, fix
+    MISS-1: stage 1 of the ladder is scoped to "la stessa zona" of the
+    minor, so distinguishing same-zone from other-zone candidates is
+    load-bearing here). Mirrors the `Zone` creation kwargs used by the
+    `sim_with_zone` fixture above, with a disjoint bounding box so the two
+    zones are geometrically distinct.
+    """
+    return Zone.objects.create(
+        world=world,
+        name=name,
+        zone_type="residential",
+        boundary=Polygon.from_bbox((200, 200, 300, 300)),
+        center=Point(250, 250),
+    )
+
+
+class TestAssignOrphanCaretakerSameZoneKinshipPriority:
+    """Stage 1 of the ladder (same zone as the minor) walks the kinship
+    rungs in order: sibling > grandparent > aunt/uncle.
+    """
+
+    @pytest.mark.django_db
+    def test_same_zone_sibling_beats_same_zone_grandparent_and_aunt_uncle(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        mother = _make_agent(
+            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        )
+        _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
+        sibling = _make_agent(sim, zone, "Sibling", parent_agent=mother, birth_tick=5)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == sibling
+
+    @pytest.mark.django_db
+    def test_same_zone_grandparent_beats_same_zone_aunt_uncle_when_no_sibling(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        mother = _make_agent(
+            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        )
+        _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == grandparent
+
+    @pytest.mark.django_db
+    def test_same_zone_aunt_uncle_is_picked_when_no_sibling_or_grandparent_are_same_zone(
+        self, sim_with_zone
+    ):
+        """The grandparent itself lives in a different zone (so it is not a
+        stage-1 candidate), but its child -- the minor's aunt -- lives in
+        the minor's own zone and is found through the grandparent lineage.
+        """
+        sim, zone = sim_with_zone
+        other_zone = _make_other_zone(zone.world)
+        grandparent = _make_agent(sim, other_zone, "Grandparent", birth_tick=-100)
+        mother = _make_agent(
+            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        )
+        aunt = _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == aunt
+
+
+class TestAssignOrphanCaretakerStageOneBeatsStageTwo:
+    """A same-zone relative at a LOWER-priority kinship rung still outranks
+    a HIGHER-priority kinship rung relative in a different zone -- stage 1
+    (same zone) is exhausted in full before stage 2 (any zone) is even
+    considered.
+    """
+
+    @pytest.mark.django_db
+    def test_same_zone_grandparent_beats_other_zone_sibling(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        other_zone = _make_other_zone(zone.world)
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        mother = _make_agent(
+            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        )
+        _make_agent(sim, other_zone, "Sibling", parent_agent=mother, birth_tick=5)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == grandparent
+
+    @pytest.mark.django_db
+    def test_same_zone_aunt_uncle_beats_other_zone_sibling(self, sim_with_zone):
+        """The grandparent itself lives in a different zone (so it is not a
+        stage-1 candidate and cannot out-rank the aunt on the grandparent
+        rung) -- only the aunt qualifies for stage 1, and she must still
+        beat the other-zone sibling.
+        """
+        sim, zone = sim_with_zone
+        other_zone = _make_other_zone(zone.world)
+        grandparent = _make_agent(sim, other_zone, "Grandparent", birth_tick=-100)
+        mother = _make_agent(
+            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        )
+        aunt = _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
+        _make_agent(sim, other_zone, "Sibling", parent_agent=mother, birth_tick=5)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == aunt
+
+
+class TestAssignOrphanCaretakerStageTwoAnyZonePriority:
+    """When stage 1 (same zone) finds nobody, stage 2 walks the same
+    kinship ladder across every zone.
+    """
+
+    @pytest.mark.django_db
+    def test_other_zone_sibling_beats_other_zone_grandparent(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        other_zone = _make_other_zone(zone.world)
+        grandparent = _make_agent(sim, other_zone, "Grandparent", birth_tick=-100)
+        mother = _make_agent(
+            sim, other_zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        )
+        sibling = _make_agent(sim, other_zone, "Sibling", parent_agent=mother, birth_tick=5)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == sibling
+
+    @pytest.mark.django_db
+    def test_single_other_zone_relative_is_assigned_when_no_same_zone_candidate(
+        self, sim_with_zone
+    ):
+        sim, zone = sim_with_zone
+        other_zone = _make_other_zone(zone.world)
+        grandparent = _make_agent(sim, other_zone, "Grandparent", birth_tick=-100)
+        mother = _make_agent(
+            sim, other_zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        )
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == grandparent
+
+
+class TestAssignOrphanCaretakerNoLivingRelativeStateWard:
+    """No living relative anywhere (neither zone): returns None,
+    `caretaker_agent` stays None, and "state_ward" is appended to
+    `Agent.conditions` -- the flag mechanism the design spec calls
+    "flaggato" ahead of the treasury covering subsistence (Plan 4's
+    per-tick job, not asserted here).
+    """
+
+    @pytest.mark.django_db
+    def test_no_living_relative_returns_none_and_flags_state_ward(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        father = _make_agent(sim, zone, "Father", is_alive=False, birth_tick=-60)
+        minor = _make_agent(
+            sim,
+            zone,
+            "Minor",
+            parent_agent=mother,
+            other_parent_agent=father,
+            age=10,
+            birth_tick=10,
+        )
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker is None
+        assert minor.caretaker_agent is None
+        assert "state_ward" in minor.conditions
+
+    @pytest.mark.django_db
+    def test_state_ward_flag_is_appended_not_overwriting_existing_conditions(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        minor = _make_agent(
+            sim,
+            zone,
+            "Minor",
+            parent_agent=mother,
+            age=10,
+            birth_tick=10,
+            conditions=["chronic_illness"],
+        )
+
+        assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert minor.conditions == ["chronic_illness", "state_ward"]
+
+
+class TestAssignOrphanCaretakerDeterministicTiebreak:
+    """Within a kinship rung, ties break by `birth_tick` ascending (oldest
+    first), then `id` ascending -- the same convention as
+    `_resolve_sibling_heirs` above.
+    """
+
+    @pytest.mark.django_db
+    def test_lower_birth_tick_sibling_wins_regardless_of_creation_order(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        # Created in reverse birth_tick order: the younger sibling gets the
+        # LOWER id, so a naive "first created" or "lowest id" selection
+        # would wrongly pick it instead of the older (lower birth_tick)
+        # sibling.
+        younger_sibling = _make_agent(
+            sim, zone, "YoungerSibling", parent_agent=mother, birth_tick=20
+        )
+        older_sibling = _make_agent(sim, zone, "OlderSibling", parent_agent=mother, birth_tick=5)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == older_sibling
+        # Self-check: id order is the opposite of birth_tick order, so this
+        # result cannot be explained by an accidental id-only tiebreak.
+        assert older_sibling.id > younger_sibling.id
+
+    @pytest.mark.django_db
+    def test_equal_birth_tick_lower_id_wins(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        first_sibling = _make_agent(sim, zone, "FirstSibling", parent_agent=mother, birth_tick=5)
+        second_sibling = _make_agent(sim, zone, "SecondSibling", parent_agent=mother, birth_tick=5)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == first_sibling
+        assert first_sibling.id < second_sibling.id  # self-check
+
+
+class TestAssignOrphanCaretakerDeadRelativesSkipped:
+    """Dead relatives (`is_alive=False`) never qualify as a caretaker, at
+    any kinship rung and in either stage of the ladder.
+    """
+
+    @pytest.mark.django_db
+    def test_dead_same_zone_sibling_is_skipped_in_favor_of_same_zone_grandparent(
+        self, sim_with_zone
+    ):
+        sim, zone = sim_with_zone
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        mother = _make_agent(
+            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        )
+        _make_agent(sim, zone, "DeadSibling", parent_agent=mother, birth_tick=5, is_alive=False)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == grandparent
+
+    @pytest.mark.django_db
+    def test_only_relative_anywhere_is_dead_yields_none_and_flags_state_ward(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        other_zone = _make_other_zone(zone.world)
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        _make_agent(
+            sim, other_zone, "DeadSibling", parent_agent=mother, birth_tick=5, is_alive=False
+        )
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker is None
+        assert "state_ward" in minor.conditions
+
+
+class TestAssignOrphanCaretakerNoPersistence:
+    """No-persistence contract (module-wide, settled): the function
+    mutates the passed `minor` instance but NEVER calls `.save()` --
+    consistent with `distribute_estate`'s own "WITHOUT persisting"
+    contract (T021), leaving the write to the caller (the Plan 4
+    orchestrator).
+    """
+
+    @pytest.mark.django_db
+    def test_successful_assignment_is_not_persisted_to_database(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        sibling = _make_agent(sim, zone, "Sibling", parent_agent=mother, birth_tick=5)
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == sibling
+        # The in-memory instance IS mutated by the call...
+        assert minor.caretaker_agent_id == sibling.id
+
+        # ...but nothing was ever written to the database.
+        persisted = Agent.objects.get(id=minor.id)
+        assert persisted.caretaker_agent_id is None
+
+
+class TestAssignOrphanCaretakerOwnershipFixMiss1:
+    """Fix MISS-1 (design spec Sezione 5, Gestione orfani): "L'orfano
+    riceve comunque la sua eredità direttamente; il caretaker amministra
+    ma non possiede gli asset." The caretaker assignment call must never
+    move wealth between the orphan and the caretaker -- the orphan keeps
+    direct ownership of whatever it inherited.
+    """
+
+    @pytest.mark.django_db
+    def test_call_does_not_transfer_wealth_between_orphan_and_caretaker(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        sibling = _make_agent(sim, zone, "Sibling", parent_agent=mother, birth_tick=5, wealth=100.0)
+        minor = _make_agent(
+            sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10, wealth=500.0
+        )
+        minor_wealth_before = minor.wealth
+        sibling_wealth_before = sibling.wealth
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == sibling
+        assert minor.wealth == minor_wealth_before
+        assert sibling.wealth == sibling_wealth_before
+
+
+class TestAssignOrphanCaretakerKinshipDefinitions:
+    """Kinship definitions match this module's existing conventions: the
+    sibling match is broadened to either parentage FK (same as
+    `_resolve_sibling_heirs` above), and the grandparent lookup walks
+    through EITHER of the minor's own two parentage FKs, not just
+    `parent_agent`.
+    """
+
+    @pytest.mark.django_db
+    def test_half_sibling_via_other_parent_agent_counts_as_sibling(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        father = _make_agent(sim, zone, "Father", is_alive=False, birth_tick=-60)
+        half_sibling = _make_agent(
+            sim, zone, "HalfSibling", other_parent_agent=father, birth_tick=5
+        )
+        minor = _make_agent(sim, zone, "Minor", other_parent_agent=father, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == half_sibling
+
+    @pytest.mark.django_db
+    def test_grandparent_via_minors_other_parent_agent_is_found(self, sim_with_zone):
+        """The grandparent lookup must walk BOTH of the minor's own
+        parentage FKs -- here the grandparent is reachable only through
+        the minor's `other_parent_agent` (father) side, not `parent_agent`.
+        """
+        sim, zone = sim_with_zone
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        father = _make_agent(
+            sim, zone, "Father", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        )
+        minor = _make_agent(sim, zone, "Minor", other_parent_agent=father, age=10, birth_tick=10)
+
+        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+
+        assert caretaker == grandparent
