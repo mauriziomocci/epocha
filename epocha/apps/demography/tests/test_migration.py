@@ -64,7 +64,6 @@ from epocha.apps.demography.couple import form_couple
 from epocha.apps.demography.migration import (
     EMERGENCY_FLIGHT_MEMORY_WEIGHT,
     TRAPPED_CRISIS_MEMORY_WEIGHT,
-    ZONE_UNEMPLOYMENT_WINDOW_TICKS,
     ZONE_WAGE_WINDOW_TICKS,
     build_migration_outlook,
     compute_distance_cost,
@@ -361,7 +360,34 @@ class TestComputeZoneWage:
 
     @pytest.mark.django_db
     def test_default_window_matches_the_module_constant(self, sim_with_zone, currency):
-        assert ZONE_WAGE_WINDOW_TICKS == 5
+        """Rewritten per the phase-6 re-audit gate: the PRE-FIX version
+        of this test asserted `ZONE_WAGE_WINDOW_TICKS == 5` against a
+        bare literal and never called `compute_zone_wage` at all -- a
+        typo in the function's own `window: int = ZONE_WAGE_WINDOW_TICKS`
+        default, or confusing it with the neighboring
+        `ZONE_UNEMPLOYMENT_WINDOW_TICKS = 3`, would have passed silently.
+        Every OTHER test in this class passes `window=5` explicitly, so
+        nothing else exercises the REAL default either --
+        `process_emergency_flight`'s own zone_stats construction
+        (`compute_zone_wage(simulation, z, tick)`, no `window=`) is the
+        only production caller this default actually reaches.
+
+        Discriminating fixture: a wage row at exactly `tick - 4` -- INSIDE
+        the half-open window `(tick - 5, tick]` `ZONE_WAGE_WINDOW_TICKS`
+        admits, but OUTSIDE `(tick - 3, tick]`, the window the
+        neighboring `ZONE_UNEMPLOYMENT_WINDOW_TICKS = 3` would admit --
+        chosen specifically so the ONE most likely accidental swap is
+        exactly what this fixture would catch, not merely "some other
+        number".
+        """
+        sim, zone = sim_with_zone
+        alice = _make_agent(sim, zone, "Alice")
+        tick = 50
+        _make_wage(sim, currency, alice, tick=tick - 4, amount=100.0)
+
+        wage = compute_zone_wage(sim, zone, tick)  # window omitted -- exercises the real default
+
+        assert wage == pytest.approx(100.0 / (1 * ZONE_WAGE_WINDOW_TICKS))
 
     @pytest.mark.django_db
     def test_query_count_is_bounded_regardless_of_agent_or_ledger_row_count(
@@ -475,9 +501,24 @@ class TestComputeZoneUnemployment:
 
         assert unemployment == pytest.approx(0.0)
 
-    @pytest.mark.django_db
-    def test_default_window_matches_the_module_constant(self):
-        assert ZONE_UNEMPLOYMENT_WINDOW_TICKS == 3
+    # DELETED per the phase-6 re-audit gate (was
+    # `test_default_window_matches_the_module_constant`, asserting
+    # `ZONE_UNEMPLOYMENT_WINDOW_TICKS == 3` against a bare literal,
+    # calling nothing): unlike `compute_zone_wage`, `compute_zone_
+    # unemployment` has NO separate `window` parameter to decouple from
+    # the constant -- the constant is read directly inside the query
+    # (`tick__gte=tick - ZONE_UNEMPLOYMENT_WINDOW_TICKS`), so there is no
+    # structural way for a default value to drift away from it the way
+    # `compute_zone_wage`'s own `window: int = ZONE_WAGE_WINDOW_TICKS`
+    # default could. The constant's ACTUAL observable effect is already
+    # exhaustively, genuinely exercised by two real, discriminating calls
+    # right above this comment --
+    # `test_wage_exactly_at_window_lower_bound_counts_as_employed` (tick
+    # - 3, employed) and `test_wage_just_before_window_lower_bound_
+    # still_counts_as_unemployed` (tick - 4, unemployed) -- so this test
+    # added zero coverage beyond ceremony. Kept as a comment, not
+    # silently dropped, per this session's own No Bug Left Behind
+    # discipline.
 
     @pytest.mark.django_db
     def test_query_count_is_bounded_regardless_of_agent_or_ledger_row_count(
@@ -1730,12 +1771,20 @@ class TestEvaluateEmergencyFlight:
 
 
 def _make_trapped_agent_setup(sim, zone, wealth=4.0, name="TrappedAgent"):
-    """A starving agent with NO wage data anywhere -- expected_gain to
-    every reachable zone is exactly 0.0 (wage_j=0, wage_current=0,
-    distance_cost=0), which is NOT > 0, so the trapped path fires for any
-    agent meeting the wealth/ticks preconditions. Requires
-    `_make_subsistence_threshold_of_five` to have been called for `zone`
-    first.
+    """A starving agent with NO wage data anywhere. USED ALONE, on a
+    world with no OTHER zone (the common case in this class), this hits
+    `_resolve_flight_decision`'s `if not reachable_zones: return True,
+    None` shortcut -- there is nowhere to compute a gain FOR, not a gain
+    of 0.0 at every zone (a claim this docstring made before the phase-6
+    re-audit and which was never actually true: an empty `reachable_
+    zones` dict never reaches the `best_entry["expected_gain"] <= 0.0`
+    comparison at all). Either way the trapped path fires for any agent
+    meeting the wealth/ticks preconditions -- see
+    `test_trapped_when_reachable_zone_is_strictly_worse_not_merely_absent`
+    and `test_trapped_when_reachable_zone_is_exactly_break_even_pins_the_
+    lte_boundary` below for tests that add a SECOND zone and reach the
+    comparison branch genuinely. Requires `_make_subsistence_threshold_
+    of_five` to have been called for `zone` first.
     """
     return _make_agent(sim, zone, name, wealth=wealth)
 
@@ -1925,6 +1974,106 @@ class TestProcessEmergencyFlightTrapped:
         )
         assert event.payload["zone"] == zone.id
         assert event.payload["consecutive_under_subsistence"] == 30
+
+    @pytest.mark.django_db
+    def test_trapped_when_reachable_zone_is_strictly_worse_not_merely_absent(self, sim_with_zone):
+        """Phase-6 re-audit gate: every OTHER fixture in this class uses a
+        single-zone world (via `_make_trapped_agent_setup` alone, with no
+        second zone added), so `reachable_zones` is EMPTY and
+        `_resolve_flight_decision` returns via `if not reachable_zones:
+        return True, None` -- the shortcut, never the `best_entry[
+        "expected_gain"] <= 0.0` comparison the function's own docstring
+        names as the OTHER trapped path. That comparison is the
+        scientifically meaningful case O'Rourke (1994) describes:
+        destinations exist, the agent can see them, none is better. This
+        test gives the agent a genuinely reachable `WorseZone` whose
+        expected gain is STRICTLY negative -- a distant zone whose
+        distance cost overwhelms its wage -- so the trapped verdict comes
+        from comparing options, not from having none.
+
+        Hand-verified: `WorseZone` sits 10,000 grid units away (default
+        `distance_scale=133.0`, `tick_duration_hours=24.0`), giving
+        `distance_km = 10_000 * 133.0 / 1000.0 = 1330.0`,
+        `ticks = ceil(1330.0 / 25.0) = 54`. A single wage row of 10.0 at
+        the eval tick over the default 5-tick window gives
+        `wage_j = 250.0 / (1 * 5) = 50.0`; `Worker`'s `role=""` keeps
+        `WorseZone`'s unemployment at 0.0 (no role-holders, see
+        `compute_zone_unemployment`'s own zero-role-holder contract).
+        `zone` (origin) has no wage data, so `wage_current = 0.0`.
+        `expected_gain = (1 - 0.0) * 50.0 - 0.0 - 54 = -4.0` -- reachable,
+        strictly negative, comfortably away from the 0.0 boundary the
+        next test targets.
+        """
+        sim, zone = sim_with_zone
+        _make_government(sim)
+        world = zone.world
+        worse_zone = _make_zone_at(world, 10_050, 50, "WorseZone")
+        currency = Currency.objects.create(
+            simulation=sim, code="LVR", name="Livre", symbol="L", total_supply=50_000.0
+        )
+        worker = _make_agent(sim, worse_zone, "Worker", role="")
+        _make_wage(sim, currency, worker, tick=50, amount=250.0)
+        _make_subsistence_threshold_of_five(sim, zone)
+        agent = _make_trapped_agent_setup(sim, zone)
+
+        process_emergency_flight(
+            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
+        )
+
+        assert DemographyEvent.objects.filter(
+            simulation=sim,
+            event_type=DemographyEvent.EventType.TRAPPED_CRISIS,
+            primary_agent=agent,
+        ).exists()
+        agent.refresh_from_db()
+        assert agent.zone_id == zone.id  # never relocated -- worse is worse, not absent
+
+    @pytest.mark.django_db
+    def test_trapped_when_reachable_zone_is_exactly_break_even_pins_the_lte_boundary(
+        self, sim_with_zone
+    ):
+        """THE discriminating test for `best_entry["expected_gain"] <=
+        0.0` in `_resolve_flight_decision` (`migration.py`): constructed
+        from round numbers so `expected_gain` lands on EXACTLY 0.0, a
+        true floating-point equality rather than an epsilon-away
+        approximation -- `(1 - 0.0) * 2.0 - 0.0 - 2 = 0.0`. A strict `<`
+        in place of `<=` treats 0.0 as still-positive and sends the agent
+        fleeing to a zone that gains them nothing; the test right above
+        this one (strictly negative, -4.0) cannot catch that mutation,
+        since -4.0 is `< 0.0` either way. This one is the only test in
+        the suite that can.
+
+        Hand-verified: `BreakEvenZone` sits 200 grid units away, giving
+        `distance_km = 200 * 133.0 / 1000.0 = 26.6`,
+        `ticks = ceil(26.6 / 25.0) = 2`. A single wage row of 10.0 at the
+        eval tick over the default 5-tick window gives
+        `wage_j = 10.0 / (1 * 5) = 2.0` exactly (`10.0 / 5.0` has no
+        rounding error in IEEE 754). `wage_current = 0.0` (`zone` has no
+        wage data). `expected_gain = 1.0 * 2.0 - 0.0 - 2 = 0.0`.
+        """
+        sim, zone = sim_with_zone
+        _make_government(sim)
+        world = zone.world
+        break_even_zone = _make_zone_at(world, 250, 50, "BreakEvenZone")
+        currency = Currency.objects.create(
+            simulation=sim, code="LVR", name="Livre", symbol="L", total_supply=50_000.0
+        )
+        worker = _make_agent(sim, break_even_zone, "Worker", role="")
+        _make_wage(sim, currency, worker, tick=50, amount=10.0)
+        _make_subsistence_threshold_of_five(sim, zone)
+        agent = _make_trapped_agent_setup(sim, zone)
+
+        process_emergency_flight(
+            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
+        )
+
+        assert DemographyEvent.objects.filter(
+            simulation=sim,
+            event_type=DemographyEvent.EventType.TRAPPED_CRISIS,
+            primary_agent=agent,
+        ).exists()
+        agent.refresh_from_db()
+        assert agent.zone_id == zone.id  # never relocated -- break-even is NOT a flight
 
     @pytest.mark.django_db
     def test_trapped_crisis_propagates_a_memory_to_every_co_zone_agent_fix_miss3(
@@ -2505,13 +2654,31 @@ def _build_flight_scenario(run_label):
 
     counters = {}
 
-    fleeing_agents = [
-        _make_agent(sim, origin_zone, f"{run_label}Fleeing{i}", wealth=4.0) for i in range(4)
-    ]
+    # Fleeing agents are INTERLEAVED with filler "Stays" rows (2 between
+    # each), not created back-to-back, so their own auto-increment ids
+    # are NON-CONSECUTIVE (phase-6 re-audit gate). This matters
+    # specifically because CPython's `set` implementation happens to
+    # preserve insertion/value order for a handful of mutually
+    # CONSECUTIVE small integers regardless of `PYTHONHASHSEED` (verified
+    # directly against CPython in the session report) -- a tight
+    # back-to-back creation loop would make a `sorted(fled_ids)` ->
+    # bare `set` iteration mutation on the mass-flight payload invisible
+    # to this fixture no matter how the two runs' processes or hash
+    # seeds differ. Spacing the ids apart is what gives the comparison in
+    # `_run_outcome_by_name`'s `mass_flight_agents_order` a genuine
+    # chance to diverge under that mutation. `Stays` count is unchanged
+    # at 6 total (still 4 fleeing / 10 living = 40% > 30%, so MASS_FLIGHT
+    # still fires) -- only the CREATION ORDER changes, not the scenario's
+    # own arithmetic.
+    fleeing_agents: list = []
+    stays_created = 0
+    for i in range(4):
+        fleeing_agents.append(_make_agent(sim, origin_zone, f"{run_label}Fleeing{i}", wealth=4.0))
+        for _ in range(2 if i < 3 else 0):  # 2+2+2+0 = 6 Stays total, same as before
+            _make_agent(sim, origin_zone, f"{run_label}Stays{stays_created}", wealth=100.0)
+            stays_created += 1
     for agent in fleeing_agents:
         counters[agent.id] = 30
-    for i in range(6):
-        _make_agent(sim, origin_zone, f"{run_label}Stays{i}", wealth=100.0)
 
     trapped_agent = _make_agent(sim, trapped_zone, f"{run_label}TrappedAgent", wealth=4.0)
     counters[trapped_agent.id] = 30
@@ -2523,6 +2690,23 @@ def _run_outcome_by_name(sim):
     """Extract the flight-path outcome from `sim`'s `DemographyEvent`
     rows, keyed by agent NAME (with the run-label prefix stripped) so two
     independently built simulations' outcomes compare by value.
+
+    `mass_flight_agents_order` (strengthened per the phase-6 re-audit
+    gate): the ORIGINAL ordering of `MASS_FLIGHT`'s own `payload[
+    "agents"]` id list is not directly comparable across two
+    independently built simulations (the raw ids never match), but this
+    scenario's own fixture (`_build_flight_scenario`) creates
+    `Fleeing0..3` in that exact sequential order within EACH run, so
+    their auto-increment ids rise in the SAME relative order their name
+    suffixes do, in BOTH runs independently -- translating the id list to
+    stripped names makes it directly comparable. This is deliberately a
+    STRONGER check than the pre-existing `len(...) == len(...)`
+    comparison at the call site: a list built via `sorted(fled_ids)`
+    (the current, correct code) preserves this name order in both runs;
+    one built via bare `set` iteration might not, since a hash-table's
+    physical iteration order is a function of the actual id values
+    (`hash(int) % table_size`), which differ in absolute magnitude
+    between the two runs even for structurally-corresponding agents.
     """
     fled_names = set()
     trapped_names = set()
@@ -2539,12 +2723,174 @@ def _run_outcome_by_name(sim):
 
     memory_count = Memory.objects.filter(agent__simulation=sim).count()
 
+    mass_flight_event = DemographyEvent.objects.filter(
+        simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
+    ).first()
+    mass_flight_agents_order: list[str] | None = None
+    if mass_flight_event is not None:
+        agent_ids = mass_flight_event.payload["agents"]
+        names_by_id = dict(Agent.objects.filter(id__in=agent_ids).values_list("id", "name"))
+        mass_flight_agents_order = [names_by_id[agent_id][1:] for agent_id in agent_ids]
+
     return {
         "fled_names": fled_names,
         "trapped_names": trapped_names,
         "event_sequence": event_sequence,
         "memory_count": memory_count,
+        "mass_flight_agents_order": mass_flight_agents_order,
     }
+
+
+# ---------------------------------------------------------------------------
+# Cross-interpreter determinism (phase-6 re-audit gate). The in-process
+# test above (`TestFlightPathDeterminismSC003`) builds two genuinely
+# independent simulations, which proves the outcome does not depend on
+# incidental id/creation-order values -- but both runs still execute in
+# the SAME interpreter under ONE `PYTHONHASHSEED`, so it cannot by itself
+# rule out a bare `set`/`dict` iteration whose observable order depends
+# on the hash randomization seed. `TestFlightPathDeterminismAcrossHashSeeds`
+# below runs the SECOND pass in a genuinely separate OS process with an
+# explicitly different `PYTHONHASHSEED`, closing that gap.
+#
+# WHY BOTH RUNS GO THROUGH A SUBPROCESS, NOT JUST THE SECOND: the
+# CURRENTLY RUNNING pytest interpreter's own hash seed is whatever the
+# process inherited at startup and cannot be changed after the fact
+# (`PYTHONHASHSEED` is read once, at interpreter start) -- pinning only
+# the second run would leave the first at an unknown, uncontrolled seed,
+# which could coincidentally match it. Running BOTH runs as subprocesses
+# with two EXPLICIT, DIFFERENT, hard-coded seeds removes that
+# uncertainty and makes the test reproducible run to run.
+#
+# HOW THE SUBPROCESS REACHES THE TEST DATABASE: `@pytest.mark.django_db`
+# wraps each test in an uncommitted transaction that pytest-django rolls
+# back afterward, invisible to any OTHER connection -- exactly the
+# opposite of what a genuinely separate process needs to see. This class
+# uses `@pytest.mark.django_db(transaction=True)` instead (real commits,
+# table truncation for cleanup, matching Django's own
+# `TransactionTestCase`), and reads the ACTUAL currently-connected test
+# database's own connection parameters via `django.db.connection.
+# settings_dict` (never hard-coded) to build the subprocess's
+# `DATABASE_URL` -- this is exactly the parameter set pytest-django
+# swapped in for this test, whatever the test database happens to be
+# named.
+
+
+def _test_database_url() -> str:
+    """The `DATABASE_URL` a subprocess needs to reach the SAME database
+    the current test is connected to (`postgis://`, matching this
+    project's own `DATABASE_URL` scheme -- verified against the running
+    container's environment, not guessed).
+    """
+    from django.db import connection
+
+    db = connection.settings_dict
+    return f"postgis://{db['USER']}:{db['PASSWORD']}@{db['HOST']}:{db['PORT']}/{db['NAME']}"
+
+
+# Inline script executed by `manage.py shell -c` in the subprocess.
+# `manage.py shell` already calls `django.setup()` before running this,
+# so no explicit setup is needed here. Inputs come through environment
+# variables (not `-c` script arguments, which `manage.py shell` does not
+# expose) -- `EPOCHA_TEST_COUNTERS` is JSON because
+# `consecutive_ticks_under_subsistence_by_agent_id` is a dict, the one
+# argument that cannot round-trip through a single env var string
+# otherwise.
+_SUBPROCESS_FLIGHT_RUNNER_SCRIPT = """
+import json
+import os
+
+from epocha.apps.demography.migration import process_emergency_flight
+from epocha.apps.simulation.models import Simulation
+
+sim = Simulation.objects.get(id=int(os.environ["EPOCHA_TEST_SIM_ID"]))
+tick = int(os.environ["EPOCHA_TEST_TICK"])
+counters = {int(k): v for k, v in json.loads(os.environ["EPOCHA_TEST_COUNTERS"]).items()}
+process_emergency_flight(sim, tick=tick, consecutive_ticks_under_subsistence_by_agent_id=counters)
+"""
+
+
+def _run_process_emergency_flight_in_subprocess(
+    sim_id: int, tick: int, counters: dict, hash_seed: int
+) -> None:
+    """Run `process_emergency_flight(sim, tick, counters)` in a genuinely
+    separate OS process under the given `PYTHONHASHSEED`, committing
+    directly to the test database `sim_id` already lives in (see this
+    section's own module-level comment for why `transaction=True` and a
+    real subprocess are both necessary here).
+
+    Raises:
+        AssertionError: the subprocess exited non-zero -- its stdout and
+            stderr are included in the message so a genuine failure
+            inside `process_emergency_flight` is diagnosable, not just
+            "the subprocess failed".
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+
+    env = {
+        **os.environ,
+        "DJANGO_SETTINGS_MODULE": "config.settings.test",
+        "DATABASE_URL": _test_database_url(),
+        "PYTHONHASHSEED": str(hash_seed),
+        "EPOCHA_TEST_SIM_ID": str(sim_id),
+        "EPOCHA_TEST_TICK": str(tick),
+        "EPOCHA_TEST_COUNTERS": json.dumps(counters),
+    }
+    result = subprocess.run(
+        [sys.executable, "manage.py", "shell", "-c", _SUBPROCESS_FLIGHT_RUNNER_SCRIPT],
+        cwd="/app",
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"subprocess (PYTHONHASHSEED={hash_seed}) exited {result.returncode}\n"
+        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+    )
+
+
+class TestFlightPathDeterminismAcrossHashSeeds:
+    """SC-003, cross-interpreter: the SAME two-independent-simulation
+    proof as `TestFlightPathDeterminismSC003`, but with each run executed
+    in its OWN OS process under an explicitly different `PYTHONHASHSEED`
+    -- closing the gap that test cannot: a bare `set`/`dict` iteration
+    whose observable order happens to depend on hash randomization.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_two_runs_under_different_hash_seeds_produce_identical_outcomes(self):
+        sim_a, tick_a, counters_a = _build_flight_scenario("A")
+        sim_b, tick_b, counters_b = _build_flight_scenario("B")
+
+        assert sim_a.id != sim_b.id  # self-check: genuinely different simulations
+
+        # Two explicit, different, hard-coded seeds -- see this section's
+        # own module-level comment for why BOTH runs go through a
+        # subprocess rather than pinning only one.
+        _run_process_emergency_flight_in_subprocess(sim_a.id, tick_a, counters_a, hash_seed=0)
+        _run_process_emergency_flight_in_subprocess(
+            sim_b.id, tick_b, counters_b, hash_seed=4_242_424_242
+        )
+
+        outcome_a = _run_outcome_by_name(sim_a)
+        outcome_b = _run_outcome_by_name(sim_b)
+
+        assert (
+            outcome_a["fled_names"]
+            == outcome_b["fled_names"]
+            == {"Fleeing0", "Fleeing1", "Fleeing2", "Fleeing3"}
+        )
+        assert outcome_a["trapped_names"] == outcome_b["trapped_names"] == {"TrappedAgent"}
+        assert outcome_a["event_sequence"] == outcome_b["event_sequence"]
+        assert outcome_a["memory_count"] == outcome_b["memory_count"] > 0
+        assert (
+            outcome_a["mass_flight_agents_order"]
+            == outcome_b["mass_flight_agents_order"]
+            == ["Fleeing0", "Fleeing1", "Fleeing2", "Fleeing3"]
+        )
 
 
 class TestFlightPathDeterminismSC003:
@@ -2587,6 +2933,15 @@ class TestFlightPathDeterminismSC003:
         # the order-independence proof itself, not just a same-set check.
         assert outcome_a["event_sequence"] == outcome_b["event_sequence"]
         assert outcome_a["memory_count"] == outcome_b["memory_count"] > 0
+        # Strengthened per the phase-6 re-audit gate: the EXACT order of
+        # MASS_FLIGHT's own "agents" list, not merely its length -- see
+        # `_run_outcome_by_name`'s own docstring for why this is
+        # comparable across two independently built simulations.
+        assert (
+            outcome_a["mass_flight_agents_order"]
+            == outcome_b["mass_flight_agents_order"]
+            == ["Fleeing0", "Fleeing1", "Fleeing2", "Fleeing3"]
+        )
 
         mass_flight_a = DemographyEvent.objects.get(
             simulation=sim_a, event_type=DemographyEvent.EventType.MASS_FLIGHT

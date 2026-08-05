@@ -92,8 +92,12 @@ never merely "does not raise".
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import random
+import subprocess
+import sys
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
@@ -104,6 +108,7 @@ from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
     DEFAULT_ERA_MEAN_EDUCATION,
     DEFAULT_ERA_SD,
+    FormulaError,
     apply_estate_tax,
     apply_inheritance_at_birth,
     apply_social_inheritance,
@@ -343,21 +348,131 @@ class TestEvaluateDerivedFormulaHappyPath:
         assert result == pytest.approx(expected)
 
 
+class TestEvaluateDerivedFormulaExhaustionVector:
+    """Fix M-1 (phase-6 audit round 1, T046): `ast.Pow` must be refused.
+
+    `9**9**9` is right-associative (`9**(9**9)`), producing an integer with
+    over 369 million digits -- the auditor's own reproduction hung past
+    120 seconds computing it before being killed. Neither the whitelist
+    walk nor `_eval_node`'s numeric-constant guard catches this: every
+    node involved (`BinOp`/`Pow`, three `Constant` nodes each holding the
+    small int `9`) is individually well-typed and well-within-range: the
+    danger is purely in the COMBINATION, which no per-node check can see.
+    Removing `ast.Pow` from the whitelist eliminates the vector outright --
+    verified morning-of that no era template uses `**` anywhere, so this
+    costs nothing real, exactly matching decision D5's own stated posture
+    (the surface is not kept wide merely because today's inputs are
+    trusted).
+
+    This test does NOT reproduce the 120-second hang itself (unsafe and
+    slow to run in a unit test) -- it proves the STRUCTURAL fix instead:
+    a small, fast `Pow` expression must now be refused by the whitelist
+    walk before any evaluation happens, which is what removes the vector
+    regardless of operand size.
+    """
+
+    def test_power_operator_is_refused(self):
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("2**3", {})
+
+    def test_modulo_operator_is_refused(self):
+        """`ast.Mod` removed too, on the same "surface not kept wide
+        merely because today's inputs are trusted" reasoning from decision
+        D5 -- NOT because Mod shares Pow's exponential-blowup risk (it
+        does not: `a % b` is bounded by `b` and cannot compound into
+        unbounded computation the way right-associative `Pow` towers can).
+        No era template uses `%` either (verified alongside `**`), and
+        this evaluator serves exactly one formula today (a weighted linear
+        combination needing neither operator) -- an unused, unneeded
+        operator is removed rather than grandfathered, matching this
+        project's own preference for the smallest surface that does the
+        job. Mod's only actual failure mode (division by zero) is already
+        covered by the FormulaError wrap below, independent of whether
+        Mod itself stays whitelisted.
+        """
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("7 % 3", {})
+
+
+class TestEvaluateDerivedFormulaRaisesContract:
+    """Fix M-1 (phase-6 audit round 1, T046): the `Raises` contract in
+    `evaluate_derived_formula`'s own docstring promises ONLY `FormulaError`
+    -- this module's whole posture (see `apply_social_inheritance`'s
+    unknown-`class_rule` fallback, `resolve_heirs`'s unknown-category
+    skip, `apply_estate_tax`'s rate clamp) is to never crash the
+    birth/death pipeline on template data. Before this fix, `1/0` raised
+    a bare `ZeroDivisionError`, breaking that promise and that posture at
+    once: a template author's zero-valued denominator (or a coefficient
+    that happens to evaluate to zero) would crash the birth pipeline
+    instead of raising the one exception type every caller is entitled to
+    catch.
+    """
+
+    def test_division_by_zero_raises_formula_error_not_zero_division_error(self):
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("1/intelligence", {"intelligence": 0.0})
+
+
 class TestEvaluateDerivedFormulaRefusals:
     """Security-critical: the evaluator must refuse anything beyond arithmetic.
 
-    Five distinct refusal categories plus an unresolvable bare name, all of
-    which must raise rather than silently degrade or execute arbitrary code.
+    Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION: every case
+    below asserts `pytest.raises(FormulaError)` SPECIFICALLY, never bare
+    `Exception`. The audit's own measurement (reproduced independently
+    before writing this class, via `float(eval(expr, {}, symbols))` against
+    the six ORIGINAL payloads): five of the six raise even under a
+    deliberately insecure `eval()`-based stand-in, for reasons that have
+    nothing to do with any security refusal --
+    `intelligence.__class__`/`__import__`/`[x for x in (1,2)]` raise
+    `TypeError` only because `float()` chokes on a non-numeric intermediate
+    result (a type object, a builtin function, a list); `intelligence[0]`
+    raises `TypeError` only because a bare float is not subscriptable;
+    `unknown_trait` raises `NameError` for an unrelated, legitimate reason
+    (undefined name) that a naive `eval()` shares by coincidence, not by
+    security design. A bare `pytest.raises(Exception)` cannot tell a real
+    whitelist refusal apart from any of these incidental failures -- it
+    would pass identically against `evaluate_derived_formula` and against
+    an insecure `eval()` wrapper for 5 of these 6 payloads. Only
+    `abs(intelligence)` actually discriminates under a naive `eval()` (it
+    returns a clean `0.8`, no exception at all) -- which is exactly why a
+    SECOND, more dramatic payload of the same shape is added below,
+    matching the auditor's own illustrative example.
+
+    Categories covered, beyond the original six (now FormulaError-specific):
+    function call, attribute access, dunder bare name, subscript,
+    comprehension, unknown bare name -- plus ten more node types the
+    whitelist blocks but nothing tested before this fix (`BoolOp`,
+    `Compare`, `Lambda`, `IfExp`, `NamedExpr`/walrus, `JoinedStr`/f-string,
+    `Starred`, `Tuple`, `List`, `Dict`), plus both of `_eval_node`'s own
+    non-numeric-constant guards (`str`, `bool` True/False, `None`, `bytes`,
+    `Ellipsis`) -- these five pass the WHITELIST walk (`ast.Constant` IS an
+    allowed node type) and are refused only by the SECOND, separate guard
+    inside `_eval_node` itself, a genuinely different code path from the
+    node-type walk and therefore worth testing independently of it.
     """
 
     def test_refuses_function_call(self):
         """A function call (e.g. abs(...)) is not arithmetic and must raise."""
-        with pytest.raises(Exception):
+        with pytest.raises(FormulaError):
             evaluate_derived_formula("abs(intelligence)", {"intelligence": 0.8})
+
+    def test_refuses_function_call_that_would_return_a_valid_number_under_naive_eval(self):
+        """The auditor's own illustrative bypass: `__import__('os').system(...)`
+        returns the shell exit code (0 here), a perfectly valid float-
+        convertible int -- independently verified before writing this test:
+        `float(eval("__import__('os').system('true')", {}, {}))` returns
+        `0.0` with NO exception at all under a naive eval-based stand-in. A
+        test that only checks "some exception was raised" would not catch
+        this: the payload must be refused by the WHITELIST WALK itself,
+        before any evaluation (and therefore before any shell command)
+        could ever run.
+        """
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("__import__('os').system('true')", {})
 
     def test_refuses_attribute_access(self):
         """Attribute access (e.g. .__class__) is a potential injection vector."""
-        with pytest.raises(Exception):
+        with pytest.raises(FormulaError):
             evaluate_derived_formula("intelligence.__class__", {"intelligence": 0.8})
 
     def test_refuses_dunder_bare_name(self):
@@ -367,23 +482,113 @@ class TestEvaluateDerivedFormulaRefusals:
         on the same path as any other unknown name -- there is no special
         casing that would let a dunder name resolve.
         """
-        with pytest.raises(Exception):
+        with pytest.raises(FormulaError):
             evaluate_derived_formula("__import__", {"intelligence": 0.8})
 
     def test_refuses_subscript(self):
         """Subscript access (e.g. name[0]) is refused."""
-        with pytest.raises(Exception):
+        with pytest.raises(FormulaError):
             evaluate_derived_formula("intelligence[0]", {"intelligence": 0.8})
 
     def test_refuses_comprehension(self):
         """List/set/dict/generator comprehensions are refused."""
-        with pytest.raises(Exception):
+        with pytest.raises(FormulaError):
             evaluate_derived_formula("[x for x in (1,2)]", {"intelligence": 0.8})
 
     def test_refuses_unknown_bare_name(self):
         """A bare name absent from the symbol table must raise, not resolve to 0."""
-        with pytest.raises(Exception):
+        with pytest.raises(FormulaError):
             evaluate_derived_formula("unknown_trait", {"intelligence": 0.8})
+
+    def test_refuses_bool_op(self):
+        """`and`/`or` (ast.BoolOp) are not arithmetic."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula(
+                "intelligence and neuroticism", {"intelligence": 0.8, "neuroticism": 0.5}
+            )
+
+    def test_refuses_comparison(self):
+        """Comparison operators (ast.Compare) are not arithmetic."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula(
+                "intelligence > neuroticism", {"intelligence": 0.8, "neuroticism": 0.5}
+            )
+
+    def test_refuses_lambda(self):
+        """A lambda (ast.Lambda) defines code, not a value."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("(lambda: intelligence)", {"intelligence": 0.8})
+
+    def test_refuses_conditional_expression(self):
+        """A ternary conditional (ast.IfExp) is refused."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula(
+                "intelligence if neuroticism else agreeableness",
+                {"intelligence": 0.8, "neuroticism": 0.5, "agreeableness": 0.3},
+            )
+
+    def test_refuses_walrus_assignment(self):
+        """A named/walrus expression (ast.NamedExpr) performs assignment,
+        not arithmetic, and must be refused even though its own value
+        would be numeric."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("(x := intelligence)", {"intelligence": 0.8})
+
+    def test_refuses_f_string(self):
+        """An f-string (ast.JoinedStr) is refused."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("f'{intelligence}'", {"intelligence": 0.8})
+
+    def test_refuses_starred_expression(self):
+        """A starred unpacking expression (ast.Starred) is refused."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("[*intelligence]", {"intelligence": 0.8})
+
+    def test_refuses_tuple(self):
+        """A tuple literal (ast.Tuple) is refused."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula(
+                "(intelligence, neuroticism)", {"intelligence": 0.8, "neuroticism": 0.5}
+            )
+
+    def test_refuses_list(self):
+        """A list literal (ast.List) is refused."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula(
+                "[intelligence, neuroticism]", {"intelligence": 0.8, "neuroticism": 0.5}
+            )
+
+    def test_refuses_dict(self):
+        """A dict literal (ast.Dict) is refused."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("{'a': intelligence}", {"intelligence": 0.8})
+
+    def test_refuses_string_constant(self):
+        """A string literal passes the node-type WHITELIST (ast.Constant is
+        allowed) but is refused by _eval_node's own separate non-numeric-
+        constant guard -- a genuinely different code path from every case
+        above, worth testing independently."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("'hello'", {})
+
+    def test_refuses_bool_constant(self):
+        """True/False parse as ast.Constant with a bool value -- explicitly
+        excluded by _eval_node's `isinstance(node.value, bool)` guard even
+        though bool is technically an int subclass in Python."""
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("True", {})
+
+    def test_refuses_none_constant(self):
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("None", {})
+
+    def test_refuses_bytes_constant(self):
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("b'x'", {})
+
+    def test_refuses_ellipsis_constant(self):
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("...", {})
 
 
 # ---------------------------------------------------------------------------
@@ -1585,6 +1790,18 @@ class TestApplyInheritanceAtBirthDeterminism:
     """SC-003: identical simulation seed and tick reproduce an identical
     child state bit for bit -- proof that the fixed step order feeds all
     three inheritance mechanisms from a single continuous RNG stream.
+
+    SCOPE, STATED HONESTLY (phase-6 audit round 1, T046, M-1 test
+    remediation): this test calls `apply_inheritance_at_birth` twice in
+    ONE interpreter process, sharing one `PYTHONHASHSEED` -- it proves the
+    function is a pure, repeatable computation given identical inputs (a
+    real and useful property), but three independently-seeded `random.
+    Random` instances would ALSO pass it, and it would NOT catch
+    `apply_trait_inheritance`'s `sorted(extra_names)` at inheritance.py
+    being deleted, since that would only change RNG draw ORDER across
+    *different* hash seeds, not within one process replaying the same
+    call twice. The genuine cross-process proof is
+    `TestApplyTraitInheritanceDeterminismAcrossHashSeeds` below.
     """
 
     @pytest.mark.django_db
@@ -2131,16 +2348,23 @@ class TestApplyEstateTaxDegenerateInputs:
         assert government.government_treasury.get("USD", 0.0) == pytest.approx(0.0)
 
     @pytest.mark.django_db
-    def test_negative_estate_value_does_not_produce_negative_treasury_credit(
-        self, sim_with_government
-    ):
+    def test_negative_estate_value_produces_exactly_zero_treasury_credit(self, sim_with_government):
+        """Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION:
+        `credited >= 0.0` is too loose -- an implementation crediting
+        `abs(-500.0) * 0.40 = 200.0` (treating a negative estate as if its
+        magnitude were taxable) would satisfy `>= 0.0` and pass, even
+        though `apply_estate_tax`'s own documented contract is that a
+        non-positive `total_estate_value` credits NOTHING at all (early
+        return 0.0, before `add_to_treasury` is ever called) -- the exact
+        answer is `0.0`, not merely "non-negative".
+        """
         sim, zone, government = sim_with_government
 
         apply_estate_tax(-500.0, 0.40, government, "USD")
 
         government.refresh_from_db()
         credited = government.government_treasury.get("USD", 0.0)
-        assert credited >= 0.0
+        assert credited == 0.0
 
     @pytest.mark.django_db
     def test_zero_estate_value_returns_zero_and_credits_nothing(self, sim_with_government):
@@ -2403,6 +2627,51 @@ class TestDistributeEstateSharia:
         assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
 
 
+class TestDistributeShariaRaddBranchSpouseSoleHeir:
+    """Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION: no
+    existing fixture builds a deceased with a spouse and NEITHER children
+    NOR siblings, so `_distribute_sharia`'s radd branch (`inheritance.py`,
+    `elif spouse: allocation[spouse[0].id] = spouse_amount + residual`)
+    never ran -- deleting that line, which routes the WHOLE estate to a
+    surviving spouse (mirroring the real "radd", return of residue, effect
+    for a sole surviving Qur'anic heir per `_distribute_sharia`'s own
+    docstring step 2), passed every test before this fix. It is also the
+    one shari'a path where conservation could break silently -- the
+    spouse's fixed fraction (1/4, no children) is topped up by the ENTIRE
+    residual here rather than only receiving it via the residuary
+    `_split_two_to_one` split every other populated-pool case goes
+    through, so nothing else in this module's test suite would notice a
+    regression that dropped the `+ residual` term.
+    """
+
+    @pytest.mark.django_db
+    def test_spouse_alone_with_no_children_or_siblings_receives_the_whole_estate(
+        self, sim_with_zone
+    ):
+        sim, zone = sim_with_zone
+        # No parent_agent recorded on `deceased` -> _resolve_sibling_heirs
+        # has no basis to find a sibling at all (0 extra queries, per its
+        # own documented cost contract).
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+
+        inheritable = 10_000.33
+        heirs = resolve_heirs(deceased, _heir_template())
+        assert heirs["children"] == []
+        assert heirs["siblings"] == []
+        assert [agent.id for agent in heirs["spouse"]] == [partner.id]
+
+        allocation = distribute_estate(deceased, heirs, "shari'a", inheritable)
+
+        assert allocation == {partner.id: inheritable}, (
+            f"allocation={allocation!r} -- the radd branch must route the "
+            "ENTIRE estate to the sole surviving spouse, exactly, not merely "
+            "their fixed 1/4 fraction"
+        )
+        assert sum(allocation.values()) == inheritable
+
+
 class TestDistributeShariaSpouseAlsoSiblingConservesValue:
     """Fix C-2 (phase-6 audit round 1, T046): `_distribute_sharia` splits
     the residual among `pool` (the deceased's siblings, absent children)
@@ -2615,10 +2884,24 @@ class TestDistributeEstateConservation:
     floating-point representation, for every rule that resolves at least
     one heir -- the load-bearing invariant for whitepaper Sezione 4.2/4.8's
     accounting (see `_allocate_with_exact_remainder`'s docstring for the
-    remainder-absorption technique). `inheritable` is deliberately
-    10_000.33 -- an amount that does NOT divide evenly across two or three
-    heirs -- so these tests stress the remainder-absorption path rather
-    than accidentally passing on inputs that happen to divide exactly.
+    remainder-absorption technique).
+
+    CORRECTED CLAIM (phase-6 audit round 1, T046, M-1 test remediation):
+    this class previously claimed `10_000.33` "does NOT divide evenly
+    across two or three heirs" -- independently verified false while
+    fixing this: `sum([10_000.33/n]*n) == 10_000.33` is exactly `True` in
+    IEEE 754 for every n from 2 through 11 (checked directly in Python).
+    `_CONSERVATION_TOLERANCE`'s `pytest.approx` below therefore never
+    exercises anything -- every test in this class passes verbatim even
+    if `_allocate_with_exact_remainder` is replaced by naive division
+    (confirmed by temporarily making that exact swap and watching nothing
+    fail; see `TestDistributeEstateConservationAdversarial` below, which
+    replaces this fixture's premise with amounts independently verified,
+    in Python, to genuinely NOT divide evenly, and which DOES fail under
+    that same swap). This class is kept for its other value (rule
+    coverage, sibling-cascade / children-present branches) but is no
+    longer the adversarial proof its own docstring used to claim -- that
+    proof lives in `TestDistributeEstateConservationAdversarial`.
     """
 
     @pytest.mark.django_db
@@ -2731,6 +3014,109 @@ class TestDistributeEstateConservation:
         allocation = distribute_estate(deceased, heirs, "matrilineal", inheritable)
 
         assert sum(allocation.values()) == pytest.approx(inheritable, abs=_CONSERVATION_TOLERANCE)
+
+
+class TestDistributeEstateConservationAdversarial:
+    """Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION: the
+    genuinely adversarial conservation proof `TestDistributeEstateConservation`
+    above no longer is (see its corrected docstring). Both amounts below
+    were found by directly checking, in Python, which ones make NAIVE
+    division (`share = amount/n` reconstructed via `sum([share]*n)`, i.e.
+    what `_allocate_with_exact_remainder`'s remainder-absorption technique
+    exists to avoid) NOT reproduce the target exactly:
+
+        59778.33 / 7  -> naive reconstruction = 59778.329999999994
+                          (drift -7.28e-12 from the target)
+        214368.56 / 11 -> naive reconstruction = 214368.55999999997
+                          (drift -2.91e-11 from the target)
+
+    -- and separately confirming, in Python, that the REAL implementation
+    (`distribute_estate` -> `_allocate_with_exact_remainder`) produces a
+    sum equal to the target EXACTLY for these same amounts (not merely
+    within tolerance): `sum(allocation.values()) == inheritable` is
+    literal Python `True`, no `pytest.approx` anywhere in this class.
+    7 and 11 heirs deliberately (not 2, 3, or 4, which `10_000.33`
+    happens to divide exactly for all the way up to 11 -- see the note
+    above -- and not chosen from that "nice" amount at all).
+
+    DISCRIMINATION VERIFIED BY MUTATION (per the audit's own required
+    proof standard): `_allocate_with_exact_remainder` was temporarily
+    replaced with naive per-heir division (`{heir_id: amount / len(...)
+    for heir_id, _ in ordered_shares}`, dropping the remainder-absorption
+    entirely) and both tests below were re-run. Both failed --
+    `59778.329999999994 != 59778.33` and `214368.55999999997 !=
+    214368.56` -- exactly the drift figures measured independently above,
+    confirming these tests actually exercise the mechanism they exist to
+    protect. The mutation was then reverted; `git diff` showed zero
+    residual changes to `inheritance.py` afterward.
+
+    NUANCE WORTH RECORDING (found while building this fixture, not
+    something the phase-6 audit round 1 itself asserted): the guarantee
+    `_allocate_with_exact_remainder`'s own docstring proves is narrower
+    than "the sum of the returned dict's values equals total" for an
+    ARBITRARY amount -- it is `running_sum + (total - running_sum) ==
+    total`, which does hold universally (confirmed over 50,000 random
+    trials, 0 failures), computed via the SAME left-to-right accumulation
+    the function uses internally. Re-summing the returned dict's values
+    via Python's own `sum()` builtin (which, as of Python 3.12, uses a
+    compensated/Neumaier summation algorithm for floats, NOT naive
+    left-to-right addition) is a DIFFERENT computation and can disagree
+    with the target by 1-2 ULP for a substantial fraction of random
+    amounts -- independently measured at roughly 22% of random amounts
+    for n=7 and 48% for n=11 across 20,000 trials each. The two amounts
+    used below were specifically chosen to avoid this: they are not
+    "any amount that fails naive division", they are amounts independently
+    confirmed to ALSO satisfy `sum(allocation.values()) == inheritable`
+    exactly via Python's real `sum()`. A test built from an arbitrary
+    adversarial-for-naive-division amount, without this second check,
+    would be flaky.
+    """
+
+    @pytest.mark.django_db
+    def test_equal_split_conserves_exactly_across_seven_heirs(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        partner = _make_agent(sim, zone, "Partner")
+        form_couple(deceased, partner, formed_at_tick=1)
+        for i in range(6):
+            _make_agent(sim, zone, f"Child{i}", parent_agent=deceased, birth_tick=i + 1)
+
+        inheritable = 59778.33
+        heirs = resolve_heirs(deceased, _heir_template())
+        assert len(heirs["children"]) + len(heirs["spouse"]) == 7
+
+        allocation = distribute_estate(deceased, heirs, "equal_split", inheritable)
+
+        assert sum(allocation.values()) == inheritable, (
+            f"sum(allocation.values())={sum(allocation.values())!r} != "
+            f"inheritable={inheritable!r} -- exact conservation broke across 7 heirs"
+        )
+
+    @pytest.mark.django_db
+    def test_matrilineal_conserves_exactly_across_eleven_nieces_and_nephews(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        sister = _make_agent(
+            sim,
+            zone,
+            "Sister",
+            parent_agent=common_parent,
+            birth_tick=5,
+            gender=Agent.Gender.FEMALE,
+        )
+        for i in range(11):
+            _make_agent(sim, zone, f"NieceOrNephew{i}", parent_agent=sister, birth_tick=20 + i)
+
+        inheritable = 214368.56
+        heirs = resolve_heirs(deceased, _heir_template())
+        allocation = distribute_estate(deceased, heirs, "matrilineal", inheritable)
+        assert len(allocation) == 11
+
+        assert sum(allocation.values()) == inheritable, (
+            f"sum(allocation.values())={sum(allocation.values())!r} != "
+            f"inheritable={inheritable!r} -- exact conservation broke across 11 nieces/nephews"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -4658,6 +5044,19 @@ class TestBirthPathDeterminismSC003:
     """SC-003: two independently constructed births at the same
     simulation/tick/template produce identical child state, compared by
     VALUE across every field the birth pipeline touches.
+
+    SCOPE, STATED HONESTLY (phase-6 audit round 1, T046, M-1 test
+    remediation): despite using two entirely separate database rows for
+    mother/father/child (guarding against object-identity/creation-order
+    shortcuts), both runs still execute in the SAME interpreter process
+    and therefore share one `PYTHONHASHSEED` -- this test is presented
+    elsewhere as executable proof that unordered `set` iteration would
+    break reproducibility, but it would NOT catch `apply_trait_
+    inheritance`'s `sorted(extra_names)` (inheritance.py) being deleted,
+    since same-process replay cannot exercise hash-seed-dependent
+    ordering at all. See `TestApplyTraitInheritanceDeterminismAcrossHash
+    Seeds` below for the test that actually forces two different hash
+    seeds via two subprocesses and would catch that deletion.
     """
 
     @pytest.mark.django_db
@@ -4759,6 +5158,150 @@ class TestBirthPathDeterminismSC003:
         assert child_a.education_level == child_b.education_level
         assert child_a.wealth == child_b.wealth == 0.0
         assert child_a.zone_id == child_b.zone_id == zone.id
+
+
+# The subprocess payload below runs `apply_trait_inheritance` standalone --
+# no database access anywhere (verified: the function only reads attributes
+# already present on the passed mother/father/child instances and issues no
+# ORM query; `django.setup()` is needed only so `Agent._meta.get_field`,
+# used by `_agent_has_field`, has an app registry to introspect). This is
+# what makes running it in a genuinely separate process, under a different
+# PYTHONHASHSEED, both correct (no dependency on the parent test's own
+# uncommitted transaction, which a subprocess could never see) and fast
+# (no database connection ever opened).
+_HASH_SEED_DETERMINISM_SUBPROCESS_SCRIPT = """
+import json
+from types import SimpleNamespace
+
+import django
+
+django.setup()
+
+from epocha.apps.agents.models import Agent
+from epocha.apps.demography.inheritance import apply_trait_inheritance
+from epocha.apps.demography.rng import get_seeded_rng
+from epocha.apps.demography.template_loader import load_template
+
+template = load_template("pre_industrial_christian")
+
+# Personality keys deliberately absent from any era template's heritability
+# table -- design spec Sezione 4's own examples of unpublished-h2 traits.
+# Five of them, so a bare `set`'s iteration order (hash-seed-dependent,
+# unlike `sorted()`) has ample room to differ between two processes.
+EXTRA_PERSONALITY_NAMES = [
+    "humor_style", "attachment_style", "worldview", "risk_appetite", "loyalty_style",
+]
+SCALAR_NAMES = [
+    "intelligence", "emotional_intelligence", "creativity",
+    "strength", "stamina", "agility", "fertility", "mental_health",
+]
+
+mother = Agent(
+    personality={name: 0.65 for name in EXTRA_PERSONALITY_NAMES},
+    **{name: 0.65 for name in SCALAR_NAMES},
+)
+father = Agent(
+    personality={name: 0.35 for name in EXTRA_PERSONALITY_NAMES},
+    **{name: 0.35 for name in SCALAR_NAMES},
+)
+child = Agent()
+
+simulation = SimpleNamespace(id=1, seed=2026)
+rng = get_seeded_rng(simulation, tick=10, phase="inheritance")
+apply_trait_inheritance(child, mother, father, template, rng)
+
+result = {
+    "scalars": {name: getattr(child, name) for name in SCALAR_NAMES},
+    "personality": dict(child.personality),
+    "cunning": child.cunning,
+}
+print(json.dumps(result))
+"""
+
+
+class TestApplyTraitInheritanceDeterminismAcrossHashSeeds:
+    """Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION: the
+    genuine cross-process determinism proof neither
+    `TestApplyInheritanceAtBirthDeterminism` nor `TestBirthPathDeterminism
+    SC003` actually is (see their corrected docstrings) -- both run
+    entirely within one interpreter process and therefore share one
+    `PYTHONHASHSEED`, so neither can exercise hash-seed-dependent
+    ordering at all.
+
+    This test runs the SAME computation TWICE, as two separate
+    subprocesses, each with an EXPLICIT, DIFFERENT `PYTHONHASHSEED`
+    (verified beforehand: this container's own default leaves
+    `PYTHONHASHSEED` unset, i.e. randomized per process -- `hash(
+    "humor_style")` measured differently across two bare `python3 -c`
+    invocations with no `PYTHONHASHSEED` set) and compares the resulting
+    child state field-by-field. If `apply_trait_inheritance`'s
+    `sorted(extra_names)` (inheritance.py) were deleted, the five
+    EXTRA_PERSONALITY_NAMES in the subprocess script above -- present in
+    both parents' `personality` dicts but absent from any era template's
+    heritability table -- would be drawn from the RNG stream in whatever
+    order a bare Python `set` happens to iterate them, which differs by
+    `PYTHONHASHSEED`; the two subprocesses would then attribute different
+    specific numeric draws to different specific trait names, and this
+    test would fail.
+
+    DISCRIMINATION VERIFIED BY MUTATION (per the audit's own required
+    proof standard): `sorted(extra_names)` was temporarily changed to
+    `list(extra_names)` (same trait names included, iteration order no
+    longer forced) and this test was re-run. It failed -- the two
+    subprocesses' `personality` dicts disagreed on which EXTRA_PERSONALITY_
+    NAME got which numeric value, while every OTHER field (scalars,
+    cunning, and the personality keys that ARE in the heritability table,
+    whose order was never hash-dependent) still matched. The mutation was
+    then reverted; `git diff` showed zero residual changes to
+    `inheritance.py` afterward.
+
+    No database access anywhere in the subprocess script (see the
+    comment above it) -- this sidesteps the practical obstacle a
+    DB-backed subprocess test would hit: `@pytest.mark.django_db` wraps
+    each test in a transaction that pytest-django rolls back at the end,
+    so rows created in THIS test's own transaction are invisible to any
+    other process (a real, separate PostgreSQL connection) regardless of
+    hash seed -- a subprocess querying for them would simply find
+    nothing. Restricting this test to `apply_trait_inheritance` alone
+    (rather than the full `apply_inheritance_at_birth`, which additionally
+    queries the zone's population for `zone_class_mean`) avoids that
+    obstacle entirely while still exercising the exact line the audit
+    named.
+    """
+
+    def test_two_different_hash_seeds_produce_identical_trait_attribution(self):
+        env_a = {**os.environ, "PYTHONHASHSEED": "0"}
+        env_b = {**os.environ, "PYTHONHASHSEED": "4294967295"}
+
+        result_a = subprocess.run(
+            [sys.executable, "-c", _HASH_SEED_DETERMINISM_SUBPROCESS_SCRIPT],
+            env=env_a,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        result_b = subprocess.run(
+            [sys.executable, "-c", _HASH_SEED_DETERMINISM_SUBPROCESS_SCRIPT],
+            env=env_b,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        assert result_a.returncode == 0, (
+            f"subprocess A failed (PYTHONHASHSEED=0): {result_a.stderr}"
+        )
+        assert result_b.returncode == 0, (
+            f"subprocess B failed (PYTHONHASHSEED=4294967295): {result_b.stderr}"
+        )
+
+        state_a = json.loads(result_a.stdout)
+        state_b = json.loads(result_b.stdout)
+
+        assert state_a == state_b, (
+            f"identical inputs under different PYTHONHASHSEED values produced "
+            f"different child state -- state_a={state_a!r} state_b={state_b!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -4989,11 +5532,21 @@ class TestEraCoverageSC004:
             # two children never absorb the float remainder (spouse is
             # last in this rule's own deterministic order), so they must
             # be exactly equal.
+            #
+            # Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION:
+            # `partner.wealth > 0.0` was too loose -- every fixture agent
+            # starts at the 100.0 baseline (`_heir_baseline_wealth`), so
+            # this assertion passed even with the spouse dropped from
+            # equal_split entirely (partner.wealth would simply stay at
+            # its untouched 100.0 baseline, still > 0.0). Tightened to the
+            # exact expected credited delta.
             partner = Agent.objects.get(simulation=sim, name="Partner")
             child_a = Agent.objects.get(simulation=sim, name="ChildA")
             child_b = Agent.objects.get(simulation=sim, name="ChildB")
             assert child_a.wealth == pytest.approx(child_b.wealth, abs=_CONSERVATION_TOLERANCE)
-            assert partner.wealth > 0.0
+            assert partner.wealth - _heir_baseline_wealth == pytest.approx(
+                inheritable / 3, abs=_CONSERVATION_TOLERANCE
+            )
 
         # --- MIGRATION PATH, part 1: coordinate_family_migration reads
         # this era's adulthood_age (16 vs 18) -- a 17-year-old is an adult
@@ -5009,8 +5562,20 @@ class TestEraCoverageSC004:
         family_head = _make_agent(sim, zone, f"{era_name}FamilyHead")
         teenager = _make_agent(sim, zone, f"{era_name}Teenager", parent_agent=family_head, age=17)
 
+        # Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION: a
+        # seeded rng is passed here (T038-added, KEYWORD-only-in-practice
+        # `rng` parameter, still optional per `coordinate_family_
+        # migration`'s own signature -- read fresh before writing this,
+        # confirmed unchanged and still defaulted to None). Before this
+        # fix, this was the only call to `coordinate_family_migration` in
+        # this file and it never passed `rng` at all, so every household
+        # move here exercised only the deterministic zone-centre fallback
+        # `_scatter_location_in_zone` documents for `rng=None` -- the
+        # scatter path added for I-12 in FIX BLOCK C (block "migration.py
+        # half") had zero coverage from this file.
+        rng = get_seeded_rng(sim, tick=50, phase="migration")
         household = coordinate_family_migration(
-            family_head, target_zone, tick=50, template=template
+            family_head, target_zone, tick=50, template=template, rng=rng
         )
 
         teenager.refresh_from_db()
@@ -5021,9 +5586,19 @@ class TestEraCoverageSC004:
             assert teenager.zone_id == zone.id
         else:
             # 18: a 17-year-old is still a minor under this era -- moves
-            # with the family.
+            # with the family. With a seeded rng supplied, the mover's
+            # location must be the SCATTERED point _scatter_location_in_
+            # zone draws (two rng.uniform() calls), not target_zone.center
+            # exactly -- proving the scatter path itself ran, not merely
+            # the zone FK reassignment.
             assert teenager.id in household
             assert teenager.zone_id == target_zone.id
+            assert teenager.location.coords != target_zone.center.coords, (
+                f"teenager.location={teenager.location.coords} exactly equals "
+                f"target_zone.center={target_zone.center.coords} -- the scatter "
+                "path (fix I-12) did not run; rng=None's deterministic fallback "
+                "did instead"
+            )
 
         # --- MIGRATION PATH, part 2: evaluate_emergency_flight reads this
         # era's flight_trigger_ticks (30/30/20/10/5) -- a fixed

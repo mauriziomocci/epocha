@@ -46,6 +46,34 @@ class FormulaError(ValueError):
 # `evaluate_derived_formula`). Anything not in this set (function calls,
 # attribute access, subscripts, comprehensions, boolean/comparison
 # operators, lambdas, ...) is refused.
+#
+# Fix M-1 (phase-6 audit round 1, T046): `ast.Pow` REMOVED. `9**9**9` is
+# right-associative (`9**(9**9)`), producing an integer with over 369
+# million digits; the auditor's own reproduction hung past 120 seconds
+# computing it before being killed. Neither the node-type whitelist walk
+# nor `_eval_node`'s numeric-constant guard can catch this by construction
+# -- every individual node (three small-int `Constant`s, two `Pow`
+# `BinOp`s) is well-typed and well-within-range; the danger is purely in
+# the COMBINATION, invisible to a per-node check. Removing the operator
+# eliminates the vector outright rather than attempting to bound operand
+# magnitude (a much harder, more fragile defense). Verified: no era
+# template under epocha/apps/demography/templates/ uses `**` anywhere --
+# the single derived formula (`cunning`, identical across all five eras)
+# is `0.4*(1-agreeableness) + 0.3*neuroticism + 0.3*intelligence`, needing
+# neither `Pow` nor `Mod`. Removal costs nothing real.
+#
+# `ast.Mod` REMOVED on the SAME "surface not kept wide merely because
+# today's inputs are trusted" reasoning (decision D5) -- NOT because Mod
+# shares Pow's exponential-blowup risk. It does not: `a % b` is bounded by
+# `b` and cannot compound into unbounded computation the way a
+# right-associative `Pow` tower can; Mod's only actual failure mode
+# (division by zero) is already covered by the `FormulaError` wrap in
+# `evaluate_derived_formula` below, independent of whether Mod stays
+# whitelisted. It is removed anyway because it is unused, unneeded by the
+# one formula this evaluator serves, and every additional whitelisted
+# operator is permanent audit surface for zero present benefit -- this
+# project's own "burden of proof is on adding" principle, applied in
+# reverse to an existing-but-unjustified feature rather than a new one.
 _ALLOWED_NODE_TYPES = (
     ast.Expression,
     ast.BinOp,
@@ -57,8 +85,6 @@ _ALLOWED_NODE_TYPES = (
     ast.Sub,
     ast.Mult,
     ast.Div,
-    ast.Pow,
-    ast.Mod,
     ast.USub,
     ast.UAdd,
 )
@@ -79,9 +105,11 @@ def evaluate_derived_formula(expression: str, symbols: dict[str, float]) -> floa
     Security (decision D5): the expression is parsed with `ast.parse(...,
     mode="eval")` and walked node by node against an explicit whitelist --
     `Expression`, `BinOp`, `UnaryOp`, `Constant`, `Name`, and the arithmetic
-    operators `Add`, `Sub`, `Mult`, `Div`, `Pow`, `Mod`, `USub`, `UAdd`. Any
-    other node type (function calls, attribute access, subscripts,
-    comprehensions, boolean/comparison operators, lambdas, and so on) raises
+    operators `Add`, `Sub`, `Mult`, `Div`, `USub`, `UAdd` (fix M-1, phase-6
+    audit round 1, T046: `Pow` and `Mod` removed -- see `_ALLOWED_NODE_
+    TYPES`'s own comment for the full reasoning). Any other node type
+    (function calls, attribute access, subscripts, comprehensions,
+    boolean/comparison operators, lambdas, and so on) raises
     `FormulaError`. `eval()` on the raw string is never used. Formula
     templates come from versioned era template files rather than end-user
     input, but the evaluator does not treat that as license to widen the
@@ -95,6 +123,18 @@ def evaluate_derived_formula(expression: str, symbols: dict[str, float]) -> floa
     path as any other name not present in the symbol table, with no special
     casing required.
 
+    OVERFLOW (fix M-1 decision, examined not fixed): an operand large
+    enough to overflow float arithmetic (e.g. `1e308*1e308`) yields `inf`
+    rather than raising -- a valid Python float, not a crash. This is
+    accepted rather than special-cased: no current era template's
+    coefficients (all in or near [0, 1]) can reach anywhere near this
+    magnitude, `_apply_derived_traits`'s own `max(lo, min(hi, raw_value))`
+    clamp already bounds an `inf` result safely into the formula's
+    declared range with no corruption, and distinguishing "genuine
+    overflow" from "a future template that legitimately wants a large
+    coefficient" is not a decision this evaluator should make unilaterally
+    on the caller's behalf.
+
     Args:
         expression: the formula's right-hand side, e.g.
             "0.4*(1-agreeableness) + 0.3*neuroticism + 0.3*intelligence".
@@ -106,7 +146,14 @@ def evaluate_derived_formula(expression: str, symbols: dict[str, float]) -> floa
     Raises:
         FormulaError: if `expression` is not valid Python syntax, uses any
             node type outside the whitelist, references a name absent from
-            `symbols`, or contains a non-numeric constant.
+            `symbols`, contains a non-numeric constant, or if evaluating
+            the (whitelisted) arithmetic itself raises -- fix M-1: this
+            module's whole posture is to never crash the birth pipeline on
+            template data (see `apply_social_inheritance`'s unknown-
+            `class_rule` fallback, `apply_estate_tax`'s rate clamp), so a
+            `ZeroDivisionError` from a template's own zero-valued
+            denominator (or any other `ArithmeticError`) is caught and
+            re-raised as `FormulaError` rather than escaping raw.
     """
     try:
         tree = ast.parse(expression, mode="eval")
@@ -119,7 +166,10 @@ def evaluate_derived_formula(expression: str, symbols: dict[str, float]) -> floa
                 f"disallowed construct {type(node).__name__!r} in formula: {expression!r}"
             )
 
-    return float(_eval_node(tree.body, symbols))
+    try:
+        return float(_eval_node(tree.body, symbols))
+    except ArithmeticError as exc:
+        raise FormulaError(f"arithmetic error evaluating formula: {expression!r}") from exc
 
 
 def _eval_node(node: ast.expr, symbols: dict[str, float]) -> float:
@@ -159,10 +209,12 @@ def _eval_node(node: ast.expr, symbols: dict[str, float]) -> float:
             return left * right
         if isinstance(node.op, ast.Div):
             return left / right
-        if isinstance(node.op, ast.Pow):
-            return left**right
-        if isinstance(node.op, ast.Mod):
-            return left % right
+        # Fix M-1: Pow and Mod dispatch branches removed along with their
+        # whitelist entries above -- this is now genuinely unreachable
+        # dead code for them, not merely untested, since the whitelist
+        # walk in evaluate_derived_formula already rejects any tree
+        # containing an ast.Pow or ast.Mod node before _eval_node ever
+        # runs.
         raise FormulaError(f"disallowed binary operator: {type(node.op).__name__!r}")
 
     raise FormulaError(f"disallowed construct {type(node).__name__!r} in formula")
