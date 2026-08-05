@@ -18,7 +18,12 @@ Sources:
   narrow interest because the family's joint gain is positive. Grounds
   `coordinate_family_migration`.
 - O'Rourke, K.H. (1994). The Economic Impact of the Famine in the Short
-  and Long Run. European Review of Economic History 1(1), 3-22. Empirical
+  and Long Run. American Economic Review 84(2), 309-313 (Papers and
+  Proceedings). Venue corrected during T043 (whitepaper promotion): this
+  docstring previously cited European Review of Economic History 1(1),
+  3-22, which cannot be right -- that journal's volume 1 is 1997, three
+  years after this paper. The whitepaper's Section 13 bibliography
+  carries the corrected venue. Empirical
   grounding for FORCED, survival-driven migration under acute economic
   collapse (the Irish Famine as the calibration target) -- grounds
   `evaluate_emergency_flight` and the mass-flight/trapped-crisis

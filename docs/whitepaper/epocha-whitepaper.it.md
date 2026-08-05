@@ -667,7 +667,7 @@ Django e ORM che supportano l'API.
 
 > Stato: implementato a partire dal commit `368e9725688ad8f756f22afddf24b44d64e0acc0`, audit della spec CONVERGENTE 2026-04-18 round 4.
 
-Il modulo demografia copre le tre transizioni del corso di vita per le quali Epocha esegue attualmente un modello scientifico auditato: mortalità, fertilità e formazione delle coppie. La specifica autoritativa è `docs/superpowers/specs/2026-04-18-demography-design.md`, i cui quattro round di revisione adversariale sono convergiti il 2026-04-18; le scelte di design e la mappatura esplicita di ogni parametro a una fonte primaria vivono lì, mentre questo capitolo riformula le formule, le tabelle di calibrazione e gli algoritmi per-tick in forma di pubblicazione. L'implementazione vive sotto `epocha/apps/demography/`, dove i tre sottosistemi sono separati in `mortality.py`, `fertility.py` e `couple.py`, con preoccupazioni condivise fattorizzate in `template_loader.py` (caricamento e validazione JSON delle ere), `rng.py` (stream seedati per fase discussi nel Capitolo 3.4), `context.py` (helper di integrazione verso l'economia) e `models.py` (lo stato demografico persistito). L'intento progettuale è che all'interno di ogni tick i tre sottosistemi vengano eseguiti nell'ordine mortalità → fertilità → formazione delle coppie, ciascuno attingendo dal proprio stream RNG seedato — questa orchestrazione è obiettivo dell'integrazione del Plan 4; vedere la nota di stato sotto. La mortalità materna al parto è l'unico accoppiamento inter-sottosistema ed è risolta congiuntamente tra mortalità e fertilità prima che entrambi registrino il loro esito, come dettagliato in §4.1.2. A partire dal commit fissato nel front matter, i modelli di mortalità e fertilità e l'infrastruttura delle coppie sono implementati e unit-testati in isolamento; la loro orchestrazione nel ciclo di tick della simulazione live in `epocha/apps/simulation/engine.py` è tracciata come deliverable del Plan 4 (Inizializzazione, integrazione del motore e validazione storica) e non è ancora attiva nel codice di produzione.
+Il modulo demografia copre i cinque meccanismi del corso di vita per i quali Epocha esegue attualmente un modello scientifico auditato: mortalità, fertilità, formazione delle coppie, ereditarietà e migrazione. La specifica autoritativa è `docs/superpowers/specs/2026-04-18-demography-design.md`, i cui quattro round di revisione adversariale sono convergiti il 2026-04-18; le scelte di design e la mappatura esplicita di ogni parametro a una fonte primaria vivono lì, mentre questo capitolo riformula le formule, le tabelle di calibrazione e gli algoritmi per-tick in forma di pubblicazione. L'implementazione vive sotto `epocha/apps/demography/`, dove i cinque sottosistemi sono separati in `mortality.py`, `fertility.py`, `couple.py`, `inheritance.py` e `migration.py`, con preoccupazioni condivise fattorizzate in `template_loader.py` (caricamento e validazione JSON delle ere), `rng.py` (stream seedati per fase discussi nel Capitolo 3.4), `context.py` (helper di integrazione verso l'economia) e `models.py` (lo stato demografico persistito). L'intento progettuale è che all'interno di ogni tick i sottosistemi vengano eseguiti nell'ordine mortalità → fertilità → formazione delle coppie, con l'ereditarietà che si liquida sull'evento di morte e la migrazione che gira come step proprio, ciascuno attingendo dal proprio stream RNG seedato — questa orchestrazione è obiettivo dell'integrazione del Plan 4; vedere la nota di stato sotto. La mortalità materna al parto è l'unico accoppiamento inter-sottosistema ed è risolta congiuntamente tra mortalità e fertilità prima che entrambi registrino il loro esito, come dettagliato in §4.1.2. I primi tre sottosistemi sono stati specificati e auditati insieme nei Plan 1 e 2 della demografia; ereditarietà e migrazione sono state costruite sotto il Plan 3 e hanno portato un proprio audit adversariale di codice di fase 6 in quattro round, convergito il 2026-08-05 sul codice come delimitato, lasciando però esplicitamente aperti otto difetti di livello progettuale — dichiarati nei paragrafi Semplificazioni di §4.1.4 e §4.1.5 anziché rinviati a una revisione successiva di questo capitolo. A partire dal commit fissato nel front matter, tutti e cinque i sottosistemi sono implementati e unit-testati in isolamento; la loro orchestrazione nel ciclo di tick della simulazione live in `epocha/apps/simulation/engine.py` è tracciata come deliverable del Plan 4 (Inizializzazione, integrazione del motore e validazione storica) e non è ancora attiva nel codice di produzione.
 
 ### 4.1.1 Modello di mortalità (Heligman-Pollard)
 
@@ -873,11 +873,249 @@ Nota: la chiave del template JSON è scritta `w_relationship`; il simbolo `w_rel
 
 Il parametro `age_tolerance_years` `τ` dell'equazione (4.6) è mantenuto al valore di default `10.0` in tutti i template, come argomento di funzione di `homogamy_score()` piuttosto che come campo per-template; sollevarlo nello schema del template è documentato come deliverable di calibrazione del Plan 4.
 
-**Algoritmo.** Tre operazioni coordinate compongono il ciclo di vita della coppia. All'inizializzazione, il builder della popolazione fondatrice chiama `stable_matching(proposers, respondents, score_fn)` una volta con `score_fn = lambda p, r: homogamy_score(p, r, era_weights)` e le sottopopolazioni adulte eleggibili come i due lati; ogni coppia `(p, r)` restituita viene poi instradata attraverso `form_couple()` per materializzare la riga del database con l'invariante di ordinamento canonico imposto. A runtime, lo step di demografia chiama `resolve_pair_bond_intents(simulation, tick, rng)` una volta per tick, che legge le entry `DecisionLog` scritte al tick `T-1` con il pre-filtro SQL `__contains` `'"pair_bond"'` e verifica ogni match con `json.loads()`, esegue l'ingestione a due passaggi (intenti diretti nel Pass A, intenti combinati `for_child` nel Pass B con override di priorità del figlio), e crea coppie in ordine deterministico ordinato per id sotto un singolo `transaction.atomic()`. Una coppia in cui uno dei partner è già in una coppia attiva — controllato da `is_in_active_couple()` contro il vincolo unique-active-couple che il fix B2-01 ha aggiunto — viene saltata, così le coppie attive duplicate non possono essere create anche sotto invocazioni ripetute del risolutore o chord worker. Il risolutore companion `resolve_separate_intents(simulation, tick)` legge le entry `DecisionLog` `'"separate"'` dal tick `T-1` con lo stesso pattern JSON, restituisce immediatamente quando il template di era ha `divorce_enabled: false`, e altrimenti marca la coppia attiva di ogni dichiarante come `dissolved_at_tick = tick`, `dissolution_reason = 'separate'`. La terza operazione, `dissolve_on_death(deceased_agent, tick)` in `couple.py:369-392`, è invocata dal percorso di risoluzione della mortalità quando muore un agente accoppiato: annulla la FK appropriata (`agent_a` o `agent_b` a seconda del lato in cui era il deceduto), cattura il nome del deceduto nel campo `*_name_snapshot` corrispondente così che il record genealogico sopravviva al cascade FK, imposta `dissolution_reason = 'death'`, e persiste con un singolo save `update_fields=[...]`. A partire dal commit fissato, questo percorso di dissoluzione è una normale chiamata di funzione piuttosto che un signal handler Django — la spec ha considerato un segnale `agents.Agent` `post_save` in ascolto sulle transizioni `is_alive` e l'ha respinto sulla base che i segnali aggiungono accoppiamento nascosto e sono più difficili da auditare di un'invocazione esplicita dal modulo di mortalità. Il ciclo di vita della coppia è esercitato dalla suite di unit test della demografia (`epocha/apps/demography/tests/test_couple.py`) ma, coerentemente con il gap notato in §4.1.1 e §4.1.2, nessuna di `stable_matching()`, `resolve_pair_bond_intents()`, `resolve_separate_intents()` o `dissolve_on_death()` è invocata da `epocha/apps/simulation/engine.py` o `epocha/apps/simulation/tasks.py` a partire dal commit fissato (un `grep` per i nomi delle funzioni fuori da `epocha/apps/demography/` restituisce solo commenti in `engine.py:265-272` che descrivono la semantica di risoluzione tick+1 e il ruolo dell'azione `pair_bond` nella pipeline di decisione). L'integrazione nel ciclo di tick live è tracciata accanto ai gap equivalenti di mortalità e fertilità come deliverable del Plan 4 (Inizializzazione, integrazione del motore e validazione storica).
+**Algoritmo.** Tre operazioni coordinate compongono il ciclo di vita della coppia. All'inizializzazione, il builder della popolazione fondatrice chiama `stable_matching(proposers, respondents, score_fn)` una volta con `score_fn = lambda p, r: homogamy_score(p, r, era_weights)` e le sottopopolazioni adulte eleggibili come i due lati; ogni coppia `(p, r)` restituita viene poi instradata attraverso `form_couple()` per materializzare la riga del database con l'invariante di ordinamento canonico imposto. A runtime, lo step di demografia chiama `resolve_pair_bond_intents(simulation, tick, rng)` una volta per tick, che legge le entry `DecisionLog` scritte al tick `T-1` con il pre-filtro SQL `__contains` `'"pair_bond"'` e verifica ogni match con `json.loads()`, esegue l'ingestione a due passaggi (intenti diretti nel Pass A, intenti combinati `for_child` nel Pass B con override di priorità del figlio), e crea coppie in ordine deterministico ordinato per id sotto un singolo `transaction.atomic()`. Una coppia in cui uno dei partner è già in una coppia attiva — controllato da `is_in_active_couple()` contro il vincolo unique-active-couple che il fix B2-01 ha aggiunto — viene saltata, così le coppie attive duplicate non possono essere create anche sotto invocazioni ripetute del risolutore o chord worker. Il risolutore companion `resolve_separate_intents(simulation, tick)` legge le entry `DecisionLog` `'"separate"'` dal tick `T-1` con lo stesso pattern JSON, restituisce immediatamente quando il template di era ha `divorce_enabled: false`, e altrimenti marca la coppia attiva di ogni dichiarante come `dissolved_at_tick = tick`, `dissolution_reason = 'separate'`. La terza operazione, `dissolve_on_death(deceased_agent, tick)` in `couple.py:402-463`, è invocata dal percorso di risoluzione della mortalità quando muore un agente accoppiato: annulla la FK appropriata (`agent_a` o `agent_b` a seconda del lato in cui era il deceduto), cattura il nome del deceduto nel campo `*_name_snapshot` corrispondente così che il record genealogico sopravviva al cascade FK, imposta `dissolution_reason = 'death'`, e persiste con un singolo save `update_fields=[...]`. Il contratto è idempotente **per partner anziché una volta per coppia**, che è il fix MISS-4 del design ed è ciò che rende corretto anziché lacunoso il caso in cui entrambi i partner muoiono nello stesso tick. Alla seconda chiamata `active_couple_for()` non trova più la riga — è stata dissolta prima nello stesso tick e quindi non supera il filtro `dissolved_at_tick__isnull=True` — e la funzione ripiega su una coppia già dissolta *in questo stesso tick* in cui il deceduto è ancora un partner non nullo, completando la cattura dello snapshot del nome e l'annullamento della FK per quel partner senza toccare `dissolved_at_tick` né `dissolution_reason`, che la prima chiamata ha già impostato. Entrambi gli snapshot dei nomi vengono quindi catturati, e il record genealogico di una coppia morta insieme sopravvive integro. Risolvere "dissolta in questo stesso tick" richiede soltanto `deceased_agent` e `tick`, entrambi già parametri, così nessuno stato di batch deve essere passato dal chiamante — l'alternativa respinta nella decisione di design D1. È questo che permette a `process_inheritance_batch()` (§4.1.4) di chiamarla incondizionatamente per ogni deceduto del batch senza alcun caso speciale per la doppia morte. A partire dal commit fissato, questo percorso di dissoluzione è una normale chiamata di funzione piuttosto che un signal handler Django — la spec ha considerato un segnale `agents.Agent` `post_save` in ascolto sulle transizioni `is_alive` e l'ha respinto sulla base che i segnali aggiungono accoppiamento nascosto e sono più difficili da auditare di un'invocazione esplicita dal modulo di mortalità. Il ciclo di vita della coppia è esercitato dalla suite di unit test della demografia (`epocha/apps/demography/tests/test_couple.py`) ma, coerentemente con il gap notato in §4.1.1 e §4.1.2, nessuna di `stable_matching()`, `resolve_pair_bond_intents()`, `resolve_separate_intents()` o `dissolve_on_death()` è invocata da `epocha/apps/simulation/engine.py` o `epocha/apps/simulation/tasks.py` a partire dal commit fissato (un `grep` per i nomi delle funzioni fuori da `epocha/apps/demography/` restituisce solo commenti in `engine.py:265-272` che descrivono la semantica di risoluzione tick+1 e il ruolo dell'azione `pair_bond` nella pipeline di decisione). L'integrazione nel ciclo di tick live è tracciata accanto ai gap equivalenti di mortalità e fertilità come deliverable del Plan 4 (Inizializzazione, integrazione del motore e validazione storica).
 
 **Semplificazioni.** L'implementazione attuale omette deliberatamente quattro raffinamenti che la letteratura di demografia familiare tratta come estensioni proprie piuttosto che correzioni del meccanismo baseline. Primo, sono rappresentabili solo coppie monogamiche: il modello `Couple` porta esattamente due foreign key, e la spec registra i tipi di coppia poliginici e poliandrici come rinviati (fix audit MISS-8) perché supportare più di due partner richiederebbe di rilassare il vincolo `unique_active_couple` e rilavorare il percorso di risoluzione di eredità; l'enum `couple_type` espone `monogamous` e `arranged` come i due valori canonici, con `arranged` che indica il percorso di formazione (mediato dai genitori) piuttosto che una distinzione sul numero dei partner. Secondo, lo strato agente porta tre valori di genere (`male`, `female`, `non_binary`) e quattro valori di orientamento sessuale (`heterosexual`, `homosexual`, `bisexual`, `asexual`) in `agents/models.py:11-20`, ma il punteggio di omogamia e l'algoritmo di abbinamento stabile delle equazioni (4.6) e (4.7) non consumano questi campi a partire dal commit fissato: il filtraggio dei candidati per genere e orientamento è responsabilità del chiamante che costruisce le liste `proposers` e `respondents`, e il builder della popolazione fondatrice che esegue quel filtraggio per configurazioni non eterosessuali o non binarie è esso stesso parte del deliverable di inizializzazione del Plan 4. Terzo, nessun cooldown di rimaritamento è imposto oltre il campo per-era `mourning_ticks` riportato nella Tabella 4.5: il campo è caricato dal template ma non ancora consumato da alcun percorso di codice, quindi un agente vedovo può in principio ri-accoppiarsi al tick successivo alla morte del partner; cablare `mourning_ticks` nel controllo di eleggibilità di `resolve_pair_bond_intents()` è una modifica di una riga riservata al Plan 4. Quarto, Gale-Shapley è applicato solo all'inizializzazione, non come fallback a runtime quando si accumula una grande coorte non abbinata: il meccanismo per-tick è esclusivamente guidato dall'intento, sull'assunzione che gli agenti LLM dichiareranno intenti `pair_bond` a un tasso coerente con il mercato matrimoniale della popolazione; se la suite di validazione del Capitolo 7 rivela una sotto-formazione sistematica, una riapplicazione periodica della primitiva di abbinamento sugli adulti eleggibili non abbinati è l'estensione naturale ed è documentata nella spec di demografia sotto la voce Limitazioni note.
 
+### 4.1.4 Ereditarietà (kernel poligenico, trasmissione sociale, successione)
 
+> Stato: implementato a partire dal commit `368e9725688ad8f756f22afddf24b44d64e0acc0`, audit della spec CONVERGENTE 2026-04-18 round 4, audit del codice CONVERGENTE 2026-08-05 round 4 **come delimitato**. Quell'audit non ha esplicitamente coperto otto difetti di livello progettuale che restano aperti e sono dichiarati per intero sotto Semplificazioni.
+
+**Nota sulla numerazione.** Le equazioni dalla (4.46) in poi e le Tabelle dalla 4.10 in poi sono accodate alla fine della sequenza del Capitolo 4 anziché inserite dopo la (4.8) e la Tabella 4.6, perché rinumerare equazioni e tabelle da §4.2 a §4.8 significherebbe rimescolare sette capitoli i cui audit sono già convergiti, senza alcun guadagno scientifico. Il lettore deve trattare la numerazione come un identificatore, non come un ordine di lettura.
+
+**Background.** L'ereditarietà in Epocha non è un meccanismo ma tre, legati soltanto dai due eventi che li innescano — una nascita e una morte — e tenuti separati in `epocha/apps/demography/inheritance.py` perché rispondono a tre domande diverse con tre letterature diverse alle spalle. La prima domanda è biologica: quale frazione del fenotipo di un neonato è predetta dal fenotipo dei genitori e quale è residuo ambientale? È genetica quantitativa, e la risposta standard è il modello additivo poligenico di Falconer e Mackay (1996, cap. 8), parametrizzato dall'ereditabilità in senso stretto `h² = V_A / V_P`. La seconda domanda è sociale: che cosa predice la classe e l'istruzione di un neonato data la classe e l'istruzione dei genitori? La letteratura sulla mobilità intergenerazionale non offre un modello unico ma una famiglia di regimi specifici per era — trasmissione patrilineare rigida in una società agraria stratificata (Goody 1976; Wrigley e Schofield 1981), un segnale persistente ma regressivo in una società in industrializzazione (Clark 2014), un regime di elasticità del reddito in una moderna (Becker e Tomes 1979 per il quadro teorico, Solon 1999 e Chetty et al. 2014 per il valore di elasticità ≈0,4) e un regime meritocratico speculativo portato dal template `sci_fi` senza alcuna citazione. La terza domanda è giuridica: quando un agente muore, chi riceve l'asse ereditario, in quali quote, e che ne è dei debiti dovuti al defunto? È diritto successorio comparato, ed Epocha implementa cinque sistemi nominati dietro un unico dispatch — primogenitura (Blackstone 1765), divisione egualitaria (Code civil des Français 1804), la struttura coranica quota-fissa-più-residuo (Powers 1986), successione matrilineare schematica (Schneider e Gough 1961) ed espropriazione di tipo sovietico (Nove 1969). I tre meccanismi non sono mai fusi in una sola chiamata: il "Responsibility contract" del modulo (spec di design Sezione 4 e Sezione 5) fissa l'ereditarietà dei tratti e la valutazione dei tratti derivati come un passaggio strettamente ordinato, la trasmissione di classe sociale e istruzione come un secondo, e la liquidazione dell'asse ereditario come un terzo che gira su un evento del tutto diverso. La separazione è ciò che rende ciascuno auditabile contro la propria fonte anziché contro un composito che nessuno ha pubblicato.
+
+Una scelta strutturale va dichiarata prima delle equazioni, perché è una decisione di sicurezza e non scientifica. I tratti derivati — attualmente solo `cunning`, il proxy di machiavellismo `0.4·(1 − agreeableness) + 0.3·neuroticism + 0.3·intelligence`, identico in tutti e cinque i template — sono dichiarati come *stringhe* di formula dentro il JSON del template d'era, il che rende il template un file di dati che calcola. `evaluate_derived_formula()` (`inheritance.py:149`) rifiuta perciò `eval()` in modo assoluto ed esegue invece un valutatore ristretto in tre stadi: un limite di lunghezza pre-parse di 500 caratteri (`_MAX_FORMULA_EXPRESSION_LENGTH`, `inheritance.py:146`), perché un'espressione patologicamente lunga fa sollevare al parser di CPython un `MemoryError` nudo prima che qualsiasi controllo successivo possa scattare; una visita iterativa in ampiezza che impone in un solo passaggio sia la whitelist dei tipi di nodo sia un limite di annidamento di 50 (`_MAX_FORMULA_TREE_DEPTH`, `inheritance.py:123`); e un valutatore ricorsivo che fa dispatch solo su quella whitelist. `ast.Pow` e `ast.Mod` sono stati rimossi dalla whitelist durante l'audit: `9**9**9` è associativo a destra e produce un intero con oltre 369 milioni di cifre, e nessun controllo per-nodo può vedere il pericolo, perché ogni singolo nodo è ben formato — il rischio vive nella combinazione. La formula reale `cunning` è di 58 caratteri e annida circa sei livelli, lasciando 442 caratteri e 44 livelli di margine. L'audit ha attaccato lo stadio di parsing con 46 famiglie di stringhe patologiche dimensionate al limite di lunghezza e il valutatore con altri 45 payload, senza trovare alcuna via di fuga da `FormulaError` né alcun bypass di esecuzione di codice.
+
+**Modello.** Il kernel poligenico è `inherit_trait()` (`inheritance.py:328`), il cui corpo sono quattro righe (`inheritance.py:430-441`):
+
+```
+child_T = h²_T · midparent_T + (1 − h²_T) · ε_T                (4.46)
+ε_T ~ N(era_mean_T, era_sd_T)
+
+midparent_T = (mother_T + father_T) / 2   entrambi i genitori risolti
+            = mother_T                    solo madre
+            = father_T                    solo padre
+            = era_mean_T                  nessuno dei due
+```
+
+Il risultato è clampato a `[lo, hi]`, default `[0, 1]`. L'estrazione del rumore avviene esattamente una volta per chiamata e sempre *dopo* il ramo del midparent, così la sequenza RNG consumata da questa funzione non dipende da quale ramo abbia girato — una proprietà di riproducibilità deliberata, non un accidente dell'ordine delle istruzioni.
+
+L'equazione (4.46) è la formula che la spec di design prescrive nella sua Sezione 4, e l'implementazione ne è una trascrizione fedele. **Non** è la decomposizione di Falconer e Mackay che cita, e la differenza è misurabile anziché interpretativa. Sotto la (4.46), con accoppiamento casuale e genitori indipendenti, la varianza della prole obbedisce alla ricorsione
+
+```
+Var(child) = h⁴ · Var(midparent) + (1 − h²)² · era_sd²
+           = (h⁴ / 2) · Var(parent) + (1 − h²)² · era_sd²      (4.47)
+
+punto fisso:  Var* = (1 − h²)² · era_sd² / (1 − h⁴ / 2)
+```
+
+perché `Var(midparent) = Var(parent) / 2`, dove `h⁴` denota `(h²)²`, il quadrato dell'ereditabilità, secondo la convenzione standard della genetica quantitativa per cui `h²` è esso stesso il parametro. Per la configurazione modale dei template spediti — `h² = 0,55` (intelligence e strength) contro `era_sd = 0,15` — l'equazione (4.47) dà `sd* = 0,0733`, cioè il **48,8% della deviazione standard d'era da cui il modello dichiara di campionare**. L'audit ha misurato esattamente questo simulando 4.000 agenti su otto generazioni: la dispersione è collassata da 0,150 a un punto fisso di 0,0733 e vi è rimasta. La forma che preserva la varianza, quella che la fonte citata richiede, mantiene la stessa media condizionata — `μ + h²·(midparent − μ)` è algebricamente identico a `h²·midparent + (1 − h²)·μ` — e differisce solo per come è scalato il residuo:
+
+```
+Falconer & Mackay (1996, cap. 8), forma che preserva la varianza:
+  child_T = μ_T + h²_T · (midparent_T − μ_T) + e_T             (4.48)
+  Var(e_T) = V_P · (1 − h⁴_T / 2)     così che Var(child) = V_P
+  il coefficiente di regressione su un solo genitore è h²_T / 2, non h²_T
+```
+
+Con `h² = 0,55` e `era_sd = 0,15`, la (4.48) richiede un residuo di deviazione standard `0,15 · √(1 − 0,55⁴/2) = 0,1382`, dove la (4.46) fornisce `(1 − 0,55) · 0,15 = 0,0675` — poco meno della metà. La riga sul genitore singolo della (4.48) è la seconda discrepanza: il ramo a genitore singolo della (4.46) applica l'intero `h²` all'unico genitore noto, quindi il coefficiente di regressione genitore-prole implementato è `h²` dove la fonte citata dà `h²/2`. Entrambe le divergenze sono ridichiarate, con le loro conseguenze, sotto Semplificazioni; sono registrate qui perché un capitolo che presentasse la (4.46) sotto un'intestazione Falconer e Mackay senza la (4.47) e la (4.48) accanto starebbe citando una fonte che non lo sostiene.
+
+La trasmissione sociale gira in due step, in un ordine fisso che l'audit ha corretto: prima la regressione dell'istruzione, poi la regola di classe. Le quattro regole di classe sono (`inheritance.py:879-958`):
+
+```
+patrilineal_rigid : child.class = father.class   (copia di stringa, nessun round-trip di rango)
+                                 ← mother.class ← "working"     (fallback)
+
+clark_regression  : rank = 0.7 · parent_rank + 0.3 · zone_class_mean   (4.49)
+
+becker_tomes      : rank = 0.4 · parent_rank + 0.6 · zone_class_mean
+                          + N(0, 0.75)
+
+meritocratic      : merit = (child.intelligence + child.education) / 2
+                    rank  = 0.2 · parent_rank
+                          + 0.8 · (1 − merit) · 4
+```
+
+dove `parent_rank` è il rango del *padre* sulla scala `elite=0 … poor=4, enslaved=5`, con fallback sulla madre e poi su `working` (`_resolve_parent_rank()`, `inheritance.py:859`), `zone_class_mean` è il rango medio della popolazione vivente della zona della madre, e l'output di ogni regola campionata è clampato a `[0, 4]` prima dell'arrotondamento a etichetta. Quel tetto sull'output è un fix d'audit: prima di esso, l'ordinaria aritmetica media-pesata-più-rumore sotto `becker_tomes` arrotondava al rango 5 — `enslaved` — per il **25,25%** dei figli di due genitori `poor` in una zona interamente `poor`, in `modern_democracy`, l'unica era in cui la schiavitù non deve mai comparire. `enslaved` sopravvive come rango in *ingresso* e raggiunge un figlio per esattamente una via: la copia testuale di `patrilineal_rigid` da un padre già schiavo, che non passa affatto per l'arrotondamento. La regressione dell'istruzione è (`inheritance.py:961`):
+
+```
+child.education = ρ · midparent_education + (1 − ρ) · era_mean_education   (4.50)
+```
+
+clampata a `[0, 1]`, con lo stesso fallback a quattro vie della (4.46) e `era_mean_education = 0.3` (`DEFAULT_ERA_MEAN_EDUCATION`, `inheritance.py:831`) perché nessun template dichiara la chiave. Gira prima del dispatch di classe così che `meritocratic` — l'unica regola che legge `child.education_level` — veda il valore regredito anziché il default di campo di `Agent`; eseguirla per seconda sottostimava il merito di 0,06 e il rango finale di 0,19 con due genitori di istruzione 0,9 sotto `sci_fi`, abbastanza da retrocedere un figlio di una classe intera.
+
+La liquidazione dell'asse ereditario si scompone in uno step di imposta e uno di allocazione:
+
+```
+tax_revenue = total_estate · rate                              (4.51)
+inheritable = total_estate · (1 − rate)
+```
+
+con `rate` clampata in `[0, 1]` e un asse non positivo cortocircuitato a un ritorno zero prima di qualsiasi accredito al tesoro (`apply_estate_tax()`, `inheritance.py:1583`). La scala degli eredi è `["spouse", "children", "siblings", "extended_family", "government"]` in tutti e cinque i template; `resolve_heirs()` (`inheritance.py:1488`) restituisce gli occupanti viventi dei primi quattro in ordine `(birth_tick, id)` e rappresenta `government` strutturalmente, come il fatto che ogni altra categoria sia vuota, anziché come chiave. La famiglia estesa è limitata ai nonni del defunto percorsi due generazioni in giù — zie, zii, cugini primi — il che vincola la traversata a tre query indipendentemente dall'ampiezza della famiglia. Le cinque regole di successione distribuiscono poi `inheritable` (`inheritance.py:1839-2136`):
+
+```
+primogeniture : 100% al figlio maschio maggiore → figlia/non-binary maggiore
+                → coniuge → fratello maggiore → sorella maggiore   (4.52)
+equal_split   : inheritable / (n_figli + n_coniuge), deduplicato per id
+shari'a       : quota coniugale = 1/8 con figli, 1/4 senza
+                residuo diviso 2:1 maschio:non-maschio tra i figli,
+                altrimenti tra i fratelli, altrimenti il coniuge lo assorbe (radd)
+matrilineal   : inheritable / n, in parti uguali tra i figli viventi
+                delle sorelle del defunto
+nationalized  : {} — l'intero asse è proprietà dello Stato
+```
+
+Ogni regola che risolve almeno un erede instrada le proprie quote attraverso `_allocate_with_exact_remainder()` (`inheritance.py:1699`), che assegna a ciascun erede la propria quota grezza tranne l'ultimo nell'ordine deterministico, che riceve `total − running_sum`. La garanzia che questo compra è stretta, ed è dichiarata con precisione perché l'audit ha trovato sovrastimata la formulazione precedente:
+
+```
+running_sum + (total − running_sum) == total                   (4.53)
+dove running_sum è accumulato dallo stesso += da sinistra a destra usato sopra
+```
+
+L'equazione (4.53) ha retto su 12.730 allocazioni adversariali che spaziano dal più piccolo denormale `5e-324` fino a `1.7e308`, ogni potenza di due da 2⁻⁶⁰ a 2⁶⁰, e da 1 a 1000 eredi, con zero fallimenti. La proprietà più larga che un chiamante controllerebbe naturalmente — `sum(allocation.values()) == inheritable`, risommata con il `sum()` builtin di Python — fallisce per il 45,0% di quella stessa popolazione adversariale a un errore relativo di ~1e-16, perché il `sum()` di CPython 3.12 usa somma compensata di Neumaier e calcola la vera somma matematica, che differisce da `total` esattamente per l'arrotondamento che l'ultimo erede ha assorbito. Nessun chiamante di produzione verifica la conservazione in quel modo; lo fanno solo i test.
+
+**Parametri.** La Tabella 4.10 elenca la tabella di ereditabilità, identica in tutti e cinque i template, con la fonte primaria di ciascun valore. La Tabella 4.11 elenca i parametri di ereditarietà sociale ed economica per-era. Le tre costanti di modulo che non sono campi di template sono `_BECKER_TOMES_RANK_NOISE_SD = 0.75` (`inheritance.py:809`), `MOURNING_MEMORY_WEIGHT = 0.9` e `MOURNING_TIE_STRENGTH_THRESHOLD = 0.6` (`inheritance.py:2756`, `2773`).
+
+Tabella 4.10 — Ereditabilità `h²` per tratto spedita da tutti e cinque i template d'era, con lo studio primario da cui proviene ciascun valore.
+
+| Tratto | `h²` | Fonte primaria |
+|---|---:|---|
+| `openness` | 0,41 | Jang, Livesley e Vernon (1996) |
+| `conscientiousness` | 0,44 | Jang, Livesley e Vernon (1996) |
+| `extraversion` | 0,54 | Jang, Livesley e Vernon (1996) |
+| `agreeableness` | 0,42 | Jang, Livesley e Vernon (1996) |
+| `neuroticism` | 0,48 | Jang, Livesley e Vernon (1996) |
+| `intelligence` | 0,55 | Plomin e Deary (2015) |
+| `emotional_intelligence` | 0,40 | Vernon, Petrides, Bratko e Schermer (2008) |
+| `creativity` | 0,22 | Nichols (1978) |
+| `strength` | 0,55 | Zempo et al. (2017) |
+| `stamina` | 0,52 | Miyamoto-Mikami et al. (2018) |
+| `agility` | 0,45 | Thomis et al. (1998) |
+| `fertility` | 0,50 | Zietsch, Kuja-Halkola, Walum e Verweij (2014) |
+| `mental_health` | 0,40 | Nessuno studio specifico per il tratto: euristica di design seedata dall'aggregato cross-tratto di Polderman et al. (2015) pari a 0,49 e corretta al ribasso |
+| `default` | 0,30 | Default di design tunable per qualunque chiave di `Agent.personality` senza `h²` pubblicata (per esempio `humor_style`, `attachment_style`) |
+
+Polderman et al. (2015) è citato come backbone metodologico che corrobora l'ereditarietà additiva poligenica attraverso i domini di tratto — un `h² ≈ 0,49` medio su 17.804 tratti — e non è mai la fonte del valore di un singolo tratto tranne che per l'euristica su `mental_health`, che lo dichiara esplicitamente. `cunning` non porta alcuna `h²` e non è mai estratto dal kernel; è l'output della formula derivata descritta sotto Background. Il nome stesso della chiave `mental_health` è un fix d'audit: tutti e cinque i template dichiaravano prima `mental_health_baseline`, che non è un campo di `Agent`, così il valore ereditato finiva in `Agent.personality["mental_health_baseline"]`, che nessuno legge, mentre `Agent.mental_health` conservava per sempre il proprio default di campo.
+
+Tabella 4.11 — Parametri di ereditarietà sociale ed economica per-era (tutti e cinque i template spediti).
+
+| Template d'era | `class_rule` | `education_regression_rho` (ρ) | `rule` (successione) | `estate_tax_rate` |
+|---|---|---:|---|---:|
+| `pre_industrial_christian` | `patrilineal_rigid` | 0,5 | `primogeniture` | 0,00 |
+| `pre_industrial_islamic` | `patrilineal_rigid` | 0,5 | `shari'a` | 0,00 |
+| `industrial` | `clark_regression` | 0,4 | `equal_split` | 0,15 |
+| `modern_democracy` | `becker_tomes_elasticity_0.4` | 0,4 | `equal_split` | 0,40 |
+| `sci_fi` | `meritocratic` | 0,2 | `equal_split` | 0,00 |
+
+Due fatti sulla Tabella 4.11 non vanno fraintesi. Primo, i template spediti esercitano solo tre delle cinque regole di successione implementate: `primogeniture` una volta, `shari'a` una volta ed `equal_split` tre volte. `matrilineal` e `nationalized` sono implementate, testate separatamente e dichiarate da nessun template; esistono per futuri template personalizzati e per completezza dei cinque sistemi documentati. Secondo, la colonna ρ è in disaccordo con la spec di design per tre template su cinque, e il disaccordo non è una convenzione di arrotondamento — è registrato sotto Semplificazioni come finding aperto. L'aliquota di successione dello 0,40 di `modern_democracy` corrisponde alle aliquote storiche di fascia alta documentate in Piketty (2014, tabelle 14.1–14.2); lo 0,00 pre-industriale non è l'affermazione che le élite pre-industriali non pagassero alcun tributo di morte, ma una dichiarazione di perimetro — i pagamenti feudali di rilievo e i prelievi analoghi sul trasferimento di potere appartengono allo strato economia, non a questa voce.
+
+**Algoritmo.** Il percorso di nascita è `apply_inheritance_at_birth(child, mother, father, simulation, tick)` (`inheritance.py:1115`). Carica il template d'era, calcola `zone_class_mean` sulla zona della madre in una sola query `values_list`, estrae un unico `random.Random` da `get_seeded_rng(simulation, tick, phase="inheritance")` ed esegue tre step contro quell'unico stream condiviso in ordine fisso: `apply_trait_inheritance()` percorre i tratti ereditabili in ordine deterministico (prima l'ordine del dizionario di ereditabilità, poi eventuali chiavi di personalità presenti solo nei genitori ordinate lessicograficamente, mai un `set` nudo, perché `rng.gauss` è estratto una volta per tratto e un'iterazione non ordinata farebbe dipendere la sequenza di estrazioni dall'hash seed di stringa del processo); `resolve_birth_attributes()` consuma esattamente due estrazioni `rng.random()` per genere e orientamento sessuale, il genere dal rapporto secondario dei sessi via `p_male = ratio / (1 + ratio)` (1,05 in ogni template tranne l'1,0 di `sci_fi`, e strutturalmente incapace di produrre `non_binary`, dato che il rapporto secondario dei sessi è una statistica di sesso alla nascita e non una distribuzione di identità di genere), l'orientamento con una scansione cumulativa sulla `sexual_orientation_distribution` del template nell'ordine di inserimento JSON, il cui default moderno — heterosexual 0,955, bisexual 0,030, homosexual 0,015 — proviene da Chandra et al. (2011) ed è portato come parametro di design tunable per le ere in cui non esiste un'indagine comparabile, non come pretesa di universalità; e `apply_social_inheritance()` esegue la (4.50) e poi fa dispatch della (4.49). La `wealth` del figlio è posta incondizionatamente a 0.0 e la `zone` a quella della madre. Nulla viene salvato: la funzione muta `child` e solo `child`, lasciando la persistenza all'orchestratore di nascita del Plan 4.
+
+Il percorso di morte è `process_inheritance_batch(simulation, tick, deceased_agents)` (`inheritance.py:2959`). Il batch è normalizzato a lista e ordinato per `age` decrescente, `id` crescente — i più anziani per primi — la convenzione del Simultaneous Death Act che la spec di design adotta come tiebreak deterministico (`inheritance.py:3210`). La valuta primaria della simulazione è risolta una volta per l'intero batch, con fallback sul letterale `"USD"` solo quando la simulazione non ha alcuna riga `Currency`; prima di quel fix il codice accreditava un `"USD"` cablato incondizionatamente, il che sotto `modern_democracy` sequestrava il 40% di ogni asse più ogni asse non reclamato in una chiave di tesoro che nessun percorso di spesa legge. Poi, per ciascun deceduto, dentro un solo `transaction.atomic()`: risolvere gli eredi; applicare la (4.51); distribuire secondo la (4.52); accumulare il trasferimento in un registro di crediti pendenti valido per tutto il batch anziché accreditare subito, dato che lo stesso erede vivente può ereditare da un secondo defunto più avanti nello stesso batch; trasferire i prestiti lato creditore; generare le memorie di lutto; e solo allora dissolvere la coppia. Quest'ultimo ordinamento è portante ed è stato corretto durante l'implementazione: sia `_resolve_spouse_heirs()` sia `generate_mourning_memories()` raggiungono il partner superstite attraverso `active_couple_for()`, che vede solo una coppia con `dissolved_at_tick IS NULL`, quindi dissolvere per primo scarterebbe silenziosamente l'eredità di un coniuge vivo *e* la sua memoria di lutto.
+
+`transfer_loans_as_lender()` (`inheritance.py:2263`) riassegna i prestiti attivi in cui il defunto era creditore — denaro dovuto *a* lui — a rotazione sugli esatti id che l'allocazione di contante ha appena pagato, `heir_index = loan_index mod n`, in un `SELECT` e un `bulk_update` indipendentemente dall'ampiezza del portafoglio prestiti. Prendere l'allocazione di contante come insieme eleggibile anziché ri-derivare gli eredi è ciò che fa cadere `nationalized` gratuitamente: un'allocazione vuota instrada ogni prestito a `lender=None, lender_type="banking"`, dove continua a essere servito. Sotto `matrilineal` gli id dell'allocazione sono nipoti, che `resolve_heirs()` strutturalmente non può raggiungere, quindi l'orchestratore risolve quella lista una volta e la passa sia a `distribute_estate()` sia a questa funzione; un id che resta irrisolvibile anche allora viene scartato con un `WARNING` anziché sollevare. L'assegnazione degli orfani gira per ultima, dopo che ogni morte del batch è liquidata, così che un minore reso orfano dall'ultima morte sia comunque intercettato e il test "sopravvive un genitore?" veda lo stato di vitalità finale del batch. `assign_orphan_caretaker()` (`inheritance.py:2573`) percorre una scala a due stadi: fratello, poi nonno, poi zia o zio *dentro la zona del minore*, e solo se quello stadio non trova nessuno ripete lo stesso ordine di parentela su tutte le zone — così una zia in zona batte un fratello fuori zona, la priorità della spec stessa alla prossimità fisica sulla vicinanza di parentela una volta che si sta decidendo la tutela. Un minore senza alcun parente vivente in nessun luogo conserva `caretaker_agent = None`, il flag di tutela statale. Infine, `generate_mourning_memories()` (`inheritance.py:2776`) scrive una `Memory` di prima mano a peso emotivo 0,9, `source_type=DIRECT`, `reliability=1.0`, `origin_agent=deceased`, al coniuge superstite, a ogni figlio superstite via l'una o l'altra chiave esterna di parentela, e a ogni agente vivente legato al defunto da una `Relationship` con `strength > 0.6` in una delle due direzioni — destinatari deduplicati per id, così chi si qualifica sotto due categorie riceve comunque esattamente una memoria. La soglia governa `Relationship.strength`, il legame sociale, mai `Agent.strength`, il tratto fisico ereditato della Tabella 4.10; filtrare sul secondo consegnerebbe il lutto a estranei muscolosi anziché ad amici stretti, e il modulo registra la trappola alla lettera perché i due campi differiscono per un qualificatore.
+
+**Semplificazioni.** Quattro round di audit adversariale del codice sono convergiti il 2026-08-05 su `inheritance.py`, `migration.py` e la modifica a `couple.py` di §4.1.3. Quel verdetto copre il codice come delimitato e non copre esplicitamente i difetti di livello progettuale sottostanti, deliberatamente rinviati a un work item separato con un proprio gate di requisiti di fase 2. Sono dichiarati qui come cose attualmente vere del modello, non come lavoro futuro.
+
+*Il kernel poligenico non preserva la varianza.* L'equazione (4.46) calcola una combinazione convessa, non la decomposizione di Falconer e Mackay della (4.48), il cui residuo è scalato in modo che la varianza della prole riproduca quella dei genitori — una `h² = V_A/V_P` stabile essendo l'intero senso del modello. La conseguenza è misurata, non congetturata: la dispersione dei tratti collassa al 48,8% della distribuzione d'era dichiarata entro circa tre generazioni e vi resta, così ogni società simulata deriva verso l'omogeneità su tutti e tredici i tratti ereditabili della Tabella 4.10, e l'ereditabilità realizzata smette di corrispondere alle cifre citate dopo la prima generazione. La citazione a Falconer e Mackay descrive il modello che il design intendeva; non descrive l'implementazione, e nessun risultato derivato dalla varianza dei tratti in una run multi-generazionale va letto come se lo facesse.
+
+*Il fallback a genitore singolo non dimezza il segnale genetico.* La spec di design e la docstring della funzione affermano entrambe che lo faccia. Non lo fa: rieseguito sullo stesso stato RNG, due genitori a 0,9 e la sola madre a 0,9 restituiscono un identico 0,806952 bit per bit. Contro la (4.48) il coefficiente di regressione a genitore singolo dovrebbe essere `h²/2`, quindi con `h² = 0,55`, un genitore a 0,9 ed `era_mean` 0,5 la corretta media condizionata è 0,610 dove l'implementazione dà 0,720 — la somiglianza implementata è il doppio di quella del modello citato.
+
+*La quota coniugale shari'a è cieca al genere.* Q4:12 come documentata da Powers (1986) è asimmetrica: il vedovo prende 1/2 senza figli e 1/4 con figli, la vedova 1/4 e 1/8. L'implementazione applica lo schema della vedova a entrambi i partner (`spouse_fraction = 0.125 if children else 0.25`, `inheritance.py:2005`), così un marito superstite riceve metà del proprio diritto classico in entrambi i rami. Powers è citato correttamente per la struttura circostante quota-fissa-più-residuo e per il rapporto 2:1 maschio-su-non-maschio di Q4:11, entrambi verificati corretti; non è una fonte per la quota coniugale cieca al genere, e questo capitolo non pretende che lo sia.
+
+*Imposta di successione e residuo sono calcolati come due prodotti indipendenti.* L'equazione (4.51) moltiplica due volte anziché derivare il residuo per sottrazione, così la conservazione esatta `tax + remainder == total` fallisce per il 18,8% delle coppie casuali con un errore assoluto peggiore di 1,16e-10; scrivere `remainder = total − tax` ridurrebbe il tasso di fallimento al 4,9%. La deriva è trascurabile in magnitudine e incoerente in principio: l'allocazione agli eredi cinquanta righe più in là si dà considerevole pena, nella (4.53), per essere esatta.
+
+*Tre template portano valori di `education_regression_rho` che contraddicono le cifre citate dal design.* La spec dà 0,5 / 0,42 / 0,35 / 0,25 su pre-industriale, industriale, moderno e sci-fi, attribuendo il valore moderno a Chetty et al. (2014); i template della Tabella 4.11 spediscono 0,5 / 0,4 / 0,4 / 0,2. Solo la coppia pre-industriale corrisponde. Il valore moderno in particolare è attribuito a una fonte che dà 0,35 e viene spedito a 0,4, senza alcuna citazione per il numero spedito.
+
+*I parametri di rumore d'era sono segnaposto che in pratica sono i parametri.* `DEFAULT_ERA_MEAN = 0.5` e `DEFAULT_ERA_SD = 0.15` (`inheritance.py:460-461`) sono documentati come sostituto provvisorio delle `era_mean_T` / `era_sd_T` per-tratto che il design richiede, da stimare sulla popolazione al tick 0 e congelare. Nessun template dichiara una sezione `era_noise`, quindi questi due numeri governano ogni tratto, ogni era e ogni nascita. Combinati con il collasso di varianza qui sopra fissano il punto fisso verso cui la popolazione converge. Una conseguenza visibile: `Agent.mental_health` e `Agent.fertility` portano entrambi un default di campo di 0,8 mentre regrediscono verso 0,5, quindi i neonati partono attorno a 0,62 e la popolazione deriva a 0,5 nel corso delle generazioni.
+
+Oltre ai difetti rinviati, quattro proprietà dell'implementazione toccano affermazioni di riproducibilità fatte altrove in questo documento e sono registrate qui anziché lasciate alla scoperta del lettore. Primo, `get_seeded_rng()` (`rng.py:42`) mescola nel materiale del seme la *chiave primaria di database* della simulazione accanto a `simulation.seed`, quindi rieseguire un seme pubblicato su un database vergine produce stream casuali diversi; la separazione degli stream per fase del Capitolo 3.4 regge, la portabilità del seme tra database no. Secondo, la rappresentazione *per stirpes* è assente dalla scala degli eredi: `_resolve_children_heirs()` trova solo i figli viventi, e la traversata della famiglia estesa sale *verso* i nonni e ridiscende ai cugini, mai in giù attraverso un figlio premorto, quindi i nipoti non possono ereditare quando il loro genitore è morto prima. Terzo, tutti e cinque i template dichiarano l'identica scala `heir_priority` a cinque voci `["spouse", "children", "siblings", "extended_family", "government"]`, quindi la differenziazione per-era della successione è portata interamente dal campo `rule` della Tabella 4.11. Quarto, il modulo non è cablato nel ciclo di tick: `epocha/apps/simulation/engine.py` è intoccato da questo lavoro, e l'integrazione è un deliverable del Plan 4, esattamente come §4.1.1, §4.1.2 e §4.1.3 già registrano per mortalità, fertilità e formazione delle coppie.
+
+Altre tre semplificazioni sono perimetro di design deliberato anziché difetti. `_split_two_to_one()` tratta un erede non-binary come non-maschio, con una singola unità come una figlia, e `_eldest_male_then_female()` ordina gli eredi non-binary insieme a quelli femmina; la giurisprudenza islamica classica e la common law pre-moderna non riconoscevano alcuno status non-binary, e il modulo registra la scelta esplicitamente anziché applicare un default silenzioso. Il cascade residuario di `shari'a` ripiega sui fratelli sotto lo stesso rapporto 2:1, facendo le veci della più completa gerarchia classica `'asaba` che questo MVP non modella. E `primogeniture` estende la regola di discendenza lineare di Blackstone alla linea collaterale — fratello maggiore, poi sorella maggiore — anziché lasciare l'asse arenato quando il defunto non lascia né figli né coniuge ma lascia fratelli.
+
+### 4.1.5 Migrazione (contesto Harris-Todaro, coordinamento familiare, fuga forzata)
+
+> Stato: implementato a partire dal commit `368e9725688ad8f756f22afddf24b44d64e0acc0`, audit della spec CONVERGENTE 2026-04-18 round 4, audit del codice CONVERGENTE 2026-08-05 round 4 **come delimitato**; i difetti di design rinviati sono dichiarati sotto Semplificazioni.
+
+**Background.** La migrazione in Epocha è divisa tra due moduli per una ragione che vale dichiarare, perché un lettore che arriva da §4.6 si aspetterebbe altrimenti un modulo solo. `epocha/apps/agents/movement.py`, documentato in §4.6, risponde a "come fa *questo agente* ad arrivare fisicamente da A a B?" — viaggi parziali, dispersione all'arrivo, costi di terreno e salute. `epocha/apps/demography/migration.py`, documentato qui, risponde invece alle domande demografiche: che aspetto ha il mercato del lavoro di una zona vista da fuori, chi si muove quando una persona decide di muoversi, e che cosa succede quando un agente deve andarsene a prescindere da qualunque cosa avrebbe scelto un ciclo decisionale. Le tre domande portano tre letterature. Il confronto che fa un migrante economicamente razionale è il modello del reddito atteso di Harris e Todaro (1970), la cui intuizione centrale è che un migrante pesa il salario di destinazione per la probabilità di trovarvi effettivamente lavoro anziché confrontare salari grezzi — ed è per questo che il modulo calcola un livello salariale per zona e un tasso di disoccupazione per zona anziché un solo differenziale salariale. L'unità di decisione è quella di Mincer (1978): la migrazione è una scelta di famiglia, e un "tied mover" si trasferisce anche contro il proprio interesse ristretto perché il guadagno congiunto della famiglia è positivo. E il caso limite, dove nessun confronto avviene affatto, è fondato su due fonti insieme — O'Rourke (1994) fornisce la forma empirica della migrazione forzata guidata dalla sopravvivenza sotto collasso economico acuto, con la Grande carestia irlandese come target di calibrazione, e Simon (1955) fornisce la ragione per cui la deliberazione è aggirata anziché semplicemente risolta in fretta: sotto una soglia di sopravvivenza la razionalità limitata non esegue un'analisi costi-benefici.
+
+**Modello.** I due aggregati di mercato del lavoro sono cifre per-tick e pro-capite su finestre semiaperte dichiarate esplicitamente (`migration.py:108` e `:200`):
+
+```
+wage(z, t) = Σ{ ledger.total_amount : type = "wage",
+                to_agent.zone = z,
+                t − W_w < tick ≤ t }  /  (pop(z) · W_w)         (4.54)
+
+unemployment(z, t) = |{ a ∈ z : a.role ≠ "" ,
+                        nessun accredito salariale in (t − W_u, t] }|
+                     / |{ a ∈ z : a.role ≠ "" }|                (4.55)
+```
+
+con `W_w = ZONE_WAGE_WINDOW_TICKS = 5` e `W_u = ZONE_UNEMPLOYMENT_WINDOW_TICKS = 3` (`migration.py:73`, `:105`), entrambi parametri di design anziché valori derivati da una fonte citata: Harris e Todaro motivano perché un livello salariale guidi la migrazione, non quanti tick di storia debbano lisciare un segnale rumoroso. Entrambe le finestre sono semiaperte, e il divisore della (4.54) corrisponde uno a uno al numero di valori di tick che il filtro ammette. Quell'allineamento è un fix d'audit che vale registrare perché l'errore che corregge era puramente aritmetico e sistematicamente distorto: il filtro era prima un intervallo chiuso che copriva `W + 1` tick contro un divisore di `W`, sovrastimando il vero salario per-tick del 20% alla finestra di default, del 33% a finestra 3 e del 100% a finestra 1 — e, peggio, sovrastimandolo *in proporzione a quanto uniformemente l'attività salariale si distribuiva sulla finestra*, così le zone a occupazione stabile venivano gonfiate e quelle a pagamenti concentrati no. Le righe salariali non portano una zona propria e sono attribuite alla zona corrente del *lavoratore* attraverso `to_agent__zone`, mai a quella del pagatore. La disoccupazione misura la mancanza di lavoro tra i nominalmente occupati — un agente senza alcun `role` è escluso da numeratore e denominatore, come le statistiche ufficiali escludono chi non cerca lavoro — ed entrambi i denominatori restituiscono 0.0 anziché dividere per zero.
+
+Il costo di viaggio è un numero intero di tick (`compute_distance_cost()`, `migration.py:287`):
+
+```
+d_grid = hypot(Δx, Δy)                     centri di zona, griglia astratta
+d_km   = d_grid · World.distance_scale / 1000                   (4.56)
+km_per_tick = TRAVEL_SPEEDS["foot"] · (World.tick_duration_hours / 24)
+cost   = ceil(d_km / km_per_tick)
+```
+
+`World.distance_scale` è in metri per unità di griglia (default 133,0) e `TRAVEL_SPEEDS["foot"]` è 25,0 km/giorno (Chandler 1966; Braudel 1979, già citati in §4.6). L'equazione (4.56) è l'esatta inversa di `calculate_max_distance()` in `agents/movement.py`, di cui riusa solo l'aritmetica e nessuno dei fattori di salute, stabilità e terreno specifici dell'agente, dato che un costo zona-a-zona non ha ancora alcun viaggiatore assegnato. Una camminata di frazione di giorno costa un tick intero, e uno spostamento a distanza nulla costa esattamente 0 anziché essere arrotondato a 1. Il confronto Harris-Todaro stesso è la variante operativa che la spec di design dichiara (`compute_expected_gain()`, `migration.py:366`):
+
+```
+E[gain_j] = (1 − unemployment_j) · wage_j − wage_current − distance_cost_j   (4.57)
+```
+
+Due scostamenti dal modello canonico sono documentati anziché taciuti. Harris e Todaro confrontano `p · w_urban + (1 − p) · w_informal` con il reddito d'origine; l'equazione (4.57) pone a zero il salario del settore informale, così un agente che non trova lavoro formale a destinazione è modellato come se lì non guadagnasse nulla. E aggiunge un termine di distanza che il modello a due settori non porta. Il secondo di questi è dimensionalmente incoerente, e l'incoerenza non è nascosta dall'esempio numerico del design stesso soltanto perché quell'esempio calcola una destinazione il cui costo di distanza è zero; è dichiarata per intero sotto Semplificazioni.
+
+`build_migration_outlook()` (`migration.py:456`) assembla il blocco di prompt per-agente da un bundle `zone_stats` precalcolato una volta per tick, senza emettere alcuna query propria. Ogni zona raggiungibile — definita come ogni zona del mondo diversa da quella dell'agente, senza vincolo di raggio, perché lo schema non porta alcun concetto di distanza massima di viaggio e la (4.56) già prezza la distanza — riceve una voce che porta `wage_differential`, `unemployment`, `distance_cost`, `zone_stability` ed `expected_gain`. Il coordinamento familiare è `coordinate_family_migration()` (`migration.py:681`): il partner vivente dell'agente decisore e ogni figlio vivente sotto l'`adulthood_age` dell'era sono spostati nella zona di destinazione nello stesso tick, con `location` scritta accanto a `zone` in un solo `bulk_update`, e un solo `DemographyEvent` di tipo `migration` è emesso per l'intero nucleo anziché uno per membro. I figli adulti sono deliberatamente esclusi — decidono in modo indipendente — e nessun minore riceve mai una riga di `DecisionLog` per uno spostamento che non ha scelto.
+
+La fuga forzata scatta su tre condizioni simultanee (`_resolve_flight_decision()`, `migration.py:1064`):
+
+```
+(1) agent.wealth < subsistence_threshold(simulation, agent.zone)
+(2) consecutive_ticks_under_subsistence ≥ flight_trigger_ticks   (4.58)
+(3) max sulle zone raggiungibili di E[gain_j] > 0
+```
+
+La terza condizione è ciò che tiene distinte fuga e intrappolamento. Un agente che soddisfa la (1) e la (2) senza un posto migliore dove andare *non* deve fuggire: è il caso intrappolato, e se il trigger scattasse sulle prime due condizioni soltanto ogni agente intrappolato verrebbe silenziosamente riclassificato come in fuga, e il fenomeno di crisi da intrappolamento che il design nomina esplicitamente non sarebbe mai osservabile. `consecutive_ticks_under_subsistence` è un argomento esplicito anziché un campo: il contatore non esiste in nessun punto dello schema, `Agent.wealth` porta solo un valore corrente senza storia, e ogni opzione di memorizzazione disponibile sotto il vincolo di zero migrazioni di questo piano era peggiore del passarlo dall'esterno. Il Plan 4 possiede la creazione di quella memorizzazione; finché non lo fa, la fuga d'emergenza non può scattare in una run live.
+
+`process_emergency_flight()` (`migration.py:1145`) guida l'intero tick dentro una sola transazione, iterando gli agenti viventi per id crescente da un unico stream condiviso `get_seeded_rng(simulation, tick, phase="migration")`. Il nucleo di un agente in fuga si sposta per primo — prima che `agent.zone` sia mutata, altrimenti `from_zone` e `to_zone` dell'evento collassano — e l'agente scrive una `Memory` di prima mano a peso 0,85. I membri del nucleo spostati per un agente precedente sono registrati e saltati quando il ciclo li raggiunge, perché la loro istanza in memoria mostra ancora la vecchia zona e valutare la fame in una zona che hanno già lasciato valuterebbe uno stato che non vale più. Un agente intrappolato non è mai ricollocato; emette un evento `TRAPPED_CRISIS` ed entra in un passaggio batch di propagazione co-zona che scrive una `Memory` aggregata per testimone per zona a peso 0,95, `source_type=PUBLIC`, con `origin_agent` posto all'agente intrappolato di id più basso di quella zona come rappresentante deterministico. I tre pesi di memoria formano un ordinamento deliberato attraverso due moduli — fuga d'emergenza 0,85 sotto lutto 0,9 sotto crisi da intrappolamento 0,95 — sul ragionamento che assistere a un vicino intrappolato dalla fame senza un posto dove andare è una crisi in corso e irrisolta anziché un singolo evento concluso. Sia l'aggregazione sia l'assenza di qualsiasi esclusione dei testimoni sono correzioni d'audit. La forma pre-aggregazione scriveva una memoria per coppia (vittima, testimone), il che nello scenario di calibrazione del modulo stesso — dove il numero di intrappolati si avvicina alla popolazione della zona — significava circa 500 × 499 ≈ 250.000 righe `Memory` in un solo tick al `max_population` dei template; e il primo tentativo di limitare quel volume allargò un'esclusione dei testimoni fino a che una zona con l'intera popolazione intrappolata produceva sei eventi `TRAPPED_CRISIS` e *zero* memorie, esattamente il caso della carestia irlandese per cui il meccanismo esiste. Il requisito FR-026 e il suo scenario di accettazione dicono entrambi che la memoria raggiunge "tutti gli agenti co-zone" senza eccezioni, quindi un solo agente intrappolato da solo in una zona riceve una memoria autoreferenziale; è l'esito specificato, non un bug residuo. La fuga di massa scatta quando
+
+```
+|fled(z)| / population_at_window_start(z) > 0,30                (4.59)
+```
+
+in senso stretto, con il numeratore che copre la finestra semiaperta `(t − flight_trigger_ticks, t]` — gli eventi `emergency_flight` storici più le partenze di questo tick — e il denominatore ricostruito come la popolazione vivente corrente della zona più tutti quelli storicamente noti per esserne fuggiti durante la finestra. Accoppiare un numeratore su finestra con un denominatore puntuale, come faceva la prima implementazione, penalizza due volte ogni partenza: l'agente resta nel numeratore mentre lascia il denominatore, così a tasso di partenza costante la frazione sale monotonicamente e può superare 1,0. La ricostruzione ha due limiti riconosciuti: gli agenti morti nella zona durante la finestra sottostimano la base, gonfiando lievemente la frazione in presenza di mortalità concomitante; gli agenti arrivati durante la finestra la sovrastimano, sgonfiando lievemente la frazione in una zona che riceve migranti.
+
+**Parametri.** La Tabella 4.12 elenca i campi di migrazione per-era e le costanti di modulo.
+
+Tabella 4.12 — Parametri di migrazione: campi di template per-era e costanti di modulo.
+
+| Parametro | Valore | Dove | Base |
+|---|---|---|---|
+| `flight_trigger_ticks` | 30 / 30 / 20 / 10 / 5 | blocco `migration` del template, nell'ordine dei template della Tabella 4.11 | Parametro di design; il default della spec di design è 30 |
+| `adulthood_age` | 16 / 16 / 16 / 18 / 18 | blocco `migration` del template | Parametro di design; confine per i minori tied mover |
+| `ZONE_WAGE_WINDOW_TICKS` | 5 | `migration.py:73` | Scelta di lisciamento, non derivata da Harris e Todaro |
+| `ZONE_UNEMPLOYMENT_WINDOW_TICKS` | 3 | `migration.py:105` | Deliberatamente più corta della finestra salariale: segnale più rapido e più rumoroso |
+| `TRAVEL_SPEEDS["foot"]` | 25,0 km/giorno | `agents/movement.py`, riusato | Chandler (1966); Braudel (1979) — vedi §4.6 |
+| `World.distance_scale` | 133,0 m/unità di griglia | default di campo in `world/models.py` | Conversione griglia-metrica, condivisa con §4.6 |
+| `EMERGENCY_FLIGHT_MEMORY_WEIGHT` | 0,85 | `migration.py:917` | Ordinamento di design, sotto il lutto |
+| `TRAPPED_CRISIS_MEMORY_WEIGHT` | 0,95 | `migration.py:931` | Ordinamento di design, sopra il lutto |
+| `MASS_FLIGHT_THRESHOLD_FRACTION` | 0,30 | `migration.py:938` | Parametro di design, `>` stretto; non da fonte empirica citata |
+
+**Semplificazioni.** Due difetti di livello progettuale del modulo di migrazione sono stati lasciati aperti dall'audit di codice convergente e appartengono allo stesso work item rinviato di quelli di §4.1.4.
+
+*Il trigger di fuga confronta uno stock di ricchezza con un flusso di sussistenza per-tick.* La condizione (1) della (4.58) testa `agent.wealth`, un saldo accumulato, contro `compute_subsistence_threshold()`, che restituisce — per sua stessa docstring — il costo di sussistenza per agente *per tick*. Il confronto è difendibile letto come "non può permettersi il cibo di questo tick", ed è quanto il design specifica, ma fissa silenziosamente l'orizzonte di sopravvivenza a esattamente un tick e tratta un agente con trenta tick di risparmi identicamente a uno che ne ha uno solo.
+
+*La variante Harris-Todaro è dimensionalmente incoerente.* Nella (4.57), `(1 − unemployment_j) · wage_j` e `wage_current` sono tassi in valuta per tick — l'esempio numerico del design stesso li riporta in LVR/tick — mentre `distance_cost_j` è un conteggio grezzo di tick. Sottrarre un conteggio di tick da un tasso in valuta non bilancia. L'esempio del design non lo espone perché calcola il caso Paris, il cui costo di distanza è 0: `(1 − 0,08) · 90 − 78 − 0 = 4,8`, che corrisponde al `+4,8 LVR/tick` dichiarato con il terzo termine semplicemente assente. L'audit ha deliberato che il costo vada monetizzato come guadagni mancati, `distance_cost_ticks · wage_current`, il che ripristina il bilancio dimensionale, riproduce invariato l'esempio Paris e significa qualcosa dal punto di vista economico — i salari persi mentre si cammina; l'alternativa di una costante esplicita di scala di una unità di valuta per tick è stata giudicata strettamente peggiore, perché farebbe dipendere la soglia di migrazione dalla scala arbitraria della valuta. **Quella delibera è registrata e deliberatamente non applicata.** L'equazione (4.57) come documentata sopra è ciò che il codice calcola.
+
+Altre due proprietà sono registrate perché condizionano come va letto il blocco di outlook. La "stabilità di zona" in `build_migration_outlook()` è uno scalare valido per l'intera simulazione riportato identico per ogni zona raggiungibile: `Government` è un `OneToOneField` verso `Simulation`, quindi esiste esattamente un governo per simulazione e non esiste alcuna stabilità per zona in nessun punto dello schema, anche se l'esempio numerico del design mostra la stabilità differire per zona. L'audit ha deliberato che il modello ha bisogno di un segnale per zona genuino — una costante riportata per zona non porta informazione e induce attivamente in errore un consumatore LLM, facendogli credere di confrontare zone su una dimensione su cui sono identiche — deliberando al tempo stesso che rifiutare di inventare un proxy non validato sotto i vincoli di questo piano era corretto; il rimedio prescritto, o togliere il campo dal blocco per zona o etichettarlo come valido per l'intera simulazione nel testo del prompt, non è applicato, e la stessa conflazione esiste già in codice mergiato in `demography/context.py`. E un nucleo familiare che migra arriva istantaneamente mentre l'agente decisore può essere ancora in viaggio per diversi tick: i membri del nucleo sono teletrasportati da `coordinate_family_migration()` perché il design richiede che si muovano "nello stesso tick", mentre il viaggio del decisore passa da `execute_movement()` di §4.6, che supporta lo spostamento parziale multi-tick. Una famiglia può quindi risiedere nella zona di destinazione mentre chi ha deciso è ancora per strada.
+
+Infine, e come per ogni altro sottosistema di §4.1, né `evaluate_emergency_flight()` né `process_emergency_flight()` né alcun'altra funzione di questo modulo è invocata da `epocha/apps/simulation/engine.py` o `tasks.py` a partire dal commit fissato. Il cablaggio è un deliverable del Plan 4, e finché il Plan 4 non costruisce anche la memorizzazione per `consecutive_ticks_under_subsistence`, `process_emergency_flight()` chiamata con la mappatura vuota di default è un no-op ben definito che produce zero eventi.
 
 ## 4.2 Economia — Integrazione comportamentale
 
@@ -2119,6 +2357,8 @@ Tabella 6.1 — Indice delle tabelle di parametri inline per modulo auditato.
 | Mortalità (Heligman-Pollard) | Tabelle 4.1 (semantica e range ammissibili dei parametri HP) e 4.2 (valori HP per epoca tra i cinque template del Plan 1) |
 | Fertilità (Hadwiger ASFR + modulazione Becker) | Tabelle 4.3 (valori Hadwiger per epoca) e 4.4 (coefficienti di modulazione Becker, attualmente omogenei tra tutti e cinque i template per debito B2-07) |
 | Formazione delle coppie (Gale-Shapley + Goode 1963) | Tabelle 4.5 (parametri di formazione coppie per epoca) e 4.6 (pesi di omogamia per epoca per l'equazione (4.6)) |
+| Ereditarietà (kernel poligenico + trasmissione sociale + successione) | Tabelle 4.10 (ereditabilità per tratto con fonti primarie) e 4.11 (regola di classe, ρ di regressione dell'istruzione, regola di successione e aliquota di successione per epoca). Tre costanti di modulo stanno fuori dai template e sono documentate inline in §4.1.4: `_BECKER_TOMES_RANK_NOISE_SD = 0.75`, `MOURNING_MEMORY_WEIGHT = 0.9`, `MOURNING_TIE_STRENGTH_THRESHOLD = 0.6`. I prior di rumore d'era `DEFAULT_ERA_MEAN = 0.5` e `DEFAULT_ERA_SD = 0.15` sono nominalmente segnaposto ma in pratica sono i parametri, dato che nessun template dichiara una sezione `era_noise` — vedere il paragrafo Semplificazioni di §4.1.4. |
+| Migrazione (contesto Harris-Todaro + coordinamento familiare di Mincer + fuga forzata) | Tabella 4.12 (`flight_trigger_ticks` e `adulthood_age` per epoca, più le costanti di modulo per entrambe le finestre mobili, i tre pesi di memoria e la soglia di fuga di massa) |
 | Aspettative adattive (Cagan 1956) | Tabella 4.7 (parametri seedati da `_behavioral_config()`, identici tra tutti e quattro i template di economia in attesa della calibrazione del Plan 4) |
 | Credito e sistema bancario (Diamond-Dybvig + riserva frazionaria) | Tabelle 4.8 (parametri di credito e sistema bancario per epoca) e 4.9 (parametri uniformi tra tutti e quattro i template in attesa del Plan 4) |
 | Layer base dell'economia (produzione CES, tâtonnement, partizione dei redditi da fattori, diagnostica di Fisher) | Tabella di parametri inline in §4.8 (default e soglie di branch CES, tasso/cap del tâtonnement, quote salari/rendita/profitto, euristica di domanda, wage sanity cap, soglie di umore, soglie diagnostiche) |
@@ -2130,7 +2370,7 @@ Il template `sci_fi.json` è documentato nel suo file sorgente come speculativo 
 
 La simulazione supporta due sistemi di template paralleli che hanno avuto origine da decisioni di design indipendenti nelle spec di demografia ed economia. La discrepanza in forma e numero è un effetto collaterale deliberato della storia di design a fasi piuttosto che un intento strutturale, ed è registrata esplicitamente qui perché i due sistemi convergeranno alla fine durante il Plan 4.
 
-I template di demografia sono cinque file JSON sotto `epocha/apps/demography/templates/`: `pre_industrial_christian.json`, `pre_industrial_islamic.json`, `industrial.json`, `modern_democracy.json` e `sci_fi.json`. Ciascun file porta un dizionario piatto con tre chiavi di primo livello (`mortality`, `fertility`, `couple`), ognuna che contiene i valori di parametro consumati dal modello corrispondente di §4.1. La coppia pre-industriale è una scissione deliberata: i due file condividono blocchi di mortalità e fertilità identici (perché il record storico empirico non giustifica una differenziazione per confessione negli schedule biologici sottostanti) e differiscono solo nel blocco `couple`, dove `pre_industrial_islamic.json` porta `marriage_market_type: arranged` contro il regime autonomo di tutti gli altri template e `pre_industrial_christian.json` porta `divorce_enabled: false` per modellare il regime canonico cattolico di indissolubilità del matrimonio. Lo schema JSON è intenzionalmente stretto: ogni chiave è consumata da un modello specifico in §4.1, nessun campo di estensione non tipizzato è accettato, e una chiave sconosciuta in fase di caricamento solleva un errore di validazione anziché essere silenziosamente ignorata.
+I template di demografia sono cinque file JSON sotto `epocha/apps/demography/templates/`: `pre_industrial_christian.json`, `pre_industrial_islamic.json`, `industrial.json`, `modern_democracy.json` e `sci_fi.json`. Ciascun file porta un dizionario piatto le cui chiavi sono consumate da un modello specifico di §4.1: `mortality`, `fertility` e `couple` per §4.1.1-§4.1.3, `trait_inheritance`, `social_inheritance` ed `economic_inheritance` per §4.1.4, `migration` per §4.1.5, più le voci a livello di simulazione `acceleration`, `max_population`, `fertility_agency`, `age_pyramid`, `sex_ratio_at_birth` e `sexual_orientation_distribution` condivise tra i modelli. La coppia pre-industriale è una scissione deliberata: i due file condividono blocchi di mortalità e fertilità identici (perché il record storico empirico non giustifica una differenziazione per confessione negli schedule biologici sottostanti) e differiscono solo nel blocco `couple`, dove `pre_industrial_islamic.json` porta `marriage_market_type: arranged` contro il regime autonomo di tutti gli altri template e `pre_industrial_christian.json` porta `divorce_enabled: false` per modellare il regime canonico cattolico di indissolubilità del matrimonio. Lo schema JSON è intenzionalmente stretto: ogni chiave è consumata da un modello specifico in §4.1, nessun campo di estensione non tipizzato è accettato, e una chiave sconosciuta in fase di caricamento solleva un errore di validazione anziché essere silenziosamente ignorata.
 
 I template di economia sono quattro funzioni factory Python in `epocha/apps/economy/template_loader.py`: `_pre_industrial_template()`, `_industrial_template()`, `_modern_template()` e `_sci_fi_template()`. Ciascuna funzione restituisce un dizionario annidato che il loader passa a `EconomyTemplate.objects.get_or_create()`, e la differenziazione per epoca è realizzata variando un piccolo insieme di input (tabella valute, elasticità dei beni, stock dei fattori, configurazione comportamentale) piuttosto che mantenendo quattro file JSON indipendenti. Il blocco comportamentale in particolare è costruito una sola volta da `_behavioral_config()` (`template_loader.py:144-198`) ed è identico tra tutti e quattro i template al commit pinnato, sul presupposto che le evidenze di calibrazione auditate del Plan 2 non motivassero una differenziazione per epoca al momento della spec. La differenziazione per epoca di `λ_base`, dei coefficienti di modulazione Becker, di `risk_premium`, `max_rollover` e `default_loan_duration_ticks` è il debito di calibrazione esplicito assegnato al Plan 4. I due sistemi usano numeri diversi (cinque per demografia, quattro per economia) perché la spec di demografia richiedeva di separare i due regimi confessionali pre-industriali per supportare la distinzione di mercato matrimoniale e regime di divorzio, mentre la spec di economia non ha trovato alcuna distinzione strutturale analoga al livello prezzo-e-credito che giustificasse un quinto template.
 
@@ -2224,7 +2464,7 @@ Il cluster del Grafo della Conoscenza implementa la memoria di lungo orizzonte d
 La roadmap è ordinata per priorità piuttosto che per cronologia: l'audit sull'unico modulo ancora pendente in §8 (la reputazione è convergente sul round 2 nel 2026-05-12 ed è stata promossa al §4.3; il cluster di propagazione del passaparola — information flow, distortion, belief filter, più affinity — è convergente sul round 2 nel 2026-05-16 ed è stato promosso al §4.4; il cluster delle istituzioni politiche è convergente sul round 2 nel 2026-05-16 ed è stato promosso al §4.5; il movimento è convergente sul round 2 nel 2026-05-16 ed è stato promosso al §4.6; le fazioni sono convergenti sul round 2 nel 2026-05-16 e promosse al §4.7; il layer base dell'economia è convergente sul round 12 del suo primo audit nel 2026-07-16 ed è stato promosso al §4.8) è l'item gating perché ogni successivo sforzo di calibrazione e validazione dipende dal sottoinsieme auditato che venga chiuso prima. Gli item rimanenti sono elencati in un ordine grossolano di sforzo atteso e sono tracciati nel backup di memoria di lungo formato sotto `docs/memory-backup/`; i cross-reference alla nota di memoria rilevante sono inline dove esistono.
 
 - **PRIORITÀ ALTA — audit avversariale del Knowledge Graph.** Il Knowledge Graph è l'unico modulo rimasto in §8 pendente del suo primo passaggio di audit scientifico. Sei cluster sono già convergenti e promossi: la reputazione sul round 2 (2026-05-12) al §4.3, il cluster di propagazione del passaparola (information flow, distortion, belief filter, più affinity) sul round 2 (2026-05-16) al §4.4, il cluster delle istituzioni politiche (government, government_types, institutions, stratification, election) sul round 2 (2026-05-16) al §4.5, il movimento sul round 2 (2026-05-16) al §4.6, le fazioni sul round 2 (2026-05-16) al §4.7, e il layer base dell'economia sul round 12 del suo primo audit (2026-07-16) al §4.8. L'audit del Knowledge Graph è l'item gating prima che possa essere promosso da §8 allo stato §4, prima che i suoi parametri possano essere aggiunti alle tabelle di parametri di §6, e prima che possa entrare nella campagna di validazione di §7.
-- **Demografia Plan 3 (Eredità + Migrazione).** La spec di demografia di §4.1 copre mortalità, fertilità e formazione delle coppie; il Plan 3 estende la stessa metodologia audit-first all'eredità (trasferimento di proprietà e debito ai parenti superstiti alla morte di un agente) e alla migrazione demografica (la migrazione zona-zona di lungo orizzonte che complementa il movimento per tick di §4.6 con un flusso a scala generazionale). La spec è la sezione Plan 3 di `docs/superpowers/specs/2026-04-18-demography-design.md`.
+- **Work item residuo del Plan 3 di demografia (difetti di design rinviati).** Il Plan 3 in sé è costruito: ereditarietà e migrazione sono implementate, unit-testate e documentate in §4.1.4 e §4.1.5, e il loro audit adversariale di codice di fase 6 è convergito il 2026-08-05 sul codice come delimitato. Resta il work item che quell'audit ha esplicitamente rinviato: otto difetti di livello progettuale, ciascuno dei quali richiede un proprio gate di requisiti di fase 2 anziché una patch al codice. I due dalle conseguenze più ampie sono il kernel poligenico che non preserva la varianza (la dispersione dei tratti collassa al 48,8% della distribuzione d'era dichiarata entro tre generazioni) e la quota coniugale shari'a cieca al genere. L'elenco completo, con le magnitudini misurate, è nei paragrafi Semplificazioni di §4.1.4 e §4.1.5 ed è inventariato in §11.
 - **Demografia Plan 4 (Inizializzazione, integrazione Engine, validazione storica).** Il Plan 4 collega i moduli di demografia di §4.1 — attualmente implementati e unit-testati in isolamento — al ciclo di tick live di `epocha/apps/simulation/engine.py`, fornisce la procedura di inizializzazione che seed-a una popolazione di partenza dal template per epoca, ed esegue la campagna di validazione storica di §7 contro i target Wrigley-Schofield (1981) e Human Mortality Database. Questo è il deliverable centrale che chiude la disclosure di gap di implementazione portata da §4.1 e risolve il caveat validation-pending portato da §7.5.
 - **Mercati finanziari dell'economia (Spec 3 da scrivere).** L'integrazione comportamentale di §4.2 copre aspettative adattive, credito e sistema bancario, e mercato immobiliare; la prossima spec di economia estende a mercati obbligazionari ed azionari, contagio dei prezzi degli asset attraverso più banche, e il canale di prestito interbancario rimandato sotto le semplificazioni di §4.2.2. La spec non è ancora redatta; l'item di lavoro è registrato nella memoria di roadmap di lungo formato.
 - **Esecuzione degli esperimenti di validazione.** La campagna specificata nel Capitolo 7 — acquisizione dei dataset, implementazione degli script, calcolo delle metriche e valutazione delle soglie — è il deliverable centrale tracciato in `docs/memory-backup/project_validation_experiments_pending.md`. L'esecuzione è legata al Plan 4 della roadmap di demografia sopra (che fornisce l'integrazione del ciclo di tick live richiesta dalla validazione) e all'audit del modulo §8 rimanente (il Knowledge Graph).
@@ -2271,6 +2511,28 @@ Il seguente catalogo raggruppa le limitazioni aperte per modulo. Ogni voce è de
 - Nessun cooldown per le seconde nozze: il campo `mourning_ticks` per template è caricato ma non ancora consumato dal check di idoneità, quindi un agente vedovo può in linea di principio ri-accoppiarsi al tick successivo alla morte del partner.
 - Gale-Shapley è applicato solo all'inizializzazione, non come fallback runtime quando una grande coorte non accoppiata si accumula.
 - Integrazione tick-loop rimandata al Plan 4 di demografia.
+
+**Ereditarietà (§4.1.4).** Le prime sei voci sono difetti di livello progettuale che l'audit convergente del codice di fase 6 non ha esplicitamente coperto; sono rinviati a un work item separato con un proprio gate di fase 2 e sono aperti al commit pinnato.
+- Il kernel poligenico non preserva la varianza. L'equazione (4.46) è una combinazione convessa anziché la decomposizione di Falconer e Mackay della (4.48): la dispersione dei tratti misurata collassa al 48,8% della distribuzione d'era dichiarata entro circa tre generazioni e vi resta, così ogni società simulata deriva verso l'omogeneità su tutti e tredici i tratti ereditabili e l'ereditabilità realizzata smette di corrispondere alle cifre citate dopo la prima generazione.
+- Il fallback a genitore singolo non dimezza il segnale genetico nonostante spec e docstring affermino che lo faccia: il coefficiente di regressione genitore-prole implementato è `h²` dove Falconer dà `h²/2`, quindi la somiglianza implementata è il doppio di quella del modello citato.
+- La quota coniugale shari'a è cieca al genere. Q4:12 come documentata da Powers (1986) dà al vedovo 1/2 senza figli e 1/4 con figli, alla vedova 1/4 e 1/8; l'implementazione applica lo schema della vedova a entrambi i partner.
+- Imposta di successione e residuo sono due prodotti indipendenti, quindi la conservazione esatta fallisce per il 18,8% delle coppie casuali con un errore assoluto peggiore di 1,16e-10, mentre l'allocazione agli eredi cinquanta righe più in là è esatta per costruzione.
+- Tre template portano valori di `education_regression_rho` che contraddicono le cifre citate dal design (0,4 / 0,4 / 0,2 contro 0,42 / 0,35 / 0,25); il valore moderno è attribuito a Chetty et al. (2014) a 0,35 e viene spedito a 0,4.
+- I prior di rumore d'era `DEFAULT_ERA_MEAN = 0.5` e `DEFAULT_ERA_SD = 0.15` sono segnaposto documentati che in pratica sono i parametri, dato che nessun template dichiara una sezione `era_noise`; combinati con il collasso di varianza qui sopra fissano il punto fisso verso cui la popolazione converge.
+- `get_seeded_rng()` mescola nel materiale del seme la chiave primaria di database della simulazione, quindi rieseguire un seme pubblicato su un database vergine produce stream casuali diversi.
+- La rappresentazione *per stirpes* è assente dalla scala degli eredi: i nipoti non possono ereditare quando il loro genitore è premorto al defunto.
+- Delle cinque regole di successione implementate, i template spediti ne esercitano solo tre; `matrilineal` e `nationalized` non sono dichiarate da alcun template.
+- Gli eredi non-binary sono trattati come non-maschi sotto `shari'a` e ordinati con gli eredi femmina sotto `primogeniture`; il cascade residuario di `shari'a` fa le veci della più completa gerarchia classica `'asaba`. Entrambi sono perimetro di design documentato, non difetti.
+- Integrazione tick-loop rimandata al Plan 4 di demografia.
+
+**Migrazione (§4.1.5).** Le prime due voci sono difetti di livello progettuale rinviati insieme a quelli di §4.1.4.
+- Il trigger di fuga confronta uno stock di ricchezza con un flusso di sussistenza per-tick, il che fissa silenziosamente l'orizzonte di sopravvivenza a esattamente un tick e tratta un agente con trenta tick di risparmi identicamente a uno che ne ha uno solo.
+- La variante Harris-Todaro dell'equazione (4.57) è dimensionalmente incoerente: sottrae un conteggio di tick da un tasso in valuta per tick. L'audit ha deliberato che il costo vada monetizzato come guadagni mancati, `distance_cost_ticks · wage_current`; quella delibera è registrata e deliberatamente non applicata.
+- La "stabilità di zona" nell'outlook di migrazione è uno scalare valido per l'intera simulazione riportato identico per ogni zona, perché `Government` è un `OneToOneField` verso `Simulation` e nello schema non esiste alcuna stabilità per zona.
+- Un nucleo familiare che migra arriva istantaneamente mentre l'agente decisore può essere ancora in viaggio per diversi tick, dato che i membri del nucleo aggirano lo spostamento parziale multi-tick di §4.6.
+- Il salario del settore informale del modello canonico di Harris-Todaro è posto a zero: un agente che non trova lavoro formale a destinazione è modellato come se lì non guadagnasse nulla.
+- Il denominatore della fuga di massa è una ricostruzione, non una misura: gli agenti morti nella zona durante la finestra lo sottostimano, quelli arrivati durante la finestra lo sovrastimano.
+- Integrazione tick-loop rimandata al Plan 4 di demografia, che possiede anche la memorizzazione per `consecutive_ticks_under_subsistence`; finché non esiste, la fuga d'emergenza non può scattare in una run live.
 
 **Aspettative adattive (§4.2.1).**
 - Singola variabile per bene: solo il livello di prezzo è previsto, senza alcuna previsione congiunta cross-bene, alcuna previsione separata del tasso di inflazione, e alcuna previsione del secondo momento.
@@ -2367,9 +2629,17 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   5(4), 323–370. https://doi.org/10.1037/1089-2680.5.4.323
 - Becker, G. S. (1991). *A Treatise on the Family*, enlarged edition.
   Harvard University Press, Cambridge, MA. ISBN 978-0-674-90698-3.
+- Becker, G. S., and Tomes, N. (1979). An equilibrium theory of the
+  distribution of income and intergenerational mobility. *Journal of
+  Political Economy*, 87(6), 1153–1189. https://doi.org/10.1086/260831
 - Besley, T., and Persson, T. (2011). *Pillars of Prosperity: The
   Political Economics of Development Clusters*. Princeton University
   Press, Princeton, NJ. ISBN 978-0-691-15268-4.
+- Blackstone, W. (1765–1769). *Commentaries on the Laws of England*.
+  Four volumes. Clarendon Press, Oxford. (Pre-ISBN. Source of the
+  lineal-descent rule implemented as `primogeniture` in §4.1.4; the
+  collateral-line extension implemented there is not Blackstone's and is
+  documented as such.)
 - Bonabeau, E. (2002). Agent-based modeling: methods and techniques for
   simulating human systems. *Proceedings of the National Academy of
   Sciences*, 99(Suppl. 3), 7280–7287.
@@ -2406,10 +2676,25 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   fertility patterns: fitting curves to "distorted" distributions.
   *Population Studies*, 53(3), 317–329.
   https://doi.org/10.1080/00324720308089
+- Chandra, A., Mosher, W. D., Copen, C., and Sionean, C. (2011). Sexual
+  behavior, sexual attraction, and sexual identity in the United States:
+  data from the 2006–2008 National Survey of Family Growth. *National
+  Health Statistics Reports*, 36. National Center for Health Statistics,
+  Hyattsville, MD. https://www.cdc.gov/nchs/data/nhsr/nhsr036.pdf
+- Chetty, R., Hendren, N., Kline, P., Saez, E., and Turner, N. (2014).
+  Is the United States still a land of opportunity? Recent trends in
+  intergenerational mobility. *American Economic Review*, 104(5),
+  141–147. https://doi.org/10.1257/aer.104.5.141
+- Clark, G. (2014). *The Son Also Rises: Surnames and the History of
+  Social Mobility*. The Princeton Economic History of the Western World.
+  Princeton University Press, Princeton, NJ. ISBN 978-0-691-16254-6.
 - Coale, A. J., and Trussell, T. J. (1974). Model fertility schedules:
   variations in the age structure of childbearing in human populations.
   *Population Index*, 40(2), 185–258.
   https://doi.org/10.2307/2733910
+- Code civil des Français (1804). Imprimerie de la République, Paris.
+  (The Napoleonic Code; source of the equal-division rule implemented as
+  `equal_split` in §4.1.4.)
 - Collier, N., and North, M. J. (2013). Parallel agent-based simulation
   with Repast for High Performance Computing. *SIMULATION*, 89(10),
   1215–1235. https://doi.org/10.1177/0037549712462620
@@ -2446,6 +2731,12 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Evans, G. W., and Honkapohja, S. (2001). *Learning and Expectations
   in Macroeconomics*. Frontiers of Economic Research. Princeton
   University Press, Princeton, NJ. ISBN 978-0-691-04921-2.
+- Falconer, D. S., and Mackay, T. F. C. (1996). *Introduction to
+  Quantitative Genetics*, 4th edition. Longman, Harlow, xv+464 pp.
+  ISBN 978-0-582-24302-6. (Chapter 8: the polygenic additive model and
+  the offspring-midparent regression. See §4.1.4, equations (4.46)–(4.48),
+  for the documented departure between this source and the
+  implementation.)
 - Festinger, L., Schachter, S., and Back, K. (1950). *Social Pressures in
   Informal Groups: A Study of Human Factors in Housing*. Harper and
   Brothers, New York.
@@ -2477,6 +2768,10 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   Press of Glencoe, New York. (Pre-ISBN monograph; Free Press / Macmillan
   edition, xii+432 pp. Source for the arranged-marriage typology and the
   parent-child asymmetry adopted in §4.1.3.)
+- Goody, J. (1976). *Production and Reproduction: A Comparative Study of
+  the Domestic Domain*. Cambridge Studies in Social Anthropology, vol. 17.
+  Cambridge University Press, Cambridge, xiii+157 pp.
+  ISBN 978-0-521-29088-3.
 - Gordon, M. J. (1959). Dividends, earnings, and stock prices.
   *The Review of Economics and Statistics*, 41(2), 99–105.
   https://doi.org/10.2307/1927792
@@ -2508,6 +2803,9 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Hammel, E. A., McDaniel, C. K., and Wachter, K. W. (1979). Demographic
   consequences of incest tabus: a microsimulation analysis. *Science*,
   205(4410), 972–977. https://doi.org/10.1126/science.205.4410.972
+- Harris, J. R., and Todaro, M. P. (1970). Migration, unemployment and
+  development: a two-sector analysis. *American Economic Review*, 60(1),
+  126–142. https://www.jstor.org/stable/1807860
 - Heligman, L., and Pollard, J. H. (1980). The age pattern of mortality.
   *Journal of the Institute of Actuaries*, 107(1), 49–80.
   https://doi.org/10.1017/S0020268100040257
@@ -2530,6 +2828,10 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - ILO, IMF, OECD, UNECE, Eurostat, and World Bank (2004). *Consumer
   Price Index Manual: Theory and Practice*. International Labour
   Office, Ginevra. ISBN 92-2-113699-X.
+- Jang, K. L., Livesley, W. J., and Vernon, P. A. (1996). Heritability of
+  the big five personality dimensions and their facets: a twin study.
+  *Journal of Personality*, 64(3), 577–591.
+  https://doi.org/10.1111/j.1467-6494.1996.tb00522.x
 - Jones, L. E., and Tertilt, M. (2008). An economic history of fertility
   in the United States: 1826-1960. In *Frontiers of Family Economics*
   (Population Economics, vol. 1), 165-230. Emerald Group Publishing.
@@ -2600,9 +2902,16 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   and their relation to antisocial behavior: a meta-analytic review.
   *Criminology*, 39(4), 765–798.
   https://doi.org/10.1111/j.1745-9125.2001.tb00940.x
+- Mincer, J. (1978). Family migration decisions. *Journal of Political
+  Economy*, 86(5), 749–773. https://doi.org/10.1086/260710
 - Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. A Twentieth
   Century Fund Report. Yale University Press, New Haven.
   ISBN 978-0-300-03386-1.
+- Miyamoto-Mikami, E., Zempo, H., Fuku, N., Kikuchi, N., Miyachi, M., and
+  Murakami, H. (2018). Heritability estimates of endurance-related
+  phenotypes: a systematic review and meta-analysis. *Scandinavian
+  Journal of Medicine & Science in Sports*, 28(3), 834–845.
+  https://doi.org/10.1111/sms.12958
 - Mokyr, J. (1985). *Why Ireland Starved: A Quantitative and Analytical
   History of the Irish Economy 1800-1850*, second edition. George Allen
   and Unwin, London. ISBN 978-0-04-941011-7.
@@ -2612,18 +2921,44 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Nerlove, M. (1958). Adaptive expectations and cobweb phenomena.
   *Quarterly Journal of Economics*, 72(2), 227–240.
   https://doi.org/10.2307/1880597
+- Nichols, R. C. (1978). Twin studies of ability, personality and
+  interests. *Homo*, 29, 158–173.
+- Nove, A. (1969). *An Economic History of the U.S.S.R.* Allen Lane, The
+  Penguin Press, London, 416 pp. ISBN 978-0-7139-0069-9.
 - Olson, M. (1965). *The Logic of Collective Action: Public Goods and the
   Theory of Groups*. Harvard Economic Studies, vol. 124. Harvard
   University Press, Cambridge, MA. (Pre-ISBN; revised edition with new
   preface, 1971, ISBN 978-0-674-53751-4.)
+- O'Rourke, K. H. (1994). The economic impact of the famine in the short
+  and long run. *American Economic Review*, 84(2), 309–313. (Papers and
+  Proceedings. Note: the module docstring of
+  `epocha/apps/demography/migration.py` records this paper's venue as
+  *European Review of Economic History* 1(1), 3–22; that attribution is
+  incorrect and the venue above is the one verified for this document.)
 - Park, J. S., O'Brien, J. C., Cai, C. J., Morris, M. R., Liang, P., and
   Bernstein, M. S. (2023). Generative agents: interactive simulacra of
   human behavior. In *Proceedings of the 36th Annual ACM Symposium on
   User Interface Software and Technology (UIST '23)*. ACM.
   https://doi.org/10.1145/3586183.3606763
+- Piketty, T. (2014). *Capital in the Twenty-First Century*. Translated
+  by A. Goldhammer. Belknap Press of Harvard University Press,
+  Cambridge, MA. ISBN 978-0-674-43000-6. (Tables 14.1–14.2: top marginal
+  estate and inheritance tax rates across France, the United Kingdom,
+  the United States and Germany over the twentieth century.)
+- Plomin, R., and Deary, I. J. (2015). Genetics and intelligence
+  differences: five special findings. *Molecular Psychiatry*, 20(1),
+  98–108. https://doi.org/10.1038/mp.2014.105
+- Polderman, T. J. C., Benyamin, B., de Leeuw, C. A., Sullivan, P. F.,
+  van Bochoven, A., Visscher, P. M., and Posthuma, D. (2015).
+  Meta-analysis of the heritability of human traits based on fifty years
+  of twin studies. *Nature Genetics*, 47(7), 702–709.
+  https://doi.org/10.1038/ng.3285
 - Powell, J. M., and Thyne, C. L. (2011). Global instances of coups from
   1950 to 2010: a new dataset. *Journal of Peace Research*, 48(2),
   249–259. https://doi.org/10.1177/0022343310397436
+- Powers, D. S. (1986). *Studies in Qur'an and Hadith: The Formation of
+  the Islamic Law of Inheritance*. University of California Press,
+  Berkeley and Los Angeles, xiii+263 pp. ISBN 978-0-520-05558-2.
 - Reimers, N., and Gurevych, I. (2019). Sentence-BERT: sentence embeddings
   using siamese BERT-networks. In *Proceedings of the 2019 Conference on
   Empirical Methods in Natural Language Processing and the 9th International
@@ -2654,6 +2989,9 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Schmertmann, C. P. (2003). A system of model fertility schedules with
   graphically intuitive parameters. *Demographic Research*, 9, 81–110.
   https://doi.org/10.4054/DemRes.2003.9.5
+- Schneider, D. M., and Gough, K. (eds.) (1961). *Matrilineal Kinship*.
+  University of California Press, Berkeley and Los Angeles, xx+761 pp.
+  (Pre-ISBN monograph.)
 - Seppecher, P. (2012). Flexibility of wages and macroeconomic
   instability in an agent-based computational model with endogenous
   money. *Macroeconomic Dynamics*, 16(S2), 284–297.
@@ -2663,6 +3001,13 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Shoven, J. B., and Whalley, J. (1992). *Applying General Equilibrium*.
   Cambridge Surveys of Economic Literature. Cambridge University Press,
   Cambridge. ISBN 978-0-521-31986-7.
+- Simon, H. A. (1955). A behavioral model of rational choice. *The
+  Quarterly Journal of Economics*, 69(1), 99–118.
+  https://doi.org/10.2307/1884852
+- Solon, G. (1999). Intergenerational mobility in the labor market. In
+  O. Ashenfelter and D. Card (eds.), *Handbook of Labor Economics*,
+  vol. 3A, ch. 29, 1761–1800. Elsevier, Amsterdam.
+  https://doi.org/10.1016/S1573-4463(99)03010-2
 - Spielauer, M. (2011). What is social science microsimulation?
   *Social Science Computer Review*, 29(1), 9–20.
   https://doi.org/10.1177/0894439310370085
@@ -2677,10 +3022,18 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   Statistical, Demographic and Epidemiological Perspective*. European
   Studies of Population, vol. 9. Kluwer Academic Publishers, Dordrecht.
   https://doi.org/10.1007/0-306-47562-6
+- Thomis, M. A., Beunen, G. P., Maes, H. H., Blimkie, C. J., Van
+  Leemputte, M., Claessens, A. L., Marchal, G., Willems, E., and
+  Vlietinck, R. F. (1998). Strength training: importance of genetic
+  factors. *Medicine & Science in Sports & Exercise*, 30(5), 724–731.
+  https://doi.org/10.1097/00005768-199805000-00013
 - van Imhoff, E., and Post, W. (1998). Microsimulation methods for
   population projection. *Population: An English Selection*, 10(1),
   97–138. (English-language counterpart of the article in *Population*,
   53(HS1), 97–136, December 1998.)
+- Vernon, P. A., Petrides, K. V., Bratko, D., and Schermer, J. A. (2008).
+  A behavioral genetic study of trait emotional intelligence. *Emotion*,
+  8(5), 635–642. https://doi.org/10.1037/a0013439
 - Walras, L. (1874). *Éléments d'économie politique pure, ou théorie de
   la richesse sociale*. L. Corbaz et Cie., Lausanne (part I, 1874;
   part II issued 1877). Definitive (fourth) edition published by
@@ -2706,10 +3059,20 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
 - Wrigley, E. A., and Schofield, R. S. (1981). *The Population History
   of England, 1541-1871: A Reconstruction*. Edward Arnold, London.
   Reissued by Cambridge University Press, 1989. ISBN 978-0-521-35688-6.
+- Zempo, H., Miyamoto-Mikami, E., Kikuchi, N., Fuku, N., Miyachi, M., and
+  Murakami, H. (2017). Heritability estimates of muscle strength-related
+  phenotypes: a systematic review and meta-analysis. *Scandinavian
+  Journal of Medicine & Science in Sports*, 27(12), 1537–1546.
+  https://doi.org/10.1111/sms.12804
 - Zhou, W.-X., Sornette, D., Hill, R. A., and Dunbar, R. I. M. (2005).
   Discrete hierarchical organization of social group sizes. *Proceedings
   of the Royal Society B*, 272(1561), 439–444.
   https://doi.org/10.1098/rspb.2004.2970
+- Zietsch, B. P., Kuja-Halkola, R., Walum, H., and Verweij, K. J. H.
+  (2014). Perfect genetic correlation between number of offspring and
+  grandoffspring in an industrialized human population. *Proceedings of
+  the National Academy of Sciences*, 111(3), 1032–1036.
+  https://doi.org/10.1073/pnas.1310058111
 - Zinn, S. (2013). The MicSim package of R: an entry-level toolkit for
   continuous-time microsimulation. *International Journal of
   Microsimulation*, 7(3), 3–32.

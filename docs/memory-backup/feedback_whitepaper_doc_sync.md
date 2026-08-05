@@ -12,7 +12,7 @@ Ogni PR che modifica codice di un modulo descritto nel cap. 4 del whitepaper bil
 
 | Modulo (path) | Capitolo whitepaper EN | Capitolo whitepaper IT |
 |---|---|---|
-| `epocha/apps/demography/` | §4.1 (Mortality, Fertility, Couple) | §4.1 |
+| `epocha/apps/demography/` | §4.1 (Mortality, Fertility, Couple, Inheritance, Migration) | §4.1 |
 | `epocha/apps/economy/expectations.py`, `credit.py`, `banking.py`, `property_market.py` | §4.2 (Expectations, Credit, Property) | §4.2 |
 | `epocha/apps/agents/reputation.py` | §4.3 (EN) | §4.3 (IT) |
 | `epocha/apps/agents/information_flow.py` | §4.4.1 (EN) | §4.4.1 (IT) |
