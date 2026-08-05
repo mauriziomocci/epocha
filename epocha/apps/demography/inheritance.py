@@ -2325,10 +2325,20 @@ def transfer_loans_as_lender(
     second FULL sister-count query pass on top of the one already paid.
     Accepting the already-computed dict keeps this function's own query
     cost at zero EXTRA queries for `primogeniture`/`equal_split`/`shari'a`/
-    `nationalized`; `matrilineal` still pays its own sister-count queries
-    once here (fix NEW-1, phase-6 audit round 2, T046, below) -- required
-    to resolve nieces/nephews back to Agent instances at all, and strictly
-    cheaper than the two-full-passes alternative this design avoids.
+    `nationalized`. `matrilineal` is DISTINGUISHED BY CALLER (corrected,
+    phase-6 audit round 5, T046 -- this sentence used to say `matrilineal`
+    "still pays its own sister-count queries once here" unconditionally,
+    which fix NEW-7 (phase-6 audit round 4, T046, below) made false for
+    the path that matters): `process_inheritance_batch`, the production
+    caller, resolves the niece/nephew list ONCE at the orchestrator level
+    and THREADS it in via `matrilineal_heirs=`, so THIS function pays ZERO
+    extra queries there too -- matching every other rule. Only a DIRECT
+    caller that omits `matrilineal_heirs` (bypassing the orchestrator)
+    still pays the lazy per-sister fallback described under fix NEW-1
+    below; that fallback keeps this function correct and self-contained
+    for such a caller, at the query cost inherent to resolving nieces and
+    nephews at all, strictly cheaper than the two-full-passes alternative
+    this design avoids.
 
     Scope (CRITICAL, read before touching this function): only loans where
     `deceased` is `lender` are considered. Loans where `deceased` is

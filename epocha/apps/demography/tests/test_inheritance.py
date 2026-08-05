@@ -3557,13 +3557,26 @@ class TestTransferLoansAsLenderFollowsTheCashDistributionRule:
     unconditional round-robin across every heir category `resolve_heirs`
     happens to return regardless of `rule`. The fix reuses the caller's
     OWN already-computed `cash_allocation` (`distribute_estate`'s return
-    value) as the third argument -- rather than re-deriving heir
-    eligibility inside this function via a second `distribute_estate`
-    call, which would double this function's query cost under
-    `matrilineal` specifically (`_resolve_matrilineal_heirs` issues one
-    query per sister, unlike every other rule which is pure Python) and
-    contradict the documented "up to 2 queries" budget this function and
-    `process_inheritance_batch` both cite.
+    value) as the third argument, rather than re-deriving heir eligibility
+    inside this function via a `rule: str` parameter and an internal
+    `distribute_estate` call.
+
+    RATIONALE, RESTATED (phase-6 audit round 5, T046 -- this docstring
+    previously argued the rejected alternative "would double this
+    function's query cost under matrilineal specifically", which fix
+    NEW-7 (phase-6 audit round 4, T046) made no longer strictly true: post
+    NEW-7, a hypothetical internal `distribute_estate` call here could
+    ALSO be handed the already-resolved `matrilineal_heirs` this function
+    already receives, so it would not necessarily re-pay the sister-count
+    queries either). The alternative is still rejected, on the grounds
+    that remain accurate: it would recompute the SAME allocation a second
+    time via a second, independent code path (a redundant pure-Python
+    computation for `primogeniture`/`equal_split`/`shari'a`/`nationalized`
+    regardless of query cost), creating two sources of truth for "who is
+    cash-eligible under this rule" that could drift from each other if
+    `distribute_estate`'s own logic ever changed without both call sites
+    being updated in lockstep -- accepting the caller's own already-
+    computed `cash_allocation` keeps there being exactly one.
 
     Under `nationalized`, `distribute_estate` always returns `{}` even
     with living heirs present, so loans now correctly follow cash to the
@@ -3698,6 +3711,59 @@ class TestTransferLoansAsLenderNoLivingHeir:
         loan = _make_loan(sim, borrower, lender=deceased)
 
         transfer_loans_as_lender(deceased, {"spouse": [], "children": [], "siblings": []}, {})
+
+        loan.refresh_from_db()
+        assert loan.lender_id is None
+        assert loan.lender_type == "banking"
+        assert loan.status == "active"
+
+
+class TestTransferLoansAsLenderUnresolvableIdWarnsAndDegradesToBanking:
+    """Fix NEW-7 (phase-6 audit round 4, T046) -- TEST REMEDIATION (phase-6
+    audit round 5, T046): the `unresolved_ids` branch (a `cash_allocation`
+    id that stays unresolvable even after the matrilineal fallback) had no
+    test -- the round-4 auditor found it was the ONE mutation that
+    survived a full pass: deleting the whole warning block left every one
+    of 371 tests green.
+
+    NOT REACHABLE THROUGH ANY OF THE FIVE DOCUMENTED RULES TODAY: every
+    id `distribute_estate` can ever put in a real `cash_allocation` is
+    drawn from `heirs` itself (four rules) or from `_resolve_matrilineal_
+    heirs(heirs)` (the fifth) -- this branch is a DEFENSIVE guard against
+    a caller-contract violation, not a path the real birth/death pipeline
+    can reach. This test constructs `cash_allocation` directly, naming an
+    id reachable from NEITHER `heirs` NOR any sister, specifically to
+    exercise that defensive path -- it does not claim this scenario
+    arises from any of the five documented succession rules.
+    """
+
+    @pytest.mark.django_db
+    def test_unresolvable_id_logs_a_warning_and_degrades_to_banking_transfer(
+        self, sim_with_zone, caplog
+    ):
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Deceased")
+        borrower = _make_agent(sim, zone, "Borrower")
+        loan = _make_loan(sim, borrower, lender=deceased)
+
+        # A real Agent, but deliberately never placed in `heirs` and with
+        # no sister for _resolve_matrilineal_heirs to find either -- an id
+        # `distribute_estate` could never actually produce, constructed
+        # here only to reach the defensive branch directly.
+        unreachable_agent = _make_agent(sim, zone, "UnreachableAgent")
+        heirs = {"children": [], "siblings": []}
+        cash_allocation = {unreachable_agent.id: 500.0}
+
+        with caplog.at_level(logging.WARNING, logger="epocha.apps.demography.inheritance"):
+            transfer_loans_as_lender(deceased, heirs, cash_allocation)
+
+        assert "could not be resolved" in caplog.text, (
+            f"expected a WARNING about the unresolvable id; captured log text: {caplog.text!r}"
+        )
+        assert str(unreachable_agent.id) in caplog.text, (
+            f"expected the unresolvable id {unreachable_agent.id} named in the warning; "
+            f"captured log text: {caplog.text!r}"
+        )
 
         loan.refresh_from_db()
         assert loan.lender_id is None
