@@ -40,9 +40,11 @@ scientific audit (knowledge graph). Every formula, parameter, and algorithm in t
 chapters is cited to a primary source; calibration tables are presented per
 era template and consolidated in Appendix A; the validation methodology
 specifies datasets, metrics, and acceptance thresholds against which Plan 4
-will execute the empirical campaign. Reproducibility infrastructure rests on
-era templates, per-phase seeded RNG streams, frozen-at-commit references,
-and a bilingual scientific whitepaper maintained as a living document.
+will execute the empirical campaign. Reproducibility infrastructure covers the
+non-LLM part of the system — era templates, per-phase seeded RNG streams for
+the demographic and economic services, frozen-at-commit references, and a
+bilingual scientific whitepaper maintained as a living document; the
+LLM-driven agent decisions and world generation are not seed-reproducible.
 The project is released under Apache 2.0, with a canonical seven-phase
 development workflow and mandatory adversarial audits gating every merge to
 the development branch.
@@ -140,8 +142,8 @@ capacity for free-form reasoning that distinguishes human decision-making.
 Epocha targets the gap between these two traditions. Its objective is
 long-horizon, multi-scale simulation of populations whose individual agents
 combine published demographic and economic dynamics with LLM-driven
-personality-rich cognition, while remaining auditable, reproducible, and
-grounded in primary scientific sources.
+personality-rich cognition, while remaining auditable, reproducible in its
+non-LLM part, and grounded in primary scientific sources.
 
 ## 1.3 Contributions
 
@@ -158,8 +160,11 @@ following:
   scientific audits that must reach explicit convergence before any
   scientific module is merged.
 - A reproducibility infrastructure built on era templates, seeded
-  pseudo-random number generation, and frozen-at-commit references, so that
-  any reported result can be regenerated from a known state.
+  pseudo-random number generation for the non-LLM services, and
+  frozen-at-commit references, so that any reported result that depends
+  only on the seeded part can be regenerated from a known state; results
+  that depend on LLM agent decisions or world generation are not
+  seed-reproducible.
 - A modular architecture in which audited modules (currently demographic
   mortality, fertility, and couple formation) and designed-but-unaudited
   modules coexist behind explicit status headers, allowing readers to
@@ -264,10 +269,11 @@ demographic transitions, economic accounting, and matching are handled by
 audited rule-based services described in Chapter 4. A reputation and memory
 cache (Castelfranchi et al. 1998) reduces context drift across ticks by
 giving agents a structured episodic substrate they can reference instead
-of re-deriving social information from scratch. Reproducibility is enforced
-at the simulation boundary through seeded pseudo-random number generation,
-era templates frozen at commit, and provider-level call logging documented
-in Chapter 3.
+of re-deriving social information from scratch. Reproducibility of the non-LLM
+part is enforced at the simulation boundary through seeded pseudo-random
+number generation, era templates frozen at commit, and provider-level call
+logging documented in Chapter 3; the LLM decisions themselves, sampled at
+non-zero temperature without a seed, remain the fragile part noted above.
 
 ## 2.3 Demographic micro-simulation
 
@@ -408,8 +414,8 @@ from the LLM call and the per-tick seeded RNG streams documented in §3.4,
 never from scheduling. A real-time event-driven design was rejected because
 discrete ticks are the natural granularity of the demographic and economic
 literature the calibration draws on (Heligman and Pollard 1980, Hadwiger
-1940), because per-tick reproducibility is the contract the validation
-suite of Chapter 7 depends on, and because chord-based parallelism scales
+1940), because per-tick reproducibility of the non-LLM services is the contract the
+validation suite of Chapter 7 depends on, and because chord-based parallelism scales
 horizontally on Celery workers without locking shared state.
 
 ```
@@ -497,8 +503,14 @@ deliberate: reordering or suppressing the mortality routine in a refactor
 must not shift the random sequence that fertility, couple formation, or
 inheritance see at the same tick, otherwise reproducibility across
 refactors collapses. Given the commit hash of the codebase, the
-`simulation.seed`, and the initial state of the database, every tick of a
-run is deterministic and reproducible across machines. One known debt is
+`simulation.seed`, and the initial state of the database, the non-LLM part
+of every tick — the seeded demographic and economic services — is
+deterministic and reproducible across machines. The per-agent decisions are
+not: each is an LLM call at `temperature=0.7` with no seed
+(`agents/decision.py:381`), so the decision an agent takes on a given tick
+is not reproducible even from an identical seed and database state. The
+seed governs what `simulation/models.py:35` names the "non-LLM part", not
+the LLM sampling. One known debt is
 tracked as A-5 for Plan 4: when both `simulation.seed` and `simulation.id`
 are `None`, the RNG helper falls back to `0` for both, so two unsaved
 simulations with no explicit seed running the same tick draw identical
@@ -1579,6 +1591,13 @@ narrative observation that coups require organised internal cohesion, a
 focal leader, and a military that is not committed to the incumbent; the
 exact weights are tunable design parameters.
 
+**RNG reproducibility (sibling of §4.6 finding N-8)**: the
+`random.random()` draw at `government.py:618` uses Python's global RNG, not
+the simulation-seeded `get_seeded_rng`. As with the movement arrival-scatter
+of §4.6, the coup outcome is therefore not reproducible from the simulation
+seed — two identically-seeded runs can differ on whether a coup succeeds.
+Future work: thread the simulation RNG into `government.py`.
+
 Equation (4.27) — Stability index:
 
   stability = w_economy·economy + w_legitimacy·legitimacy + w_military·military_loyalty
@@ -2175,7 +2194,7 @@ where the velocity passed to the check is the income velocity (factor income / M
 
 ### Algorithm
 
-1. `process_economy_tick_new(simulation, tick)` (`epocha/apps/economy/engine.py`) orchestrates the nine steps; every iteration order feeding order-sensitive state is pinned (id-ordered querysets, sorted goods, stable essential-first trade sort, RNG derived from the simulation seed and tick), so identically-seeded runs reproduce bit-identical state.
+1. `process_economy_tick_new(simulation, tick)` (`epocha/apps/economy/engine.py`) orchestrates the nine steps; every iteration order feeding order-sensitive state is pinned (id-ordered querysets, sorted goods, stable essential-first trade sort, RNG derived from the simulation seed and tick), so the economic step is deterministic given its inputs. Those inputs include agent decisions and the LLM-derived wealth and zone assignments they produce, which are not seed-reproducible (§3.4); two identically-seeded runs therefore do not reproduce bit-identical state — only bit-identical economic arithmetic over whatever inputs each run's LLM decisions generated.
 2. Per zone: `compute_agent_output` (equation 4.42) adds production to inventories and the ledger; `collect_supply_and_demand` + `tatonnement_prices` (4.43) clear the market; `execute_trades` rations the short side proportionally with running totals and the engine settles essential goods first under a buyer-cash affordability guard.
 3. `partition_output_value` (4.44) computes rent, wages, and profit summing to `V_z`; the engine credits payees resolved simulation-wide (living out-of-zone owners included, dead owners excluded) and ledgers each factor income; taxation debits earners and credits the treasury with the running total actually collected, only when a Government exists.
 4. Step 8 recomputes `M` from living agents' circulating cash, evaluates the Fisher diagnostic (4.45), updates wealth and the median-relative mood thresholds, and the banking layer recalculates deposits (§4.2.2).
@@ -2356,7 +2375,7 @@ Table 7.2 — Acceptance thresholds per audited module.
 | Fertility (Hadwiger fit) | Total Fertility Rate `TFR ∈ [4.5, 6.5]` for the pre-industrial era after fitting `H`, `R`, `T` against the Wrigley-Schofield ASFR profile | The interval brackets the historically attested TFR range for early-modern England (Wrigley and Schofield 1981) |
 | Crisis mortality (Irish Famine analog) | Excess mortality consistent with approximately `12%` cumulative over five years when the simulation is forced with a famine shock of comparable magnitude | The `12%` figure is the order of magnitude of the population loss reported by Mokyr (1985) for the 1846-1851 Irish Famine combining excess deaths and forced emigration |
 | Couple formation (European marriage pattern) | Singulate Mean Age at Marriage `SMAM ∈ [25, 28]` years and never-married fraction at age 50 in `[10%, 20%]` after running the founder-population builder and aging the cohort | The two intervals are the canonical signature of the European Marriage Pattern reported in Hajnal (1965) |
-| Economy (base layer, §4.8) | Acceptance criteria deferred to Plan 4 alongside the dataset selection of §7.1; the audited invariants (factor-income injection equals V, goods conservation, tax transfer symmetry, seeded determinism) are enforced by the regression suite rather than by empirical thresholds | No empirical target dataset has been specified at the time of writing |
+| Economy (base layer, §4.8) | Acceptance criteria deferred to Plan 4 alongside the dataset selection of §7.1; the audited invariants (factor-income injection equals V, goods conservation, tax transfer symmetry, seeded determinism of the non-LLM economic step) are enforced by the regression suite rather than by empirical thresholds | No empirical target dataset has been specified at the time of writing |
 | Economy (behavioral integration) | Acceptance criteria deferred to Plan 4 alongside the dataset selection of §7.1 | No empirical target dataset has been specified at the time of writing |
 
 A fit that fails its threshold does not invalidate the model; it triggers a debugging loop that examines first the seed values of the per-era template, then the bounds of the fitting helper, and only finally the model formulation itself. The order is the standard one for any calibration loop: the most likely failure mode is a poorly-seeded template, the next-most-likely is a too-tight or too-loose bound, and the least-likely is a structural defect of the model that has already passed adversarial scientific audit at the spec stage.
@@ -2515,15 +2534,18 @@ intervention experiments — what would have happened if the Irish Famine of
 happened if the property-market crash of §4.2.3 had been preceded by a
 different banking-confidence trajectory — become tractable because the
 era-template machinery makes the parameter intervention explicit and the
-seeded RNG of §3.4 makes the run reproducible. Multi-scale aggregation —
+seeded RNG of §3.4 makes the non-LLM part of the run reproducible. Multi-scale aggregation —
 from individual cognition through faction-level coordination to state-level
 policy — becomes tractable because the persistence model of §3.7 carries
 both the individual-agent rows and the institutional rows as first-class
-entities rather than as derived aggregates. And narrative reproducibility
-across runs — the same scenario re-run with the same seed produces the
-same per-agent decision log and the same emergent narrative arc — becomes
-the basis for the publication-grade scientific paper that the project's
-roadmap of Chapter 9 names as its final deliverable.
+entities rather than as derived aggregates. And full auditability of a run —
+each per-agent decision and the emergent narrative arc it produces is
+completely logged and can be traced back to the simulation state that drove
+it — becomes the basis for the publication-grade scientific paper that the
+project's roadmap of Chapter 9 names as its final deliverable. The decision
+trail is auditable, not reproducible: because each decision is LLM output at
+non-zero temperature without a seed, re-running the same scenario with the
+same seed does not reproduce the same per-agent decision log.
 
 ---
 
@@ -2746,8 +2768,10 @@ tâtonnement clearing, the conserved factor-income partition, and the
 Fisher conservation diagnostic (§4.8), and one
 implemented-but-pre-audit subsystem (§8): the Knowledge Graph. The runtime infrastructure
 covers a tick engine with self-enqueuing Celery loop, a per-phase seeded
-RNG strategy that makes every run reproducible across machines from the
-commit hash, the seed, and the initial database state (§3.4), an
+RNG strategy that makes the non-LLM part of every run reproducible across
+machines from the commit hash, the seed, and the initial database state —
+the LLM agent decisions and world generation are not seed-reproducible
+(§3.4) — an
 LLM-provider adapter that abstracts over OpenAI proper, Groq, Gemini,
 OpenRouter, Together AI, Mistral, LM Studio, and Ollama with key rotation
 and a Redis-backed sliding-window limiter (§3.5), and a dashboard plus
@@ -2773,8 +2797,8 @@ parameter values out of the source code and into auditable artefacts,
 seeded RNG streams are partitioned by simulation, tick, and phase so
 that a refactor cannot silently shift the random sequence one subsystem
 sees, and Appendix B records the exact commands by which any reported
-result can be regenerated from a clean checkout pinned at the
-frozen-at-commit hash.
+result that depends only on the seeded non-LLM part can be regenerated
+from a clean checkout pinned at the frozen-at-commit hash.
 
 The codebase is open source under the Apache 2.0 licence at
 https://github.com/mauriziomocci/epocha, and contributions are welcome
@@ -3447,7 +3471,10 @@ two property-market design parameters are coded outside the templates.
 ## Appendix B — Reproducibility
 
 Appendix B records the operational steps by which any result reported in
-this whitepaper can be regenerated from a clean checkout. The reference
+this whitepaper that depends only on the seeded non-LLM part can be
+regenerated from a clean checkout; results that depend on LLM agent
+decisions or world generation are not seed-reproducible and can be
+re-observed but not regenerated identically. The reference
 that pins the codebase state for the present revision is the value of the
 `frozen-at-commit` field in the front matter, populated at merge time
 under phase 7 of the canonical workflow; running on a different commit
