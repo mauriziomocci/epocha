@@ -949,7 +949,10 @@ def evaluate_emergency_flight(
     """Return the highest-expected-gain reachable zone if `agent` should
     flee NOW, or `None` (design spec Sezione 6, "Emergency flight").
 
-    THREE SIMULTANEOUS CONDITIONS (AND, not any two of three -- fix I-5):
+    THREE SIMULTANEOUS CONDITIONS (AND, not any two of three -- fix I-5
+    of the DESIGN SPEC's own numbering, which predates the phase-6 audit
+    and is unrelated to the audit's separately-numbered `T046/I-5`, the
+    single-parent genetic signal in `inheritance.py`):
     1. `agent.wealth` is BELOW `compute_subsistence_threshold(simulation,
        agent's current zone)` -- starving right now.
     2. `consecutive_ticks_under_subsistence >=
@@ -958,7 +961,8 @@ def evaluate_emergency_flight(
     3. At least one reachable zone offers a POSITIVE
        `compute_expected_gain` -- somewhere to actually go.
 
-    FIX I-5 IS CONDITION 3 SPECIFICALLY: an agent who satisfies 1 and 2
+    THE DESIGN SPEC'S FIX I-5 IS CONDITION 3 SPECIFICALLY (again, not
+    the audit's `T046/I-5`): an agent who satisfies 1 and 2
     but has NOWHERE better to go must NOT fire here. That is the TRAPPED
     case -- a distinct, later mechanism (T038/T039's `TRAPPED_CRISIS`
     emission) exists precisely to make that state observable. If this

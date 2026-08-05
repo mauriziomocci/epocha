@@ -419,15 +419,19 @@ class TestEvaluateDerivedFormulaRaisesContract:
             evaluate_derived_formula("1/intelligence", {"intelligence": 0.0})
 
     def test_deeply_nested_formula_raises_formula_error_not_recursion_error(self):
-        """Fix NEW-3 (phase-6 audit round 2, T046): `ArithmeticError` alone
-        (the previous fix, M-1) does not make the `Raises` contract true --
-        `_eval_node`'s own recursive descent is not an arithmetic error.
-        Independently reproduced before this fix: `"-" * n + "x"` (n
-        consecutive unary minuses) succeeds up to n=997 and raises a bare
-        `RecursionError` at n=998 in this exact container (both via a bare
-        script and via pytest -- `ast.parse` itself copes fine at every n
-        tried up to 1200; the blow-up is `_eval_node`'s own descent, one
-        stack frame per nesting level). The specific crossover point is
+        """Fix NEW-3, first pass (phase-6 audit round 2, T046):
+        `ArithmeticError` alone (the previous fix, M-1) does not make the
+        `Raises` contract true -- `_eval_node`'s own recursive descent is
+        not an arithmetic error. Independently reproduced before this
+        fix: `"-" * n + "x"` (n consecutive unary minuses) succeeds up to
+        n=997 and raises a bare `RecursionError` at n=998 in this exact
+        container (both via a bare script and via pytest -- `ast.parse`
+        itself copes fine at every n tried up to 1200 at the time this
+        test was written; a MUCH larger n was later found, in round 3, to
+        break the PARSER itself before this depth bound ever runs -- see
+        `test_pathologically_long_formula_raises_formula_error_not_memory_error`
+        below for that separate fix and its own test). The specific
+        crossover point for THIS `_eval_node`-recursion vector is
         environment- and caller-stack-dependent (a deeper caller stack,
         e.g. inside Django/Celery request handling, would hit it at a
         SMALLER n than a bare test does) -- which is itself the argument
@@ -440,6 +444,42 @@ class TestEvaluateDerivedFormulaRaisesContract:
         """
         with pytest.raises(FormulaError):
             evaluate_derived_formula("-" * 100 + "intelligence", {"intelligence": 0.5})
+
+    def test_pathologically_long_formula_raises_formula_error_not_memory_error(self):
+        """Fix NEW-3, second pass (phase-6 audit round 3, T046): the depth
+        bound above runs AFTER `ast.parse` -- it protects `_eval_node`'s
+        own descent, but does nothing for a failure INSIDE the parse call
+        itself. Independently reproduced before this fix: `ast.parse("-" *
+        n + "x", mode="eval")` succeeds up to n=5900 and raises a bare
+        `MemoryError("Parser stack overflowed - Python source too complex
+        to parse")` at n=5976 in this exact container -- CPython's own PEG
+        parser exhausting its internal stack allocator, a controlled,
+        well-defined condition (not a symptom of the whole process running
+        out of memory), but still an exception type the `Raises` contract
+        never promised. Before this fix, `evaluate_derived_formula`'s own
+        `except SyntaxError` around `ast.parse` does not catch
+        `MemoryError`, so it escaped raw, exactly the same category of
+        contract violation `RecursionError` was.
+
+        FIX CHOSEN: a proactive `_MAX_FORMULA_EXPRESSION_LENGTH` bound,
+        checked BEFORE `ast.parse` is ever called (see that constant's own
+        comment for the exact reasoning) -- not a `try/except MemoryError`
+        around the parse call. A length bound stops the parser from ever
+        seeing a pathological string at all, rather than reacting to
+        however CPython's specific parser implementation happens to fail
+        today; catching `MemoryError` broadly is also the more fragile
+        choice in general, since a genuine out-of-memory condition
+        elsewhere in the process could raise the identical exception type
+        for an unrelated reason a narrow `except` here should not swallow.
+
+        n=5976 is used directly (the auditor's own measured threshold,
+        reproduced independently first) rather than a smaller value, so
+        this test doubles as a literal regression check against the exact
+        failure that was reported, not just "some length that overflows
+        the parser eventually".
+        """
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("-" * 5976 + "x", {"x": 1.0})
 
 
 class TestEvaluateDerivedFormulaRefusals:
@@ -1345,10 +1385,12 @@ class TestApplySocialInheritanceClarkRegression:
 
     @pytest.mark.django_db
     def test_weight_is_pinned_exactly_to_seventy_thirty(self, sim_with_zone, monkeypatch):
-        """Fix (round-1 test item, resolved in phase-6 audit round 2,
-        T046): pins Clark's 70/30 weighting EXACTLY, closing the gap the
-        class docstring above now documents -- the existing rounded-label
-        assertions jointly permit any `w` in roughly `(0.5, 0.875]`.
+        """Fix (round-1 test item; NOT actually resolved by the original
+        version of this test, per phase-6 audit round 3, T046 -- see
+        CORRECTION below): pins Clark's 70/30 weighting EXACTLY, closing
+        the gap the class docstring above now documents -- the existing
+        rounded-label assertions jointly permit any `w` in roughly
+        `(0.5, 0.875]`.
 
         A single integer-rounded `social_class` label cannot, by
         construction, discriminate a real-valued weight to better than
@@ -1364,6 +1406,22 @@ class TestApplySocialInheritanceClarkRegression:
         to the real implementation -- observing the exact pre-rounding
         value `_apply_clark_regression` computed, not merely the rounded
         label it produced.
+
+        CORRECTION (phase-6 audit round 3, T046): the original version of
+        this test used ONLY father rank 0 ("elite"). `rank = 0.7*parent +
+        0.3*zone_mean` with `parent = 0` makes the PARENT term
+        `0.7 * 0 = 0` regardless of what the 0.7 coefficient actually is
+        -- the assertion `expected_rank = 0.7*0 + 0.3*4.0 == 1.2` holds
+        for ANY value substituted for 0.7, so the test pinned only the
+        ZONE-MEAN coefficient (0.3), never the parent coefficient the
+        rule is named for. The comment that used to sit here claiming
+        "any distinct parent_rank/zone_class_mean pair works equally
+        well" was independently verified FALSE for exactly the pair this
+        test used -- it is precisely the zero-parent-rank case that hides
+        the hole. A second scenario below, with a NON-ZERO parent rank
+        (3, "working"), is required to pin the 0.7 coefficient itself;
+        neither scenario alone is sufficient, since the zero-parent case
+        genuinely does still discriminate the zone-mean coefficient.
         """
         sim, zone = sim_with_zone
         template = {
@@ -1372,15 +1430,6 @@ class TestApplySocialInheritanceClarkRegression:
                 "education_regression_rho": 0.4,
             }
         }
-        # father rank 0 ("elite"), zone_class_mean 4.0 -- the same inputs
-        # as the test above, chosen only for consistency; any distinct
-        # parent_rank/zone_class_mean pair works equally well here since
-        # this test observes the raw rank directly rather than inferring
-        # the weight through a rounded label.
-        mother = _make_agent(sim, zone, "Mother", social_class="elite", education_level=0.9)
-        father = _make_agent(sim, zone, "Father", social_class="elite", education_level=0.9)
-        child = _make_agent(sim, zone, "Child")
-        zone_class_mean = 4.0
 
         import epocha.apps.demography.inheritance as inheritance_module
 
@@ -1394,21 +1443,49 @@ class TestApplySocialInheritanceClarkRegression:
         monkeypatch.setattr(
             inheritance_module, "_rank_to_class_label", _capturing_rank_to_class_label
         )
-
         rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+
+        # Scenario 1: father rank 0 ("elite"). The parent term (0.7*0=0)
+        # vanishes regardless of the 0.7 coefficient's actual value -- this
+        # scenario pins ONLY the zone-mean coefficient (0.3), not the
+        # parent coefficient, and is kept specifically so a reader can see
+        # that fact demonstrated rather than merely asserted.
+        mother_1 = _make_agent(sim, zone, "Mother1", social_class="elite", education_level=0.9)
+        father_1 = _make_agent(sim, zone, "Father1", social_class="elite", education_level=0.9)
+        child_1 = _make_agent(sim, zone, "Child1")
         apply_social_inheritance(
-            child, mother, father, template, zone_class_mean=zone_class_mean, rng=rng
+            child_1, mother_1, father_1, template, zone_class_mean=4.0, rng=rng
         )
 
-        assert len(captured_ranks) == 1, (
-            "expected exactly one _rank_to_class_label call from the "
-            "deterministic clark_regression branch"
+        # Scenario 2: father rank 3 ("working"), zone_class_mean 2.0 --
+        # NEITHER term vanishes here (0.7*3=2.1, 0.3*2.0=0.6), so this is
+        # the scenario that actually pins the 0.7 parent coefficient: a
+        # wrong coefficient (e.g. 0.65 or 0.79, both of which the round-3
+        # audit found the OLD single-scenario test let through) changes
+        # this expected value and this one alone.
+        mother_2 = _make_agent(sim, zone, "Mother2", social_class="middle", education_level=0.5)
+        father_2 = _make_agent(sim, zone, "Father2", social_class="working", education_level=0.5)
+        child_2 = _make_agent(sim, zone, "Child2")
+        apply_social_inheritance(
+            child_2, mother_2, father_2, template, zone_class_mean=2.0, rng=rng
         )
-        parent_rank = 0  # "elite"
-        expected_rank = 0.7 * parent_rank + 0.3 * zone_class_mean
-        assert captured_ranks[0] == pytest.approx(expected_rank), (
-            f"captured pre-rounding rank {captured_ranks[0]!r} does not match "
-            f"the exact 0.7/0.3 weighting ({expected_rank!r})"
+
+        assert len(captured_ranks) == 2, (
+            "expected exactly one _rank_to_class_label call per scenario "
+            "from the deterministic clark_regression branch"
+        )
+
+        expected_rank_1 = 0.7 * 0 + 0.3 * 4.0
+        assert captured_ranks[0] == pytest.approx(expected_rank_1), (
+            f"scenario 1 (parent_rank=0): captured pre-rounding rank "
+            f"{captured_ranks[0]!r} does not match {expected_rank_1!r}"
+        )
+
+        expected_rank_2 = 0.7 * 3 + 0.3 * 2.0
+        assert captured_ranks[1] == pytest.approx(expected_rank_2), (
+            f"scenario 2 (parent_rank=3, the one that actually pins the 0.7 "
+            f"coefficient): captured pre-rounding rank {captured_ranks[1]!r} "
+            f"does not match {expected_rank_2!r}"
         )
 
 
@@ -3713,6 +3790,60 @@ class TestTransferLoansAsLenderQueryBudget:
         with django_assert_num_queries(2):
             transfer_loans_as_lender(deceased, heirs, cash_allocation)
 
+    @pytest.mark.django_db
+    def test_matrilineal_costs_two_queries_when_the_caller_threads_the_resolved_heirs(
+        self, sim_with_zone, django_assert_num_queries
+    ):
+        """Fix NEW-7 (phase-6 audit round 4, T046): NEW-1's fix (round 2)
+        made this function's own query cost under `matrilineal` unbounded
+        in sibling count -- a lazy `_resolve_matrilineal_heirs(heirs)`
+        fallback (one query per sister) fired every time, since a niece/
+        nephew id is never in `heirs` itself. The auditor measured 6
+        queries for four sisters, one niece, one loan (1 loan SELECT + 4
+        sister queries + 1 `bulk_update`), directly contradicting this
+        function's own documented "up to 2 queries" budget.
+
+        This test proves the budget is TRUE AGAIN for the path that
+        matters -- `process_inheritance_batch` now resolves the niece/
+        nephew list ONCE (paying exactly the sister-count queries
+        `distribute_estate` already needed regardless) and THREADS it
+        into both `distribute_estate` and this function via the new
+        `matrilineal_heirs` keyword, the same pattern the I-6 fix already
+        established for `cash_allocation` one paragraph above this one.
+        FOUR sisters are used deliberately -- if the query cost still
+        scaled with sibling count, this test would need 4 extra queries;
+        threading keeps it at exactly 2, proving no re-resolution happens
+        inside this function when the caller has already done it.
+        """
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        sisters = [
+            _make_agent(
+                sim,
+                zone,
+                f"Sister{i}",
+                parent_agent=common_parent,
+                birth_tick=5 + i,
+                gender=Agent.Gender.FEMALE,
+            )
+            for i in range(4)
+        ]
+        niece = _make_agent(sim, zone, "Niece", parent_agent=sisters[0], birth_tick=20)
+        borrower = _make_agent(sim, zone, "Borrower")
+        _make_loan(sim, borrower, lender=deceased)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        cash_allocation = {niece.id: 1_000.0}
+
+        # 1 query to fetch active lender-side loans, plus 1 bulk_update --
+        # 2 queries regardless of sister count, when the caller threads
+        # the already-resolved niece/nephew list (`matrilineal_heirs`)
+        # instead of relying on the lazy `_resolve_matrilineal_heirs(heirs)`
+        # fallback this function still uses for callers that don't thread it.
+        with django_assert_num_queries(2):
+            transfer_loans_as_lender(deceased, heirs, cash_allocation, matrilineal_heirs=[niece])
+
 
 # ---------------------------------------------------------------------------
 # assign_orphan_caretaker (Plan 3, T024/T025, user story 3 -- orphan
@@ -5140,6 +5271,164 @@ class TestProcessInheritanceBatchLoanTransfer:
 
         loan.refresh_from_db()
         assert loan.lender_id == heir.id
+
+    @pytest.mark.django_db
+    def test_matrilineal_loan_transfer_query_cost_does_not_scale_with_sister_count(
+        self, monkeypatch
+    ):
+        """Fix NEW-7 (phase-6 audit round 4, T046): end-to-end proof, via
+        the REAL `process_inheritance_batch` orchestrator (not
+        `transfer_loans_as_lender` called in isolation), that threading
+        `matrilineal_heirs` through both `distribute_estate` and
+        `transfer_loans_as_lender` actually happens on the production
+        path, not merely in a hand-assembled unit test. No era template
+        selects `matrilineal` (verified elsewhere in this file), so the
+        rule is forced via the same `load_template` monkeypatch pattern
+        `TestProcessInheritanceBatchEventPayloadReportsTheClampedTax`
+        already established.
+
+        DELTA, not an exact total: the full batch's query count depends on
+        many unrelated moving parts (`dissolve_on_death`, mourning
+        memories, treasury resolution, wealth `bulk_update`, event
+        `bulk_create`) that are not this fix's concern and would make an
+        exact total fragile to pin. Comparing ONE sister against FOUR
+        isolates exactly the sister-resolution cost fix NEW-7 addresses:
+        if it still doubled (once inside `distribute_estate`, again inside
+        `transfer_loans_as_lender`), three extra sisters would cost SIX
+        extra queries; threaded correctly, they cost exactly THREE. Two
+        INDEPENDENT simulations are built (not the shared `sim_with_
+        government` fixture, which is not re-invocable mid-test) so
+        neither scenario's rows leak into the other's query count.
+        """
+        import copy
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        import epocha.apps.demography.template_loader as template_loader_module
+
+        matrilineal_template = copy.deepcopy(load_template("industrial"))
+        matrilineal_template["economic_inheritance"]["rule"] = "matrilineal"
+        real_load_template = template_loader_module.load_template
+        monkeypatch.setattr(
+            template_loader_module,
+            "load_template",
+            lambda name: matrilineal_template if name == "industrial" else real_load_template(name),
+        )
+
+        def _build_sim_with_government(label: str):
+            user = User.objects.create_user(
+                email=f"{label}@epocha.dev", username=label, password="pass1234"
+            )
+            sim = Simulation.objects.create(name=label, seed=2026, owner=user, current_tick=10)
+            world = World.objects.create(simulation=sim, stability_index=0.7)
+            zone = Zone.objects.create(
+                world=world,
+                name=f"{label}Zone",
+                zone_type="residential",
+                boundary=Polygon.from_bbox((0, 0, 100, 100)),
+                center=Point(50, 50),
+            )
+            government = Government.objects.create(simulation=sim)
+            _set_demography_template(sim, "industrial")
+            return sim, zone, government
+
+        def _run_with_n_sisters(n: int, label: str) -> int:
+            sim, zone, government = _build_sim_with_government(label)
+            common_parent = _make_agent(sim, zone, "CommonParent")
+            deceased = _make_agent(
+                sim,
+                zone,
+                "Deceased",
+                parent_agent=common_parent,
+                is_alive=False,
+                wealth=1000.0,
+                age=70,
+                birth_tick=-300,
+            )
+            for i in range(n):
+                sister = _make_agent(
+                    sim,
+                    zone,
+                    f"Sister{i}",
+                    parent_agent=common_parent,
+                    gender=Agent.Gender.FEMALE,
+                    birth_tick=-250 + i,
+                )
+                _make_agent(sim, zone, f"Niece{i}", parent_agent=sister, birth_tick=-30 + i)
+            borrower = _make_agent(sim, zone, "Borrower", wealth=0.0, birth_tick=-30)
+            _make_loan(sim, borrower, lender=deceased)
+
+            with CaptureQueriesContext(connection) as ctx:
+                process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+            return len(ctx.captured_queries)
+
+        queries_one_sister = _run_with_n_sisters(1, "matone")
+        queries_four_sisters = _run_with_n_sisters(4, "matfour")
+
+        delta = queries_four_sisters - queries_one_sister
+        assert delta == 3, (
+            f"1 sister cost {queries_one_sister} queries, 4 sisters cost "
+            f"{queries_four_sisters} -- delta {delta}, expected exactly 3 "
+            "(one query per extra sister, resolved once and shared between "
+            "distribute_estate and transfer_loans_as_lender, not once per "
+            "consumer)"
+        )
+
+    @pytest.mark.django_db
+    def test_matrilineal_end_to_end_transfers_loan_to_a_niece_or_nephew(
+        self, sim_with_government, monkeypatch
+    ):
+        """Functional companion to the query-cost test above: proves the
+        THREADED matrilineal_heirs value is not just cheap but CORRECT --
+        the loan actually reaches the niece/nephew `distribute_estate`
+        paid cash to, through the real orchestrator, not a hand-assembled
+        `heirs`/`cash_allocation` pair.
+        """
+        import copy
+
+        import epocha.apps.demography.template_loader as template_loader_module
+
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+
+        matrilineal_template = copy.deepcopy(load_template("industrial"))
+        matrilineal_template["economic_inheritance"]["rule"] = "matrilineal"
+        real_load_template = template_loader_module.load_template
+        monkeypatch.setattr(
+            template_loader_module,
+            "load_template",
+            lambda name: matrilineal_template if name == "industrial" else real_load_template(name),
+        )
+
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(
+            sim,
+            zone,
+            "Deceased",
+            parent_agent=common_parent,
+            is_alive=False,
+            wealth=1000.0,
+            age=70,
+            birth_tick=-300,
+        )
+        sister = _make_agent(
+            sim,
+            zone,
+            "Sister",
+            parent_agent=common_parent,
+            gender=Agent.Gender.FEMALE,
+            birth_tick=-250,
+        )
+        niece = _make_agent(sim, zone, "Niece", parent_agent=sister, birth_tick=-30)
+        borrower = _make_agent(sim, zone, "Borrower", wealth=0.0, birth_tick=-30)
+        loan = _make_loan(sim, borrower, lender=deceased)
+
+        process_inheritance_batch(sim, tick=50, deceased_agents=[deceased])
+
+        loan.refresh_from_db()
+        assert loan.lender_id == niece.id
+        assert loan.lender_type == "agent"
 
 
 class TestProcessInheritanceBatchPersistence:

@@ -90,28 +90,60 @@ _ALLOWED_NODE_TYPES = (
     ast.UAdd,
 )
 
-# Fix NEW-3 (phase-6 audit round 2, T046): maximum AST nesting depth a
-# formula may reach, enforced during the SAME iterative whitelist walk
-# that already visits every node (no extra tree traversal). Removing
+# Fix NEW-3, first pass (phase-6 audit round 2, T046): maximum AST nesting
+# depth a formula may reach, enforced during the SAME iterative whitelist
+# walk that already visits every node (no extra tree traversal). Removing
 # `ast.Pow` (fix M-1) closed the exponential-blowup vector, but
 # `_eval_node`'s own recursive descent is a SEPARATE vector: a formula
 # built entirely from whitelisted nodes (e.g. hundreds of nested unary
 # minuses, `"-"*n + "x"`) still costs one Python stack frame per nesting
 # level, and independently reproduced in this exact container: succeeds
 # up to n=997, raises a bare `RecursionError` (not `FormulaError`) at
-# n=998, both via a standalone script and via pytest -- `ast.parse` itself
-# copes fine at every n tried up to 1200; the blow-up is `_eval_node`'s
-# own descent. That crossover point is CALLER-STACK-DEPENDENT (a deeper
-# caller, e.g. inside Django/Celery request handling, hits it at a smaller
-# n than a bare script or test does), which is the reason for a proactive,
-# fixed bound checked in THIS function rather than only reacting to
-# wherever Python's own recursion ceiling happens to sit for a given
-# caller. 50 is an order of magnitude more than any plausible arithmetic
-# formula needs (the one real derived formula today, `cunning`, nests
-# about 5-7 levels deep) while staying two orders of magnitude below
-# Python's own default recursion limit (1000), leaving comfortable margin
-# regardless of how deep the caller's own stack already is.
+# n=998, both via a standalone script and via pytest. That crossover point
+# is CALLER-STACK-DEPENDENT (a deeper caller, e.g. inside Django/Celery
+# request handling, hits it at a smaller n than a bare script or test
+# does), which is the reason for a proactive, fixed bound checked in THIS
+# function rather than only reacting to wherever Python's own recursion
+# ceiling happens to sit for a given caller. 50 is an order of magnitude
+# more than any plausible arithmetic formula needs (the one real derived
+# formula today, `cunning`, nests about 5-7 levels deep) while staying two
+# orders of magnitude below Python's own default recursion limit (1000),
+# leaving comfortable margin regardless of how deep the caller's own stack
+# already is.
+#
+# NOTE (round 2's own claim, corrected in round 3): this comment used to
+# say "ast.parse itself copes fine at every n tried up to 1200" -- true as
+# far as it was tested, but MISLEADING: at n=5976 (`"-"*n + "x"`, same
+# reproduction shape, much larger n), `ast.parse` itself raises a bare
+# `MemoryError` (CPython's own PEG parser exhausting its internal stack
+# allocator) BEFORE this depth bound -- which runs strictly after parsing
+# succeeds -- ever gets a chance to fire. See `_MAX_FORMULA_EXPRESSION_
+# LENGTH` immediately below for the separate, proactive fix that protects
+# the PARSE stage itself, which this bound does not and cannot.
 _MAX_FORMULA_TREE_DEPTH = 50
+
+# Fix NEW-3, second pass (phase-6 audit round 3, T046): maximum character
+# length a formula string may have, checked BEFORE `ast.parse` is ever
+# called -- `_MAX_FORMULA_TREE_DEPTH` above protects `_eval_node`'s own
+# descent AFTER a successful parse, but does nothing for a failure INSIDE
+# the parse call itself. Independently reproduced: `ast.parse("-"*n + "x",
+# mode="eval")` succeeds up to n=5900 and raises a bare `MemoryError`
+# ("Parser stack overflowed - Python source too complex to parse") at
+# n=5976 in this exact container -- CPython's own parser stack limit, not
+# a symptom of the whole process running out of memory, but still an
+# exception type the `Raises` contract never promised. A length bound was
+# chosen over `except MemoryError` around the parse call: it stops the
+# parser from ever seeing a pathological string at all, rather than
+# reacting to however CPython's specific parser implementation happens to
+# fail today (a `MemoryError` at a fixed internal stack depth is a CPython
+# implementation detail, not a documented contract), and it avoids
+# swallowing a broadly-typed exception that could also legitimately signal
+# a real out-of-memory condition elsewhere. 500 characters is roughly 8.6x
+# the one real derived formula today (`cunning`, 58 characters) -- ample
+# headroom for a substantially more complex future formula (a dozen-plus
+# terms) -- while staying more than an order of magnitude below n=5976,
+# the measured parser danger zone.
+_MAX_FORMULA_EXPRESSION_LENGTH = 500
 
 
 def evaluate_derived_formula(expression: str, symbols: dict[str, float]) -> float:
@@ -126,19 +158,26 @@ def evaluate_derived_formula(expression: str, symbols: dict[str, float]) -> floa
     file and `symbols` supplies the already-resolved trait values referenced
     by name.
 
-    Security (decision D5): the expression is parsed with `ast.parse(...,
-    mode="eval")` and walked node by node, ITERATIVELY (never via Python
-    call-stack recursion -- see the walk's own comment), against an
-    explicit whitelist -- `Expression`, `BinOp`, `UnaryOp`, `Constant`,
-    `Name`, and the arithmetic operators `Add`, `Sub`, `Mult`, `Div`,
-    `USub`, `UAdd` (fix M-1, phase-6 audit round 1, T046: `Pow` and `Mod`
-    removed -- see `_ALLOWED_NODE_TYPES`'s own comment for the full
-    reasoning). The SAME walk also enforces `_MAX_FORMULA_TREE_DEPTH` (fix
-    NEW-3, phase-6 audit round 2, T046 -- see that constant's own comment):
-    a formula built entirely from whitelisted nodes can still exhaust the
-    evaluator's OWN recursive descent in `_eval_node` through sheer
-    nesting depth, a separate vector from the operator-blowup `Pow`'s
-    removal closed. Any other node type (function calls, attribute access,
+    Security (decision D5): BEFORE anything else, `expression`'s raw
+    character length is checked against `_MAX_FORMULA_EXPRESSION_LENGTH`
+    (fix NEW-3, phase-6 audit round 3, T046 -- see that constant's own
+    comment: a pathologically long expression can make `ast.parse` itself
+    raise a bare `MemoryError`, a failure mode no later check can prevent
+    since it happens INSIDE parsing). Only then is the expression parsed
+    with `ast.parse(..., mode="eval")` and walked node by node,
+    ITERATIVELY (never via Python call-stack recursion -- see the walk's
+    own comment), against an explicit whitelist -- `Expression`, `BinOp`,
+    `UnaryOp`, `Constant`, `Name`, and the arithmetic operators `Add`,
+    `Sub`, `Mult`, `Div`, `USub`, `UAdd` (fix M-1, phase-6 audit round 1,
+    T046: `Pow` and `Mod` removed -- see `_ALLOWED_NODE_TYPES`'s own
+    comment for the full reasoning). The SAME walk also enforces
+    `_MAX_FORMULA_TREE_DEPTH` (fix NEW-3, phase-6 audit round 2, T046 --
+    see that constant's own comment): a formula built entirely from
+    whitelisted nodes can still exhaust the evaluator's OWN recursive
+    descent in `_eval_node` through sheer nesting depth, a separate vector
+    from the operator-blowup `Pow`'s removal closed, and a separate stage
+    from the pre-parse length check (this one runs AFTER a successful
+    parse). Any other node type (function calls, attribute access,
     subscripts, comprehensions, boolean/comparison operators, lambdas, and
     so on), or a tree deeper than the bound, raises `FormulaError`.
     `eval()` on the raw string is never used. Formula templates come from
@@ -175,15 +214,19 @@ def evaluate_derived_formula(expression: str, symbols: dict[str, float]) -> floa
         The formula's numeric result as a float.
 
     Raises:
-        FormulaError: if `expression` is not valid Python syntax, uses any
-            node type outside the whitelist, nests deeper than
-            `_MAX_FORMULA_TREE_DEPTH` (fix NEW-3, phase-6 audit round 2,
-            T046), references a name absent from `symbols`, contains a
-            non-numeric constant, or if evaluating the (whitelisted)
-            arithmetic itself raises -- fix M-1: this module's whole
-            posture is to never crash the birth pipeline on template data
-            (see `apply_social_inheritance`'s unknown-`class_rule`
-            fallback, `apply_estate_tax`'s rate clamp), so a
+        FormulaError: if `expression` is longer than
+            `_MAX_FORMULA_EXPRESSION_LENGTH` (fix NEW-3, phase-6 audit
+            round 3, T046 -- checked BEFORE parsing, since a pathologically
+            long expression can make `ast.parse` itself raise a bare
+            `MemoryError`; see that constant's own comment), is not valid
+            Python syntax, uses any node type outside the whitelist, nests
+            deeper than `_MAX_FORMULA_TREE_DEPTH` (fix NEW-3, phase-6 audit
+            round 2, T046), references a name absent from `symbols`,
+            contains a non-numeric constant, or if evaluating the
+            (whitelisted) arithmetic itself raises -- fix M-1: this
+            module's whole posture is to never crash the birth pipeline on
+            template data (see `apply_social_inheritance`'s unknown-
+            `class_rule` fallback, `apply_estate_tax`'s rate clamp), so a
             `ZeroDivisionError` from a template's own zero-valued
             denominator (or any other `ArithmeticError`), and a
             `RecursionError` from `_eval_node`'s own recursive descent on
@@ -193,6 +236,13 @@ def evaluate_derived_formula(expression: str, symbols: dict[str, float]) -> floa
             caller-stack-independent bound was chosen over only reacting
             to wherever Python's recursion ceiling happens to sit).
     """
+    if len(expression) > _MAX_FORMULA_EXPRESSION_LENGTH:
+        raise FormulaError(
+            f"formula exceeds the maximum length of "
+            f"{_MAX_FORMULA_EXPRESSION_LENGTH} characters "
+            f"({len(expression)} characters): {expression[:80]!r}..."
+        )
+
     try:
         tree = ast.parse(expression, mode="eval")
     except SyntaxError as exc:
@@ -1651,26 +1701,41 @@ def _allocate_with_exact_remainder(
 ) -> dict[int, float]:
     """Assign each entry its own raw share except the LAST, which absorbs
     whatever is left of `total` after the others -- the technique that
-    makes the conservation contract (`sum(allocation.values()) == total`,
-    exactly up to floating-point representation) hold for every succession
-    rule below that splits an amount across more than one heir.
+    lets the succession rules below split an amount across more than one
+    heir without accumulating the "divide a total into N parts" rounding
+    drift a naive `total / n` repeated N times would (e.g. `10_000.0 / 3
+    == 3333.3333333333335`, and three such shares summed drift from
+    `10_000.0` by roughly 1e-12).
 
-    Why this is needed: a raw per-heir share (`total / n`, or the
-    units-weighted variant in `_split_two_to_one`) is itself subject to
-    floating-point rounding, and summing `n` independently-rounded shares
-    does not, in general, reproduce `total` bit-for-bit -- the classic
-    "divide a total into N parts" rounding trap (e.g. `10_000.0 / 3 ==
-    3333.3333333333335`, and three such shares summed drift from
-    `10_000.0` by roughly 1e-12). Instead of accepting that drift, the LAST
-    entry in `ordered_shares` is assigned `total - running_sum(all other
-    entries)` rather than its own raw share. This single subtraction makes
-    the sum of everything assigned exactly equal to `total`:
-    `running_sum + (total - running_sum)` collapses algebraically to
-    `total`, and holds to full floating-point precision here because
-    `running_sum` and `total` are always the same order of magnitude (the
-    former is a fraction of the latter, drawn from the same estate) --
-    the pathological cancellation cases of naive `a + (b - a)` arithmetic
-    (`a`, `b` of wildly different magnitude) do not arise in this domain.
+    THE GUARANTEE, STATED PRECISELY (corrected, phase-6 audit round 4,
+    T046 -- this docstring previously overstated it): what is EXACT, to
+    full floating-point precision, is `running_sum + (total -
+    running_sum) == total`, where `running_sum` is accumulated via THE
+    SAME left-to-right `+=` this function itself uses below (confirmed
+    over 50,000 random trials, zero failures) -- `running_sum` and `total`
+    are always the same order of magnitude here (the former is a fraction
+    of the latter, drawn from the same estate), so the pathological
+    cancellation cases of `a + (b - a)` arithmetic (`a`, `b` of wildly
+    different magnitude) do not arise in this domain. This is NOT the
+    same claim as "`sum(allocation.values())` (the RETURNED dict, re-
+    summed via a DIFFERENT method) always equals `total`" -- Python's
+    builtin `sum()`, as of Python 3.12, uses a compensated/Neumaier
+    summation algorithm for floats rather than naive left-to-right
+    addition, and re-summing this function's own output that way can
+    disagree with `total` by roughly 1e-16 relative error for a
+    substantial fraction of random amounts: measured directly (not
+    inferred) at 22.3% of random amounts for 7 heirs and 48.4% for 11,
+    across many trials -- see `TestDistributeEstateConservationAdversarial`
+    in `test_inheritance.py`, which found this independently while
+    building an adversarial fixture and documents the exact figures.
+    Every caller in this module that checks conservation via `sum(
+    allocation.values())` (the natural, and only practical, way for a
+    caller to verify it) is therefore checking a WEAKER property than
+    this function's own internal identity proves -- true in the
+    overwhelming majority of cases and exact for the amounts this
+    module's own test suite specifically uses, but not a universal
+    guarantee for arbitrary `total`/`n` combinations. This note changes
+    no behavior; the allocation mechanism itself is unchanged.
 
     `ordered_shares` must already be in the caller's final deterministic
     order -- oldest-first, per this module's established convention (see
@@ -2014,10 +2079,23 @@ def _resolve_matrilineal_heirs(heirs: dict[str, list]) -> list:
     return sorted(pooled.values(), key=_sort_key)
 
 
-def _distribute_matrilineal(heirs: dict[str, list], inheritable: float) -> dict[int, float]:
+def _distribute_matrilineal(
+    heirs: dict[str, list], inheritable: float, *, precomputed_heirs: list | None = None
+) -> dict[int, float]:
     """The entire `inheritable` amount passes to the children of the
     deceased's sisters, divided equally (Schneider, D.M. & Gough, K.
     (1961), "Matrilineal Kinship" -- schematic matrilineal succession).
+
+    `precomputed_heirs` (fix NEW-7, phase-6 audit round 4, T046): when the
+    caller (`distribute_estate`, itself passing through what
+    `process_inheritance_batch` supplies) has already resolved the
+    niece/nephew list -- e.g. because it also needs to thread the SAME
+    list into `transfer_loans_as_lender` -- passing it here skips the
+    query `_resolve_matrilineal_heirs` would otherwise issue, so a
+    matrilineal death's sister-resolution queries are paid exactly once
+    per tick, not once per consumer. `None` (the default, and every
+    existing caller's behavior) falls back to resolving it here, unchanged
+    from before this fix.
 
     NON-BINARY handling: a non-binary niece/nephew receives the same equal
     share as any other -- no gender-role distinction is needed on the
@@ -2047,7 +2125,9 @@ def _distribute_matrilineal(heirs: dict[str, list], inheritable: float) -> dict[
     Returns an empty allocation (the treasury fallback) when the deceased
     has no sister, or no sister has a living child.
     """
-    nieces_and_nephews = _resolve_matrilineal_heirs(heirs)
+    nieces_and_nephews = (
+        precomputed_heirs if precomputed_heirs is not None else _resolve_matrilineal_heirs(heirs)
+    )
     if not nieces_and_nephews:
         return {}
 
@@ -2057,7 +2137,12 @@ def _distribute_matrilineal(heirs: dict[str, list], inheritable: float) -> dict[
 
 
 def distribute_estate(
-    deceased: Any, heirs: dict[str, list], rule: str, inheritable: float
+    deceased: Any,
+    heirs: dict[str, list],
+    rule: str,
+    inheritable: float,
+    *,
+    matrilineal_heirs: list | None = None,
 ) -> dict[int, float]:
     """Split `inheritable` among the heirs `resolve_heirs` already
     resolved, per the era's `economic_inheritance.rule` (design spec
@@ -2137,6 +2222,14 @@ def distribute_estate(
         inheritable: the amount to distribute -- the remainder
             `apply_estate_tax` already returned after routing the era's
             estate tax to the treasury.
+        matrilineal_heirs: fix NEW-7 (phase-6 audit round 4, T046) --
+            keyword-only, optional. When `rule == "matrilineal"` and the
+            caller has already resolved the niece/nephew list (e.g.
+            `process_inheritance_batch`, which also threads it into
+            `transfer_loans_as_lender`), passing it here skips a redundant
+            `_resolve_matrilineal_heirs` query. `None` (the default, and
+            every pre-existing caller's behavior) resolves it here as
+            before. Ignored for every rule other than `matrilineal`.
 
     Returns:
         A dict mapping each allocated heir's `Agent.id` to the amount
@@ -2150,7 +2243,7 @@ def distribute_estate(
     if rule == "shari'a":
         return _distribute_sharia(heirs, inheritable)
     if rule == "matrilineal":
-        return _distribute_matrilineal(heirs, inheritable)
+        return _distribute_matrilineal(heirs, inheritable, precomputed_heirs=matrilineal_heirs)
     if rule == "nationalized":
         return {}
 
@@ -2168,7 +2261,11 @@ def distribute_estate(
 
 
 def transfer_loans_as_lender(
-    deceased: Any, heirs: dict[str, list], cash_allocation: dict[int, float]
+    deceased: Any,
+    heirs: dict[str, list],
+    cash_allocation: dict[int, float],
+    *,
+    matrilineal_heirs: list | None = None,
 ) -> None:
     """Reassign the deceased's active lender-side loans to a living heir,
     or to the banking system when there is none.
@@ -2297,25 +2394,40 @@ def transfer_loans_as_lender(
     ids are nieces/nephews, reached via `_resolve_matrilineal_heirs(heirs)`
     -- a relationship `resolve_heirs`'s own category ladder cannot reach
     at all (see that function's own docstring), so those ids are never
-    inserted into `heirs`, unlike every other rule's ids. Chosen fix:
-    LAZILY re-resolve nieces/nephews and merge them into the lookup, but
-    ONLY when the direct `heirs`-only lookup actually misses an id --
-    never unconditionally. `_resolve_matrilineal_heirs` issues one real
-    query per sister (unlike the other four rules' allocation logic,
-    which is pure Python); calling it unconditionally on every call would
-    reintroduce, for every non-matrilineal death, exactly the redundant-
-    query cost the WHY-`cash_allocation`-IS-PASSED-IN section above
-    rejected `rule`-based re-derivation for. Calling it only on a miss
-    means the other four rules keep paying zero extra queries, and
-    matrilineal pays exactly the query cost inherent to resolving its own
-    heirs -- a cost `distribute_estate` already paid once for this same
-    deceased, now paid a second, unavoidable time here (see Args below).
-    An id still unresolvable after this fallback (not reachable by any of
-    the five documented rules today, but this module's established
-    "never crash on data it cannot fully explain" posture applies exactly
-    the same way here) is dropped from the eligible pool rather than
-    raising; if every id is unresolvable, this degrades to the same
-    banking-transfer branch an empty `cash_allocation` already uses.
+    inserted into `heirs`, unlike every other rule's ids.
+
+    FIX NEW-7 (phase-6 audit round 4, T046) -- THE NEW-1 FIX ITSELF
+    BROKE THE QUERY BUDGET, CORRECTED HERE: NEW-1's own original fix
+    lazily called `_resolve_matrilineal_heirs(heirs)` INSIDE this function
+    whenever the direct `heirs`-only lookup missed an id, and called that
+    query cost "unavoidable" -- it was not. Measured before this fix: 6
+    queries for four sisters, one niece, one loan (1 loan SELECT + 4
+    sister queries + 1 `bulk_update`), directly contradicting the "up to 2
+    queries" budget this docstring and `process_inheritance_batch`'s own
+    QUERY BUDGET section both stated. `process_inheritance_batch` already
+    holds `heirs` and already threads `distribute_estate`'s own result
+    through as `cash_allocation` -- the exact pattern the WHY-
+    `cash_allocation`-IS-PASSED-IN section above established one paragraph
+    earlier applies identically here: resolve the niece/nephew list ONCE,
+    at the orchestrator level, and thread it into BOTH `distribute_estate`
+    (as `matrilineal_heirs=`, so `_distribute_matrilineal` does not
+    re-resolve it either) and this function (same keyword), rather than
+    letting each consumer re-derive it independently. `matrilineal_heirs`
+    (see Args below) is that threaded value; the lazy `_resolve_
+    matrilineal_heirs(heirs)` fallback still exists for callers that pass
+    `matrilineal_heirs=None` (every pre-existing direct call in this
+    module's own test suite, and any future caller that has not resolved
+    it), so this remains backward compatible, just no longer the path
+    `process_inheritance_batch` itself takes. An id still unresolvable
+    even after both the threaded value and the lazy fallback are tried
+    (not reachable by any of the five documented rules today, but this
+    module's established "never crash on data it cannot fully explain"
+    posture applies exactly the same way here) is dropped from the
+    eligible pool with a WARNING logged (matching `apply_social_
+    inheritance`'s unknown-`class_rule` fallback's own logging posture),
+    rather than either raising or failing silently; if every id is
+    unresolvable, this degrades to the same banking-transfer branch an
+    empty `cash_allocation` already uses.
 
     Write path (efficiency requirement, load-bearing once Plan 4 wires this
     into the per-tick death pipeline): exactly ONE `SELECT` (the active
@@ -2323,10 +2435,11 @@ def transfer_loans_as_lender(
     `bulk_update` `UPDATE`, regardless of how many loans the deceased held
     as lender -- never a per-loan `.save()` loop, which would make this
     function's cost scale with the deceased's loan-book size instead of
-    staying O(1) in query count. `matrilineal` additionally costs one
-    query per sister (fix NEW-1 above) when the direct lookup misses --
-    bounded by the deceased's own sibling count, never by loan-book size
-    or total population, and zero for every other rule.
+    staying O(1) in query count. `matrilineal` costs ZERO additional
+    queries here (fix NEW-7) when the caller threads `matrilineal_heirs`,
+    matching every other rule; only a DIRECT caller that omits it (bypassing
+    `process_inheritance_batch`) still pays one query per sister via the
+    lazy fallback.
 
     This function is NOT pure -- unlike `resolve_heirs` and
     `distribute_estate` above, it performs the ORM write itself (via
@@ -2347,8 +2460,9 @@ def transfer_loans_as_lender(
             established priority/oldest-first order. Used to resolve
             `cash_allocation`'s ids back to Agent instances; under
             `matrilineal` this alone is insufficient (fix NEW-1 above) and
-            is supplemented by a lazy `_resolve_matrilineal_heirs(heirs)`
-            call.
+            is supplemented by `matrilineal_heirs` when the caller
+            supplies it, or a lazy `_resolve_matrilineal_heirs(heirs)`
+            call otherwise (fix NEW-7).
         cash_allocation: the dict `distribute_estate(deceased, heirs, rule,
             inheritable)` already returned for this SAME deceased (fix
             I-6) -- an id-to-cash-amount mapping; only its KEYS, in their
@@ -2357,8 +2471,19 @@ def transfer_loans_as_lender(
             `nationalized` rule, always; any other rule when it resolved
             no heir at all) is treated identically to "no living heir";
             an id that stays unresolvable even after the matrilineal
-            fallback (fix NEW-1) is dropped, and if that empties the
-            eligible set entirely, this also degrades to "no living heir".
+            fallback (fix NEW-1) is dropped (with a warning logged, fix
+            NEW-7), and if that empties the eligible set entirely, this
+            also degrades to "no living heir".
+        matrilineal_heirs: fix NEW-7 (phase-6 audit round 4, T046) --
+            keyword-only, optional. The SAME already-resolved niece/nephew
+            list the caller may also have threaded into `distribute_estate`
+            (via its own `matrilineal_heirs` parameter) -- passing it here
+            avoids this function's own lazy `_resolve_matrilineal_heirs`
+            query entirely. `None` (the default) falls back to that lazy
+            resolution, unchanged from fix NEW-1. Only consulted when the
+            direct `heirs`-only lookup actually misses an id (i.e. under
+            `matrilineal`); harmless to pass for any other rule, since it
+            is never read there.
 
     Returns:
         None. Mutates `Loan` rows in the database directly.
@@ -2373,11 +2498,34 @@ def transfer_loans_as_lender(
     missing_ids = [heir_id for heir_id in cash_allocation if heir_id not in agents_by_id]
     if missing_ids:
         # Fix NEW-1 (phase-6 audit round 2, T046): matrilineal ids
-        # (nieces/nephews) are never in `heirs` itself -- resolved lazily
-        # here, via the SAME query `_distribute_matrilineal` already used
-        # to build `cash_allocation`, paid only when the direct lookup
-        # actually misses so every other rule stays at zero extra queries.
-        agents_by_id.update({agent.id: agent for agent in _resolve_matrilineal_heirs(heirs)})
+        # (nieces/nephews) are never in `heirs` itself. Fix NEW-7 (phase-6
+        # audit round 4, T046): prefer the caller-threaded, already-
+        # resolved list (zero extra queries -- the path `process_
+        # inheritance_batch` takes) over the lazy `_resolve_matrilineal_
+        # heirs(heirs)` fallback (one query per sister -- only paid by a
+        # direct caller that has not resolved it itself).
+        resolved_matrilineal_heirs = (
+            matrilineal_heirs
+            if matrilineal_heirs is not None
+            else _resolve_matrilineal_heirs(heirs)
+        )
+        agents_by_id.update({agent.id: agent for agent in resolved_matrilineal_heirs})
+
+    unresolved_ids = [heir_id for heir_id in cash_allocation if heir_id not in agents_by_id]
+    if unresolved_ids:
+        # Fix NEW-7: not reachable by any of the five documented rules
+        # today, but this module's established "never crash on data it
+        # cannot fully explain" posture (see apply_social_inheritance's
+        # unknown-class_rule warning) applies here too -- logged, not
+        # silent, and not raised.
+        logger.warning(
+            "transfer_loans_as_lender: %d cash-eligible id(s) %s for deceased "
+            "%s could not be resolved to a living heir Agent even after the "
+            "matrilineal fallback; dropped from the loan-transfer pool",
+            len(unresolved_ids),
+            unresolved_ids,
+            deceased.id,
+        )
 
     eligible_heirs = [
         agents_by_id[heir_id] for heir_id in cash_allocation if heir_id in agents_by_id
@@ -2864,9 +3012,15 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
        case), and crediting immediately per deceased would require a
        second read-modify-write that could double-apply or lose a credit
        under `bulk_update`'s all-at-once semantics.
-    5. `transfer_loans_as_lender(deceased, heirs, allocation)` -- fix I-6:
-       `allocation` (step 3's own result) is threaded straight through, so
-       loans follow the exact same rule-entitled heir set cash just did.
+    5. `transfer_loans_as_lender(deceased, heirs, allocation,
+       matrilineal_heirs=matrilineal_heirs)` -- fix I-6: `allocation`
+       (step 3's own result) is threaded straight through, so loans follow
+       the exact same rule-entitled heir set cash just did. Fix NEW-7
+       (phase-6 audit round 4, T046): `matrilineal_heirs` -- resolved ONCE,
+       right after step 1, only when `rule == "matrilineal"` -- is ALSO
+       threaded into both this call and step 3's `distribute_estate` call,
+       so the sister-resolution query this rule needs is paid exactly
+       once per deceased, not once per consumer.
     6. `generate_mourning_memories(deceased, tick)`.
     7. `dissolve_on_death(deceased, tick)` (decision D1) -- deliberately
        LAST among these steps, not first; see ORDERING CORRECTION below.
@@ -3002,11 +3156,21 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     `bulk_update` for caretakers (skipped entirely when there are no
     orphan candidates), 1 `bulk_create` for events. On top of that,
     each ACTUAL newly-orphaned minor costs `assign_orphan_caretaker`'s own
-    up-to-4-query search. TOTAL COST SCALES LINEARLY WITH THE NUMBER OF
-    DEATHS THIS TICK (and, for the caretaker pass, with the number of
-    actual new orphans) -- NEVER quadratically, and never with total
-    simulation population, since every query in this function filters on
-    an already-resolved, batch-scoped id set.
+    up-to-4-query search, AND -- fix NEW-7 (phase-6 audit round 4, T046) --
+    each death under the `matrilineal` rule specifically costs one
+    ADDITIONAL query per the deceased's own sister: resolved exactly ONCE
+    here (right after `resolve_heirs`, step 1) and threaded into both
+    `distribute_estate` and `transfer_loans_as_lender` via their shared
+    `matrilineal_heirs=` keyword, so this rule's own sister-count cost is
+    paid once per matrilineal death, not once per consumer of it (the
+    pre-NEW-7 shape doubled it: 6 queries measured for four sisters, one
+    niece, one loan, against a docstring that still claimed "up to 2").
+    Zero for the other four rules. TOTAL COST SCALES LINEARLY WITH THE
+    NUMBER OF DEATHS THIS TICK (and, for the caretaker pass, with the
+    number of actual new orphans; for matrilineal deaths, with the
+    deceased's own sibling count) -- NEVER quadratically, and never with
+    total simulation population, since every query in this function
+    filters on an already-resolved, batch-scoped id set.
 
     Args:
         simulation: the Simulation instance. Supplies `.config` (read for
@@ -3076,6 +3240,16 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
             # spouse's inheritance and mourning memory.
             heirs = resolve_heirs(deceased, template)
 
+            # Fix NEW-7 (phase-6 audit round 4, T046): resolved ONCE here,
+            # threaded into both distribute_estate and transfer_loans_as_
+            # lender below via their shared matrilineal_heirs= keyword, so
+            # this rule's own sister-count query cost is paid exactly once
+            # per matrilineal death, not once per consumer of it (see
+            # transfer_loans_as_lender's own docstring for the full
+            # before/after query-count account). None, and no query at
+            # all, for every other rule.
+            matrilineal_heirs = _resolve_matrilineal_heirs(heirs) if rule == "matrilineal" else None
+
             total_estate_value = deceased.wealth
             inheritable = apply_estate_tax(
                 total_estate_value, rate, government, primary_currency_code
@@ -3094,7 +3268,9 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
             # change to apply_estate_tax's own signature.
             tax_amount = (total_estate_value - inheritable) if total_estate_value > 0.0 else 0.0
 
-            allocation = distribute_estate(deceased, heirs, rule, inheritable)
+            allocation = distribute_estate(
+                deceased, heirs, rule, inheritable, matrilineal_heirs=matrilineal_heirs
+            )
 
             if allocation:
                 for heir_id, amount in sorted(allocation.items()):
@@ -3129,7 +3305,9 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
                 # treasury.
                 add_to_treasury(government, primary_currency_code, inheritable)
 
-            transfer_loans_as_lender(deceased, heirs, allocation)
+            transfer_loans_as_lender(
+                deceased, heirs, allocation, matrilineal_heirs=matrilineal_heirs
+            )
             generate_mourning_memories(deceased, tick)
 
             # Safe to dissolve now: both couple-dependent reads above have
