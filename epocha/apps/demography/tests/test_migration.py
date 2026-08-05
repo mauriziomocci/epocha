@@ -410,15 +410,19 @@ class TestComputeZoneWage:
 # compute_zone_unemployment (Plan 3, T030/T031, user story 4)
 # ---------------------------------------------------------------------------
 #
-# Operational definition PINNED by these tests: the denominator is the
-# living population of `zone` that HAS a role (`Agent.role` non-blank);
-# the numerator is the subset of that denominator that received NO
-# `wage`-type EconomicLedger credit (`to_agent__zone`) within the CLOSED
-# interval [tick - ZONE_UNEMPLOYMENT_WINDOW_TICKS, tick]. An agent with no
-# role at all is excluded from BOTH numerator and denominator (this
-# function measures joblessness among the nominally employed -- a role-
-# holder drawing no wage -- not raw labor-force non-participation).
-# Zero role-holders returns 0.0 without dividing by zero (FR-028).
+# Operational definition PINNED by these tests (window ALIGNED with
+# compute_zone_wage under fix NEW-5, phase-6 audit T046 round 2): the
+# denominator is the living population of `zone` that HAS a role
+# (`Agent.role` non-blank); the numerator is the subset of that
+# denominator that received NO `wage`-type EconomicLedger credit
+# (`to_agent__zone`) within the HALF-OPEN interval
+# (tick - ZONE_UNEMPLOYMENT_WINDOW_TICKS, tick] -- EXACTLY
+# ZONE_UNEMPLOYMENT_WINDOW_TICKS distinct tick values, not one more. An
+# agent with no role at all is excluded from BOTH numerator and
+# denominator (this function measures joblessness among the nominally
+# employed -- a role-holder drawing no wage -- not raw labor-force
+# non-participation). Zero role-holders returns 0.0 without dividing by
+# zero (FR-028).
 
 
 class TestComputeZoneUnemployment:
@@ -469,11 +473,33 @@ class TestComputeZoneUnemployment:
         assert unemployment == pytest.approx(0.0)
 
     @pytest.mark.django_db
-    def test_wage_exactly_at_window_lower_bound_counts_as_employed(self, sim_with_zone, currency):
+    def test_wage_exactly_at_tick_minus_window_is_excluded(self, sim_with_zone, currency):
+        """Fix NEW-5: the window is now HALF-OPEN, `(tick - window,
+        tick]`, aligned with `compute_zone_wage` -- a wage row at exactly
+        `tick - window` is the one row the OLD closed interval counted
+        (as "employed") that the fixed interval does not (now
+        "unemployed").
+        """
         sim, zone = sim_with_zone
         agent = _make_agent(sim, zone, "Agent", role="farmer")
         tick = 50
         _make_wage(sim, currency, agent, tick=tick - 3, amount=10.0)  # tick - window
+
+        unemployment = compute_zone_unemployment(sim, zone, tick)
+
+        assert unemployment == pytest.approx(1.0)
+
+    @pytest.mark.django_db
+    def test_wage_at_the_new_lower_window_bound_counts_as_employed(self, sim_with_zone, currency):
+        """Fix NEW-5: `tick - window + 1` is the LOWEST tick the
+        half-open interval `(tick - window, tick]` admits -- the actual
+        lower boundary after the fix, distinct from the excluded
+        `tick - window` case above.
+        """
+        sim, zone = sim_with_zone
+        agent = _make_agent(sim, zone, "Agent", role="farmer")
+        tick = 50
+        _make_wage(sim, currency, agent, tick=tick - 2, amount=10.0)  # tick - window + 1
 
         unemployment = compute_zone_unemployment(sim, zone, tick)
 
@@ -507,18 +533,19 @@ class TestComputeZoneUnemployment:
     # calling nothing): unlike `compute_zone_wage`, `compute_zone_
     # unemployment` has NO separate `window` parameter to decouple from
     # the constant -- the constant is read directly inside the query
-    # (`tick__gte=tick - ZONE_UNEMPLOYMENT_WINDOW_TICKS`), so there is no
-    # structural way for a default value to drift away from it the way
-    # `compute_zone_wage`'s own `window: int = ZONE_WAGE_WINDOW_TICKS`
-    # default could. The constant's ACTUAL observable effect is already
-    # exhaustively, genuinely exercised by two real, discriminating calls
-    # right above this comment --
-    # `test_wage_exactly_at_window_lower_bound_counts_as_employed` (tick
-    # - 3, employed) and `test_wage_just_before_window_lower_bound_
-    # still_counts_as_unemployed` (tick - 4, unemployed) -- so this test
-    # added zero coverage beyond ceremony. Kept as a comment, not
-    # silently dropped, per this session's own No Bug Left Behind
-    # discipline.
+    # (`tick__gt=tick - ZONE_UNEMPLOYMENT_WINDOW_TICKS`, half-open since
+    # fix NEW-5), so there is no structural way for a default value to
+    # drift away from it the way `compute_zone_wage`'s own
+    # `window: int = ZONE_WAGE_WINDOW_TICKS` default could. The
+    # constant's ACTUAL observable effect is already exhaustively,
+    # genuinely exercised by three real, discriminating calls right above
+    # this comment -- `test_wage_exactly_at_tick_minus_window_is_excluded`
+    # (tick - 3, unemployed), `test_wage_at_the_new_lower_window_bound_
+    # counts_as_employed` (tick - 2, employed), and
+    # `test_wage_just_before_window_lower_bound_still_counts_as_
+    # unemployed` (tick - 4, unemployed) -- so this test added zero
+    # coverage beyond ceremony. Kept as a comment, not silently dropped,
+    # per this session's own No Bug Left Behind discipline.
 
     @pytest.mark.django_db
     def test_query_count_is_bounded_regardless_of_agent_or_ledger_row_count(
@@ -2114,9 +2141,14 @@ class TestProcessEmergencyFlightTrapped:
         rationale) with 4 trapped agents among 6 total living agents (2
         non-trapped witnesses). The PRE-FIX pairing would create
         4 * (6 - 1) = 20 Memory rows; the fix creates exactly ONE
-        aggregate zone-crisis memory per non-trapped witness (2), a count
-        that does not grow with the number of trapped agents N at all,
-        only with the zone's population.
+        aggregate zone-crisis memory per LIVING agent in the zone (6,
+        victims included -- fix NEW-4, phase-6 audit T046 round 2,
+        corrects an earlier version of this same fix that excluded
+        trapped agents and violated FR-026's "tutti gli agenti co-zone"),
+        a count that does not grow with the number of trapped agents N at
+        all, only with the zone's population -- still far below the 20
+        rows the pre-fix pairing would have produced here, and nowhere
+        near the O(N*M) blowup at real scale.
         """
         sim, zone = sim_with_zone
         _make_government(sim)
@@ -2143,23 +2175,40 @@ class TestProcessEmergencyFlightTrapped:
             source_type=Memory.SourceType.PUBLIC,
             emotional_weight=TRAPPED_CRISIS_MEMORY_WEIGHT,
         )
-        # Fixed: exactly one memory per non-trapped witness (2), never
-        # one per (trapped, witness) pair (which would be 20 here).
-        assert public_crisis_memories.count() == 2
+        # Fixed: exactly one memory per LIVING agent in the zone (6 --
+        # the 2 non-trapped witnesses AND the 4 trapped agents, per
+        # FR-026's "tutti" with no exception), never one per (trapped,
+        # witness) pair (which would be 20 here).
+        assert public_crisis_memories.count() == 6
         for witness in witnesses:
             assert (
                 Memory.objects.filter(agent=witness, source_type=Memory.SourceType.PUBLIC).count()
                 == 1
             )
         for victim in trapped:
-            assert not Memory.objects.filter(
-                agent=victim, source_type=Memory.SourceType.PUBLIC
-            ).exists()
+            assert (
+                Memory.objects.filter(agent=victim, source_type=Memory.SourceType.PUBLIC).count()
+                == 1
+            )
 
     @pytest.mark.django_db
-    def test_trapped_agent_does_not_receive_a_public_memory_about_their_own_crisis(
+    def test_sole_trapped_agent_still_receives_the_aggregate_zone_crisis_memory_fix_new4(
         self, sim_with_zone
     ):
+        """REVERSED per the phase-6 re-audit round-2 gate (NEW-4): this
+        test used to pin the OPPOSITE assertion (`assert not ...
+        exists()`), documenting the earlier M-3 fix's self-exclusion.
+        FR-026 (spec.md:189) and acceptance scenario 3 (spec.md:133) both
+        require the memory to reach "tutti gli agenti co-zone" -- ALL
+        co-zone agents, with no exception, not even for a trapped agent
+        who happens to be alone in their own zone. A sole trapped agent
+        is also that zone's deterministic `origin_agent` representative
+        (the id-ascending first, and only, trapped agent), so this is a
+        genuinely self-referential `Memory` row (`agent == origin_agent`)
+        -- and that is the correct, spec-mandated outcome, not a residual
+        bug the way it would have been before this requirement was
+        checked against the spec text directly.
+        """
         sim, zone = sim_with_zone
         _make_government(sim)
         _make_subsistence_threshold_of_five(sim, zone)
@@ -2169,9 +2218,9 @@ class TestProcessEmergencyFlightTrapped:
             sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
         )
 
-        assert not Memory.objects.filter(
-            agent=agent, origin_agent=agent, source_type=Memory.SourceType.PUBLIC
-        ).exists()
+        memory = Memory.objects.get(agent=agent, source_type=Memory.SourceType.PUBLIC)
+        assert memory.origin_agent_id == agent.id
+        assert memory.emotional_weight == pytest.approx(TRAPPED_CRISIS_MEMORY_WEIGHT)
 
     @pytest.mark.django_db
     def test_trapped_agent_is_never_relocated(self, sim_with_zone):
@@ -2204,6 +2253,64 @@ class TestProcessEmergencyFlightTrapped:
 
         assert not DemographyEvent.objects.filter(simulation=sim).exists()
         assert not Memory.objects.filter(origin_agent=agent).exists()
+
+    @pytest.mark.django_db
+    def test_whole_zone_famine_every_living_agent_trapped_still_gets_the_memory_fix_new4(
+        self, sim_with_zone
+    ):
+        """NEW-4 (phase-6 re-audit round 2, the serious one): FR-026
+        (spec.md:189) and acceptance scenario 3 (spec.md:133) both
+        require the trapped_crisis memory to reach "tutti gli agenti
+        co-zone" -- ALL co-zone agents, with no exception for trapped
+        agents themselves. The Block-C M-3 fix (row-volume, correct)
+        accidentally widened the witness exclusion from "this one victim"
+        to "every trapped agent in the zone" -- `migration.py`'s
+        `trapped_id_set` covers every trapped agent, and the loop skips
+        every one of them. In a zone where EVERY living agent is trapped
+        (the Irish Famine case, O'Rourke 1994, this module's OWN
+        calibration target, where N approaches M), the witness set after
+        excluding all N of them is empty: N `TRAPPED_CRISIS` events, ZERO
+        `Memory` rows -- the opposite of what M-3 exists for. The
+        pre-existing `test_witness_memory_row_count_is_linear_in_zone_
+        population_not_quadratic_fix_m3` could never see this because it
+        always leaves 2 non-trapped witnesses standing.
+
+        Fix: remove the exclusion entirely -- the aggregate zone-crisis
+        memory goes to every living agent in the zone, victims included,
+        which still satisfies M-3's O(M) row-volume bound (this fixture
+        has M=6 trapped agents and no other witnesses -- exactly 6 rows,
+        never 6 * 5 = 30).
+        """
+        sim, zone = sim_with_zone
+        _make_government(sim)
+        _make_subsistence_threshold_of_five(sim, zone)
+
+        trapped = [_make_agent(sim, zone, f"Trapped{i}", wealth=4.0) for i in range(6)]
+        counters = {agent.id: 30 for agent in trapped}
+
+        process_emergency_flight(
+            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id=counters
+        )
+
+        assert (
+            DemographyEvent.objects.filter(
+                simulation=sim, event_type=DemographyEvent.EventType.TRAPPED_CRISIS
+            ).count()
+            == 6
+        )
+        public_crisis_memories = Memory.objects.filter(
+            source_type=Memory.SourceType.PUBLIC,
+            emotional_weight=TRAPPED_CRISIS_MEMORY_WEIGHT,
+        )
+        # Fixed: one memory per living agent in the zone (6), victims
+        # included -- never zero, and never the pre-fix-M-3 quadratic
+        # 6 * 5 = 30.
+        assert public_crisis_memories.count() == 6
+        for victim in trapped:
+            assert (
+                Memory.objects.filter(agent=victim, source_type=Memory.SourceType.PUBLIC).count()
+                == 1
+            )
 
 
 class TestProcessEmergencyFlightMassFlight:
@@ -2359,6 +2466,64 @@ class TestProcessEmergencyFlightMassFlight:
             simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
         )
         assert set(event.payload["agents"]) == {historical_agent.id, new_fleeing.id}
+
+    @pytest.mark.django_db
+    def test_flight_exactly_at_window_start_tick_does_not_count_fix_new2(self, sim_with_zone):
+        """NEW-2 (phase-6 re-audit round 2): the historical-flight query's
+        own filter (`tick__gte=window_start, tick__lt=tick`), combined
+        with this tick's own new departures added separately at exactly
+        `tick`, spans `flight_trigger_ticks + 1` distinct tick values --
+        the closed interval `[window_start, tick]` -- not the
+        `flight_trigger_ticks` ticks this module's own I-8 fix already
+        established as the correct reading of "an N-tick window" (the
+        trailing N ticks, current tick included). A flight persisted at
+        EXACTLY `tick - flight_trigger_ticks` (`== window_start`) sits
+        ONE TICK OUTSIDE any honest `flight_trigger_ticks`-tick window,
+        yet the pre-fix filter counts it (`window_start >= window_start`
+        is true).
+
+        Reproduces the auditor's own boundary case: 5 flights persisted
+        at exactly `tick - flight_trigger_ticks`, a 10-agent CURRENT
+        living population, and NOTHING fleeing in this call at all --
+        the pre-fix fraction is `5 / (10 + 5) = 0.333 > 0.30`, firing
+        MASS_FLIGHT purely from departures one tick too old to honestly
+        belong in the window.
+        """
+        sim, zone = sim_with_zone
+        _make_government(sim)
+        world = zone.world
+        other_zone = _make_zone_at(world, 50, 50, "OtherZone")
+        _make_subsistence_threshold_of_five(sim, zone)
+
+        flight_trigger_ticks = 30  # pre_industrial_christian's own value, verified in templates/
+        tick = 50
+        historical_tick = tick - flight_trigger_ticks  # == window_start, the boundary itself
+
+        for i in range(10):
+            _make_agent(sim, zone, f"Stays{i}", wealth=100.0)
+
+        for i in range(5):
+            historical_agent = _make_agent(
+                sim, other_zone, f"HistoricalFled{i}", wealth=100.0, role=""
+            )
+            DemographyEvent.objects.create(
+                simulation=sim,
+                tick=historical_tick,
+                event_type=DemographyEvent.EventType.MIGRATION,
+                primary_agent=historical_agent,
+                payload={
+                    "household_members": [],
+                    "from_zone": zone.id,
+                    "to_zone": other_zone.id,
+                    "reason": "emergency_flight",
+                },
+            )
+
+        process_emergency_flight(sim, tick=tick, consecutive_ticks_under_subsistence_by_agent_id={})
+
+        assert not DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
+        ).exists()
 
     @pytest.mark.django_db
     def test_denominator_is_population_at_window_start_not_current_zone_population_fix_i11(

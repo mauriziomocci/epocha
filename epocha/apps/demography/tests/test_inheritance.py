@@ -4,6 +4,8 @@ Covers the polygenic additive inheritance kernel `inherit_trait`:
 - two-parent midparent formula with an exact RNG-predicted expected value
 - clamping of the raw result into [lo, hi]
 - fix I-1 single-parent fallback (child_T = h2 * parent_T + (1 - h2) * noise)
+  -- design spec's own numbering, unrelated to this file's separate
+  audit-numbered `T046/I-1` (the social-class rank clamp)
 
 Scientific reference: Falconer, D.S. & Mackay, T.F.C. (1996), Introduction
 to Quantitative Genetics (4th ed.), Longman, chapter 8 (polygenic additive
@@ -66,7 +68,9 @@ memories to muscular agents instead of close friends (design spec Sezione
 
 Also covers `process_inheritance_batch` (Plan 3, T028/T029, user story 3
 -- the death-path orchestrator): multiple same-tick deaths process oldest
-(by `age`) first, `id` ascending tiebreak (fix C-3); estate tax applies
+(by `age`) first, `id` ascending tiebreak (fix C-3 -- design spec's own
+numbering, unrelated to this file's separate audit-numbered `T046/C-3`,
+the event-payload tax figure); estate tax applies
 exactly once per actual heir transfer, never cumulatively when the same
 living heir inherits from two different same-tick decedents; a dead
 intermediate (same tick or an earlier one) is never a bequest conduit,
@@ -224,7 +228,9 @@ class TestInheritTraitClamping:
 
 
 class TestInheritTraitSingleParentFallback:
-    """Fix I-1: exactly one known parent halves the genetic signal."""
+    """Fix I-1 (design spec's own numbering, NOT this file's separate
+    audit-numbered `T046/I-1`): exactly one known parent halves the
+    genetic signal."""
 
     def test_mother_only_uses_mother_as_parent_t(self):
         """father_val is None: child_T = h2 * mother_val + (1 - h2) * noise."""
@@ -411,6 +417,29 @@ class TestEvaluateDerivedFormulaRaisesContract:
     def test_division_by_zero_raises_formula_error_not_zero_division_error(self):
         with pytest.raises(FormulaError):
             evaluate_derived_formula("1/intelligence", {"intelligence": 0.0})
+
+    def test_deeply_nested_formula_raises_formula_error_not_recursion_error(self):
+        """Fix NEW-3 (phase-6 audit round 2, T046): `ArithmeticError` alone
+        (the previous fix, M-1) does not make the `Raises` contract true --
+        `_eval_node`'s own recursive descent is not an arithmetic error.
+        Independently reproduced before this fix: `"-" * n + "x"` (n
+        consecutive unary minuses) succeeds up to n=997 and raises a bare
+        `RecursionError` at n=998 in this exact container (both via a bare
+        script and via pytest -- `ast.parse` itself copes fine at every n
+        tried up to 1200; the blow-up is `_eval_node`'s own descent, one
+        stack frame per nesting level). The specific crossover point is
+        environment- and caller-stack-dependent (a deeper caller stack,
+        e.g. inside Django/Celery request handling, would hit it at a
+        SMALLER n than a bare test does) -- which is itself the argument
+        for a proactive, fixed depth bound rather than only reacting to
+        wherever Python's own recursion ceiling happens to sit for a given
+        caller. n=100 here is comfortably above `_MAX_FORMULA_TREE_DEPTH`
+        (so the fix's own bound fires) and comfortably below where an
+        unbounded implementation would ever risk `RecursionError` (so this
+        test does not depend on tuning it close to either edge).
+        """
+        with pytest.raises(FormulaError):
+            evaluate_derived_formula("-" * 100 + "intelligence", {"intelligence": 0.5})
 
 
 class TestEvaluateDerivedFormulaRefusals:
@@ -1207,8 +1236,8 @@ _TEST_CLASS_RANK = {
 }
 _TEST_VALID_CLASS_LABELS = set(_TEST_CLASS_RANK)
 
-# Fix I-1 test remediation (phase-6 audit round 1, T046): a set membership
-# assertion against _TEST_VALID_CLASS_LABELS cannot catch I-1, because
+# Fix T046/I-1 test remediation (phase-6 audit round 1): a set membership
+# assertion against _TEST_VALID_CLASS_LABELS cannot catch T046/I-1, because
 # "enslaved" is itself a member -- a test asserting `result in
 # _TEST_VALID_CLASS_LABELS` passes whether or not the sampled-rule output
 # clamp is active. The three SAMPLED rules (clark_regression,
@@ -1283,6 +1312,18 @@ class TestApplySocialInheritanceClarkRegression:
         any reasonable nearest-label rounding rule (floor, round, or ceil
         all land inside (0, 4.0)), so the assertion does not depend on the
         exact rounding tie-break the implementation chooses.
+
+        NOT the weighting proof (phase-6 audit round 2, T046): this
+        assertion, and the other two tests in this file that exercise
+        `clark_regression` (the empty-zone-fallback test and the
+        enslaved-father test), were shown by the round-2 audit's own
+        algebra to jointly constrain the weight `w` in `rank = w*parent +
+        (1-w)*zone_mean` only to roughly `w in (0.5, 0.875]` -- Clark's
+        actual 0.7 is inside that range, but so is 0.6, 0.75, 0.8, or
+        0.85; nothing here would go red if the implementation used any of
+        them instead. See `test_weight_is_pinned_exactly_to_seventy_thirty`
+        below for the test that actually pins 0.7/0.3, rather than merely
+        being consistent with it.
         """
         sim, zone = sim_with_zone
         template = {
@@ -1302,9 +1343,79 @@ class TestApplySocialInheritanceClarkRegression:
         child_rank = _TEST_CLASS_RANK[child.social_class]
         assert 0 < child_rank < 4.0
 
+    @pytest.mark.django_db
+    def test_weight_is_pinned_exactly_to_seventy_thirty(self, sim_with_zone, monkeypatch):
+        """Fix (round-1 test item, resolved in phase-6 audit round 2,
+        T046): pins Clark's 70/30 weighting EXACTLY, closing the gap the
+        class docstring above now documents -- the existing rounded-label
+        assertions jointly permit any `w` in roughly `(0.5, 0.875]`.
+
+        A single integer-rounded `social_class` label cannot, by
+        construction, discriminate a real-valued weight to better than
+        roughly one rounding bucket's width (~0.25 of the [0,4] rank
+        span) -- `_rank_to_class_label` rounds to the NEAREST of 5 labels
+        before the caller ever sees anything, and neither
+        `_apply_clark_regression` nor `apply_social_inheritance` returns
+        the raw continuous rank. This test bypasses that information loss
+        by monkeypatching the MODULE-LEVEL `_rank_to_class_label` name
+        `_apply_clark_regression` calls (a bare global lookup at call
+        time, not a pre-bound reference, so patching the module attribute
+        correctly intercepts it) to CAPTURE its input before delegating
+        to the real implementation -- observing the exact pre-rounding
+        value `_apply_clark_regression` computed, not merely the rounded
+        label it produced.
+        """
+        sim, zone = sim_with_zone
+        template = {
+            "social_inheritance": {
+                "class_rule": "clark_regression",
+                "education_regression_rho": 0.4,
+            }
+        }
+        # father rank 0 ("elite"), zone_class_mean 4.0 -- the same inputs
+        # as the test above, chosen only for consistency; any distinct
+        # parent_rank/zone_class_mean pair works equally well here since
+        # this test observes the raw rank directly rather than inferring
+        # the weight through a rounded label.
+        mother = _make_agent(sim, zone, "Mother", social_class="elite", education_level=0.9)
+        father = _make_agent(sim, zone, "Father", social_class="elite", education_level=0.9)
+        child = _make_agent(sim, zone, "Child")
+        zone_class_mean = 4.0
+
+        import epocha.apps.demography.inheritance as inheritance_module
+
+        real_rank_to_class_label = inheritance_module._rank_to_class_label
+        captured_ranks: list[float] = []
+
+        def _capturing_rank_to_class_label(rank: float) -> str:
+            captured_ranks.append(rank)
+            return real_rank_to_class_label(rank)
+
+        monkeypatch.setattr(
+            inheritance_module, "_rank_to_class_label", _capturing_rank_to_class_label
+        )
+
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_social_inheritance(
+            child, mother, father, template, zone_class_mean=zone_class_mean, rng=rng
+        )
+
+        assert len(captured_ranks) == 1, (
+            "expected exactly one _rank_to_class_label call from the "
+            "deterministic clark_regression branch"
+        )
+        parent_rank = 0  # "elite"
+        expected_rank = 0.7 * parent_rank + 0.3 * zone_class_mean
+        assert captured_ranks[0] == pytest.approx(expected_rank), (
+            f"captured pre-rounding rank {captured_ranks[0]!r} does not match "
+            f"the exact 0.7/0.3 weighting ({expected_rank!r})"
+        )
+
 
 class TestSampledClassRulesNeverProduceEnslaved:
-    """Fix I-1 (phase-6 audit round 1, T046 -- the audit's own top finding):
+    """Fix T046/I-1 (phase-6 audit round 1 -- the audit's own top finding;
+    prefixed to distinguish it from `inherit_trait`'s unrelated, pre-
+    existing design-spec fix also numbered "I-1"):
     a rank arithmetic result from any of the three SAMPLED social-class
     rules (clark_regression, becker_tomes_elasticity_0.4, meritocratic)
     must NEVER resolve to "enslaved", even when both parents are already
@@ -1363,7 +1474,7 @@ class TestSampledClassRulesNeverProduceEnslaved:
         assert enslaved_count == 0, (
             f"{enslaved_count}/{trials} children of two 'poor' (non-enslaved) "
             "parents in an all-'poor' (non-enslaved) zone were assigned "
-            "'enslaved' -- the sampled-rule output clamp (fix I-1) is not "
+            "'enslaved' -- the sampled-rule output clamp (fix T046/I-1) is not "
             "active"
         )
 
@@ -1643,8 +1754,10 @@ class TestApplySocialInheritanceEducationRegression:
 
     @pytest.mark.django_db
     def test_single_parent_fallback_uses_that_parents_value_alone(self, sim_with_zone):
-        """Consistent with fix I-1 in `inherit_trait`: when only the mother
-        is known, the midparent term degrades to her value alone.
+        """Consistent with `inherit_trait`'s own design-spec fix I-1
+        (design numbering, NOT this file's separate audit-numbered
+        `T046/I-1`): when only the mother is known, the midparent term
+        degrades to her value alone.
         """
         sim, zone = sim_with_zone
         rho = 0.5
@@ -3446,6 +3559,52 @@ class TestTransferLoansAsLenderFollowsTheCashDistributionRule:
             f"{eldest_son.id} -- the same heir primogeniture pays cash to"
         )
 
+    @pytest.mark.django_db
+    def test_matrilineal_routes_loans_to_nieces_and_nephews_without_crashing(self, sim_with_zone):
+        """Fix NEW-1 (phase-6 audit round 2, T046): `cash_allocation`'s
+        ids under `matrilineal` are nieces/nephews, resolved by
+        `_resolve_matrilineal_heirs` via a dedicated query per sister --
+        `resolve_heirs`'s own category ladder cannot reach a sibling's
+        descendants at all (see `_resolve_matrilineal_heirs`'s own
+        docstring), so those ids are NEVER inserted into `heirs` itself.
+        Before this fix, `agents_by_id[heir_id]` assumed every
+        `cash_allocation` id was always drawn from `heirs` -- true for
+        `primogeniture`/`equal_split`/`shari'a`/`nationalized`, false for
+        `matrilineal` -- raising `KeyError` and, inside
+        `process_inheritance_batch`'s `transaction.atomic()` block, rolling
+        back the ENTIRE tick's inheritance batch over one matrilineal
+        estate with an active lender-side loan.
+        """
+        sim, zone = sim_with_zone
+        common_parent = _make_agent(sim, zone, "CommonParent")
+        deceased = _make_agent(sim, zone, "Deceased", parent_agent=common_parent, birth_tick=10)
+        sister = _make_agent(
+            sim,
+            zone,
+            "Sister",
+            parent_agent=common_parent,
+            birth_tick=5,
+            gender=Agent.Gender.FEMALE,
+        )
+        niece = _make_agent(sim, zone, "Niece", parent_agent=sister, birth_tick=20)
+        borrower = _make_agent(sim, zone, "Borrower")
+        loan = _make_loan(sim, borrower, lender=deceased)
+
+        heirs = resolve_heirs(deceased, _heir_template())
+        assert heirs["children"] == []
+        assert niece.id not in {agent.id for pool in heirs.values() for agent in pool}, (
+            "sanity check: the niece must NOT be reachable from heirs itself"
+        )
+
+        cash_allocation = distribute_estate(deceased, heirs, "matrilineal", 1_000.0)
+        assert cash_allocation == {niece.id: 1_000.0}
+
+        transfer_loans_as_lender(deceased, heirs, cash_allocation)
+
+        loan.refresh_from_db()
+        assert loan.lender_id == niece.id
+        assert loan.lender_type == "agent"
+
 
 class TestTransferLoansAsLenderNoLivingHeir:
     """No living heir at all: the loan transfers to the banking system
@@ -4600,7 +4759,10 @@ class TestProcessInheritanceBatchEventPayload:
 
 
 class TestProcessInheritanceBatchEventPayloadReportsTheClampedTax:
-    """Fix C-3 (phase-6 audit round 1, T046): `estate_tax_applied` in the
+    """Fix T046/C-3 (phase-6 audit round 1 -- prefixed to distinguish this
+    finding from `process_inheritance_batch`'s unrelated, pre-existing
+    design-spec fix also numbered "C-3", the Simultaneous Death Act
+    processing-order convention): `estate_tax_applied` in the
     event payload must report the tax `apply_estate_tax` ACTUALLY applied
     (the rate clamped into [0, 1] internally), never the raw
     `economic_inheritance.estate_tax_rate` template value before clamping.
@@ -4767,7 +4929,9 @@ class TestProcessInheritanceBatchResolvesTheSimulationsRealPrimaryCurrency:
 
 
 class TestProcessInheritanceBatchOrderingC3:
-    """Fix C-3: the batch processes deceased agents oldest (`age`
+    """Fix C-3 (design spec's own numbering, NOT this file's separate
+    audit-numbered `T046/C-3`, the event-payload tax figure): the batch
+    processes deceased agents oldest (`age`
     descending) first, `id` ascending as the deterministic tiebreak for
     equal age -- the Simultaneous Death Act convention. Observed via the
     ORDER of the emitted `DemographyEvent` rows (queried by `id`, which

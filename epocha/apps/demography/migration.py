@@ -81,6 +81,27 @@ ZONE_WAGE_WINDOW_TICKS = 5
 # more noise, an explicit and accepted trade-off. Design parameter, not
 # derived from a cited source; documented and tunable like the wage
 # window above.
+#
+# WINDOW CONVENTION, ALIGNED WITH compute_zone_wage (fix T046/NEW-5, phase-6
+# audit T046 round 2): `compute_zone_unemployment` used to read this
+# constant through a CLOSED interval, `[tick - N, tick]`, spanning N + 1
+# distinct ticks -- FOUR for N=3, not three, silently contradicting this
+# comment's own "3 vs 5" comparison, which is only literally true once
+# both windows span exactly the ticks their own constant names. REASONED
+# THROUGH, not mechanically copied from fix T046/I-8: unemployment's fraction
+# has no divisor that a wrong tick-count could corrupt the way wage's
+# per-tick average did (T046/I-8), so this was never an ARITHMETIC bug -- but
+# both constants feed the SAME Harris & Todaro (1970) comparison
+# (`compute_expected_gain`'s `wage_j` and `unemployment_j`), cite the
+# SAME paper, and nothing in the "shorter window, more responsive" trade-
+# off this comment states motivates an OPEN/CLOSED difference between
+# the two windows specifically -- that divergence was inherited
+# incidentally (both were closed intervals before T046/I-8 touched only the
+# wage one), not a deliberate scientific choice. `compute_zone_
+# unemployment` now reads this constant through the SAME half-open
+# convention `(tick - N, tick]` fix T046/I-8 established, so "3 vs 5" is
+# accurate as literally the number of ticks each window spans, not merely
+# the two constants' own declared values.
 ZONE_UNEMPLOYMENT_WINDOW_TICKS = 3
 
 
@@ -102,7 +123,7 @@ def compute_zone_wage(
     describes actually is).
 
     WINDOW (explicit, pinned by this function's own test suite; corrected
-    under fix I-8, phase-6 audit T046): the HALF-OPEN interval `(tick -
+    under fix T046/I-8): the HALF-OPEN interval `(tick -
     window, tick]` -- a wage row at exactly `tick` counts, one at exactly
     `tick - window` does NOT (it fell inside the OLD closed interval this
     function used before the fix), one at `tick - window - 1` never did.
@@ -196,8 +217,13 @@ def compute_zone_unemployment(simulation: Simulation, zone: Zone, tick: int) -> 
     same way official unemployment statistics exclude those not seeking
     work). The NUMERATOR is the subset of that denominator with NO
     `wage`-type `EconomicLedger` credit (`to_agent__zone`, same
-    attribution reasoning as `compute_zone_wage` above) in the CLOSED
-    window `[tick - ZONE_UNEMPLOYMENT_WINDOW_TICKS, tick]`.
+    attribution reasoning as `compute_zone_wage` above) in the HALF-OPEN
+    window `(tick - ZONE_UNEMPLOYMENT_WINDOW_TICKS, tick]` -- ALIGNED
+    with `compute_zone_wage`'s own convention under fix T046/NEW-5 (phase-6
+    audit T046 round 2; reasoning for the alignment lives on
+    `ZONE_UNEMPLOYMENT_WINDOW_TICKS`'s own definition, not repeated
+    here). For `ZONE_UNEMPLOYMENT_WINDOW_TICKS=3` this spans EXACTLY 3
+    distinct tick values (`tick-2` through `tick`), not 4.
 
     Zero role-holders in the zone returns 0.0 without dividing by zero
     (FR-028) -- checked before any wage-lookup query runs.
@@ -241,7 +267,7 @@ def compute_zone_unemployment(simulation: Simulation, zone: Zone, tick: int) -> 
             simulation=simulation,
             transaction_type="wage",
             to_agent__zone=zone,
-            tick__gte=tick - ZONE_UNEMPLOYMENT_WINDOW_TICKS,
+            tick__gt=tick - ZONE_UNEMPLOYMENT_WINDOW_TICKS,
             tick__lte=tick,
         )
         .values_list("to_agent_id", flat=True)
@@ -381,15 +407,23 @@ def compute_expected_gain(
 
     This function implements the design EXACTLY as specified -- this plan
     executes a CONVERGED design and does not reopen it. The phase-6
-    adversarial audit (T046) must rule between the two documented
-    resolutions (tracked as handoff open question 11, NOT decided or
-    implemented here): (a) monetizing the distance cost as forgone
-    earnings, `distance_cost_ticks * wage_current`, which restores
-    dimensional balance and still reproduces the Paris worked example
-    exactly (its own distance cost is 0 either way); or (b) declaring an
-    explicit one-currency-unit-per-tick scaling constant, making the unit
-    mismatch a documented approximation rather than an oversight. Neither
-    is implemented here.
+    adversarial audit (T046, round 1) HAS RULED on this (handoff open
+    question 11): monetize the distance cost as forgone earnings,
+    `distance_cost_ticks * wage_current` -- it restores dimensional
+    balance, still reproduces the Paris worked example exactly (its own
+    distance cost is 0 either way), and means something economically
+    (wages lost while walking); the rejected alternative, an explicit
+    one-currency-unit-per-tick scaling constant, was ruled strictly
+    worse, because it would make the migration threshold depend on the
+    arbitrary scale of the currency. The ruling ALSO NOTES an interaction
+    with fix T046/I-8: fixing the wage divisor moved `wage_current`, and
+    therefore the monetized cost the ruling specifies, by the same 20%.
+    NOT IMPLEMENTED HERE: the ruling is recorded, not applied -- this
+    function still computes the UNCORRECTED, dimensionally-inconsistent
+    formula verbatim, deliberately. Implementing the ruling is a
+    dimensional-model change belonging to a separate, dedicated design
+    work item (a phase-2 requirements gate of its own), not to this
+    module's phase-6 remediation passes.
 
     Query cost: none -- this is pure arithmetic over four float
     arguments; it issues no database queries and accepts no ORM objects.
@@ -475,21 +509,30 @@ def build_migration_outlook(
     expected to already carry every zone of that world, since the
     caller's once-per-tick precomputation has no cheaper way to build it).
 
-    SIMULATION-WIDE STABILITY (PREFLIGHT point 1, logged as handoff open
-    question 12): `Government` carries exactly ONE `stability` scalar per
-    `Simulation` -- there is NO per-zone stability anywhere in the current
-    schema, even though the design spec's own worked example shows
-    stability differing by zone ("Paris crisi (0.3), qui stabile (0.7),
-    Countryside stabile (0.6)"). This function reports the SAME
-    simulation-wide `zone_stats["government_stability"]` value for EVERY
-    reachable zone rather than inventing a per-zone proxy (population
-    pressure, local unemployment, or anything else) -- the same
-    conflation already exists in merged code at
+    SIMULATION-WIDE STABILITY (PREFLIGHT point 1, handoff open question
+    12, RULED by the phase-6 audit T046 round 1): `Government` carries
+    exactly ONE `stability` scalar per `Simulation` -- there is NO
+    per-zone stability anywhere in the current schema, even though the
+    design spec's own worked example shows stability differing by zone
+    ("Paris crisi (0.3), qui stabile (0.7), Countryside stabile (0.6)").
+    The ruling: the model DOES need a genuine per-zone signal -- a
+    constant reported per zone carries no information and actively
+    misleads an LLM consumer into believing it is comparing zones on a
+    dimension where they are identical -- but inventing an unvalidated
+    proxy (population pressure, local unemployment, or anything else)
+    under this plan's own SC-005 constraint would have been worse than
+    the honest conflation, so refusing to invent one was also ruled
+    correct. The prescribed remedy is EITHER drop `zone_stability` from
+    the per-zone block entirely and report it once at outlook level, OR
+    label it explicitly as simulation-wide in the prompt text -- NEITHER
+    is applied here; a real per-zone field needs a schema migration this
+    plan's own SC-005 forbids, so it is a separate, dedicated design work
+    item, not this module's phase-6 remediation. This function still
+    reports the SAME simulation-wide `zone_stats["government_stability"]`
+    value for EVERY reachable zone, unlabeled, exactly as before the
+    ruling -- the same conflation already exists in merged code at
     `demography/context.py`'s `compute_aggregate_outlook`, inherited here
-    knowingly, not "fixed". Adding real per-zone stability would require
-    a schema migration this plan's SC-005 forbids; the phase-6 audit
-    (T046) must rule on whether the migration model needs a genuine
-    per-zone signal.
+    knowingly, not "fixed".
 
     WAGE DIFFERENTIAL: `zone_stats["zones"][zone_id]["wage"] -
     zone_stats["zones"][agent.zone_id]["wage"]` -- destination minus the
@@ -567,7 +610,7 @@ def build_migration_outlook(
 
 def _scatter_location_in_zone(zone: Any, rng: Any | None) -> Any:
     """Return a `Point` for a relocated agent's `location` inside `zone`
-    (fix I-12, phase-6 audit T046): every mechanism in this module that
+    (fix T046/I-12): every mechanism in this module that
     changes an agent's `zone` FK writes `location` alongside it, so the
     two fields never contradict each other the way `agents/movement.py`'s
     `execute_movement` documents them as a matched pair.
@@ -601,7 +644,7 @@ def _scatter_location_in_zone(zone: Any, rng: Any | None) -> Any:
     centroid is a strictly better answer than the pre-fix bug (a location
     silently left in the ORIGIN zone, contradicting the new `zone` FK):
     it is deterministic, needs no RNG, and satisfies the zone/location
-    consistency invariant fix I-12 exists for, even if every mover
+    consistency invariant fix T046/I-12 exists for, even if every mover
     without an `rng` clusters on the exact same point rather than
     scattering.
 
@@ -670,7 +713,7 @@ def coordinate_family_migration(
       any dependents -- a solo agent fleeing alone still must produce the
       event; only the FAMILY-COORDINATION side of this function (moving
       dependents) is naturally a no-op when there are none.
-    - `rng` (fix I-12, phase-6 audit T046, additive the same way):
+    - `rng` (fix T046/I-12, additive the same way):
       an OPTIONAL seeded `random.Random`-compatible instance, forwarded
       to `_scatter_location_in_zone` for every mover's `location` write.
       Defaults to `None`. `process_emergency_flight` derives ONE
@@ -765,7 +808,7 @@ def coordinate_family_migration(
     function writes directly via ONE `Agent.objects.bulk_update(...,
     ["zone", "location"])` for every household member, never a
     per-member `.save()`. `location` is written alongside `zone` (fix
-    I-12, phase-6 audit T046): `agents/movement.py` treats the two as a
+    T046/I-12): `agents/movement.py` treats the two as a
     matched pair, and a mover left with a stale `location` from the
     origin zone would contradict their own `zone` FK for any spatial
     consumer -- see `_scatter_location_in_zone`'s own docstring for the
@@ -1144,7 +1187,7 @@ def process_emergency_flight(
        own docstring note), `reason="emergency_flight"`,
        `emit_event_even_if_empty=True` (the design requires the flight
        event even for a solo agent with no dependents), `rng=rng` (fix
-       I-12 -- see below). `agent.zone` AND `agent.location` (fix I-12:
+       T046/I-12 -- see below). `agent.zone` AND `agent.location` (fix T046/I-12:
        this decider bypasses `agents/movement.py`'s `execute_movement`
        entirely -- nothing else in this call graph would otherwise ever
        write their `location`) are then set in memory, deferred to ONE
@@ -1174,22 +1217,32 @@ def process_emergency_flight(
     query) and avoids it entirely.
 
     MISS-3 CO-ZONE PROPAGATION, BATCHED (not per trapped agent, and --
-    fix M-3, phase-6 audit T046 -- NOT per (trapped agent, witness) PAIR
+    fix T046/M-3 -- NOT per (trapped agent, witness) PAIR
     either): after the main loop, ONE query fetches every living agent
     across EVERY zone that has at least one trapped agent this tick
     (`zone_id__in={trapped zones}`), grouped in Python by zone -- so two
     trapped agents sharing a zone reuse the SAME fetched witness list
-    instead of querying it twice. EXCLUDED from a given ZONE's witness
-    list: every agent trapped in THAT zone this tick, not merely "the
-    trapped agent themselves" -- design spec: "Altri agenti testimoni di
-    trapped_crisis formano memorie..." ("OTHER witnessing agents form
-    memories..."); read as excluding the people the crisis is HAPPENING
-    TO, who are living it, not witnessing it as public news (an
-    interpretive choice, since the design's own payload/effect sentence
-    does not say so as explicitly as the rationale sentence does --
-    flagged here as such, not asserted as an unambiguous fact).
+    instead of querying it twice.
 
-    ROW VOLUME (fix M-3): PRE-FIX, this pass created ONE `Memory` per
+    NO EXCLUSION (fix T046/NEW-4, round 2 -- corrects an
+    over-widened exclusion the T046/M-3 row-volume fix introduced): EVERY
+    living agent in the zone receives this memory, trapped agents
+    included. FR-026 (spec.md:189) and acceptance scenario 3
+    (spec.md:133) both state the requirement in the same words, "tutti
+    gli agenti co-zone" -- ALL co-zone agents, with no carve-out --
+    which is unambiguous where the design spec's own rationale sentence
+    (quoted in the T046/M-3 fix that preceded this one: "Altri agenti
+    testimoni..." / "OTHER witnessing agents...") was not. The earlier
+    reading -- that a trapped agent is living the crisis rather than
+    witnessing it, so should be excluded -- was flagged in this
+    docstring as an interpretive choice, not an unambiguous fact, and
+    the requirements text resolves that ambiguity: no exclusion, self or
+    otherwise. A SOLE trapped agent, alone in their zone, therefore
+    receives a self-referential memory (their own zone's `origin_agent`
+    representative is themselves) -- this is the correct, spec-mandated
+    outcome, not a residual bug.
+
+    ROW VOLUME (fix T046/M-3): PRE-FIX, this pass created ONE `Memory` per
     (trapped agent, witness) PAIR -- N trapped agents among M living
     agents in a zone produced N * (M - N) rows. Starvation is zone-wide,
     so in the module's own calibration scenario (O'Rourke 1994, the
@@ -1228,14 +1281,23 @@ def process_emergency_flight(
 
     MASS-FLIGHT DENOMINATOR AND WINDOW (pinned precisely, since an
     ambiguous denominator is not reproducible; denominator corrected
-    under fix I-11, phase-6 audit T046): the numerator is every DISTINCT
-    agent who fled that zone -- HISTORICAL flights already persisted by
-    EARLIER calls to this function
-    (`DemographyEvent.payload__reason="emergency_flight"`, `tick` in the
-    closed-open window `[tick - flight_trigger_ticks, tick)`, fetched
-    with ONE query) PLUS agents fleeing in THIS call -- combined, this is
-    exactly the `flight_trigger_ticks`-tick rolling window the design's
-    "fugge entro flight_trigger_ticks" wording describes.
+    under fix T046/I-11, WINDOW SPAN corrected under fix T046/NEW-2, both phase-6
+    audit T046): the numerator is every DISTINCT agent who fled that zone
+    -- HISTORICAL flights already persisted by EARLIER calls to this
+    function (`DemographyEvent.payload__reason="emergency_flight"`,
+    `tick` in the OPEN-CLOSED window `(tick - flight_trigger_ticks,
+    tick)`, fetched with ONE query) PLUS agents fleeing in THIS call (at
+    exactly `tick`) -- combined, this spans EXACTLY `flight_trigger_ticks`
+    distinct tick values, `(window_start, tick]`, matching the reading
+    fix T046/I-8 already established for "an N-tick window" (the trailing N
+    ticks, current tick included) -- NOT `flight_trigger_ticks + 1`
+    ticks, which is what the historical query's PRE-FIX `tick__gte=
+    window_start` bound produced once combined with this tick's own
+    separately-added departures. A flight persisted at EXACTLY
+    `tick - flight_trigger_ticks` (`== window_start`) is one tick outside
+    any honest `flight_trigger_ticks`-tick window and must NOT count --
+    pinned by `TestProcessEmergencyFlightMassFlight.
+    test_flight_exactly_at_window_start_tick_does_not_count_fix_new2`.
 
     The DENOMINATOR is each zone's living population AS IT STOOD AT
     WINDOW START (`tick - flight_trigger_ticks`), not its CURRENT living
@@ -1296,7 +1358,7 @@ def process_emergency_flight(
     here because doing so would require persisting an "already reported"
     flag this plan does not introduce.
 
-    RNG STREAM (fix I-12, phase-6 audit T046): ONE
+    RNG STREAM (fix T046/I-12): ONE
     `demography.rng.get_seeded_rng(simulation, tick, phase="migration")`
     instance is drawn at the top of the transaction block below and
     threaded through the ENTIRE per-agent loop -- every fleeing agent's
@@ -1383,7 +1445,7 @@ def process_emergency_flight(
     government = Government.objects.get(simulation=simulation)
 
     with transaction.atomic():
-        # Fix I-12: one seeded stream for the whole tick, shared by every
+        # Fix T046/I-12: one seeded stream for the whole tick, shared by every
         # household coordination call and every primary-agent location
         # scatter below -- see this function's own docstring, RNG STREAM
         # section, for why it is derived exactly once here rather than
@@ -1417,7 +1479,7 @@ def process_emergency_flight(
             simulation=simulation,
             event_type=DemographyEvent.EventType.MIGRATION,
             payload__reason="emergency_flight",
-            tick__gte=window_start,
+            tick__gt=window_start,
             tick__lt=tick,
         ).values("payload__from_zone", "primary_agent_id"):
             from_zone_id = row["payload__from_zone"]
@@ -1429,7 +1491,7 @@ def process_emergency_flight(
             if from_zone_id is not None and row["primary_agent_id"] is not None:
                 fled_agent_ids_by_zone[int(from_zone_id)].add(row["primary_agent_id"])
 
-        # Fix I-11: snapshot of HISTORICAL-only fled counts per zone,
+        # Fix T046/I-11: snapshot of HISTORICAL-only fled counts per zone,
         # taken BEFORE this tick's own new departures are added into
         # `fled_agent_ids_by_zone` below. An agent fleeing THIS tick is
         # still present in `baseline_population` above (captured before
@@ -1477,7 +1539,7 @@ def process_emergency_flight(
                 already_relocated_agent_ids.update(household_member_ids)
 
                 agent.zone = target_zone
-                # Fix I-12: the decider's own `location`, not only their
+                # Fix T046/I-12: the decider's own `location`, not only their
                 # household's -- this call graph bypasses
                 # `agents/movement.py`'s `execute_movement` entirely for
                 # the fleeing agent, so nothing else ever writes it.
@@ -1521,7 +1583,7 @@ def process_emergency_flight(
             ):
                 members_by_zone[row["zone_id"]].append(row)
 
-            # Fix M-3: group trapped agents by zone, preserving the
+            # Fix T046/M-3: group trapped agents by zone, preserving the
             # id-ascending order `trapped_agents` was already built in
             # above (a plain list, never a bare set) -- the witness
             # memory pass below then runs ONCE PER ZONE, not once per
@@ -1548,7 +1610,6 @@ def process_emergency_flight(
 
             for zone_id in sorted(trapped_ids_by_zone):
                 trapped_ids_in_zone = trapped_ids_by_zone[zone_id]
-                trapped_id_set = set(trapped_ids_in_zone)  # membership test only
                 # Deterministic representative for `origin_agent`
                 # (dedup/traceability, per that field's own help_text):
                 # the id-ascending first trapped agent in this zone this
@@ -1562,9 +1623,18 @@ def process_emergency_flight(
                     f"{'person is' if trapped_count == 1 else 'people are'} trapped, "
                     "with nowhere better to go."
                 )
+                # NO exclusion (fix T046/NEW-4, round 2):
+                # FR-026 (spec.md:189) and acceptance scenario 3
+                # (spec.md:133) both require the memory to reach "tutti
+                # gli agenti co-zone" -- ALL co-zone agents, victims
+                # included, without exception. `members_by_zone[zone_id]`
+                # is every living agent in the zone, trapped or not; all
+                # of them receive this aggregate zone-crisis memory. This
+                # is still O(M) rows per zone (T046/M-3's own bound), never
+                # O(N*M) -- the row count equals the zone's population,
+                # independent of how many of its agents happen to be
+                # trapped this tick.
                 for member_row in members_by_zone[zone_id]:
-                    if member_row["id"] in trapped_id_set:
-                        continue  # excluded: living it, not witnessing it -- see docstring
                     trapped_memories.append(
                         Memory(
                             agent_id=member_row["id"],
@@ -1584,7 +1654,7 @@ def process_emergency_flight(
 
         mass_flight_events: list = []
         for zone in zones:
-            # Fix I-11: population AT WINDOW START, not the zone's
+            # Fix T046/I-11: population AT WINDOW START, not the zone's
             # current living population -- see the historical-only
             # snapshot's own comment above and this function's docstring
             # for the full derivation.
