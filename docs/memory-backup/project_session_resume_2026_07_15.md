@@ -1,10 +1,50 @@
 ---
 name: session-resume-2026-07-15
-description: "CHIUSO 2026-07-17: economy base layer CONVERGED round 12, promosso a whitepaper §4.8, MERGIATO in develop (merge SHA 368e972, PR#14). Frozen-pin risolto (9893bba: 8a2bc71 E 7ec6548 -> 368e972, 12 posizioni per lingua). Suite 911 verdi, ruff pulito su develop post-merge. Residuo §8 = solo 8.1 Knowledge Graph. Frontiera progetto: cablaggio demografia Plan 4 (i modelli §4.1 sono auditati ma il tick loop NON li chiama) + audit KG. STATO DI BUILD: non leggerlo qui, la fonte di verita' e' la build map -- vedi [[build-map-source-of-truth]]. Decisioni ratificate dell'economia (non rilitigare): [[economy-ratified-decisions]]. Gli handoff handoff-economy-audit-2026-07-15/17.md sono stati RIMOSSI a lavoro chiuso: il loro contenuto durevole vive nella spec committata specs/20260715-132752-economy-base-layer-audit/ e in [[economy-ratified-decisions]]. Storia Round 1-12 sotto."
+description: "AGG. 2026-08-05: DEMOGRAFIA PLAN 3 CHIUSA E MERGIATA in develop (merge SHA 1cdcfa4), 47/47 task, audit fase 6 CONVERGED al round 4, suite 1191. inheritance.py (13 funzioni) e migration.py (8) esistono; whitepaper §4.1 esteso EN+IT; frozen-pin risolto a 1cdcfa4 (14 posizioni/lingua). Frontiera ora: Plan 4 (initialization + engine wiring + validazione storica) e audit KG §8.1. Plan 4 EREDITA un obbligo: evaluate_emergency_flight riceve il contatore di fame come argomento perche' il campo non esiste a schema -- Plan 4 deve crearlo. Aperto anche il work item separato sugli 8 difetti di DESIGN (kernel poligenico non conserva la varianza in testa). Sezione precedente: CHIUSO 2026-07-17 economy base layer CONVERGED round 12, promosso a §4.8, mergiato (368e972, PR#14). Frozen-pin risolto (9893bba: 8a2bc71 E 7ec6548 -> 368e972, 12 posizioni per lingua). Suite 911 verdi, ruff pulito su develop post-merge. Residuo §8 = solo 8.1 Knowledge Graph. Frontiera progetto: cablaggio demografia Plan 4 (i modelli §4.1 sono auditati ma il tick loop NON li chiama) + audit KG. STATO DI BUILD: non leggerlo qui, la fonte di verita' e' la build map -- vedi [[build-map-source-of-truth]]. Decisioni ratificate dell'economia (non rilitigare): [[economy-ratified-decisions]]. Gli handoff handoff-economy-audit-2026-07-15/17.md sono stati RIMOSSI a lavoro chiuso: il loro contenuto durevole vive nella spec committata specs/20260715-132752-economy-base-layer-audit/ e in [[economy-ratified-decisions]]. Storia Round 1-12 sotto."
 metadata: 
   node_type: memory
   type: project
   originSessionId: 974793b8-cb10-48cc-b5ea-ac2703f04516
+  modified: 2026-08-05T14:44:29.707Z
+---
+
+# Sessione 2026-08-05 -- Chiusura demografia Plan 3 (mergiata in develop)
+
+**CHIUSO E MERGIATO**: merge SHA **`1cdcfa4`**, `--no-ff` da `20260717-120706-demography-inheritance-migration`. **NON pushato** (regola: mai auto-push). 47/47 task. Suite intera **1191 passed**, ruff pulito, zero migrazioni pendenti.
+
+## Cosa e' stato costruito
+
+`inheritance.py` (13 funzioni pubbliche: kernel poligenico, evaluator AST ristretto, classe sociale, istruzione, scala eredi, imposta di successione, cinque regole successorie, trasferimento prestiti, caretaker orfani, cascata del lutto, batch morti simultanee) e `migration.py` (8: salario e disoccupazione di zona, costo distanza, guadagno atteso Harris-Todaro, outlook, coordinamento familiare Mincer, fuga d'emergenza, crisi intrappolata, fuga di massa). Suite demografia da 183 a **372** test. `engine.py` byte-identico al merge base: il cablaggio e' Plan 4.
+
+## L'audit di fase 6 -- quattro round, la lezione della sessione
+
+**Round 1: 22 finding su una suite gia' verde a 308 test.** Il peggiore: sotto `becker_tomes` (regola della democrazia moderna) il rumore gaussiano spingeva il rango oltre la fine della scala sociale, e li' c'era `enslaved` -- **25,2% dei figli di genitori poveri in zona povera**, senza alcun genitore schiavo. Anche: `mental_health` mai ereditata perche' i template dichiaravano un campo inesistente (`mental_health_baseline`).
+
+**Round 2: due dei fix del round 1 avevano introdotto difetti PEGGIORI.** Un `KeyError` in `transfer_loans_as_lender` sotto `matrilineal` che faceva rollback dell'INTERO batch di successioni; e il fix M-3 che, allargando l'esclusione dei testimoni, portava a **zero** la propagazione FR-026 proprio nello scenario di carestia per cui era stato scritto.
+
+**Round 3: un test dichiarato risolto moltiplicava per zero il coefficiente che diceva di fissare** (genitori `elite` = rango 0, quindi `0.7 * 0`). Lo sweep mostrava che 0.65, 0.70, 0.75, 0.79, 0.80 passavano tutti la suite.
+
+**Round 4: CONVERGED.** Verificato con sweep indipendenti dei coefficienti, 46 famiglie di payload al parser, 45 all'evaluator, 7 mutazioni, 12.730 allocazioni di conservazione.
+
+**LA LEZIONE, da non dimenticare: una suite verde non dice quasi nulla sulla correttezza scientifica.** Ogni difetto grave conviveva con test tutti verdi, e in due casi c'era un test che *proteggeva* il difetto. I test di determinismo confrontavano una funzione pura con se stessa; quelli di conservazione passavano anche contro divisione ingenua, perche' l'importo scelto come "non divisibile" divide esatto in IEEE 754.
+
+## Trappole tecniche verificate (valgono oltre questo branch)
+
+- **`PYTHONHASHSEED` randomizza solo str/bytes, MAI int.** Un test di determinismo in sottoprocesso non cattura iterazioni su `set` di id interi. In `migration.py` (chiavi intere) era inutile; in `inheritance.py` (`set[str]` di nomi di tratti) e' lo strumento giusto. E attenzione alle fixture: id consecutivi rendono `list(set)` e `sorted(set)` identici per costruzione.
+- **`sum()` di CPython 3.12 usa sommatoria compensata di Neumaier**, quindi differisce dall'accumulo sinistra-destra nel ~41% dei casi a 11 addendi. Una fixture di conservazione "avversariale" deve soddisfare DUE condizioni, non una.
+- **`get_seeded_rng` semina sulla CHIAVE PRIMARIA** oltre che sul seme -- vedi [[determinism-enumeration-pending]] punto 4.
+
+## Cosa resta APERTO
+
+1. **Push di develop** (mai fatto in automatico) e valutazione PR.
+2. **Plan 4**: initialization + engine wiring + validazione storica. Chiama `assign_orphan_caretaker` (step 3) e `process_emergency_flight` (step 5), entrambi esistenti. **EREDITA UN OBBLIGO**: `evaluate_emergency_flight` riceve `consecutive_ticks_under_subsistence` come ARGOMENTO perche' quel campo non esiste a schema e SC-005 vietava migrazioni. Plan 4 deve creare lo storage, altrimenti la fuga d'emergenza non puo' scattare in una run reale.
+3. **Work item separato sugli 8 difetti di DESIGN** (gate di fase 2 proprio, spec CONVERGED da emendare): kernel poligenico non variance-preserving (varianza dei tratti al 48,8% entro 3 generazioni), fallback genitore singolo che non dimezza il segnale, quota coniugale shari'a gender-blind contro Q4:12, imposta calcolata come due prodotti indipendenti, confronto stock-vs-flusso nel trigger di fuga, tre valori di `education_regression_rho` che contraddicono le fonti citate, parametri era-noise segnaposto, Harris-Todaro dimensionalmente incoerente (sottrae tick da un tasso monetario). **Tutti gia' documentati in whitepaper §4.1 come attualmente veri del modello.**
+4. **Audit KG §8.1**, ultimo residuo del capitolo 8.
+
+## Report d'audit committati
+
+`specs/20260717-120706-demography-inheritance-migration/audit/T046-round-{1,2,3}-NOT-CONVERGED.md` e `T046-round-4-CONVERGED.md`. Contengono l'evidenza a file:riga di ogni finding e cosa ogni auditor ha tentato SENZA trovare nulla, per giudicare la copertura e non solo l'output.
+
 ---
 
 # Sessione 2026-07-17 -- Chiusura economy base layer (promozione committata, fase 6 fatta)
