@@ -10,6 +10,7 @@ Covers:
   already-coupled, arranged marriage payload
 - resolve_separate_intents: divorce_enabled=True dissolves, divorce_enabled=False is no-op
 - dissolve_on_death: name snapshot captured, FK nulled, correct dissolution metadata
+- dissolve_on_death: both partners dying in the same tick capture both snapshots
 """
 
 from __future__ import annotations
@@ -633,3 +634,31 @@ def test_dissolve_on_death_returns_none_when_no_couple(sim_with_zone):
     lone = _make_agent(sim, zone, "Roberta")
     result = dissolve_on_death(lone, tick=5)
     assert result is None
+
+
+@pytest.mark.django_db
+def test_dissolve_on_death_both_partners_same_tick(sim_with_zone):
+    """dissolve_on_death must capture BOTH snapshots when both partners die in the
+    same tick and dissolve_on_death is called once per partner.
+
+    active_couple_for filters dissolved_at_tick__isnull=True, so once the first
+    call sets dissolved_at_tick, the couple is no longer "active": the second
+    call finds no active couple for the second partner and returns None. This
+    is the same-tick double-death bug this test documents.
+    """
+    sim, zone = sim_with_zone
+    a = _make_agent(sim, zone, "Sylvia")
+    b = _make_agent(sim, zone, "Tobias", gender=Agent.Gender.MALE)
+    couple = form_couple(a, b, formed_at_tick=1)
+
+    dissolve_on_death(a, tick=7)
+    dissolve_on_death(b, tick=7)
+
+    couple = Couple.objects.get(pk=couple.pk)
+
+    assert couple.agent_a is None
+    assert couple.agent_b is None
+    assert couple.agent_a_name_snapshot == "Sylvia"
+    assert couple.agent_b_name_snapshot == "Tobias"
+    assert couple.dissolved_at_tick == 7
+    assert couple.dissolution_reason == Couple.DissolutionReason.DEATH

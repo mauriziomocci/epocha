@@ -383,32 +383,81 @@ def resolve_separate_intents(simulation, tick: int) -> list[Couple]:
     return dissolved
 
 
-def dissolve_on_death(deceased_agent, tick: int) -> Couple | None:
-    """Dissolve any active Couple where the deceased is a partner.
+def _null_deceased_partner(couple: Couple, deceased_agent) -> None:
+    """Capture the deceased partner's name snapshot and null their FK.
 
-    Captures the deceased's name into the appropriate *_name_snapshot
-    field before nulling the FK, so the genealogical record survives
-    the delete cascade.
+    Determines which side of the Couple (agent_a or agent_b) the deceased
+    occupies and updates only that side, leaving the other partner's FK
+    untouched. Shared by both branches of dissolve_on_death so the same
+    capture-then-null logic is not duplicated.
     """
-    couple = active_couple_for(deceased_agent)
-    if couple is None:
-        return None
     if couple.agent_a_id == deceased_agent.id:
         couple.agent_a_name_snapshot = deceased_agent.name
         couple.agent_a = None
     else:
         couple.agent_b_name_snapshot = deceased_agent.name
         couple.agent_b = None
-    couple.dissolved_at_tick = tick
-    couple.dissolution_reason = "death"
+
+
+def dissolve_on_death(deceased_agent, tick: int) -> Couple | None:
+    """Dissolve the Couple where the deceased agent is a partner.
+
+    Idempotent per partner, not once per couple: safe to call once for
+    EACH deceased partner, even when both partners of the same Couple
+    die in the same tick. The normal case resolves the couple via
+    active_couple_for and sets dissolved_at_tick / dissolution_reason.
+    When active_couple_for finds nothing -- because a couple dissolved
+    earlier THIS SAME tick is no longer "active" under its
+    dissolved_at_tick__isnull=True filter -- this function falls back to
+    a couple already dissolved at this SAME tick in which deceased_agent
+    is still a non-null partner, and completes that partner's snapshot
+    capture and FK nulling without touching dissolved_at_tick or
+    dissolution_reason (already set by the first call). Resolving
+    "dissolved at this same tick" needs only deceased_agent and tick,
+    both already parameters -- no batch state from the caller is
+    required (rejected alternative in design decision D1).
+
+    Captures the deceased's name into the appropriate *_name_snapshot
+    field before nulling the FK, so the genealogical record survives
+    the delete cascade.
+    """
+    from epocha.apps.demography.models import Couple
+
+    couple = active_couple_for(deceased_agent)
+    if couple is not None:
+        _null_deceased_partner(couple, deceased_agent)
+        couple.dissolved_at_tick = tick
+        couple.dissolution_reason = "death"
+        couple.save(
+            update_fields=[
+                "agent_a",
+                "agent_b",
+                "agent_a_name_snapshot",
+                "agent_b_name_snapshot",
+                "dissolved_at_tick",
+                "dissolution_reason",
+            ]
+        )
+        return couple
+
+    # Same-tick double-death fallback (D1): the first partner's death
+    # already dissolved this couple this tick, so active_couple_for no
+    # longer finds it. Look for a couple dissolved at this SAME tick
+    # where deceased_agent is still a non-null partner.
+    couple = Couple.objects.filter(
+        Q(agent_a=deceased_agent) | Q(agent_b=deceased_agent),
+        dissolved_at_tick=tick,
+    ).first()
+    if couple is None:
+        return None
+
+    _null_deceased_partner(couple, deceased_agent)
     couple.save(
         update_fields=[
             "agent_a",
             "agent_b",
             "agent_a_name_snapshot",
             "agent_b_name_snapshot",
-            "dissolved_at_tick",
-            "dissolution_reason",
         ]
     )
     return couple

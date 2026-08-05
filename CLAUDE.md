@@ -69,7 +69,7 @@ Epocha is a scientific simulation. Every model, algorithm, formula, parameter, a
 
 It is **not a snapshot**. Keeping it current is mandatory, not optional, and not deferrable to "later". A build map that lags the code is worse than no build map, because it is trusted while being wrong.
 
-**Update it in the SAME session, before closing, whenever any of these happen:**
+**Update it whenever any of these happen — in the SAME session, and NOT deferred to "before closing":**
 
 1. A phase changes status (not started -> in progress -> done)
 2. An adversarial audit converges, or a new audit round opens
@@ -77,6 +77,11 @@ It is **not a snapshot**. Keeping it current is mandatory, not optional, and not
 4. A whitepaper chapter is promoted from §8 (audit pending) to §4 (Methods)
 5. A work item is opened, deferred to a separate branch, or closed
 6. Any dependency between phases changes
+7. **Any committed block of work makes something the map currently asserts untrue.** This is the catch-all and it fires far more often than 1-6. A phase already marked "in progress" still moves underneath that label: modules come into existence, user stories close, task counts advance, suite totals change. If a reader of the map would now be misled — "neither module exists yet" when one does, "911 passed" when it is 1002 — the map is stale and must be updated NOW, not at session end.
+
+**The cadence that makes trigger 7 enforceable**: update the map at every checkpoint where a coherent block of work is committed — the close of a user story, a plan phase, an audit round. Not once per task, which is noise; not once per session, which is how it goes stale. If you are committing something worth a checkpoint, ask what the map now says that is no longer true.
+
+**Why trigger 7 exists**: added 2026-07-17 after a real violation. Demography Plan 3 advanced from 0 to 23 of 47 tasks across nine code commits, closing two user stories and bringing a whole module into existence, while the map still read "neither module exists yet. Start at Plan 3." None of triggers 1-6 fired literally — the phase was already "in progress" — so the map silently lagged the code for an entire working session, which is precisely the failure the rule exists to prevent.
 
 **Procedure (all four steps, in order):**
 
@@ -324,7 +329,7 @@ After any code change, update documentation in the same commit:
 
 | Whitepaper chapter | Code |
 |---|---|
-| §4.1 Demography | `epocha/apps/demography/{mortality,fertility,couple}.py` |
+| §4.1 Demography | `epocha/apps/demography/{mortality,fertility,couple,inheritance,migration}.py` |
 | §4.2 Economy — behavioral | `epocha/apps/economy/{expectations,credit,banking,property_market}.py` |
 | §4.3 Reputation | `epocha/apps/agents/reputation.py` |
 | §4.4 Rumor propagation | `epocha/apps/agents/{information_flow,distortion,belief,affinity}.py` |
@@ -454,5 +459,5 @@ Constitution authoritative at `.specify/memory/constitution.md` — supersedes c
 
 See memory `feedback_speckit_mandatory.md` for the absolute rule.
 
-**Active feature plan**: `specs/20260715-132752-economy-base-layer-audit/plan.md`
+**Active feature plan**: `specs/20260717-120706-demography-inheritance-migration/plan.md`
 <!-- SPECKIT END -->
