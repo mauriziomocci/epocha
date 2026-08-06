@@ -55,45 +55,58 @@ Un revisore confronta le quote successorie prodotte dalla simulazione nell'era p
 
 Un agente valuta se trasferirsi in un'altra zona confrontando il guadagno economico atteso col costo del viaggio. Oggi quel confronto sottrae un numero di tick da una quantità monetaria per tick: le unità non tornano, e l'esempio numerico del design non lo rivela solo perché calcola una destinazione a costo distanza zero.
 
-**Why this priority**: una formula pubblicata le cui unità non bilanciano non è difendibile nel paper, ed è materia da GOLDEN RULE. L'audit ha già emesso il proprio giudizio nel round 1 — monetizzare il costo come reddito mancato — con la motivazione che ripristina l'equilibrio dimensionale, riproduce esattamente l'esempio del design e ha un significato economico, mentre una scala dichiarata di un'unità di valuta per tick legherebbe la soglia migratoria alla scala arbitraria della valuta.
+**Why this priority**: una formula pubblicata le cui unità non bilanciano non è difendibile nel paper, ed è materia da GOLDEN RULE.
 
-**Independent Test**: calcolare il guadagno atteso verso due destinazioni a costo distanza diverso e verificare che il risultato sia omogeneo in unità monetarie per tick; ricalcolare l'esempio del design e confermare che il valore dichiarato è riprodotto.
+**IL RIMEDIO DEL ROUND 1 NON RISOLVE IL PROBLEMA, ed è questa la vera decisione del gate.** Il round 1 dell'audit di codice aveva stabilito di monetizzare il costo come reddito mancato, `costo_in_tick × salario_corrente`, motivandolo col ripristino dell'equilibrio dimensionale. Verificato: non lo ripristina. `[T] × [M·T⁻¹] = [M]`, cioè moneta, mentre gli altri due termini restano moneta per tick — si scambia uno squilibrio con un altro. Bilanciare richiede un **orizzonte di pianificazione** `H` in tick, sia dividendo il costo monetizzato per `H` per restare un tasso, sia moltiplicando i primi due termini per `H` per ottenere un totale. `H` è un parametro libero nuovo che sposta la soglia migratoria, e non è nominato né giustificato in nessun punto del design, del codice o del whitepaper. Il compito del gate non è ratificare il giudizio del round 1: è **nominare e giustificare `H`**, oppure motivare una formulazione diversa che bilanci senza introdurlo.
+
+**Independent Test**: verificare per analisi dimensionale che ogni termine della formula emendata abbia la stessa unità; calcolare il guadagno atteso verso due destinazioni a costo distanza diverso e non nullo, e verificare che l'ordinamento fra esse sia quello economicamente atteso.
 
 **Acceptance Scenarios**:
 
-1. **Given** una destinazione a costo distanza non nullo, **When** si calcola il guadagno atteso, **Then** tutti i termini sono omogenei e il risultato è interpretabile come quantità monetaria per tick.
-2. **Given** l'esempio numerico della spec di design, **When** lo si ricalcola con la formula emendata, **Then** il valore dichiarato è riprodotto esattamente.
+1. **Given** una destinazione a costo distanza non nullo, **When** si calcola il guadagno atteso, **Then** tutti i termini hanno la stessa unità e il risultato è interpretabile in quella unità.
+2. **Given** la formula emendata, **When** se ne legge la documentazione, **Then** l'orizzonte di pianificazione è nominato, il suo valore è giustificato, e l'effetto della sua scelta sulla soglia migratoria è dichiarato.
 3. **Given** due simulazioni identiche denominate in valute di scala diversa, **When** gli agenti valutano la stessa migrazione, **Then** la decisione è la stessa.
+
+> **Nota su un test che NON discrimina.** L'esempio numerico della spec di design ha costo distanza zero, quindi ogni candidato correttivo lo riproduce identicamente — comprese le formulazioni che lasciano le unità squilibrate. Riprodurlo non è evidenza a favore di nessuna correzione, e non va usato come criterio di accettazione. L'ho verificato: `(1 − 0.08)·90 − 78 − 0 = 4.8`, che coincide col valore dichiarato dal design proprio perché il terzo termine è assente.
 
 ---
 
 ### User Story 4 - La conservazione del patrimonio è esatta anche nel passaggio d'imposta (Priority: P3)
 
-Chi verifica i conti della simulazione somma imposta e quote degli eredi e si aspetta di ritrovare esattamente il patrimonio di partenza. Oggi il passaggio d'imposta calcola le due parti come prodotti indipendenti e la somma non torna in circa un caso su cinque, mentre il ripartitore fra eredi cinquanta righe più in là si prende cura di essere esatto.
+Chi verifica i conti della simulazione somma imposta e residuo e si aspetta di ritrovare esattamente il patrimonio di partenza. Oggi il passaggio d'imposta calcola le due parti come prodotti indipendenti e la somma non torna, mentre il ripartitore fra eredi cinquanta righe più in là si prende cura di essere esatto.
 
-**Why this priority**: la magnitudine è trascurabile (dell'ordine di una parte su dieci miliardi), ma l'invariante di conservazione è dichiarato come non negoziabile e portante per l'impianto contabile del whitepaper. Un modulo non può affermare un invariante esatto mentre uno dei suoi due passaggi aritmetici non lo rispetta.
+**Le magnitudini, misurate direttamente e non ereditate dai report.** Il tasso di non-esattezza dipende dall'aliquota: **16,1% ad aliquota 0,15, 6,0% a 0,40, e 0% ad aliquota nulla — che è quella di tre template su cinque**, quindi il difetto non si manifesta affatto nelle due ere pre-industriali né in quella sci-fi. L'errore relativo massimo è **1,9·10⁻¹⁶**, cioè un ulp, non l'ordine di grandezza superiore che una lettura frettolosa del round 1 suggeriva: quel report riportava 1,16·10⁻¹⁰ come errore **assoluto** su un patrimonio di mezzo milione. La cifra "circa un caso su cinque" che circolava non è riproducibile sotto nessuna distribuzione provata.
 
-**Independent Test**: liquidare molti patrimoni di importo casuale a diverse aliquote e verificare che imposta più residuo eguagli esattamente il patrimonio, con la stessa asserzione di uguaglianza esatta già usata per il ripartitore fra eredi.
+**Why this priority**: la magnitudine è di un ulp e in tre ere su cinque il difetto è assente, quindi l'impatto sugli esiti è nullo. Resta però che il modulo **afferma** un invariante di conservazione esatto e non negoziabile, portante per l'impianto contabile del whitepaper, mentre uno dei suoi due passaggi aritmetici non lo rispetta. Si corregge perché l'affermazione deve essere vera, non perché i numeri cambino.
+
+**L'esattezza è raggiungibile, e il rimedio proposto dal round 1 non la raggiunge.** Quel report proponeva `residuo = totale − imposta`, ammettendo che riduce il tasso al 4,9% senza azzerarlo (misurato: 6,2% alle aliquote spedite). La costruzione che funziona è **derivare all'indietro**: calcolato il residuo, si ridefinisce l'imposta come `totale − residuo`. Misurato: **zero fallimenti su 200.000 prove**. È esattamente la tecnica dell'ultimo-termine-assorbe che `_allocate_with_exact_remainder` già usa per gli eredi, quindi il modulo la possiede già.
+
+**Independent Test**: liquidare molti patrimoni di importo casuale a ciascuna delle aliquote effettivamente spedite dai template, e verificare che imposta più residuo eguagli esattamente il patrimonio.
 
 **Acceptance Scenarios**:
 
-1. **Given** un patrimonio e un'aliquota qualsiasi, **When** si applica l'imposta, **Then** imposta più residuo eguaglia esattamente il patrimonio.
-2. **Given** la documentazione della funzione, **When** la si legge, **Then** la garanzia dichiarata è quella che il codice offre davvero, con la stessa precisione già adottata altrove nel modulo.
+1. **Given** un patrimonio e una qualsiasi delle aliquote spedite, **When** si applica l'imposta, **Then** imposta più residuo eguaglia esattamente il patrimonio.
+2. **Given** la documentazione della funzione, **When** la si legge, **Then** la garanzia dichiarata è quella che il codice offre davvero, e dichiara rispetto a quale ordine di somma vale.
 
 ---
 
-### User Story 5 - Il trigger di fuga confronta grandezze omogenee (Priority: P3)
+### User Story 5 - La spec di design smette di contraddirsi sull'orizzonte di sopravvivenza (Priority: P2)
 
-Un agente affamato decide se fuggire. Oggi la condizione confronta la sua ricchezza accumulata con il costo di sussistenza di un singolo tick: un agente con trenta tick di risparmi è trattato come uno che ne ha uno solo, e l'orizzonte di sopravvivenza risulta fissato a un tick senza che nulla lo dichiari.
+Un agente affamato decide se fuggire. Oggi la condizione confronta la sua ricchezza accumulata con il costo di sussistenza di un singolo tick: un agente con trenta tick di risparmi è trattato come uno che ne ha uno solo.
 
-**Why this priority**: è una semplificazione difendibile — "non può permettersi il cibo di questo tick" — ma non dichiarata, e interagisce col contatore di tick consecutivi sotto sussistenza in modo che assume implicitamente che la ricchezza non si accumuli.
+**NON è una semplificazione non dichiarata: è una contraddizione dentro la spec CONVERGED.** Verificato: la riga 153 del design stabilisce la convenzione generale — *"I confronti di ricchezza usano `agent.wealth < N * subsistence_threshold` dove `N` è il numero di tick di sussistenza che l'agente può sopravvivere con i risparmi attuali (parametro di design tunable, default 30 tick ≈ 1 mese)"* — e la riga 841 scrive poi la condizione di fuga **senza** `N`. Il codice segue la riga 841. Questo cambia il rimedio: non basta dichiarare l'orizzonte, perché dichiarare "un tick" lascerebbe in piedi la riga 153 contraddetta.
 
-**Independent Test**: costruire due agenti con la stessa ricchezza ma orizzonti di sopravvivenza diversi e verificare che il trigger li distingua secondo il criterio dichiarato.
+**Why this priority**: alzato da P3 a P2 rispetto alla prima stesura. Una contraddizione interna a una spec dichiarata CONVERGED è un difetto del processo di audit oltre che del modello, e il gate deve scegliere fra due concetti diversi, non fra due valori. Adottare `N = 30` non è gratis: anche `flight_trigger_ticks` vale 30, quindi il trigger diventerebbe "sotto un mese di risparmi, per un mese di fila" — un test di risparmio precauzionale, non di fame, che scatterebbe per una porzione ampia della popolazione. Mantenere un tick lo tiene un test di fame ma nega la riga 153. Sono due modelli diversi e la spec non dice quale sia quello voluto.
+
+**Lo stesso confronto è vivo anche nella fertilità, ed è fuori dall'ambito di questa user story ma non della decisione.** `fertility.py` calcola il proprio segnale di ricchezza sullo stesso rapporto fra stock accumulato e flusso per tick, altrettanto non riconciliato con la riga 153. Poiché la decisione del gate è una decisione **sulla riga 153**, ricade su entrambi i consumatori: il capitolo §4.1.2 del whitepaper, già promosso, va aggiornato di conseguenza.
+
+**Independent Test**: costruire due agenti con la stessa ricchezza corrente ma orizzonti di sopravvivenza diversi e verificare che il trigger li distingua secondo il criterio scelto; verificare separatamente che il criterio scelto sia lo stesso che governa il segnale di ricchezza della fertilità.
 
 **Acceptance Scenarios**:
 
-1. **Given** un agente con risparmi sufficienti per molti tick di sussistenza, **When** si valuta la condizione di fuga, **Then** l'esito riflette l'orizzonte dichiarato dal modello e non un orizzonte implicito di un tick.
-2. **Given** la documentazione della condizione, **When** la si legge, **Then** l'orizzonte di sopravvivenza assunto è dichiarato esplicitamente.
+1. **Given** un agente con risparmi sufficienti per molti tick di sussistenza, **When** si valuta la condizione di fuga, **Then** l'esito riflette l'orizzonte che la spec emendata stabilisce, e la spec non contiene più due affermazioni incompatibili su quale sia.
+2. **Given** la scelta dell'orizzonte, **When** la si legge nella spec emendata, **Then** è motivata rispetto alla distinzione fra test di fame e test di risparmio precauzionale, ed è dichiarata la sua interazione con `flight_trigger_ticks`.
+3. **Given** il segnale di ricchezza della fertilità, **When** lo si confronta con la condizione di fuga, **Then** entrambi applicano la convenzione stabilita dalla spec emendata.
 
 ---
 
@@ -114,26 +127,29 @@ Chi legge il paper trova un valore attribuito a uno studio pubblicato e si aspet
 ### Edge Cases
 
 - Che cosa succede alle simulazioni già eseguite e ai loro risultati, se il modello genetico cambia? Serve una dichiarazione esplicita di non comparabilità fra risultati prodotti prima e dopo l'emendamento.
-- Che cosa succede se la correzione della varianza modifica gli esiti dei test di calibrazione demografica esistenti, che sono stati costruiti sul comportamento attuale?
 - Come si distingue, nella regola successoria islamica, il coniuge superstite non binario, dato che la fonte è formulata su una dicotomia? La spec attuale documenta già un trattamento per i figli non binari nella ripartizione residuale e va estesa coerentemente.
 - Il correttivo dimensionale sul costo distanza interagisce con il salario di zona: correggerne il divisore ha già spostato quel valore del venti per cento, e le due correzioni si compongono.
+- Il troncamento dei tratti a `[0,1]` limita la varianza raggiungibile, e quanto la limiti dipende da dove cade la media d'era. Risolvere le medie per tratto — cioè fare quanto FR-004 chiede — sposta il troncamento e peggiora la conservazione della varianza. Quale delle due proprietà cede, e di quanto, è una decisione del gate.
+- L'era sci-fi accoppia gli agenti su una funzione deterministica di un tratto ereditabile, tramite la regola di classe meritocratica, quindi l'assunzione di accoppiamento casuale che sta sotto l'obiettivo di varianza non vale lì.
+- Se il gate adotta `N = 30` per l'orizzonte di sopravvivenza mentre `flight_trigger_ticks` vale anch'esso 30, il trigger di fuga cambia natura: da test di fame a test di risparmio precauzionale sostenuto per un mese. È un cambiamento di modello, non di parametro.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: la spec di design MUST essere emendata prima di qualunque modifica al codice, e l'emendamento MUST attraversare un ciclo di convergenza avversariale con verdetto CONVERGED esplicito.
-- **FR-002**: il modello di trasmissione dei tratti MUST conservare la varianza della popolazione fra le generazioni, entro una tolleranza dichiarata, invece di contrarla verso un punto fisso.
-- **FR-003**: il caso a genitore singolo MUST applicare il coefficiente di regressione che la fonte citata prescrive per quel caso, e la documentazione MUST descrivere ciò che il codice fa.
-- **FR-004**: i parametri della distribuzione di rumore MUST essere risolti per era e per tratto da una fonte dichiarata, oppure MUST essere dichiarati come parametri di progetto tarabili con la loro giustificazione, non come segnaposto interinali.
-- **FR-005**: la quota coniugale nella regola successoria islamica MUST riflettere l'asimmetria della fonte citata, e MUST definire il trattamento del coniuge non binario coerentemente con quanto la spec già stabilisce per i figli.
-- **FR-006**: il guadagno atteso di migrazione MUST essere dimensionalmente omogeneo, e la decisione migratoria MUST essere invariante rispetto alla scala della valuta.
-- **FR-007**: il passaggio d'imposta di successione MUST conservare il valore esattamente, con la stessa garanzia già offerta dalla ripartizione fra eredi.
-- **FR-008**: la condizione di fuga MUST confrontare grandezze omogenee e MUST dichiarare l'orizzonte di sopravvivenza assunto.
-- **FR-009**: ogni parametro dei template MUST corrispondere al valore attribuito alla sua fonte, oppure la divergenza MUST essere dichiarata con la sua ragione.
-- **FR-010**: il capitolo §4.1 di ENTRAMBI i whitepaper MUST essere aggiornato nello stesso work item, sostituendo la dichiarazione del difetto con la descrizione del modello corretto, e MUST dichiarare la non comparabilità fra risultati prodotti prima e dopo.
+- **FR-002**: il modello di trasmissione dei tratti MUST conservare la varianza della popolazione fra le generazioni, invece di contrarla verso un punto fisso. La tolleranza MUST essere dichiarata come **funzione** di ereditabilità, media d'era e ampiezza d'era, non come numero unico: il troncamento dei tratti all'intervallo `[0,1]` non costa nulla quando la media d'era è centrata (misurato: 99,7% dell'obiettivo a media 0,5) ma degrada in modo prevedibile quando si sposta, e con una media d'era reale di 0,8 il troncamento scende a 1,33 deviazioni standard e la varianza stazionaria misurata cala al 92,1% dell'obiettivo. **FR-002 e FR-004 tirano in direzioni opposte** e la spec emendata MUST riconciliarli esplicitamente.
+- **FR-003**: il caso a genitore singolo MUST applicare il coefficiente di regressione che la fonte citata prescrive per quel caso, e la documentazione MUST descrivere ciò che il codice fa. Il requisito MUST coprire anche **la scala del residuo in tutti e tre i rami** — due genitori noti, uno solo, nessuno — e non solo il coefficiente: la forma correttiva già pubblicata nel whitepaper dà il residuo per il solo caso a due genitori, e implementata alla lettera negli altri rami misura il 95,7% dell'obiettivo invece di conservarlo.
+- **FR-004**: i parametri della distribuzione di rumore MUST essere risolti per era e per tratto da una fonte dichiarata, oppure MUST essere dichiarati come parametri di progetto tarabili con la loro giustificazione, non come segnaposto interinali. La risoluzione MUST tenere conto dell'interazione con FR-002 descritta sopra.
+- **FR-005**: la quota coniugale nella regola successoria islamica MUST dipendere dal genere del coniuge superstite secondo la fonte citata, che prescrive **vedovo 1/2 senza figli e 1/4 con figli, vedova 1/4 senza figli e 1/8 con figli** (oggi il codice applica 1/4 e 1/8 a entrambi). MUST inoltre definire il trattamento del coniuge non binario coerentemente con quanto la spec già stabilisce per i figli nella ripartizione residuale.
+- **FR-006**: il guadagno atteso di migrazione MUST avere tutti i termini nella stessa unità, e la decisione migratoria MUST essere invariante rispetto alla scala della valuta. La spec emendata MUST nominare e giustificare l'orizzonte di pianificazione che il bilanciamento richiede, oppure motivare una formulazione che bilanci senza introdurlo; **NON è sufficiente monetizzare il costo distanza**, perché ciò produce una quantità monetaria contro termini che sono tassi.
+- **FR-007**: il passaggio d'imposta di successione MUST conservare il valore esattamente. La spec emendata MUST nominare la costruzione usata: derivare l'ultimo termine per differenza, la stessa tecnica che il ripartitore fra eredi già impiega, verificata a zero fallimenti su 200.000 prove. Il rimedio proposto dal round 1 dell'audit di codice (`residuo = totale − imposta`) NON raggiunge l'esattezza e MUST NOT essere ereditato.
+- **FR-008**: la spec di design MUST risolvere la propria contraddizione interna fra la convenzione generale della riga 153 (`N` tick di sussistenza, default 30) e la condizione di fuga della riga 841 (che omette `N`), scegliendo esplicitamente fra un test di fame e un test di risparmio precauzionale e dichiarando l'interazione con `flight_trigger_ticks`. La scelta MUST essere applicata a **tutti** i consumatori della soglia di sussistenza, inclusa la modulazione della fertilità.
+- **FR-009**: ogni parametro dei template MUST corrispondere al valore attribuito alla sua fonte, oppure la divergenza MUST essere dichiarata con la sua ragione. **L'attribuzione stessa MUST essere verificata prima di diventare il bersaglio**: la spec di design cita Chetty et al. (2014) in due punti per due grandezze diverse — un intervallo di elasticità del reddito e un coefficiente di persistenza dell'istruzione — e allineare i dati spediti a un'attribuzione errata non sarebbe una correzione.
+- **FR-010**: il capitolo §4.1 di ENTRAMBI i whitepaper MUST essere aggiornato nello stesso work item, sostituendo la dichiarazione del difetto con la descrizione del modello corretto, e MUST dichiarare la non comparabilità fra risultati prodotti prima e dopo. L'aggiornamento MUST includere §4.1.2 (fertilità), che condivide la decisione di FR-008, e MUST correggere l'affermazione secondo cui la monetizzazione del costo distanza ripristina l'equilibrio dimensionale, ovunque essa compaia.
 - **FR-011**: ogni correzione MUST essere coperta da un test che fallisce contro il comportamento attuale, verificato per mutazione e non per sola ispezione.
-- **FR-012**: il lavoro MUST dichiarare esplicitamente quali test di calibrazione esistenti cambiano esito, e perché il nuovo esito è quello corretto.
+- **FR-012**: il lavoro MUST dichiarare quali benchmark di calibrazione cambiano esito e perché il nuovo esito è quello corretto. **Nota di stato verificata**: nessun benchmark di calibrazione demografica eseguibile esiste oggi nella suite — quelli previsti sono tracciati come lavoro futuro — quindi il requisito vincola i benchmark da scrivere, non un insieme esistente.
+- **FR-013**: la spec emendata MUST dichiarare l'assunzione di accoppiamento su cui poggia l'obiettivo di varianza. Verificato: il punteggio di omogamia non pesa nessuno dei tredici tratti ereditabili in quattro ere su cinque, ma nell'era sci-fi la regola di classe meritocratica deriva la classe sociale da intelligenza e istruzione, e la classe è il fattore di peso maggiore nell'omogamia — quindi lì l'accoppiamento è assortativo su una funzione deterministica di un tratto ereditabile, e il kernel corretto sovra-conserva (misurato: 108,2% dell'obiettivo sotto forte assortimento).
 
 ### Key Entities
 
@@ -147,11 +163,11 @@ Chi legge il paper trova un valore attribuito a uno studio pubblicato e si aspet
 ### Measurable Outcomes
 
 - **SC-001**: la spec di design emendata raggiunge un verdetto CONVERGED esplicito in un ciclo di audit avversariale, con zero rilievi INCORRECT e zero UNJUSTIFIED residui.
-- **SC-002**: in una popolazione simulata per otto generazioni, la dispersione dei tratti ereditabili resta entro la tolleranza dichiarata dell'ampiezza d'era, contro il 48,8% misurato oggi.
-- **SC-003**: l'ereditabilità misurata sulla popolazione dopo diverse generazioni corrisponde a quella dichiarata nei template entro una tolleranza documentata.
-- **SC-004**: le quattro quote coniugali della regola islamica corrispondono a quelle prescritte dalla fonte citata.
-- **SC-005**: due simulazioni identiche denominate in valute di scala diversa producono le stesse decisioni migratorie.
-- **SC-006**: imposta più residuo eguaglia esattamente il patrimonio in ogni caso testato, con asserzione di uguaglianza esatta.
+- **SC-002**: in una popolazione simulata per otto generazioni, la dispersione dei tratti ereditabili resta entro la tolleranza dichiarata da FR-002 per la combinazione di ereditabilità, media e ampiezza d'era usata, contro il 48,8% misurato oggi. La verifica MUST coprire i tre rami di parentela, non il solo caso a due genitori.
+- **SC-003**: l'ereditabilità misurata sulla popolazione dopo diverse generazioni corrisponde a quella dichiarata nei template entro una tolleranza documentata, **in tutte e cinque le ere** — oppure l'era sci-fi è esplicitamente esentata con la ragione dell'accoppiamento assortativo di FR-013.
+- **SC-004**: le quote coniugali della regola islamica valgono 1/2 e 1/4 per il vedovo (senza e con figli) e 1/4 e 1/8 per la vedova, e il trattamento del coniuge non binario è quello dichiarato dalla spec emendata.
+- **SC-005**: due simulazioni identiche denominate in valute di scala diversa producono le stesse decisioni migratorie. **Nota**: questo criterio non discrimina fra le formulazioni candidate — è soddisfatto da qualunque monetizzazione — quindi non basta da solo a validare FR-006, che richiede in aggiunta la verifica dimensionale termine per termine.
+- **SC-006**: imposta più residuo eguaglia esattamente il patrimonio a ciascuna delle aliquote spedite dai template, con asserzione di uguaglianza esatta, dichiarando rispetto a quale ordine di somma vale.
 - **SC-007**: ogni valore parametrico dei cinque template coincide con quello attribuito alla sua fonte, oppure porta una divergenza dichiarata.
 - **SC-008**: il capitolo §4.1 di entrambi i whitepaper non contiene più la dichiarazione degli otto difetti come veri, e dichiara la discontinuità dei risultati.
 - **SC-009**: l'audit di fase 6 sul codice raggiunge un verdetto CONVERGED esplicito.
@@ -162,5 +178,7 @@ Chi legge il paper trova un valore attribuito a uno studio pubblicato e si aspet
 - Il gate pesante di fase 2 su questo emendamento è richiesto e sarà eseguito: la spec di design CONVERGED non si riapre senza di esso. Questa è la ragione per cui il work item è separato dalla Plan 3 e non un'appendice di essa.
 - Le correzioni cambiano gli esiti numerici della simulazione. L'assunzione è che questo sia accettabile e anzi voluto, perché gli esiti attuali sono scientificamente scorretti; la conseguenza è che i risultati prodotti prima dell'emendamento non sono comparabili con quelli prodotti dopo, e va dichiarato.
 - Il lavoro non tocca il cablaggio della demografia nel tick loop, che resta di competenza della Plan 4, né dipende da esso: tutti e otto i difetti sono osservabili e correggibili sui moduli in isolamento.
-- Le magnitudini riportate dall'audit (il 48,8%, il circa 19% dei casi di conservazione, il fattore due sulla quota del vedovo) sono assunte corrette: sono state misurate da auditor indipendenti e in due casi riprodotte in modo indipendente. Restano da riverificare contro il codice corrente prima di essere usate come baseline, secondo la regola di verifica del progetto.
-- L'ordine di priorità fra le sei user story riflette l'impatto sugli esiti simulati, non la difficoltà. La prima è indipendentemente rilasciabile e da sola giustifica il work item.
+- **Le magnitudini sono state riverificate, e due erano sbagliate.** Il 48,8% del collasso della varianza regge: ricavato analiticamente e riprodotto in simulazione da due parti indipendenti. Il fattore due sulla quota del vedovo regge. Ma il tasso di non-esattezza della conservazione **non** è "circa un caso su cinque": è 16,1% ad aliquota 0,15, 6,0% a 0,40 e **zero** ad aliquota nulla, che è quella di tre template su cinque; e l'errore relativo massimo è 1,9·10⁻¹⁶, non l'ordine di 10⁻¹⁰ che circolava, perché quella cifra era un errore assoluto su un patrimonio grande. La prima stesura di questa spec riportava entrambe le cifre sbagliate, ereditate senza verifica.
+- **Il giudizio del round 1 sulla migrazione non è assunto valido**: è stato verificato ed è errato, come documenta la User Story 3. Questo è il motivo per cui il gate serve davvero su quel punto.
+- L'ordine di priorità riflette l'impatto sugli esiti simulati, non la difficoltà. La User Story 5 è stata alzata da P3 a P2 dopo la verifica, perché si è rivelata una contraddizione interna alla spec CONVERGED anziché una semplificazione taciuta.
+- **Sull'ampiezza del gate**: quattro delle sei user story hanno una correzione già derivata e pubblicata, e per esse il gate deve registrare una decisione, non deliberarla. Le questioni che richiedono deliberazione sono tre: l'orizzonte di pianificazione della migrazione, l'orizzonte di sussistenza e la sua estensione alla fertilità, e la fonte dei parametri di rumore per era e per tratto con la sua interazione col troncamento. Se questo work item va spezzato, va spezzato lì.
