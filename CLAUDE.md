@@ -459,5 +459,5 @@ Constitution authoritative at `.specify/memory/constitution.md` — supersedes c
 
 See memory `feedback_speckit_mandatory.md` for the absolute rule.
 
-**Active feature plan**: `specs/20260717-120706-demography-inheritance-migration/plan.md`
+**Active feature plan**: `specs/20260806-112409-demography-design-defects/plan.md`
 <!-- SPECKIT END -->
