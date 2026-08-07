@@ -149,9 +149,58 @@ Se la variabile di codice contiene già `h²` — come `h2` oggi in `inherit_tra
 
 ## Deliberazione 0.1b — L'orizzonte di pianificazione della migrazione
 
-*In corso. La verifica delle fonti primarie (Todaro 1969, Harris & Todaro 1970, Sjaastad 1962) è in esecuzione; la deliberazione in tre passi si svolge sul suo esito.*
+Stato del difetto, verificato sul codice: [migration.py:453](../../epocha/apps/demography/migration.py:453) calcola `(1 − u_j)·w_j − w_corrente − costo_distanza_j`, dove i primi due termini sono una moneta per tick e il terzo un conteggio di tick. Il modulo **dichiara già** l'incoerenza nel proprio docstring e registra il giudizio del round 1 dell'audit senza applicarlo. La spec ha verificato che quel giudizio non risolve: monetizzare il costo produce una moneta contro due tassi.
 
-Stato del difetto, verificato sul codice: [migration.py:453](../../epocha/apps/demography/migration.py:453) calcola `(1 − u_j)·w_j − w_corrente − costo_distanza_j`, dove i primi due termini sono una moneta per tick e il terzo un conteggio di tick. Il modulo **dichiara già** l'incoerenza nel proprio docstring e registra il giudizio del round 1 dell'audit senza applicarlo. La spec di questo work item ha verificato che quel giudizio non risolve: monetizzare il costo produce una moneta contro due tassi.
+### La fonte risolve la questione, e il modulo cita quella sbagliata
+
+La verifica delle fonti primarie ha prodotto un risultato che cambia il problema. **Harris & Todaro (1970)**, *American Economic Review* 60(1):126–142 — la fonte che [migration.py:374](../../epocha/apps/demography/migration.py:374) cita — **è un'uguaglianza di salario atteso a un solo periodo**: la sua condizione di equilibrio è `W_u · E_u/L_u = W_R`, e non contiene orizzonte, né sconto, né alcun termine di costo. Citare Harris-Todaro per un orizzonte di pianificazione sarebbe una misattribuzione netta.
+
+**Todaro (1969)**, *American Economic Review* 59(1):138–148, è invece esattamente il modello che serve, e la sua struttura è quella che il difetto viola. Todaro lo ri-enuncia di propria mano nel 1980 (*Internal Migration in Developing Countries: A Survey*, in Easterlin (a cura di), *Population and Economic Change in Developing Countries*, NBER/University of Chicago Press, pp. 361–402), a p. 368, citando la nota 8 di p. 142 dell'originale:
+
+> `V(0) = Σ_{t=0..n} [p(t)·Y_u(t) − Y_r(t)]·e^{−it} − C(0)`
+>
+> dove `n` è **il numero di periodi nell'orizzonte di pianificazione del migrante**, `i` **il tasso di sconto che riflette la sua preferenza temporale**, e **`C(0)` rappresenta il costo della migrazione**.
+
+Il punto portante è la posizione di `C(0)`: **è un esborso una tantum al tempo zero, sottratto a un flusso scontato.** Non è compensato contro un tasso. La struttura corretta era nella fonte fin dall'inizio.
+
+**Una precisazione che va fatta perché è comodo sbagliarla**: Todaro **non** definisce `n` come la vita lavorativa residua. Dice soltanto "il numero di periodi nell'orizzonte di pianificazione". La convenzione della vita lavorativa residua è di **Sjaastad (1962)**, *The Costs and Returns of Human Migration*, Journal of Political Economy 70(5, parte 2):80–93, che a p. 89 la rende concreta — pensionamento a 65-70 anni, quindi circa 45 anni residui per chi migra fra i 15 e i 19 e 40 per chi migra fra i 20 e i 24. Attribuire quella convenzione a Todaro sarebbe la stessa approssimazione che la User Story 2 esiste per correggere.
+
+Sjaastad fornisce anche la definizione del costo, e specifica ciò che serve qui (p. 84): *"i primi costi non monetari da considerare sono i costi opportunità — i guadagni cui si rinuncia mentre si viaggia, si cerca e si impara un lavoro nuovo. Parte di questi guadagni mancati sarà funzione della distanza della migrazione."* La monetizzazione del costo distanza come reddito mancato — il giudizio del round 1 — è quindi **corretta come definizione del costo** e sbagliata solo su dove collocarlo: va contro un valore attuale, non contro un tasso. Sjaastad lo dice a p. 84 in termini quasi letterali, confrontando il costo con *"il valore attuale del differenziale di guadagno"*.
+
+### La forma emendata
+
+Con `a(H, r) = (1 − e^{−rH})/r` il fattore di annualità che Sjaastad calcola alla nota 29 di p. 92:
+
+    E[guadagno_j] = a(H, r) · [ (1 − u_j)·w_j − w_corrente ] − costo_distanza_ticks_j · w_corrente
+
+Tutti i termini sono moneta. Il primo è il valore attuale del differenziale di flusso sull'orizzonte; il secondo è l'esborso una tantum, che è `C(0)` di Todaro istanziato secondo la definizione di costo di Sjaastad.
+
+**Taratura dell'aritmetica sulla fonte**: con `r = 0,10` annuo e orizzonti di 45 e 40 anni, `a` vale 9,89 e 9,82 per unità di reddito annuo — esattamente i due valori che Sjaastad stampa a p. 89. Il calcolo è quindi verificato contro la fonte e non solo contro se stesso. (Si noti, per completezza, che la fonte stampa 9,89 a p. 89 e 9,90 alla nota 29 per lo stesso integrale a 45 anni: è un'incoerenza di arrotondamento dell'originale, riportata anziché appianata.)
+
+### I due parametri, e perché uno solo è tarabile
+
+`H` **è derivato, non libero**: la convenzione di Sjaastad è la vita lavorativa residua, e va istanziata sull'età dell'agente anziché fissata a un numero. Questo soddisfa l'obbligo di FR-006, che vieta esplicitamente di trattare l'orizzonte come parametro libero da nominare.
+
+`r` **è tarabile e va dichiarato tale.** Sjaastad usa il 10% annuo e lo enuncia come **assunzione**, non come stima: a p. 92 scrive che il tasso "è assunto" al 10%, alla nota 23 di p. 90 lavora un esempio a tasso inferiore, e alla nota 26 di p. 91 avverte che il tasso appropriato "può essere molto alto" per imperfezioni del mercato dei capitali. Todaro non fornisce alcun valore numerico né per `i` né per `n`, in nessuna delle due esposizioni: chi cita "il tasso di sconto di Todaro" lo sta inventando. Si dichiara quindi `r` parametro di progetto tarabile, ancorato al 10% annuo di Sjaastad con la citazione della sua natura di assunzione.
+
+### L'effetto sulla soglia migratoria, misurato — ed è drastico
+
+Lo scenario di accettazione 2 della User Story 3 richiede che l'effetto della scelta sulla soglia sia dichiarato. Con cadenza di tick giornaliera, `a` espresso in tick e il differenziale di flusso dell'esempio della Sezione 6 — `(1 − 0,08)·90 − 78 = +4,8` LVR/tick:
+
+| orizzonte | `a` in tick | valore attuale del guadagno | costo distanza di pareggio, in tick |
+|---|---|---|---|
+| 30 tick | 30,0 | 143 | 1,8 |
+| 1 anno | 347 | 1.667 | 21,4 |
+| 10 anni | 2.307 | 11.075 | 142,0 |
+| 40 anni | 3.583 | 17.199 | **220,5** |
+
+Oggi la formula non corretta annulla quel guadagno a un costo distanza di **4,8 tick**, e il design spedisce costi di 0, 3 e 5 tick. Sotto l'orizzonte di Sjaastad il pareggio si sposta a 220 tick: **il costo distanza cessa di fatto di mordere**, e la soglia migratoria si allarga di circa un fattore quarantacinque.
+
+È una conseguenza del modello citato, non un errore di implementazione, ed è economicamente corretta: un viaggio di tre giorni è trascurabile contro quarant'anni di differenziale di reddito. **Va però dichiarata come limite, e la fonte stessa lo fa**: Sjaastad osserva a p. 84 che i costi marginali per miglio "dovrebbero essere davvero alti" per conciliare l'effetto negativo della distanza osservato nei dati con il valore attuale del differenziale, "anche a tassi di sconto molto elevati". Il modello di investimento **sotto-predice l'attrito della distanza, e il suo autore lo scrive.** La spec emendata deve riportare questa limitazione, non nasconderla dietro il bilanciamento dimensionale riparato.
+
+### Conseguenze da propagare
+
+Il blocco informativo di migrazione cambia unità: da LVR/tick a LVR di valore attuale. L'esempio numerico "+4,8 LVR/tick" della Sezione 6 non è più il valore prodotto e va riscritto, insieme alla dichiarazione della sua unità. La citazione di [migration.py:374](../../epocha/apps/demography/migration.py:374) va corretta: Harris & Todaro (1970) resta la fonte del **salario atteso pesato per la probabilità di impiego**, mentre la struttura a valore attuale è di Todaro (1969) e la definizione del costo di Sjaastad (1962). E SC-005 resta soddisfatto: `a(H, r)` è adimensionale rispetto alla valuta e il costo è monetizzato, quindi la decisione resta invariante alla scala della valuta.
 
 ## Deliberazione 0.1c — L'orizzonte di sussistenza
 
@@ -197,3 +246,40 @@ SC-014 chiede che "due agenti con pari ricchezza corrente ma orizzonti di soprav
 Il criterio fallisce oggi **solo sotto la lettura precauzionale**, quella in cui "orizzonte diverso" significa due agenti entrambi sopra la soglia di fame ma con scorte diverse. SC-014 non è quindi un criterio neutro che misura una proprietà: **presuppone l'esito della deliberazione che dovrebbe verificare**, ed è la quinta occorrenza in questo work item della stessa patologia — un criterio che non fallisce dove il requisito è falso, qui aggravata dal fatto che non fallisce perché dà per deciso ciò che è in discussione.
 
 Il rilievo va al gate di fase 0, che deve ruolare su una delle due: riformulare SC-014 perché misuri la proprietà effettivamente scelta — che i due consumatori dichiarino e applichino la stessa definizione di orizzonte, verificabile per mutazione cambiando la definizione in un consumatore solo — oppure respingere la scelta del test di fame con una motivazione scientifica, non con l'esistenza del criterio. **Non si riscrive un criterio per farlo passare**: si dichiara che non discrimina e si lascia decidere.
+
+---
+
+## Deliberazione 0.3 — L'attribuzione a Chetty, verificata prima di diventare bersaglio
+
+FR-009 impone di verificare l'attribuzione **prima** che 0,35 diventi il bersaglio dell'allineamento dei template. La verifica è stata fatta sui testi completi, non sugli abstract, ed è il risultato più grave di tutta la fase 0.
+
+### Il fatto
+
+**L'attribuzione della riga 721 — `modern: 0.35 (Chetty et al. 2014)` — non ha fonte. Chetty et al. (2014) non riporta alcun coefficiente di persistenza intergenerazionale dell'istruzione, di nessun valore.**
+
+Ci sono due lavori distinti che rispondono a "Chetty et al. (2014)", e la spec non li distingue mai:
+
+- Chetty, Hendren, Kline & Saez, *Where is the Land of Opportunity? The Geography of Intergenerational Mobility in the United States*, **Quarterly Journal of Economics** 129(4):1553–1623, DOI 10.1093/qje/qju022;
+- Chetty, Hendren, Kline, Saez & Turner, *Is the United States Still a Land of Opportunity? Recent Trends in Intergenerational Mobility*, **American Economic Review** 104(5):141–147, DOI 10.1257/aer.104.5.141.
+
+Il testo completo di entrambi è stato estratto e cercato. Nel primo l'istruzione dei genitori compare **solo** come strumento di imputazione del reddito nel lavoro di Mazumder, mai come regressore di un'istruzione filiale; la stringa "0,35" vi compare per tutt'altro, come pendenza rank-rank di robustezza a quindici anni di reddito. Il secondo misura un *college attendance gradient* che è per costruzione un gradiente rispetto al **rango di reddito** dei genitori, non alla loro istruzione, e i valori che riporta sono 74,5% e 69,2%. Non esiste alcun 0,35 di persistenza dell'istruzione da nessuna parte.
+
+### Il secondo difetto, nella stessa citazione
+
+La riga 709 attribuisce a Chetty un intervallo di elasticità del reddito "0,3–0,5". **Anche questo è scorretto, e in modo istruttivo**: non è l'intervallo che il paper riporta — i suoi valori misurati sono 0,344 di base, 0,452 restringendo a p10–p90, 0,618 e 0,413 sotto due ricodifiche dei redditi nulli, e da 0,264 a 0,697 fra sottocampioni — e soprattutto **la tesi di quella sezione è che l'elasticità è inaffidabile**, perché la distribuzione dei redditi non è ben approssimata da una log-normale bivariata. Citare Chetty come autorità per un intervallo ordinato di elasticità **inverte la sua conclusione**. La grandezza che quel paper effettivamente raccomanda è la pendenza rank-rank, 0,341.
+
+Anche la metà Solon (1999) di quella citazione resta **non verificata**: il capitolo è dietro paywall e non è stato letto, quindi non è confermato che enunci l'intervallo 0,3–0,5. Il capitolo successore, Black & Devereux (2011), riporta una banda di consenso intorno a 0,4–0,6, non 0,3–0,5.
+
+### Che cosa si può mettere al suo posto
+
+Per un coefficiente di regressione dell'istruzione filiale su quella dei genitori — che è la forma funzionale del modello — la fonte difendibile è **Black & Devereux (2011)**, *Recent Developments in Intergenerational Mobility*, Handbook of Labor Economics 4B, cap. 16, pp. 1487–1541, la cui Tabella 3 riporta coefficienti OLS su anni di scolarità per campioni statunitensi: Sacerdote (2000) padre 0,28 e madre 0,35; Plug (2004) padre 0,39 e madre 0,54, che controllando congiuntamente entrambi i genitori diventano 0,30 e 0,30.
+
+**Una trappola va nominata perché è vistosa**: il coefficiente materno di Sacerdote vale 0,35, esattamente il numero orfano della spec. È un coefficiente **a genitore singolo**, non su valore medio dei genitori, e non è Chetty. Non si deve lasciare che 0,35 sopravviva trovandogli una casa nuova dopo il fatto: sarebbe la stessa attribuzione a posteriori che questo work item esiste per eliminare.
+
+Hertz et al. (2008), *The Inheritance of Educational Inequality*, B.E. Journal of Economic Analysis & Policy 7(2) art. 10, DOI 10.2202/1935-1682.1775, riporta una **correlazione** media globale stabile intorno a 0,4 su cinquant'anni — verificata solo a livello di abstract, il testo completo non è stato raggiunto. Va usata con una cautela che la letteratura stessa segnala: correlazione e coefficiente di regressione sono grandezze diverse e hanno avuto andamenti diversi nel tempo, quindi la 0,4 di Hertz è utilizzabile per il `ρ` del modello **solo se l'istruzione è standardizzata**, e altrimenti è uno scambio di categoria.
+
+### Conseguenza su FR-009 e SC-007
+
+Il bersaglio dell'allineamento **non è 0,35**. FR-009 va soddisfatto nell'altro modo che esso stesso prevede: dichiarando la divergenza con la sua ragione. Nello specifico, la riga 721 va spogliata dell'attribuzione inventata, e il valore dell'era moderna va o ricondotto a Black & Devereux (2011) con la forma funzionale dichiarata, o dichiarato euristica tarabile.
+
+E c'è un residuo che nessuna stesura aveva sollevato: **i valori pre-industriale 0,5, industriale 0,42 e sci-fi 0,25 non portano alcuna citazione nella spec di design**. Sono euristiche non documentate, e sotto la regola del progetto vanno dichiarate tali con la loro giustificazione. Il difetto di FR-009 è quindi più esteso di come la User Story 6 lo descriveva: non sono tre template divergenti da un bersaglio corretto, è un bersaglio inesistente e quattro valori su quattro senza fonte verificata.
