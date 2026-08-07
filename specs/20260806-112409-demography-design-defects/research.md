@@ -283,3 +283,21 @@ Hertz et al. (2008), *The Inheritance of Educational Inequality*, B.E. Journal o
 Il bersaglio dell'allineamento **non è 0,35**. FR-009 va soddisfatto nell'altro modo che esso stesso prevede: dichiarando la divergenza con la sua ragione. Nello specifico, la riga 721 va spogliata dell'attribuzione inventata, e il valore dell'era moderna va o ricondotto a Black & Devereux (2011) con la forma funzionale dichiarata, o dichiarato euristica tarabile.
 
 E c'è un residuo che nessuna stesura aveva sollevato: **i valori pre-industriale 0,5, industriale 0,42 e sci-fi 0,25 non portano alcuna citazione nella spec di design**. Sono euristiche non documentate, e sotto la regola del progetto vanno dichiarate tali con la loro giustificazione. Il difetto di FR-009 è quindi più esteso di come la User Story 6 lo descriveva: non sono tre template divergenti da un bersaglio corretto, è un bersaglio inesistente e quattro valori su quattro senza fonte verificata.
+
+---
+
+## Deliberazione 0.2 — Le magnitudini dei parametri nuovi
+
+Il piano chiedeva di fissare due ampiezze di innovazione, quella dell'istruzione e quella di Clark, prendendo a modello `_BECKER_TOMES_RANK_NOISE_SD`, che è dichiarato parametro tarabile non sorgente. **Nessuna delle due si risolve così, e per ragioni diverse.**
+
+**L'istruzione non ha un parametro nuovo.** La decisione 0.1a la porta sulla scala latente logit insieme ai tratti, e allora l'ampiezza dell'innovazione è determinata dall'identità di varianza: `σ_edu·√(1 − ρ²/2)`. Ciò che va dichiarato non è un rumore ma `σ_edu`, cioè la **dispersione stazionaria dell'istruzione nella popolazione**, che è una grandezza osservabile e va in `era_noise` come per ogni altro carattere. Nessun grado di libertà nuovo.
+
+**Clark non è tarabile, contrariamente a quanto la prima stesura dell'emendamento aveva scritto.** Il precedente di Becker-Tomes vale perché Solon e Chetty pubblicano un'elasticità senza termine di varianza residua. **Clark il termine lo pubblica**: il modello formale in Clark, Cummins, Hao & Diaz Vidal è `x_t = b·x_{t-1} + e_t` con osservazione `y_t = x_t + u_t`, e la stessa fonte enuncia `σ² = b²σ² + σ²_e`. L'ampiezza è quindi `σ_rank·√(1 − 0,7²) = σ_rank·0,7141`, derivata.
+
+Questo cambia anche la natura del difetto. L'implementazione deterministica **non è una semplificazione del modello di Clark**: è un modello con il comportamento asintotico opposto, che spinge ogni lignaggio verso la media azzerando la varianza trasversale — nessuna mobilità e nessuna stratificazione — mentre Clark tiene la varianza costante e produce rimescolamento continuo. La bassa mobilità di Clark è regressione lenta, non congelamento.
+
+**Due cose da non scrivere.** L'intervallo del libro è **0,7–0,9**, non 0,7–0,8, che è il riassunto dei recensori. E 0,75 vale per lo **status latente**: una scala di classe a cinque ranghi è un indicatore osservabile singolo, per il quale Clark stesso riporta 0,15–0,65 sui guadagni, 0,3–0,65 sulla scolarità e 0,43 contro 0,74 sulla ricchezza inglese a seconda del metodo. Il peso 0,7 su un osservabile sovrastima la persistenza del fattore `θ` che Clark ha scritto un libro per identificare, e la deviazione va dichiarata anziché lasciata implicita.
+
+**Misura, tarata sul difetto noto**: la regressione di Clark oggi produce mobilità **0,0000** e correlazione di rango genitore-figlio **1,0000** dalla seconda generazione, con due dei cinque ranghi vuoti — l'immobilità perfetta che SC-012 riporta. Ai valori candidati, su 40.000 agenti per dieci generazioni: 0,0467 di mobilità a σ 0,20 (correlazione 0,8936), 0,0845 a 0,25 (0,8150), 0,1404 a 0,30 (0,7624), 0,2617 a 0,40 (0,7137). Stabile su tre semi. **La correlazione realizzata non scende mai sotto 0,7**, che è il peso di persistenza: è un pavimento, non un tetto, quindi un'innovazione ampia non annega il segnale della fonte.
+
+**Un avvertimento sull'aritmetica**: `σ_rank` va risolto sulla distribuzione realizzata **dopo** arrotondamento a etichette intere e clamp ai due estremi, non assumendo che la gaussiana latente li attraversi indenne — l'effetto è già documentato per `becker_tomes_elasticity_0.4`, dove il clamp accumula sui bordi la massa che cadrebbe fuori scala.
