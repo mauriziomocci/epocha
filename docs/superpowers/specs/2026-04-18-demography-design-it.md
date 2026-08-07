@@ -1469,19 +1469,23 @@ La forma `child_T = h²·midparent + (1 − h²)·ε` non è il modello additivo
 
 ### La correzione
 
-La genetica additiva si svolge su **scala latente logit**; `[0,1]` resta la scala di presentazione, immagine dell'inversa logistica. **Il troncamento è rimosso**: non serve più.
-
-**Due coppie di simboli, da non confondere.** `(m_T, s_T)` sono i momenti **dichiarati** nel template: media e ampiezza della distribuzione **osservata** del carattere su `[0,1]` nella popolazione, per era e per tratto. `(μ_T, σ_T)` sono i parametri **latenti** su scala logit, che **non si dichiarano**: si risolvono numericamente da `(m_T, s_T)` al caricamento del template. La ricorsione vive sui secondi; i criteri di accettazione si misurano sui primi.
-
-Per ogni carattere trasmesso — i tratti ereditabili **e il livello di istruzione**, che ha lo stesso dominio e lo stesso problema — con `h²_T` l'ereditabilità:
+**Si mantiene la famiglia normale e si corregge la scala del residuo, ramo per ramo.** Il troncamento a `[0,1]` resta. Per ogni carattere trasmesso — i tratti ereditabili **e il livello di istruzione**, che ha lo stesso dominio e lo stesso difetto — con `(m_T, s_T)` la media e l'ampiezza **dichiarate** della distribuzione del carattere nella popolazione per quell'era, e `h²_T` l'ereditabilità:
 
 ```
-due genitori noti:    x_figlio = μ + h²·((x_madre + x_padre)/2 − μ) + e,   e ~ N(0, σ²·(1 − (h²)²/2))
-un genitore noto:     x_figlio = μ + (h²/2)·(x_genitore − μ)       + e,   e ~ N(0, σ²·(1 − (h²)²/4))
-nessun genitore noto: x_figlio = μ                                  + e,   e ~ N(0, σ²)
-
-T_figlio = expit(x_figlio) = 1 / (1 + e^(−x_figlio))
+due genitori noti:    T = m + h²·((T_madre + T_padre)/2 − m) + e,   e ~ N(0, s²·(1 − (h²)²/2))
+un genitore noto:     T = m + (h²/2)·(T_genitore − m)        + e,   e ~ N(0, s²·(1 − (h²)²/4))
+nessun genitore noto: T = m                                   + e,   e ~ N(0, s²)
 ```
+
+seguito dal troncamento a `[0,1]`.
+
+**Questa scelta ribalta quella che una stesura precedente di questo emendamento aveva compiuto, e la ragione va scritta perché è la ragione a contare.** La stesura precedente portava la genetica additiva su scala latente logit, esponendo `[0,1]` come immagine dell'inversa logistica. L'argomento era che la normale troncata realizza l'ampiezza dichiarata solo vicino al centro, e che **A2 avrebbe portato le medie fuori dal centro**. Il secondo giro di audit ha mostrato che l'argomento si autodistrugge: **A2, una volta scritta con i numeri dentro come lo stesso audit imponeva, dichiara `m = 0,50` per tutti e tredici i tratti in tutte e cinque le ere**, perché nessuna fonte fornisce medie d'era diverse. Lo spazio dei parametri che giustificava il logit si chiude dentro l'emendamento che lo apriva.
+
+A `(0,50, 0,15)` — l'unica configurazione che questo emendamento dichiara — la normale ricalibrata misura **100,1%** dell'ampiezza dichiarata con lo **0,07%** di massa sul bordo, contro il 100,1% e lo 0,00% del logit. **La differenza è di zero punti percentuali.** In cambio il logit costava una risoluzione numerica per era e per tratto al caricamento, tre controlli di regione ammissibile, una guardia `ε` sul dominio della mappa, la reinterpretazione di ogni `h²` dei template come quantità di scala latente, un'incoerenza dichiarata con i tratti derivati che restano sulla scala osservata, e lo stesso cambio di scala da dichiarare per `ρ`. L'onere della prova sta su chi aggiunge, e a queste cifre non è assolto.
+
+**Che cosa si perde, detto per esatto**: la normale degrada fuori centro e per ampiezze larghe — 91,8% a media 0,80 con l'8,23% di massa sul bordo, 90,2% ad ampiezza 0,30 al centro. **Quella degradazione non è tollerata, è vietata**: A9 respinge al caricamento ogni coppia `(m, s)` fuori dalla regione in cui la normale realizza l'ampiezza entro tolleranza. Il difetto non viene assorbito, viene reso irraggiungibile.
+
+**La scala latente logit resta la via di migrazione dichiarata**, e la condizione che la attiva è scritta: il giorno in cui una fonte fornisca una media d'era fuori dal centro o un'ampiezza che la regione ammissibile respinge, la famiglia va cambiata prima di dichiarare quel valore. Il controllo di A9 è ciò che rende quella condizione osservabile invece che dimenticabile — un template che provi a dichiararla fallisce il caricamento e nomina il campo, anziché produrre in silenzio una popolazione inchiodata su un bordo.
 
 Le tre scale del residuo **non sono scelte**: discendono dall'identità di varianza `V = a²·Var(midparent) + c²σ²` imponendo `V = σ²`, con `Var(midparent) = V/2` sotto accoppiamento casuale. È la correzione di FR-003, ed è ciò che il documento originale aveva derivato solo per il ramo a due genitori: applicare quel coefficiente anche agli altri due misura il 95,8% dell'obiettivo con un genitore e il 92,1% con nessuno.
 
@@ -1497,61 +1501,59 @@ Cov(figlio, un genitore) = V_A/2    Var(un genitore) = V_P
 
 Il coefficiente `h²/2` del ramo a genitore singolo è quindi **quello che la regressione genitore-figlio implica**, non una "metà del segnale genetico" postulata: la formulazione del documento originale, che lo descriveva come dimezzamento del segnale, descriveva il risultato giusto con la ragione sbagliata. La derivazione è elementare e si regge da sé; la citazione standard è **Falconer & Mackay (1996), capitolo 10** — non il capitolo 8 che il modulo cita, perché la somiglianza fra parenti è materia del decimo — e **la verifica a livello di pagina resta aperta**, dichiarata qui sotto.
 
-### La tolleranza, fissata numericamente
+### Il criterio di accettazione è ESATTO, non statistico
 
-FR-002 impone che la spec emendata fissi **numericamente** la tolleranza sull'ampiezza e che essa non contenga il valore attuale. **L'ampiezza stazionaria realizzata di ogni carattere trasmesso MUST cadere fra il 95% e il 105% di `s_T`**, misurata su almeno otto generazioni, **in ciascuno dei tre rami di parentela**. Il valore odierno è 48,9%, e le due letture parziali che questo emendamento corregge misurano 95,8% e 92,1%: la banda le esclude entrambe, e questo è il punto — vedi la sezione sui criteri che non discriminano, poco sotto.
+FR-002 impone di fissare **numericamente** una tolleranza che non contenga il valore attuale. Una stesura precedente fissava una banda del 95-105% sull'ampiezza stazionaria realizzata. **Quella banda non fa il proprio mestiere, misurato**: il modello che viola FR-003 — quello che applica ovunque la scala del ramo a due genitori — cade **dentro** la banda in tutti e quattordici i tratti spediti sul ramo a un genitore, e in sette su quattordici sul ramo senza genitori. A `h² = 0,55` misura 95,82% e 92,13%; a `h² = 0,22` misura 99,39%. La banda morde solo il collasso primario al 48,9%, che la vecchia soglia del 90% già catturava.
 
-**`(μ_T, σ_T)` si risolvono numericamente** perché la logit-normale non ha momenti in forma chiusa: quadratura di Gauss-Hermite più ricerca di radice, una volta per era e per tratto **al caricamento del template**, messi in cache. Non a ogni nascita.
+**Il criterio va formulato sulla grandezza che separa i modelli, e quella grandezza è la scala del residuo, non l'ampiezza realizzata.** Le tre scale sono funzioni in forma chiusa di `h²`:
+
+```
+ramo a due genitori:    c₂(h²) = √(1 − (h²)²/2)
+ramo a un genitore:     c₁(h²) = √(1 − (h²)²/4)
+ramo senza genitori:    c₀     = 1
+```
+
+**Il criterio primario è quindi un'asserzione esatta**: per ogni tratto e per ogni ramo, la deviazione standard del termine di rumore effettivamente estratto MUST eguagliare `c_ramo(h²)·s_T` entro la tolleranza della doppia precisione (`1·10⁻¹²` relativi). È deterministico, non campionario, e fallisce contro qualunque scrittura sbagliata — inclusa la `(1 − h²)` odierna, inclusa l'applicazione uniforme di `c₂`, e inclusa la trappola `h2**4`. Non ha rumore Monte Carlo, quindi non ha bisogno di una dimensione campionaria.
+
+**Il criterio secondario resta sull'ampiezza realizzata**, come verifica d'integrazione e non come discriminante: fra il 95% e il 105% di `s_T`, in ciascuno dei tre rami, **su almeno 5.000 individui per generazione e otto generazioni**. La numerosità va dichiarata perché senza di essa il criterio è inservibile: misurato su quaranta repliche, il modello **corretto** cade fuori banda 13 volte su 40 a 200 individui per generazione e 2 su 40 a 1.000, mentre a 5.000 non fallisce mai. I rami a un genitore e senza genitori sono sotto-popolazioni rare, quindi la verifica va condotta su popolazioni sintetiche costruite per quel ramo, non sulle occorrenze naturali.
 
 ### Che cosa dichiara l'ampiezza — risposta esplicita a una domanda che il documento originale lasciava aperta
 
-`σ_T` è l'**ampiezza fenotipica della popolazione sulla scala osservata `[0,1]`**, non l'ampiezza del rumore ambientale. È la lettura verificabile su una popolazione, quindi l'unica che un criterio di accettazione possa misurare.
+`s_T` è l'**ampiezza fenotipica della popolazione sulla scala osservata `[0,1]`**, non l'ampiezza del rumore ambientale, ed `m_T` la corrispondente media. Sono le due grandezze dichiarate nel template da A2, e sono le uniche: questa correzione non introduce parametri latenti né una seconda coppia di simboli. È la lettura verificabile su una popolazione, quindi l'unica che un criterio di accettazione possa misurare.
 
-### Perché il logit e non una normale ricalibrata
+### Le alternative, valutate
 
-Misurato, e la motivazione va scritta per quella che è. Una normale ricalibrata per ramo **non** fallisce la soglia di dispersione del 90%: misura 91,8% a media d'era 0,80 e la attraversa solo fra 0,80 e 0,85. Il criterio di dispersione non è ciò che separa le due famiglie. Ciò che le separa è che la normale realizza l'ampiezza dichiarata **solo vicino al centro e solo per ampiezze strette**, degradando in silenzio altrove:
+**La normale ricalibrata** è la scelta, per le ragioni sopra: a `(0,50, 0,15)` realizza il 100,1% dell'ampiezza con lo 0,07% di massa sul bordo, e costa tre righe.
 
-| media d'era | normale: ampiezza realizzata | massa sul bordo | logit |
-|---|---|---|---|
-| 0,50 | 100,1% | 0,07% | 100,1%, bordo 0% |
-| 0,70 | 97,8% | 2,37% | 99,8%, bordo 0% |
-| 0,80 | 91,8% | **8,23%** | 99,6%, bordo 0% |
-| 0,90 | 80,5% | **20,52%** | 99,1%, bordo 0% |
+**La scala latente logit** è la via di migrazione dichiarata, non la scelta attuale. È il dispositivo classico della genetica quantitativa per caratteri la cui scala osservata non è quella su cui gli effetti sono additivi — il fondamento è de Villemereuil, Schielzeth, Nakagawa & Morrissey (2016), *General Methods for Evolutionary Quantitative Genetic Inference from Generalized Mixed Models*, **Genetics** 204(3):1281–1294, DOI 10.1534/genetics.115.186536, che distingue ereditabilità di scala latente e di scala osservata e riporta la seconda più bassa. Realizza 99-100% dell'ampiezza a qualunque media e senza massa di bordo. **A queste cifre non compra nulla**, e va adottata quando la regione ammissibile viene violata da un valore con fonte.
 
-Un carattere dichiarato continuo che inchioda un dodicesimo della popolazione su un bordo non è un carattere continuo. La stessa degradazione avviene al centro esatto al crescere dell'ampiezza dichiarata: 94,9% a σ = 0,25 e 90,2% a σ = 0,30, dove il logit resta sopra il 99,5%. E l'emendamento A2 impone di risolvere le medie per era e per tratto, che è precisamente ciò che porterà le medie fuori dal centro: la famiglia va scelta per lo spazio dei parametri che questo stesso emendamento apre.
+**La Beta** è respinta perché **non è chiusa sotto le operazioni della genetica additiva** — `a·midparent + c·rumore` non è una Beta, quindi il processo non ha distribuzione stazionaria in forma chiusa — e perché in letteratura compare per le **frequenze alleliche**, non per i fenotipi: citarla per la trasmissione fenotipica sarebbe un'attribuzione sbagliata. **La ragione che una stesura precedente dava per prima era falsa e resta ritirata**: si era scritto che la varianza della Beta è vincolata dalla media e che ciò le impedisce di realizzare l'ampiezza dichiarata. Il vincolo `s² < m·(1 − m)` è il limite universale di Bhatia–Davis e vale per **qualunque** distribuzione su `[0,1]`, normale troncata e logit-normale incluse; dentro quel limite la Beta centra esattamente ogni coppia ammissibile. Spacciare una proprietà universale per svantaggio di una sola famiglia era un argomento a favore della conclusione, non una verifica.
 
-**Alternative respinte.** La **Beta** è respinta perché **non è chiusa sotto le operazioni della genetica additiva** — `a·midparent + c·rumore` non è una Beta, quindi il processo non ha distribuzione stazionaria in forma chiusa — e perché in letteratura compare per le **frequenze alleliche**, non per i fenotipi: citarla per la trasmissione fenotipica sarebbe un'attribuzione sbagliata. **La ragione che una stesura precedente dava per prima era falsa e va ritirata**: si era scritto che la varianza della Beta è vincolata dalla media e che ciò le impedisce di realizzare l'ampiezza dichiarata. Il vincolo `v < m·(1 − m)` è il limite universale di Bhatia–Davis e vale per **qualunque** distribuzione su `[0,1]`, logit-normale inclusa; e dentro quel limite la Beta centra esattamente e in forma chiusa ogni coppia ammissibile — a (0,90, 0,15) dà `α = 2,70`, `β = 0,30`, media e ampiezza esatte. Spacciare una proprietà universale per svantaggio di una sola famiglia era un argomento a favore della conclusione, non una verifica.
+**L'arcoseno** è respinto su citazione da Warton & Hui (2011), *The arcsine is asinine: the analysis of proportions in ecology*, Ecology 92(1):3–10, che raccomanda il logit. **La normale troncata con adattamento dei momenti** — cioè risolvere `(μ*, σ*)` non troncati perché i momenti troncati eguaglino i dichiarati — è respinta perché non è chiusa sotto trasmissione e andrebbe risolta a ogni nascita, e perché su parte della regione non ha soluzione: è la complicazione del logit senza il suo guadagno.
 
-Il corollario è importante e vale per la famiglia scelta: **il limite di Bhatia–Davis vincola anche il logit**, e A2 e A9 devono farlo rispettare (vedi sotto, "La regione ammissibile").
+### La regione ammissibile — vincolo di caricamento, non tolleranza
 
-La **normale troncata con adattamento dei momenti** non è chiusa sotto trasmissione, va risolta a ogni nascita, e per alcune coppie (media, ampiezza) non ha soluzione. L'**arcoseno** è respinto su citazione da Warton & Hui (2011). Il **probit** è praticabile e la preferenza per il logit è marginale.
+La normale ricalibrata realizza l'ampiezza dichiarata solo dentro una regione, e **fuori da quella regione il caricamento fallisce anziché degradare in silenzio**. Per ogni coppia `(m_T, s_T)` dichiarata in `era_noise`, il caricamento MUST verificare:
+
+1. `0 < m < 1` in senso stretto e `s > 0`;
+2. `s² < m·(1 − m)` — il limite di Bhatia–Davis, che vincola qualunque distribuzione su `[0,1]` e quindi anche questa;
+3. **il margine di troncamento**: `m − 3s > 0` **e** `m + 3s < 1`, cioè entrambi i bordi ad almeno tre deviazioni standard dichiarate. È il controllo che discrimina, ed è esatto in forma chiusa, senza risoluzione numerica: a `(0,50, 0,15)` i due margini valgono 0,05 e 0,05 e passano; a `(0,80, 0,15)` il margine superiore vale `−0,25` e **respinge**, che è esattamente la configurazione in cui la normale scende al 91,8% con l'8,23% di massa sul bordo; a `(0,50, 0,30)` respinge del pari.
+
+Il terzo controllo è la forma operativa della condizione di migrazione al logit: **un template che voglia dichiarare una media fuori centro o un'ampiezza larga non può farlo senza prima cambiare famiglia**, e lo scopre al caricamento con un messaggio che nomina il campo, non in produzione con una popolazione appiattita su un bordo.
+
+**Il margine a tre deviazioni standard è dichiarato euristica**, e la sua giustificazione è misurata: a tre deviazioni la massa teorica oltre il bordo vale 0,13% per lato, che è l'ordine dello 0,07% misurato a `(0,50, 0,15)`; a due deviazioni sarebbe il 2,3% per lato, che ammetterebbe configurazioni in cui il troncamento morde.
 
 ### Costi dichiarati
 
-**L'ereditabilità dei template diventa una quantità di scala latente.** I valori spediti provengono da studi su gemelli che stimano ereditabilità di scala osservata; la distinzione non ha differenza misurabile per un carattere centrato (misurato: 100,3% a media 0,50) e diventa reale fuori centro, dove la scala osservata ne recupera circa il 92%. Il fondamento del dispositivo di scala latente è de Villemereuil, Schielzeth, Nakagawa & Morrissey (2016), *General Methods for Evolutionary Quantitative Genetic Inference from Generalized Mixed Models*, **Genetics** 204(3):1281–1294, DOI 10.1534/genetics.115.186536, che distingue le due scale e riporta l'ereditabilità osservata sistematicamente più bassa.
+**Il troncamento resta, e con esso una massa di bordo residua**: 0,07% a `(0,50, 0,15)`. Non è zero, ed è il prezzo di non introdurre la macchina latente. La regione ammissibile la tiene sotto controllo per costruzione.
 
-**Questa attenuazione non è un costo del logit**, e va detto perché è controintuitivo: misurata, la normale troncata l'attenua quasi identicamente — 93,1% contro 92,0% a media 0,80 — pagando **in più** il collasso di ampiezza e la massa di bordo. È una proprietà di qualunque scala limitata.
+**`h²` resta una quantità di scala osservata**, come nei twin studies da cui i valori provengono: la reinterpretazione di scala latente che una stesura precedente doveva dichiarare non serve più. Questo è un costo evitato, non pagato.
 
-### La regione ammissibile — il supporto è aperto solo dentro un dominio che va dichiarato e validato
+**La pendenza osservata si attenua fuori centro**, misurata al 93,1% di `h²` a media 0,80 — ma la regione ammissibile vieta la media 0,80, quindi la condizione non si presenta ai valori dichiarati, dove la pendenza recupera il 100,5%.
 
-Una stesura precedente affermava che il supporto resta aperto anche in virgola mobile, misurando che a media 0,80 la soglia di saturazione di `expit` (36,7) dista 34,0 deviazioni standard latenti e che i saturati sono zero su 40.000. **Quella era una misura di due configurazioni promossa a proprietà, ed è falsa fuori da esse.** A media 0,90 con ampiezza 0,28 — coppia ammissibile secondo Bhatia–Davis, `0,0784 < 0,09` — il solutore dà `μ = 19,39` e `σ = 15,02`: la soglia dista **1,15** deviazioni standard e **il 12,45% della popolazione satura esattamente a 1,0**. La massa di bordo che ha motivato la scelta del logit rientra dallo spazio dei parametri che A2 stesso apre.
+### I tratti derivati restano coerenti con i tratti ereditati
 
-**La correzione è dichiarare la regione ammissibile e farla validare**, non restringere la famiglia. Per ogni coppia `(media, ampiezza)` dichiarata in `era_noise`, il caricamento MUST verificare, **dopo** aver risolto i parametri latenti:
-
-1. `0 < media < 1` in senso stretto e `ampiezza > 0`;
-2. `ampiezza² < media·(1 − media)` — il limite di Bhatia–Davis, che vincola qualunque distribuzione su `[0,1]`;
-3. `|μ| + 6σ < 36,7` sui parametri latenti risolti — il margine di saturazione, dove 36,7 è la soglia oltre la quale `expit` restituisce esattamente 1,0 in doppia precisione.
-
-Il terzo è quello che discrimina: a (0,50, 0,15) vale 3,95, a (0,80, 0,15) vale 7,85, e a (0,90, 0,28) vale 109,5 e va respinto. **Con questi tre controlli la proprietà "il supporto resta aperto" cessa di essere una misura e diventa un invariante applicato**, e la sua violazione è un errore di caricamento anziché una popolazione silenziosamente inchiodata su un bordo.
-
-### Il dominio della mappa, e i produttori che non sono questo kernel
-
-`logit(0)` e `logit(1)` valgono `∓∞`. Rimosso il troncamento, il kernel non produce mai gli estremi, ma **non è l'unico produttore di valori di tratto**: `Agent.personality` è un `JSONField` senza validatori popolato da un prompt LLM, `education_level` è un `FloatField` senza validatori, e almeno un consumatore contempla esplicitamente il valore 0. La spec emendata stabilisce quindi che **ogni valore che entri nella mappa logit MUST essere prima portato nell'intervallo aperto `[ε, 1 − ε]` con `ε = 1·10⁻⁶`**, dichiarato come guardia numerica e non come modello. La guardia va applicata al confine del modulo, sui valori dei genitori letti, non sparsa nei chiamanti.
-
-### I tratti derivati restano sulla scala osservata, ed è una limitazione dichiarata
-
-`cunning = 0,4·(1 − agreeableness) + 0,3·neuroticism + 0,3·intelligence`, e in generale ogni voce di `derived_trait_formulas`, è una combinazione lineare calcolata **sulla scala osservata `[0,1]` e clampata**. Questo emendamento **non** le sposta su scala latente: sono formule di progetto dichiaratamente euristiche, non caratteri trasmessi, e non hanno un'ereditabilità da preservare. Ne segue però che, quando A2 sposterà le medie d'era fuori dal centro, i tratti derivati potranno riaccumulare massa sul bordo — che è la patologia da cui A1 sottrae i tratti ereditati. **È una limitazione nota e va dichiarata nel whitepaper**, non risolta qui: risolverla significherebbe ridefinire il significato dei tratti derivati, che non è fra i dieci difetti in ambito.
-
+`cunning = 0,4·(1 − agreeableness) + 0,3·neuroticism + 0,3·intelligence`, e in generale ogni voce di `derived_trait_formulas`, è una combinazione lineare calcolata sulla scala osservata `[0,1]` e clampata. **Mantenendo i tratti ereditati sulla stessa scala, l'incoerenza che una stesura precedente doveva dichiarare come limitazione non nasce**: derivati ed ereditati vivono nello stesso spazio, come oggi. È il secondo costo evitato dalla scelta di famiglia.
 ### Vincolo sui test
 
 Se la variabile di codice contiene già `h²`, il termine `(h²)²` è `h2**2`, **non** `h2**4`. Scrivere `1 - h2**4/2` gonfia la varianza del **5,92%** a h² = 0,55 e del **2,09%** a 0,30, e **la pendenza resta corretta in entrambe le scritture**: un test formulato sull'ereditabilità realizzata non distingue. Serve un'asserzione sulla **stazionarietà della varianza**.
@@ -1568,7 +1570,7 @@ Il capitolo di **Falconer & Mackay (1996)** non è stato aperto: il documento ci
 
 **Il difetto, verificato**: nessuno dei cinque template dichiara una sezione `era_noise`, quindi **ogni tratto di ogni era gira oggi sul ripiego** `era_mean = 0,5`, `era_sd = 0,15`. Il meccanismo di stima da tick 0 descritto qui non esiste.
 
-**La correzione**: i momenti `(m_T, s_T)` della distribuzione **osservata** di ciascun carattere su `[0,1]` sono dichiarati **per era e per tratto** in una sezione `trait_inheritance.era_noise` **obbligatoria** del template. Da essi si risolvono i parametri latenti di A1.
+**La correzione**: i momenti `(m_T, s_T)` della distribuzione **osservata** di ciascun carattere su `[0,1]` sono dichiarati **per era e per tratto** in una sezione `trait_inheritance.era_noise` **obbligatoria** del template. Sono le uniche grandezze dichiarate: A1 non introduce parametri latenti, e il criterio di accettazione si misura su queste stesse.
 
 ### I valori, dichiarati qui e non delegati all'implementazione
 
@@ -1576,15 +1578,15 @@ Una sezione resa obbligatoria e vuota non è un requisito, è un rinvio: lascere
 
 **Tratti ereditabili, tutte e cinque le ere**: `m_T = 0,50` e `s_T = 0,15` per tutti e tredici i tratti. **Stato: euristica di progetto tarabile.** La giustificazione è che nessuna fonte fornisce dispersioni fenotipiche d'era per i tratti Big Five su una scala normalizzata `[0,1]`: gli studi su gemelli da cui provengono i valori di `h²` stimano **rapporti** di varianza, non le varianze stesse su una scala arbitraria, e non esiste una serie storica di personalità per l'Europa pre-industriale. I due valori coincidono deliberatamente con i ripieghi `DEFAULT_ERA_MEAN` e `DEFAULT_ERA_SD` che il codice usa oggi, **e questo è il punto**: l'emendamento rende esplicito e validato ciò che oggi è un ripiego silenzioso, senza cambiare il comportamento numerico e senza fingere una fonte che non c'è. Ogni futuro valore d'era diverso da questo MUST arrivare con la propria fonte.
 
-**Istruzione**: `m_edu = 0,50`, `s_edu = 0,15`, stesso stato e stessa giustificazione. Nota che `s_edu` è ciò che A3 chiama la dispersione stazionaria dell'istruzione: non è un parametro nuovo di rumore, è la dispersione della popolazione, e l'ampiezza dell'innovazione ne discende per identità.
+**Istruzione**: `m_edu = 0,30`, `s_edu = 0,15`. **Stato: euristica di progetto tarabile, ma le due voci NON hanno la stessa storia e una stesura precedente le dichiarava insieme sbagliando su entrambe.** `m_edu = 0,30` coincide con `DEFAULT_ERA_MEAN_EDUCATION` e con il default del campo `Agent.education_level`, quindi non cambia il comportamento numerico — dichiarare 0,50, come si era scritto, avrebbe spostato la media stazionaria dell'istruzione da 0,30 a 0,50 sotto una giustificazione il cui contenuto era "nulla cambia". `s_edu = 0,15` invece **non coincide con nulla**, perché oggi l'istruzione non ha alcun termine casuale e quindi nessuna dispersione da riprodurre: è un parametro genuinamente nuovo, posto pari a quello dei tratti per non introdurre una differenza non misurata. Nota che `s_edu` è ciò che A3 chiama la dispersione stazionaria dell'istruzione: non è un rumore, è la dispersione della popolazione, e l'ampiezza dell'innovazione ne discende per identità.
 
-**Scala di classe**: `s_rank`, la dispersione stazionaria dei ranghi, è dichiarata **1,0 rango**, risolta numericamente contro la distribuzione realizzata dopo arrotondamento e clamp come A3 prescrive — misurato, a quel bersaglio la dispersione realizzata è il 102,6%. **Stato: euristica di progetto tarabile**, per la stessa ragione per cui `_BECKER_TOMES_RANK_NOISE_SD` lo è: gli studi di mobilità modellano status continuo e non pubblicano una dispersione per una scala a cinque ranghi.
+**Scala di classe**: `s_rank`, la dispersione stazionaria **bersaglio** dei ranghi, è dichiarata **1,0 rango**. `σ_clark` NON si legge dalla formula ma si **risolve** numericamente perché la dispersione realizzata eguagli quel bersaglio dopo arrotondamento e clamp: leggendo la formula direttamente si otterrebbe il 102,6% del bersaglio, ed è quella deviazione del 2,6% che la risoluzione elimina. `s_rank` è il bersaglio dichiarato, `σ_clark` la grandezza risolta; una stesura precedente li confondeva. **Stato: euristica di progetto tarabile**, per la stessa ragione per cui `_BECKER_TOMES_RANK_NOISE_SD` lo è: gli studi di mobilità modellano status continuo e non pubblicano una dispersione per una scala a cinque ranghi.
 
 **Nessuno di questi valori è un segnaposto interinale**: ciascuno ha uno stato dichiarato e una ragione, che è ciò che FR-004 richiede.
 
 ### La regione ammissibile vincola anche i valori futuri
 
-Ogni coppia dichiarata MUST soddisfare i tre controlli enunciati in A1 — media strettamente interna a `(0,1)`, `s² < m·(1 − m)`, e margine di saturazione `|μ| + 6σ < 36,7` sui latenti risolti. I valori sopra li soddisfano ampiamente: a (0,50, 0,15) il margine vale 3,95 contro 36,7.
+Ogni coppia dichiarata MUST soddisfare i tre controlli enunciati in A1 — `0 < m < 1` stretto, `s² < m·(1 − m)`, e margine di troncamento `m − 3s > 0` e `m + 3s < 1`. I valori dei tratti li soddisfano: a (0,50, 0,15) i due margini valgono 0,05 e 0,05. **`m_edu = 0,30` con `s_edu = 0,15` li soddisfa per un margine più stretto**, 0,30 − 0,45 = −0,15 sul lato inferiore: **respinge**. La coppia dichiarata per l'istruzione è quindi `m_edu = 0,30`, `s_edu = 0,09`, che dà margini 0,03 e 0,43 e passa. La riduzione dell'ampiezza rispetto ai tratti è una conseguenza aritmetica di una media non centrata, non una scelta, e va dichiarata come tale.
 
 Lo scopo **include i caratteri che oggi non hanno alcun parametro di rumore perché non sono stocastici**: l'istruzione, che vive sotto `social_inheritance` e **non** sotto `trait_inheritance`, e la regressione di classe alla Clark. La collocazione va detta perché è una trappola: `era_noise` sta sotto `trait_inheritance` e **non raggiungerebbe l'istruzione**. I momenti dell'istruzione e la dispersione dei ranghi vanno quindi dichiarati sotto `social_inheritance`, in una sezione `social_inheritance.era_noise` parimenti obbligatoria, e A9 deve validare **entrambe**.
 
@@ -1604,13 +1606,13 @@ La regressione di classe alla Clark non collassa in dispersione — misura il 90
 
 ### La correzione — istruzione
 
-L'istruzione è un carattere trasmesso su `[0,1]` e riceve **lo stesso trattamento di A1**: scala latente logit, coefficiente `ρ` sulla deviazione dei genitori dalla media, residuo scalato dall'identità di varianza, `(μ_edu, σ_edu)` risolti dai momenti dichiarati in `era_noise`.
+L'istruzione è un carattere trasmesso su `[0,1]` e riceve **lo stesso trattamento di A1**: famiglia normale con troncamento, coefficiente `ρ` sulla deviazione dei genitori dalla media dichiarata, residuo scalato dall'identità di varianza, `(m_edu, s_edu)` dichiarati in `era_noise` sotto `social_inheritance`.
 
 ```
-x_figlio = μ_edu + ρ·((x_madre + x_padre)/2 − μ_edu) + e,   e ~ N(0, σ_edu²·(1 − ρ²/2))
+E = m_edu + ρ·((E_madre + E_padre)/2 − m_edu) + e,   e ~ N(0, s_edu²·(1 − ρ²/2))
 ```
 
-con i rami a un genitore e a nessun genitore come in A1. **L'ampiezza dell'innovazione non è un parametro nuovo da scegliere**: è determinata da `σ_edu`, cioè dalla dispersione stazionaria dichiarata dell'istruzione nella popolazione, che è una grandezza osservabile e non un termine di rumore. Questo è il modo in cui A1 semplifica anche 0.2.
+con i rami a un genitore e a nessun genitore come in A1. **L'ampiezza dell'innovazione non è un parametro nuovo da scegliere**: è determinata da `s_edu`, cioè dalla dispersione stazionaria dichiarata dell'istruzione nella popolazione, che è una grandezza osservabile e non un termine di rumore. Questo è il modo in cui A1 semplifica anche 0.2.
 
 ### La correzione — classe alla Clark
 
@@ -1627,7 +1629,7 @@ y_t = x_t + u_t          (3)   status osservato = status latente + errore di oss
 x_t = b·x_{t-1} + e_t    (4)   il latente è un AR(1) CON innovazione
 ```
 
-e la stessa fonte enuncia l'identità di varianza stazionaria `σ² = b²σ² + σ²_e`. **L'ampiezza dell'innovazione non è quindi un parametro libero**: l'identità la lega alla dispersione stazionaria della scala,
+e la stessa fonte enuncia l'identità di varianza stazionaria `σ² = b²σ² + σ²_e`. **Ciò che la fonte decide è la FORMA del vincolo, non il valore**, e la distinzione va tenuta ferma: una stesura precedente scriveva che l'ampiezza "non è tarabile", il che è falso, perché è funzione di due grandezze entrambe dichiarate euristiche tarabili — `b` e `s_rank`. Ciò che non è libero è la **relazione** fra le tre:
 
 ```
 σ_clark = σ_rank · √(1 − b²)   che a b = 0,7 vale σ_rank · 0,7141
@@ -1662,7 +1664,9 @@ Misurato su 40.000 agenti per dieci generazioni, l'effetto delle ampiezze candid
 
 La correlazione realizzata non scende sotto il peso di persistenza 0,7 per quanto si allarghi il rumore: **0,7 è il pavimento, non il tetto**, quindi un'innovazione ampia non "annega" il segnale della fonte come si potrebbe temere.
 
-**La tabella non serve a scegliere il valore** — quello lo detta l'identità di varianza — ma a rendere visibile che cosa la correzione produce, e a dare il criterio di accettazione: la mobilità deve essere strettamente positiva a regime, contro lo 0,0000 esatto misurato oggi. Serve inoltre a esporre una distorsione che l'identità da sola non cattura: **l'arrotondamento a etichette intere e il clamp ai due estremi della scala deformano la relazione fra `σ_clark` e la dispersione realizzata**, come già documentato per `becker_tomes_elasticity_0.4`, dove il clamp accumula sui bordi la massa che una gaussiana non troncata metterebbe fuori scala. `σ_rank` va quindi risolto numericamente sulla distribuzione realizzata **dopo** arrotondamento e clamp, non assumendo che la gaussiana latente li attraversi indenne.
+**La tabella non serve a scegliere il valore** — quello lo detta l'identità di varianza a partire dal bersaglio — ma a rendere visibile che cosa la correzione produce.
+
+**Il criterio di accettazione non può essere "mobilità strettamente positiva", e va detto perché è la trappola di A12 applicata a SC-012**: qualunque `σ_clark > 0` soddisfa una mobilità positiva, compreso un valore mille volte più piccolo di quello che l'identità impone, quindi quel criterio non fallisce dove il requisito è falso. Il criterio è invece che **la dispersione realizzata dei ranghi a regime eguagli `s_rank` entro il 5%**, il che lega l'ampiezza all'identità che la fonte fissa e non alla sola esistenza di un rumore. La mobilità strettamente positiva resta come controllo di sanità, non come criterio. Serve inoltre a esporre una distorsione che l'identità da sola non cattura: **l'arrotondamento a etichette intere e il clamp ai due estremi della scala deformano la relazione fra `σ_clark` e la dispersione realizzata**, come già documentato per `becker_tomes_elasticity_0.4`, dove il clamp accumula sui bordi la massa che una gaussiana non troncata metterebbe fuori scala. `σ_rank` va quindi risolto numericamente sulla distribuzione realizzata **dopo** arrotondamento e clamp, non assumendo che la gaussiana latente li attraversi indenne.
 
 Le fonti di A3: Clark, G. (2014), *The Son Also Rises: Surnames and the History of Social Mobility*, Princeton University Press, ISBN 9780691162546, collana The Princeton Economic History of the Western World, per la costante di persistenza e per la distinzione latente/osservabile; Clark, Cummins, Hao & Diaz Vidal, *Surnames: a New Source for the History of Social Mobility*, **Explorations in Economic History** 2014, per la forma AR(1) con innovazione e per l'identità di varianza stazionaria.
 
@@ -1682,13 +1686,19 @@ L'obiettivo di ampiezza di A1 poggia su `Var(midparent) = V/2`, che richiede gen
 
 Misurato nel caso peggiore possibile, ordinamento perfetto degli accoppiamenti sul carattere trasmesso stesso — che in Epocha non può accadere, perché il punteggio pesa classe, istruzione, età e sentimento e non i tratti ereditabili direttamente:
 
-| ordinamento | ampiezza realizzata, normale | ampiezza realizzata, logit |
+| ordinamento | ampiezza realizzata, normale ricalibrata | ampiezza realizzata, scala latente |
 |---|---|---|
 | 0% | 99,8% | 99,9% |
 | 50% | 101,3% | 99,4% |
 | 100% | 110,0% | 108,5% |
 
-**L'effetto è di gonfiare la varianza, non di comprimerla**, e al massimo di un decimo nel caso peggiore. La direzione va scritta correttamente: l'accoppiamento assortativo non minaccia l'obiettivo di ampiezza dal basso. Si dichiara come limite noto, con l'innesco da sorvegliare: il giorno in cui mortalità, fertilità o i pesi di omogamia leggeranno direttamente un tratto ereditabile, la forma a regressione fenotipica sbaglierà in silenzio e servirà una forma a valori riproduttivi. Il punto debole odierno è l'era sci-fi, dove la regola meritocratica lega l'intelligenza alla classe e l'omogamia poi ordina sulla classe.
+**L'effetto è di gonfiare la varianza, non di comprimerla**, e al massimo di un decimo nel caso peggiore. La direzione va scritta correttamente: l'accoppiamento assortativo non minaccia l'obiettivo di ampiezza dal basso.
+
+**Il limite tollerato va però messo in cifre, perché il criterio secondario di A1 è vincolante e questi valori lo violerebbero.** Con genitori correlati `Var(midparent) = V·(1 + r)/2`, quindi l'ampiezza realizzata rispetto al bersaglio vale `√((1 − a²/2)/(1 − a²(1 + r)/2))`. A `h² = 0,55` la banda del 95-105% è superata per `r` oltre 0,55 circa; per l'istruzione a `ρ = 0,60` già oltre 0,45. **L'istruzione è il caso reale e non un'ipotesi**, perché il punteggio di omogamia la pesa fra 0,25 e 0,40 in tutte e cinque le ere ed è A3 a restituirle la dispersione che oggi non ha; la misura di A4 riguarda invece i tratti, che il punteggio non ordina direttamente.
+
+La spec emendata stabilisce quindi che **la correlazione fra i genitori sul carattere trasmesso MUST essere misurata e dichiarata**, e che il criterio secondario di ampiezza non è applicabile dove essa superi 0,45. **Il criterio primario di A12 non ne è toccato**, perché asserisce la deviazione standard del termine estratto e non la varianza di popolazione: è insensibile all'accoppiamento per costruzione, ed è la seconda ragione per cui sostituisce la banda anziché affiancarla.
+
+Si dichiara inoltre come limite noto, con l'innesco da sorvegliare: il giorno in cui mortalità, fertilità o i pesi di omogamia leggeranno direttamente un tratto ereditabile, la forma a regressione fenotipica sbaglierà in silenzio e servirà una forma a valori riproduttivi. Il punto debole odierno è l'era sci-fi, dove la regola meritocratica lega l'intelligenza alla classe e l'omogamia poi ordina sulla classe.
 
 ---
 
@@ -1826,10 +1836,14 @@ SC-014 chiede che due agenti con pari ricchezza corrente ma orizzonti diversi ri
 **La presenza della sezione non basta, e questo è il punto in cui una prima stesura di A9 lasciava aperto esattamente il difetto che A2 chiude.** Un template con `"era_noise": {}` supererebbe un controllo di sola presenza, e il codice ricadrebbe sui ripieghi `0,5 / 0,15` — cioè sul comportamento che A2 esiste per rendere esplicito. Il contratto richiede quindi anche:
 
 4. **una voce per ciascun carattere** che il modello trasmette: ogni chiave di `trait_inheritance.heritability` diversa da `default` MUST avere la propria voce in `trait_inheritance.era_noise`, e `social_inheritance.era_noise` MUST dichiarare i momenti dell'istruzione e la dispersione dei ranghi. Una sezione presente ma incompleta è respinta nominando i caratteri mancanti;
-5. **i tre controlli della regione ammissibile** di A1, applicati a ogni coppia: `0 < m < 1` stretto, `s > 0`, `s² < m·(1 − m)`, e `|μ| + 6σ < 36,7` sui parametri latenti risolti. Il terzo controllo si esegue **dopo** la risoluzione numerica, che avviene comunque al caricamento;
+5. **i tre controlli della regione ammissibile** di A1, applicati a ogni coppia `(m, s)` su scala `[0,1]`: `0 < m < 1` stretto, `s > 0`, `s² < m·(1 − m)`, e i margini di troncamento `m − 3s > 0` e `m + 3s < 1`. Sono tutti in forma chiusa: nessuna risoluzione numerica, nessuna convergenza da garantire. **`s_rank` è esplicitamente esente**, e l'esenzione va scritta perché altrimenti il controllo 2 la respingerebbe: non è una coppia, non vive su `[0,1]` e non ha una media — è una dispersione bersaglio su una scala di ranghi `[0,4]`. Il suo controllo proprio è `0 < s_rank ≤ 2,0`, cioè positiva e non superiore alla dispersione di una uniforme sui cinque ranghi;
 6. **la coerenza fra sezioni**: ogni carattere che compare in `era_noise` MUST comparire in `heritability`, così che un refuso nel nome di un tratto sia respinto da entrambi i lati anziché produrre una voce inerte.
 
-Il ripiego `DEFAULT_ERA_MEAN` / `DEFAULT_ERA_SD` **cessa di esistere** come percorso raggiungibile: se la sezione è obbligatoria, completa e validata, un valore mancante è un errore di caricamento, non una ricaduta silenziosa. Lasciare il ripiego in piedi accanto a una sezione obbligatoria significherebbe tenere due sorgenti per lo stesso numero, e la seconda vincerebbe in silenzio ogni volta che la prima ha un refuso.
+Il ripiego `DEFAULT_ERA_MEAN` / `DEFAULT_ERA_SD` cessa di essere raggiungibile **per i caratteri che il template dichiara**: se la sezione è obbligatoria, completa e validata, un valore mancante è un errore di caricamento e non una ricaduta silenziosa.
+
+**Ma la validazione del template NON può chiudere l'insieme dei caratteri trasmessi, e questa è la parte che una stesura precedente sbagliava affermando che il ripiego "cessa di esistere".** L'insieme non è chiuso dal template: il kernel raccoglie i nomi dei tratti anche dalle chiavi di `Agent.personality`, che è un `JSONField` senza validatori popolato da un prompt LLM, e ogni chiave che l'LLM inventa diventa un carattere trasmesso che nessun template dichiara. Rimuovere il ripiego trasformerebbe quel percorso da ricaduta silenziosa a **eccezione non gestita alla nascita**, che è peggio.
+
+La spec emendata stabilisce quindi due cose invece di una. Primo: **l'insieme dei caratteri trasmessi è quello dichiarato in `trait_inheritance.heritability`, e nient'altro.** Una chiave di `personality` che non vi compaia non è un carattere ereditabile e non entra nel kernel — oggi vi entra, ed è un difetto proprio di questa correzione, non del template. Secondo: **il ripiego resta in codice come guardia difensiva**, mai raggiungibile per un template valido, e la sua eventuale attivazione MUST emettere un warning che nomina il carattere, perché se scatta significa che l'insieme si è riaperto.
 
 Questo contratto è la ragione per cui la validazione va costruita **prima** delle altre correzioni: è il varco che ha lasciato entrare metà dei difetti qui emendati, e correggere i valori senza chiuderlo garantisce di ripetere la stessa classe di difetto alla prossima modifica.
 
@@ -1880,7 +1894,7 @@ edu_figlio = 0,30·edu_padre + 0,30·edu_madre = 0,60 · (edu_padre + edu_madre)
 
 e il coefficiente comparabile al `ρ` su valore medio dei genitori è la **somma** dei due coefficienti parziali, `ρ_moderno = 0,60`. Leggere 0,30 come `ρ` sarebbe applicare al valore medio dei genitori un coefficiente stimato su un genitore solo: precisamente l'errore per cui il valore 0,35 di Sacerdote non può essere ricollocato.
 
-**Due semplificazioni che ne discendono vanno dichiarate.** La prima: tutte le fonti riportano coefficienti **asimmetrici** fra padre e madre — 0,28 contro 0,35 in Sacerdote, 0,39 contro 0,54 in Plug — mentre il modello applica un unico `ρ` al valore medio. È una semplificazione deliberata, che nel caso di Plug è esatta perché i due coefficienti congiunti coincidono, e che negli altri campioni non lo è. La seconda: `ρ` diventa un coefficiente di regressione su **scala latente logit** per effetto di A1 e A3, mentre Black & Devereux lo stimano su anni di scolarità osservati. È lo stesso cambio di scala che A1 dichiara per `h²` citando de Villemereuil et al. (2016), e va dichiarato anche qui invece di essere taciuto.
+**Due semplificazioni che ne discendono vanno dichiarate.** La prima: tutte le fonti riportano coefficienti **asimmetrici** fra padre e madre — 0,28 contro 0,35 in Sacerdote, 0,39 contro 0,54 in Plug — mentre il modello applica un unico `ρ` al valore medio. È una semplificazione deliberata, che nel caso di Plug è esatta perché i due coefficienti congiunti coincidono, e che negli altri campioni non lo è. La seconda: Black & Devereux stimano il coefficiente su **anni di scolarità**, mentre il modello lo applica a un `education_level` normalizzato su `[0,1]`. Un coefficiente di regressione è invariante a un riscalamento lineare della variabile, quindi il trasporto è legittimo **se e solo se** la normalizzazione è lineare; il documento non definisce come `education_level` mappi sugli anni di scolarità, e finché non lo definisce il trasporto è un'assunzione dichiarata, non una deduzione.
 
 Hertz et al. (2008), *The Inheritance of Educational Inequality*, B.E. Journal of Economic Analysis & Policy 7(2) art. 10, DOI 10.2202/1935-1682.1775, riporta una **correlazione** media globale stabile intorno a 0,4 — verificata solo a livello di abstract. È utilizzabile per `ρ` **solo se l'istruzione è standardizzata**: correlazione e coefficiente di regressione sono grandezze diverse, con andamenti storici diversi, e confonderle è uno scambio di categoria.
 
@@ -1890,7 +1904,7 @@ Hertz et al. (2008), *The Inheritance of Educational Inequality*, B.E. Journal o
 
 ### I valori emendati, con il loro stato
 
-Constatare la divergenza non soddisfa FR-009: il documento deve dichiarare i valori o le divergenze motivate. Si dichiarano qui, per **cinque** ere e non quattro, come `ρ` su valore medio dei genitori e su scala latente:
+Constatare la divergenza non soddisfa FR-009: il documento deve dichiarare i valori o le divergenze motivate. Si dichiarano qui, per **cinque** ere e non quattro, come `ρ` su valore medio dei genitori:
 
 | era | `ρ` | stato e fonte |
 |---|---|---|
@@ -1912,7 +1926,15 @@ Il work item ha corretto cinque volte, in cinque giri di gate, criteri che non f
 
 **SC-002, SC-013 e SC-011 non falliscono contro un modello che viola FR-003.** Applicare ovunque la scala del residuo del ramo a due genitori misura **95,8%** con un genitore e **92,1%** con nessuno — entrambi sopra la soglia del 90% di SC-002, che quindi promuove un modello che viola FR-003 in due rami su tre. SC-011, con la sua soglia al 50% della dispersione iniziale, è ancora più permissivo: **il kernel difettoso odierno misura 79,1% a `h² = 0,22`** e lo supera senza correzione alcuna.
 
-**La sostituzione è la banda numerica fissata in A1**: ampiezza stazionaria realizzata fra il 95% e il 105% dell'ampiezza dichiarata, **in ciascuno dei tre rami separatamente**. La banda esclude 48,9%, 92,1% e anche 95,8%, che la manca per un soffio — ed è voluto, perché quel modello viola FR-003. Non è agganciata a una tolleranza che il documento potrebbe dichiarare a proprio comodo: è scritta qui in cifre.
+**Anche una banda del 95-105% sull'ampiezza realizzata fallisce, ed è l'errore che una stesura precedente di questa sezione ha commesso.** Misurato sulle quattordici ereditabilità che i template spediscono, il modello che viola FR-003 cade **dentro** quella banda in **quattordici casi su quattordici** sul ramo a un genitore — da 95,82% a `h² = 0,55` fino a 99,39% a `h² = 0,22` — e in **sette su quattordici** sul ramo senza genitori. Per l'istruzione a `ρ = 0,60` misura 98,3% e 96,7%, entrambi dentro. Una banda sull'ampiezza realizzata non può separare i due modelli, perché le loro distribuzioni si sovrappongono: la differenza fra il modello corretto e quello sbagliato è, per la maggior parte dei tratti, minore del rumore Monte Carlo.
+
+**La sostituzione non è una soglia più stretta, è un criterio di tipo diverso.** La grandezza che separa i modelli è la **scala del residuo per ramo**, che è funzione in forma chiusa di `h²` e si asserisce **esattamente**:
+
+```
+c₂(h²) = √(1 − (h²)²/2)     c₁(h²) = √(1 − (h²)²/4)     c₀ = 1
+```
+
+Il criterio primario è che la deviazione standard del rumore effettivamente estratto eguagli `c_ramo(h²)·s_T` entro `1·10⁻¹²` relativi, per ogni tratto e per ogni ramo. È deterministico: nessun campione, nessuna soglia negoziabile, e fallisce contro la scrittura `(1 − h²)` odierna, contro l'applicazione uniforme di `c₂`, e contro la trappola `h2**4`. **Un criterio esatto non ha una zona grigia in cui il modello sbagliato possa nascondersi**, ed è per questo che sostituisce la banda anziché affiancarla.
 
 **Il criterio del ramo singolo va formulato sul coefficiente, non sulla somiglianza.** SC-013 chiede che la somiglianza genitore-figlio su un genitore sia la metà di quella su due. Vero ma insufficiente: la pendenza è corretta anche nel modello collassato — misurato, l'ereditabilità realizzata al punto fisso difettoso vale 0,5509 contro 0,55 dichiarato. Ciò che morde è la **stazionarietà della varianza per ramo**, non la pendenza. Lo stesso vale per la trappola `h2**2` contro `h2**4`: la pendenza è identica nelle due scritture, solo la varianza le distingue.
 
@@ -1924,14 +1946,14 @@ Il work item ha corretto cinque volte, in cinque giri di gate, criteri che non f
 
 ## FAQ
 
-**Perché il logit, se la normale ricalibrata passa il criterio di dispersione?**
-Perché il criterio di dispersione non è la proprietà richiesta. FR-002 chiede che l'ampiezza dichiarata sia quella realizzata; una famiglia che la realizza al 100% a media 0,50 e all'80,5% a media 0,90, accumulando nel secondo caso un quinto della popolazione su un bordo, non soddisfa quella proprietà — la soddisfa per caso nella configurazione odierna. E A2 sposta deliberatamente quella configurazione.
+**Perché la normale e non il logit, se il logit realizza l'ampiezza a qualunque media?**
+Perché nessuna media fuori dal centro è dichiarata, né dichiarabile senza fonte. A `(0,50, 0,15)` le due famiglie misurano 100,1% entrambe, e il logit costerebbe una risoluzione numerica per era e per tratto, una guardia sul dominio della mappa, la reinterpretazione di ogni `h²` come quantità di scala latente e un'incoerenza con i tratti derivati. L'onere della prova sta su chi aggiunge. La condizione che riapre la questione è scritta e **applicata** dal controllo di caricamento di A9, non affidata alla memoria.
 
-**Non è generalità speculativa, visto che oggi tutte le medie valgono 0,5?**
-No, e la distinzione è netta. La generalità speculativa costruisce per un futuro che nessuno ha chiesto. Qui il futuro è **A2, dentro questo stesso emendamento**: risolvere le medie per era e per tratto è un requisito già approvato, non un'ipotesi.
+**Ma una stesura precedente sceglieva il logit. Che cosa è cambiato?**
+Il secondo giro di audit ha mostrato che l'argomento si autodistruggeva. Il logit era scelto per lo spazio dei parametri che A2 avrebbe aperto; A2, scritta con i numeri dentro come il primo giro imponeva, dichiara `m = 0,50` ovunque e **chiude** quello spazio. L'argomento a favore del logit dipendeva da un'affermazione su A2 che A2 stessa smentisce.
 
 **Perché non si toglie semplicemente il vincolo `[0,1]`?**
-Sarebbe la soluzione più pulita, ed è fuori ambito: `[0,1]` è portante su `Agent.personality`, sui domini delle formule derivate, sul termine di merito della regola meritocratica e sulla superficie dei prompt. Il logit **è quella soluzione in altra forma**: fa la genetica su scala non limitata e tiene `[0,1]` come scala di presentazione.
+Sarebbe la soluzione più pulita, ed è fuori ambito: `[0,1]` è portante su `Agent.personality`, sui domini delle formule derivate, sul termine di merito della regola meritocratica e sulla superficie dei prompt. La scala latente logit è quella soluzione in altra forma, ed è la via di migrazione dichiarata; non è la scelta attuale perché ai valori dichiarati non compra nulla.
 
 **Perché A8 non cambia una riga di codice? Non è sospetto?**
 È sospetto e va guardato, ed è per questo che entrambi i comportamenti sono citati a file e riga nelle deliberazioni. Il difetto di A8 è una contraddizione interna a **questo documento**, non al codice: i due consumatori applicavano già la stessa convenzione senza che nessuno l'avesse enunciata. Il rischio da sorvegliare è l'opposto — piegare la convenzione su ciò che il codice già fa — e la difesa è che la scelta è motivata sulle fonti prima che sul codice.
@@ -1981,3 +2003,17 @@ Il gate di fase 2 su questo emendamento ha restituito NOT CONVERGED al primo gir
 **Verificato nella fonte dopo la prima stesura di questo emendamento, e ha cambiato A3**: Clark (2014), introduzione dell'autore, per la costante 0,75 e l'intervallo 0,7–0,9; Clark, Cummins, Hao & Diaz Vidal per le equazioni (3) e (4) e per l'identità di varianza stazionaria. La prima stesura dichiarava `σ_clark` euristica tarabile sul precedente di Becker-Tomes; **la fonte pubblica l'identità, quindi l'ampiezza è derivata e non tarabile**, e la voce è stata riscritta. Resta contestata nella letteratura recensoria l'universalità di 0,75, e ciò è dichiarato in A3.
 
 **Nessun benchmark di calibrazione demografica eseguibile esiste** nella suite, verificato. Le correzioni si giudicano sulle fonti, non su test scritti da chi le propone, e nessuna affermazione di questo emendamento potrà superare "verificata su popolazione sintetica e suite" finché il Plan 4 non cablerà la demografia nel tick loop.
+
+
+## Ciò che il secondo giro di audit avversariale ha cambiato
+
+Il secondo giro ha restituito di nuovo NOT CONVERGED, con tre INCORRECT e due UNJUSTIFIED, e la sua diagnosi è diversa e più insidiosa di quella del primo. Il primo aveva trovato che l'emendamento **misurava molto e derivava poco**. Il secondo ha ri-derivato indipendentemente ogni derivazione — l'annuità in tick, la conversione del tasso a capitalizzazione continua, le tre scale del residuo, il `ρ = 0,60` di Plug, l'identità di Clark, la costruzione di Sterbenz, la soglia di saturazione, i parametri latenti — e **le ha trovate tutte esatte**. A cedere era la frase successiva: *l'emendamento derivava correttamente e poi enunciava male la conseguenza.*
+
+1. **La banda del 95-105%, scritta per garantire che il criterio mordesse, conteneva il modello che doveva escludere.** Misurato sulle quattordici ereditabilità spedite, il modello che viola FR-003 cade dentro la banda in quattordici casi su quattordici sul ramo a un genitore. Sostituita da un'asserzione **esatta** sulla scala del residuo per ramo, che è una funzione in forma chiusa di `h²` e non ha zona grigia. È la correzione più importante dei due giri.
+2. **La scelta della famiglia è stata ribaltata.** Il logit era giustificato dallo spazio dei parametri che A2 avrebbe aperto; A2, scritta con i numeri dentro come il primo giro imponeva, dichiara `m = 0,50` ovunque e chiude quello spazio. A quei valori le due famiglie misurano identico, e l'onere della prova sta su chi aggiunge. La normale ricalibrata è la scelta; il logit è la via di migrazione, e la condizione che la attiva è **applicata** da un controllo di caricamento anziché promessa.
+3. **A2 dichiarava per l'istruzione `m_edu = 0,50` sostenendo di non cambiare nulla**, mentre il codice usa 0,30 sia come ripiego sia come default di campo. Corretto a 0,30, e distinto da `s_edu`, che è genuinamente nuovo perché oggi l'istruzione non ha alcun termine casuale.
+4. **A9 affermava che il ripiego "cessa di esistere"**, il che è falso: l'insieme dei caratteri trasmessi non è chiuso dal template, perché il kernel raccoglie nomi anche dalle chiavi di un `JSONField` popolato da un LLM. La spec chiude l'insieme esplicitamente e mantiene il ripiego come guardia difensiva con warning.
+5. **A3 affermava che l'ampiezza dell'innovazione di Clark "non è tarabile"** mentre è funzione di due grandezze entrambe dichiarate tarabili. Corretto: la fonte decide la **forma** del vincolo, non il valore.
+6. Aggiunti i limiti che mancavano: la numerosità campionaria sotto cui il criterio secondario boccia il modello **corretto** un terzo delle volte, il bound sulla correlazione fra i genitori oltre il quale la banda è inapplicabile, e il criterio di accettazione di SC-012, che nella forma "mobilità positiva" era soddisfatto da qualunque rumore non nullo.
+
+**Il pattern dei due giri, insieme**: dove l'emendamento ha derivato è sempre stato corretto, e due auditor indipendenti hanno riprodotto le stesse cifre. Dove ha generalizzato da una misura, o ha enunciato la conseguenza di una derivazione invece di ricavarla, ha sbagliato ogni volta. Ne discende la regola operativa per la fase 5: **ogni criterio di questo emendamento che sia formulato su una quantità campionaria va guardato con sospetto e, dove esiste una forma chiusa, sostituito da essa.**
