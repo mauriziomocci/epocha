@@ -295,6 +295,11 @@ E c'è un residuo che nessuna stesura aveva sollevato: **i valori pre-industrial
 
 ## Deliberazione 0.2 — Le magnitudini dei parametri nuovi
 
+> **AVVERTENZA — DUE CONCLUSIONI DI QUESTA DELIBERAZIONE SONO STATE RIBALTATE.** Il testo che segue porta l'istruzione sulla scala latente logit e dichiara l'ampiezza di Clark **derivata** dall'identità, cioè `σ_rank·√(1 − 0,7²)`. L'emendamento rovescia entrambe: l'istruzione resta sulla **famiglia normale con troncamento** (A1, A3), e `σ_clark` **non si legge dall'identità ma si risolve numericamente**, perché arrotondamento e clamp sono non lineari — leggere la formula dà il 102,26% del bersaglio contro la radice vera 0,68896. Anche l'inquadramento di `b = 0,7` è superato: A3 stabilisce che `θ` non è calcolabile in questo modello, quindi `b` è euristica dichiarata e **non attribuita a Clark**, invece che una deviazione da dichiarare.
+>
+> Le **magnitudini** che questa deliberazione fissa restano valide e sono quelle che A2 adotta. Dove il testo diverge dall'emendamento, prevale l'emendamento.
+
+
 Il piano chiedeva di fissare due ampiezze di innovazione, quella dell'istruzione e quella di Clark, prendendo a modello `_BECKER_TOMES_RANK_NOISE_SD`, che è dichiarato parametro tarabile non sorgente. **Nessuna delle due si risolve così, e per ragioni diverse.**
 
 **L'istruzione non ha un parametro nuovo.** La decisione 0.1a la porta sulla scala latente logit insieme ai tratti, e allora l'ampiezza dell'innovazione è determinata dall'identità di varianza: `σ_edu·√(1 − ρ²/2)`. Ciò che va dichiarato non è un rumore ma `σ_edu`, cioè la **dispersione stazionaria dell'istruzione nella popolazione**, che è una grandezza osservabile e va in `era_noise` come per ogni altro carattere. Nessun grado di libertà nuovo.
