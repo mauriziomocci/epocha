@@ -1494,7 +1494,7 @@ Il coefficiente `h²/2` del ramo a genitore singolo è **quello che la regressio
 
 ### Perché questa famiglia
 
-Le due configurazioni che A2 dichiara cadono entrambe dentro la regione ammissibile, misurate: i tratti a `(0,50, 0,15)` realizzano il **99,9%** dell'ampiezza con lo **0,10%** di massa sul bordo; l'istruzione a `(0,30, 0,15)`, media fuori dal centro, il **97,8%** con il **2,17%**. La scala latente logit realizzerebbe circa il 100% con zero massa di bordo in entrambi i casi, al prezzo di una risoluzione numerica per era e per tratto, una guardia sul dominio della mappa, la reinterpretazione di ogni `h²` come quantità di scala latente e un'incoerenza con i tratti derivati. **Il guadagno è di due punti di ampiezza e due di massa di bordo sul solo carattere fuori centro**; l'onere della prova sta su chi aggiunge, e a queste cifre non è assolto.
+Le due configurazioni che A2 dichiara cadono entrambe dentro la regione ammissibile, misurate: i tratti a `(0,50, 0,15)` realizzano il **99,91%** dell'ampiezza con lo **0,086%** di massa sul bordo; l'istruzione a `(0,30, 0,15)`, media fuori dal centro, il **97,72%** con il **2,15%**. La scala latente logit realizzerebbe circa il 100% con zero massa di bordo in entrambi i casi, al prezzo di una risoluzione numerica per era e per tratto, una guardia sul dominio della mappa, la reinterpretazione di ogni `h²` come quantità di scala latente e un'incoerenza con i tratti derivati. **Il guadagno è di due punti di ampiezza e due di massa di bordo sul solo carattere fuori centro**; l'onere della prova sta su chi aggiunge, e a queste cifre non è assolto.
 
 **La scala latente logit è la via di migrazione dichiarata.** La condizione che la attiva è **esattamente quella che il controllo di caricamento implementa**: una coppia con fonte che violi la regione ammissibile. Il fondamento, per quando servirà, è de Villemereuil, Schielzeth, Nakagawa & Morrissey (2016), *General Methods for Evolutionary Quantitative Genetic Inference from Generalized Mixed Models*, **Genetics** 204(3):1281–1294, DOI 10.1534/genetics.115.186536.
 
@@ -1506,18 +1506,19 @@ Per ogni coppia `(m_T, s_T)` dichiarata, il caricamento MUST verificare:
 
 1. `0 < m < 1` stretto e `s > 0`;
 2. `s² < m·(1 − m)`;
-3. **ampiezza stazionaria realizzata sotto troncamento ≥ 95% di `s`**;
-4. **massa di popolazione sui bordi ≤ 3%**.
+3. **ampiezza stazionaria realizzata sotto troncamento ≥ 95% di `s`**, valutata **sul ramo peggiore fra i tre**, non su uno scelto per convenzione.
 
-I primi due sono in forma chiusa. **I controlli 3 e 4 non lo sono**: si ottengono per quadratura deterministica su griglia fissa, senza campionamento, e **si valutano sul ramo a due genitori con l'`h²` più alto dichiarato per quel carattere**, che è il caso peggiore fra i tre rami — la forbice fra rami a `(0,30, 0,15)` va dal 97,72% al 97,96%.
+I primi due sono in forma chiusa. **Il terzo non lo è**: si ottiene per quadratura deterministica su griglia fissa, senza campionamento. Il coefficiente da usare è quello che governa il carattere — `h²` per i tratti, `ρ` per l'istruzione — e la valutazione va ripetuta sui tre rami, prendendo il minimo.
 
-Misure: `(0,50, 0,15)` dà 99,9% e 0,10%, passa; `(0,30, 0,15)` dà 97,8% e 2,17%, passa; `(0,80, 0,15)` dà 92,2% e 8,23%, **respinge**; `(0,50, 0,30)` dà 90,6%, respinge.
+Misure sul ramo a due genitori: `(0,50, 0,15)` dà 99,91% con lo 0,086% di massa sul bordo, passa; `(0,30, 0,15)` a `ρ = 0,60` dà **97,72%** con il **2,15%**, passa; `(0,80, 0,15)` dà 92,03% con l'8,14%, **respinge**; `(0,50, 0,30)` dà 90,74%, respinge.
 
-**Il controllo 4 è una soglia di progetto tarabile, non derivata**, e i suoi ancoraggi sono dichiarati: sta sopra il 2,17% dell'unica configurazione fuori centro dichiarata, e sotto il ~4,4% che il controllo 3 da solo ammetterebbe al proprio limite. **È quindi strettamente più forte del controllo 3**, che di conseguenza non scatta mai e resta come enunciato della proprietà. Nessuna fonte fissa quanta massa di bordo un carattere fenotipico limitato possa tollerare; questo è il limite della scelta e va letto come tale.
+**Non esiste un quarto controllo sulla massa di bordo, e la sua assenza è una decisione.** Una stesura ne aveva posto uno a 3%, e il numero non era derivabile: nessuna fonte fissa quanta massa di bordo un carattere fenotipico limitato possa tollerare, e i suoi soli ancoraggi erano il 2,17% della configurazione che doveva ammettere e il ~4,4% che il controllo di ampiezza già ammette al proprio limite. **Una soglia calibrata sul valore che deve far passare, e per giunta posta a governare la scelta della famiglia, è circolarità dichiarata, non circolarità rimossa** — e il principio I vieta un parametro senza valore giustificato. Il controllo di ampiezza è la proprietà, e vale da solo.
+
+**La conseguenza va scritta**: al limite del controllo di ampiezza la massa di bordo raggiunge circa il **4,4%** — misurato 4,40% a `(0,50, 0,25)` e 4,43% a `(0,25, 0,15)`. La massa di bordo **MUST essere calcolata e riportata al caricamento** per ogni coppia, come dato osservabile, ma non è un cancello: chi vorrà porne uno dovrà portarne la fonte.
 
 ### Costi dichiarati
 
-Il troncamento resta, con lo 0,10% di massa di bordo al centro e il **2,17%** a `(0,30, 0,15)`. `h²` resta una quantità di scala osservata, come nei twin studies da cui i valori provengono. La pendenza osservata si attenua fuori centro — 93,1% di `h²` a media 0,80 — ma quella media è fuori dalla regione ammissibile.
+Il troncamento resta, con lo 0,086% di massa di bordo al centro e il **2,15%** a `(0,30, 0,15)`. `h²` resta una quantità di scala osservata, come nei twin studies da cui i valori provengono. La pendenza osservata si attenua fuori centro — 93,1% di `h²` a media 0,80 — ma quella media è fuori dalla regione ammissibile.
 
 ### Vincolo sui test
 
@@ -1573,7 +1574,7 @@ rank = 0,7·parent_rank + 0,3·zone_class_mean + N(0, σ_clark)
 
 **La fonte impone la forma del vincolo, non il valore.** Il modello formale di Clark, Cummins, Hao & Diaz Vidal, *Surnames: a New Source for the History of Social Mobility*, **Explorations in Economic History** 2014, equazioni (3) e (4), è `y_t = x_t + u_t` con `x_t = b·x_{t−1} + e_t`: un AR(1) **con** innovazione, più un errore di osservazione, e la stessa fonte enuncia `σ² = b²σ² + σ²_e`. Ne segue che **l'implementazione deterministica non è una semplificazione del modello di Clark ma un modello dal comportamento asintotico opposto**: senza innovazione ogni lignaggio va alla media e la varianza trasversale si azzera — nessuna mobilità e nessuna stratificazione — mentre il modello di Clark tiene la varianza costante e produce rimescolamento continuo.
 
-`σ_clark` **si risolve**, non si legge dalla formula: l'arrotondamento a etichette e il clamp sono non lineari, quindi leggere `s_rank·√(1 − b²)` produce il 102,6% del bersaglio. Condizioni di buona posizione, che sono parte della specifica:
+`σ_clark` **si risolve**, non si legge dalla formula: l'arrotondamento a etichette e il clamp sono non lineari, quindi leggere `s_rank·√(1 − b²)` produce il **102,26%** del bersaglio. Condizioni di buona posizione, che sono parte della specifica:
 
 - il punto fisso è **di campo medio**, non lineare, perché `zone_class_mean` è calcolata sulla popolazione che si sta risolvendo, e ammette **più soluzioni**. Il vettore iniziale è fissato: **popolazione uniforme sui ranghi ammessi**;
 - la mappa `σ_clark → dispersione realizzata` **non è monotona**: 0,894 al limite `σ → 0⁺`, crollo a ~0,0001 intorno a `σ = 0,075`, poi crescita monotona fino a 1,395 a `σ = 1,4142`. Il dominio in cui la radice è unica è **`s_rank ∈ [0,95, 1,39]`**, e A9 vi restringe il proprio controllo;
@@ -1601,7 +1602,7 @@ Fonte del libro: Clark, G. (2014), *The Son Also Rises: Surnames and the History
 
 L'obiettivo di ampiezza poggia su `Var(midparent) = V/2`, che richiede genitori scorrelati. Il punteggio di omogamia pesa l'istruzione fra 0,25 e 0,40 **in tutte e cinque le ere**, e **A3 lo risveglia** restituendo dispersione all'istruzione.
 
-Con genitori correlati `Var(midparent) = V(1 + r)/2`, quindi l'ampiezza realizzata rispetto al bersaglio vale `√((1 − b²/2)/(1 − b²(1 + r)/2))`. **L'effetto è di gonfiare la varianza, non di comprimerla**: la banda del 95-105% è superata oltre `r ≈ 0,55` a `h² = 0,55` e oltre `r ≈ 0,45` per l'istruzione a `ρ = 0,60`.
+Con genitori correlati `Var(midparent) = V(1 + r)/2`, quindi l'ampiezza realizzata rispetto al bersaglio vale `√((1 − b²/2)/(1 − b²(1 + r)/2))`. **L'effetto è di gonfiare la varianza, non di comprimerla.** Dalla formula, che vale per la ricorsione non troncata, la banda del 95-105% è superata oltre `r = 0,5217` a `h² = 0,55` e oltre `r = 0,4235` a `ρ = 0,60`. **Sulla famiglia troncata che A1 adotta i due valori differiscono**, e vanno riportati per quella: misurato, i tratti attraversano il 105% intorno a `r ≈ 0,53`, mentre l'istruzione a `(0,30, 0,15)` misura il 102,3% già a `r = 0,45` e non raggiunge il 105% prima di `r ≈ 0,75`. La formula è il bersaglio da correggere; le soglie di attraversamento vanno lette sulla famiglia adottata.
 
 **Il criterio secondario non va sospeso ma corretto**: la banda si applica al bersaglio corretto `s_T·√((1 − b²/2)/(1 − b²(1 + r)/2))`, con `r` misurato sulla popolazione. **Il criterio primario (SC-002a) non ne è toccato**, perché asserisce il coefficiente del kernel e non la varianza di popolazione.
 
@@ -1634,7 +1635,14 @@ Il codice applica 1/4 e 1/8 a entrambi, quindi **il vedovo riceve la metà di qu
 
 **La proprietà**: imposta più residuo eguaglia esattamente il patrimonio **su tutto il dominio di aliquote che la funzione accetta**, fino a 1,0.
 
-**La costruzione**: derivare per differenza sempre il **minore** dei due termini, così che il lemma di Sterbenz si applichi da entrambi i lati — `totale − imposta` è esatto per `aliquota ≤ 0,5`, `totale − residuo` per `aliquota ≥ 0,5`. Verificato a zero fallimenti su 200.000 prove per aliquota fino a 0,99. La documentazione MUST dichiarare rispetto a quale ordine di somma la garanzia vale.
+**La costruzione**: derivare per differenza sempre il **minore** dei due termini, così che il lemma di Sterbenz si applichi da entrambi i lati. Sterbenz dà `a − b` esatto per `b/2 ≤ a ≤ 2b`, quindi:
+
+```
+aliquota ≤ 0,5:  residuo = totale·(1 − aliquota);  imposta = totale − residuo
+aliquota ≥ 0,5:  imposta = totale·aliquota;        residuo = totale − imposta
+```
+
+In entrambi i rami il termine derivato è il minore, e la sottrazione è esatta. Verificato a zero fallimenti su 200.000 prove per aliquota da 0,0 a 0,99. La documentazione MUST dichiarare rispetto a quale ordine di somma la garanzia vale.
 
 **Registrate come inadeguate**: `residuo = totale − imposta` da sola non raggiunge l'esattezza nemmeno alle aliquote spedite; `imposta = totale − residuo` da sola è esatta solo fino a 0,5 e si rompe sopra (0,50% a 0,51, 3,52% a 0,55, 6,05% a 0,60, 12,68% a 0,70).
 
@@ -1674,7 +1682,7 @@ E[guadagno_j] = a(H_tick, r_tick) · [ (1 − u_j)·w_j − w_corrente ] − cos
 
 ### Effetto sulla soglia, e limite dichiarato
 
-Con `tick_duration_hours = 24`, orizzonte 40 anni e `r = 0,10`, `a` vale **3.583 tick**; l'esempio di Parigi diventa `3583 · 4,8 = **+17.199 LVR**` di valore attuale. Il costo distanza di pareggio passa da **4,8 a 220,5 tick**, contro costi spediti di 0, 3 e 5: **il costo distanza cessa di mordere**, e la soglia si allarga di circa un fattore quarantacinque.
+Con `tick_duration_hours = 24`, orizzonte 40 anni e `r = 0,10`, `a` vale **3.583 tick**; l'esempio di Parigi diventa `3583,15 · 4,8 = **+17.199 LVR**` di valore attuale. Il costo distanza di pareggio passa da **4,8 a 220,5 tick**, contro costi spediti di 0, 3 e 5: **il costo distanza cessa di mordere**, e la soglia si allarga di circa un fattore quarantacinque.
 
 È la conseguenza del modello citato, ed è economicamente corretta. **Va dichiarata come limite, e la fonte lo fa**: Sjaastad osserva (p. 84) che i costi marginali per miglio dovrebbero essere altissimi per conciliare l'effetto della distanza osservato con il valore attuale del differenziale, "anche a tassi di sconto molto elevati". **Il modello di investimento sotto-predice l'attrito della distanza, e il suo autore lo scrive.**
 
@@ -1694,11 +1702,11 @@ L'invarianza alla scala della valuta resta: `a` è adimensionale rispetto alla v
 
 > L'**orizzonte di sopravvivenza** è il rapporto `agent.wealth / compute_subsistence_threshold(simulation, zone)`, un numero puro che esprime quanti tick di sussistenza i risparmi coprono. È una grandezza derivata: **non esiste alcun `N` globale**. Ogni consumatore che ne richieda una soglia la dichiara per sé, **con la propria fonte oppure con la propria motivazione esplicita**.
 >
-> La **fuga d'emergenza** applica la soglia **1** — incapacità di coprire anche un solo tick — e affida la persistenza al proprio `flight_trigger_ticks`, che vale 30. La **fertilità** consuma l'orizzonte in forma logaritmica continua, con un **pavimento a 0,1** che è una guardia numerica contro il logaritmo di zero e va documentato come tale.
+> La **fuga d'emergenza** applica la soglia **1** — incapacità di coprire anche un solo tick — e affida la persistenza al proprio `flight_trigger_ticks`, che è **per era** e vale 30, 30, 20, 10 e 5 nei cinque template. La **fertilità** consuma l'orizzonte in forma logaritmica continua, con un **pavimento a 0,1** che è una guardia numerica contro il logaritmo di zero e va documentato come tale.
 
 ### Perché il test di fame
 
-L'orizzonte, nella fuga, **c'è già e sta altrove**: `flight_trigger_ticks` impone che la destituzione duri un mese, quindi `N = 30` sul livello conterebbe lo stesso mese due volte, con la seconda occorrenza priva di fonte. Il risparmio precauzionale è letteratura di consumo e accumulazione, non di innesco migratorio: né O'Rourke (1994) né Simon (1955) forniscono una soglia di scorta, e Simon fornisce il satisficing senza fissarne il livello. E `wealth < subsistence_threshold` significa letteralmente non potersi permettere gli essenziali per un tick, che è ciò che "emergenza" denota.
+L'orizzonte, nella fuga, **c'è già e sta altrove**: `flight_trigger_ticks` impone che la destituzione **duri**, e imporre `N` anche sul livello conterebbe due volte la stessa durata, con la seconda occorrenza priva di fonte. **Il valore non è 30 e non è unico**: i cinque template spediscono **30, 30, 20, 10, 5**, e il modulo documenta esplicitamente che non va mai fissato nel codice. L'argomento regge proprio perché è indipendente dal valore — qualunque esso sia, la durata è già espressa da quel parametro. Il risparmio precauzionale è letteratura di consumo e accumulazione, non di innesco migratorio: né O'Rourke (1994) né Simon (1955) forniscono una soglia di scorta, e Simon fornisce il satisficing senza fissarne il livello. E `wealth < subsistence_threshold` significa letteralmente non potersi permettere gli essenziali per un tick, che è ciò che "emergenza" denota.
 
 **La soglia 1 non ha fonte**: è motivata sui tre argomenti sopra ed è dichiarata soglia di progetto tarabile.
 
@@ -1719,9 +1727,9 @@ Il caricatore MUST respingere, **nominando il campo e l'intervallo ammesso**:
 1. ogni **chiave sconosciuta**, a qualunque livello di annidamento;
 2. ogni **valore fuori intervallo**: aliquote e ereditabilità in `[0,1]`, coefficienti di regressione in `[0,1]`, ampiezze positive;
 3. ogni **sezione annidata obbligatoria** mancante: `trait_inheritance.era_noise` e `social_inheritance.era_noise`. Il caricatore respinge già oggi diverse assenze, comprese tre annidate sotto `mortality`, quindi non è l'annidamento a discriminare ma l'**identità** della sezione;
-4. ogni **voce mancante**: ogni chiave di `trait_inheritance.heritability` MUST avere la propria voce in `era_noise`, e `social_inheritance.era_noise` MUST dichiarare i momenti dell'istruzione e `s_rank`. Una sezione presente ma vuota è respinta nominando i caratteri mancanti;
+4. ogni **voce mancante**: ogni chiave di `trait_inheritance.heritability` MUST avere la propria voce in `trait_inheritance.era_noise`, e `social_inheritance.era_noise` MUST dichiarare i momenti dell'istruzione e `s_rank`. Una sezione presente ma vuota è respinta nominando i caratteri mancanti;
 5. ogni coppia `(m, s)` che violi **i quattro controlli della regione ammissibile di A1**, nell'esatta forma in cui A1 li enuncia. `s_rank` è **esente** dai controlli 1–4, perché non è una coppia su `[0,1]` ma una dispersione bersaglio su scala di ranghi: il suo controllo proprio è **`0,95 ≤ s_rank ≤ 1,39`**, l'intervallo in cui A3 dimostra la radice unica;
-6. ogni **incoerenza fra sezioni**: un carattere in `era_noise` assente da `heritability`, o viceversa.
+6. ogni **incoerenza fra sezioni**: un carattere in `trait_inheritance.era_noise` assente da `trait_inheritance.heritability`, o viceversa. Il controllo riguarda **quella sola coppia di sezioni**: `social_inheritance.era_noise` dichiara l'istruzione e `s_rank`, che per costruzione non hanno una voce in `heritability` — il loro coefficiente è `education_regression_rho` e il loro controllo è il punto 5.
 
 ### L'insieme dei caratteri trasmessi si chiude
 
@@ -1790,7 +1798,7 @@ I criteri della spec del work item non falliscono contro i modelli che devono es
 
 ### Perché i vecchi non discriminano
 
-Applicare ovunque la scala del ramo a due genitori misura **95,82%** con un genitore e **92,13%** con nessuno: entrambi sopra la soglia del 90% di SC-002. SC-011, al 50% della dispersione iniziale, è ancora più permissivo — **il kernel difettoso odierno misura 79,0% a `h² = 0,22`** e lo supera senza correzione. E **nessuna banda sull'ampiezza realizzata può separare i due modelli**: sulle quattordici ereditabilità spedite, il modello che viola FR-003 cade dentro una banda 95-105% in quattordici casi su quattordici sul ramo a un genitore e sette su quattordici su quello senza genitori. Le distribuzioni si sovrappongono; la differenza è minore del rumore Monte Carlo.
+Applicare ovunque la scala del ramo a due genitori misura **95,82%** con un genitore e **92,13%** con nessuno: entrambi sopra la soglia del 90% di SC-002. SC-011, al 50% della dispersione iniziale, è ancora più permissivo — **il kernel difettoso odierno misura 79,0% a `h² = 0,22`** e lo supera senza correzione. E **nessuna banda sull'ampiezza realizzata può separare i due modelli**: sulle tredici ereditabilità realmente spedite — identiche in tutti e cinque i template — il modello che viola FR-003 cade dentro una banda 95-105% in **tredici casi su tredici** sul ramo a un genitore e **sei su tredici** su quello senza genitori. Le distribuzioni si sovrappongono; la differenza è minore del rumore Monte Carlo.
 
 SC-013 sulla somiglianza non basta: la pendenza è corretta anche nel modello collassato — l'ereditabilità realizzata al punto fisso difettoso vale 0,5509 contro 0,55 dichiarato. Vale anche per la trappola `h2**4`, che lascia la pendenza invariata.
 
@@ -1798,14 +1806,17 @@ SC-013 sulla somiglianza non basta: la pendenza è corretta anche nel modello co
 
 | sostituisce | criterio |
 |---|---|
-| SC-002, SC-011, SC-013 (dispersione) | **SC-002a** — il **coefficiente efficace che moltiplica l'estrazione casuale**, cioè `sd(T_figlio − segnale)/s_T` a segnale fissato, eguaglia `c_ramo(h²)` entro `1·10⁻¹²` relativi, per ogni tratto e per ciascuno dei tre rami. **Non è la `sigma` passata a `rng.gauss`**: il codice odierno passa `era_sd` e scala fuori dall'estrazione, quindi sul ramo senza genitori un criterio letto sulla sigma passata sarebbe soddisfatto a differenza nulla mentre il ramo realizza il 45% dell'ampiezza. Esatto, non campionario. |
+| SC-002, SC-011, SC-013 (dispersione) | **SC-002a** — **sonda a due punti sul percorso PRE-troncamento**: fissato il segnale, si valuta il kernel su due estrazioni note `z₁ ≠ z₂` e si asserisce `(T(z₁) − T(z₂)) / ((z₁ − z₂)·s_T) = c_ramo(h²)` entro `1·10⁻¹²` relativi, per ogni tratto e per ciascuno dei tre rami.
+
+Due letture sono escluse e vanno escluse esplicitamente. **Non è la `sigma` passata a `rng.gauss`**: il codice passa `era_sd` e scala fuori dall'estrazione, quindi sul ramo senza genitori, dove `c₀ = 1`, quel criterio sarebbe soddisfatto a differenza nulla mentre il ramo realizza il 45% dell'ampiezza. **E non è la deviazione standard del residuo in uscita**: il troncamento agisce dopo, quindi quella grandezza non vale `c·s` — misurata per quadratura si discosta di 2,8·10⁻⁴ fino a 2,0·10⁻², cioè otto ordini di grandezza sopra la tolleranza, e il criterio sarebbe insoddisfacibile **dal modello corretto**. La sonda a due punti misura il coefficiente dove esso è definito, è deterministica e non campionaria. |
 | SC-002 (verifica d'integrazione) | **SC-002b** — l'ampiezza stazionaria realizzata cade fra il 95% e il 105% del bersaglio, su **almeno 5.000 individui per generazione** e otto generazioni, col bersaglio corretto per la correlazione fra i genitori secondo A4. La numerosità è vincolante: a 200 individui il modello **corretto** cade fuori banda 13 volte su 40, a 1.000 due volte, a 5.000 mai. I rami a un genitore e senza genitori sono sotto-popolazioni rare e vanno verificati su popolazioni sintetiche costruite per quel ramo. |
-| SC-012 | **SC-012a** — `σ_clark` eguaglia entro `1·10⁻¹²` la radice di `dispersione_realizzata(σ_clark) = s_rank`, con la dispersione ottenuta per punto fisso da vettore iniziale uniforme e `s_rank ∈ [0,95, 1,39]`. **Non una banda**: leggere la formula invece di risolverla dà il 102,6%, che una banda del 5% ammetterebbe. La mobilità strettamente positiva resta controllo di sanità. |
+| SC-012 | **SC-012a** — `σ_clark` eguaglia entro `1·10⁻¹²` la radice di `dispersione_realizzata(σ_clark) = s_rank`, con la dispersione ottenuta per punto fisso da vettore iniziale uniforme e `s_rank ∈ [0,95, 1,39]`. **Non una banda**: leggere la formula invece di risolverla dà il 102,26%, che una banda del 5% ammetterebbe. La mobilità strettamente positiva resta controllo di sanità. |
 | SC-013 (ramo singolo) | invariata: il coefficiente del segnale a genitore singolo è metà di quello a due genitori. Esatta, discrimina. |
 | SC-014 | **SC-014a** — i due consumatori della soglia di sussistenza applicano la stessa definizione di orizzonte, verificato per mutazione cambiandola in un solo consumatore. |
 | SC-015 | **SC-015a** — il caricatore respinge, nominando il campo, **ciascuna delle sei clausole di A9**: chiave sconosciuta, valore fuori intervallo, sezione annidata obbligatoria mancante, voce per carattere mancante, coppia fuori regione ammissibile, incoerenza fra sezioni. |
 | — (nuovo, copre A4) | **SC-017** — la correlazione fra i genitori sul carattere trasmesso è misurata e riportata, e SC-002b usa il bersaglio corretto per essa. |
 | — (nuovo, copre A9) | **SC-018** — l'attivazione della guardia di ripiego emette un warning che nomina il carattere, verificato per mutazione inserendo un carattere non dichiarato. |
+| — (nuovo, copre A7) | **SC-019** — il guadagno atteso calcolato su due simulazioni identiche salvo `World.tick_duration_hours` (per esempio 24 e 12) produce lo **stesso valore attuale in LVR**. È il criterio che manca a FR-006: una mutazione che fissi 24 ore nel codice, o che divida per 365 incondizionatamente, passa oggi ogni criterio dichiarato, compreso SC-005, che la spec stessa registra come non discriminante. |
 
 **Regola generale**: ogni criterio va provato **per mutazione** — si inietta il difetto, lo si guarda fallire, si ripristina — mai per sola ispezione. Un criterio che non è stato visto rosso non è un criterio. E ogni criterio formulato su una quantità campionaria va sostituito da una forma esatta dove essa esiste.
 
@@ -1814,7 +1825,7 @@ SC-013 sulla somiglianza non basta: la pendenza è corretta anche nel modello co
 ## FAQ
 
 **Perché la normale e non il logit?**
-Perché entrambe le coppie dichiarate cadono dentro la regione ammissibile — 99,9% di ampiezza con 0,10% di massa sul bordo per i tratti, 97,8% con 2,17% per l'istruzione — e il logit costerebbe una risoluzione numerica per era e per tratto, una guardia sul dominio della mappa, la reinterpretazione di ogni `h²` come quantità latente e un'incoerenza con i tratti derivati, per recuperare due punti di ampiezza e due di massa di bordo su un carattere solo. L'onere della prova sta su chi aggiunge. La condizione che riapre la questione è **applicata** dal controllo di caricamento, non affidata alla memoria.
+Perché entrambe le coppie dichiarate cadono dentro la regione ammissibile — 99,91% di ampiezza con 0,086% di massa sul bordo per i tratti, 97,72% con 2,15% per l'istruzione — e il logit costerebbe una risoluzione numerica per era e per tratto, una guardia sul dominio della mappa, la reinterpretazione di ogni `h²` come quantità latente e un'incoerenza con i tratti derivati, per recuperare due punti di ampiezza e due di massa di bordo su un carattere solo. L'onere della prova sta su chi aggiunge. La condizione che riapre la questione è **applicata** dal controllo di caricamento, non affidata alla memoria.
 
 **Perché non si toglie il vincolo `[0,1]`?**
 Sarebbe la soluzione più pulita ed è fuori ambito: `[0,1]` è portante su `Agent.personality`, sui domini delle formule derivate, sul termine di merito e sulla superficie dei prompt.

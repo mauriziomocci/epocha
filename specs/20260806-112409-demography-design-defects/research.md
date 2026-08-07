@@ -29,6 +29,13 @@ Si noti già qui un fatto che serve più avanti: la perdita di dispersione **non
 
 ## Deliberazione 0.1a — La famiglia distribuzionale
 
+> **AVVERTENZA — LA CONCLUSIONE DI QUESTA DELIBERAZIONE È STATA RIBALTATA.** Il testo che segue documenta la deliberazione come fu svolta, e la sua conclusione era **la scala latente logit**. Il **secondo giro del gate avversariale l'ha demolita**: l'argomento a favore del logit poggiava sullo spazio dei parametri che la deliberazione 0.2 avrebbe aperto, e 0.2 — scritta con i numeri dentro, come il primo giro imponeva — dichiara medie che **chiudono** quello spazio. Alle due coppie effettivamente dichiarate le due famiglie misurano quasi identico, e l'onere della prova non è assolto.
+>
+> **La decisione vigente è nell'emendamento**, sezione A1 di `docs/superpowers/specs/2026-04-18-demography-design-it.md`: **famiglia normale con troncamento e residuo riscalato per ramo**, con la scala latente logit come via di migrazione dichiarata e attivata da un controllo di caricamento. Anche la scala di `σ_clark` di 0.2 è superata: non si legge dall'identità ma si **risolve** numericamente, perché arrotondamento e clamp sono non lineari.
+>
+> Questo documento è conservato come **registro del processo**, non come fonte della decisione. Dove diverge dall'emendamento, prevale l'emendamento.
+
+
 ### Il problema, riformulato con precisione
 
 I caratteri trasmessi vivono su `[0,1]`. Il kernel li campiona da una normale non limitata e poi tronca il risultato con `max(lo, min(hi, result))` ([inheritance.py:441](../../epocha/apps/demography/inheritance.py:441)). La deliberazione era stata aperta sul troncamento; la ricerca preliminare sosteneva che il difetto vero fosse invece la scala del residuo. **Entrambe le formulazioni sono incomplete**, e la prima autocritica mostra perché.
