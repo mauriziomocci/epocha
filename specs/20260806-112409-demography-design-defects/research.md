@@ -155,4 +155,45 @@ Stato del difetto, verificato sul codice: [migration.py:453](../../epocha/apps/d
 
 ## Deliberazione 0.1c — L'orizzonte di sussistenza
 
-*Da svolgere. La riga 153 del design va riscritta comunque, perché la sua glossa e la sua parentesi definiscono due oggetti incompatibili.*
+### Che cosa fa oggi il codice, verificato sui due consumatori
+
+La riga 153 del design prescrive `agent.wealth < N * subsistence_threshold` e definisce `N` in due modi incompatibili nella stessa frase: la glossa lo dice "il numero di tick che l'agente può sopravvivere con i risparmi attuali", il che renderebbe la condizione `ricchezza < ricchezza`; la parentesi lo dice parametro globale con default 30.
+
+I due consumatori, letti nel codice:
+
+- **Fuga d'emergenza**, [migration.py:1122](../../epocha/apps/demography/migration.py:1122): `if agent.wealth >= subsistence_threshold: return` — nessun `N`, cioè `N = 1`. Ma la condizione di fuga **non è quella sola**: ne servono tre simultanee, e la seconda è `consecutive_ticks_under_subsistence >= flight_trigger_ticks`, con `flight_trigger_ticks` a 30.
+- **Fertilità**, [fertility.py:107](../../epocha/apps/demography/fertility.py:107): `wealth_signal = log(max(wealth / max(subsistence, 1e-6), 0.1))` — nessuna soglia affatto: il rapporto entra come segnale continuo nella modulazione alla Becker.
+
+### La diagnosi che nessuna stesura aveva formulato
+
+La riga 153 non è incoerente perché sceglie male fra due valori di `N`. **È incoerente perché confonde una grandezza con una soglia su quella grandezza.** Il rapporto `ricchezza / soglia_di_sussistenza` è un numero puro che vale esattamente quanto la glossa descrive: il numero di tick di sussistenza che i risparmi coprono. Quello è l'**orizzonte di sopravvivenza**, ed è una quantità, non un parametro. La parentesi cerca invece di farne una soglia globale, e le due cose non possono stare nello stesso simbolo.
+
+Vista così, i due consumatori **applicano già la stessa convenzione**, e non se ne erano accorti: la fertilità usa l'orizzonte in forma continua, la fuga vi applica una soglia a 1. Ciò che manca non è l'allineamento, è la definizione che li accomuna.
+
+### La scelta fra test di fame e test di risparmio precauzionale
+
+FR-008 chiede di scegliere esplicitamente. **Si sceglie il test di fame**, e le ragioni sono tre.
+
+La prima è che l'orizzonte, nella condizione di fuga, **c'è già e sta altrove**: `flight_trigger_ticks` a 30 impone che la destituzione duri un mese. Un agente sotto la soglia per un tick solo non fugge. Mettere `N = 30` anche sul livello significherebbe scrivere "sotto un mese di risparmi, per un mese di fila" — lo stesso mese contato due volte, con la seconda occorrenza priva di fonte.
+
+La seconda è di attribuzione. Il risparmio precauzionale è un modello di **consumo e accumulazione** — è la letteratura del buffer stock — non un modello di innesco migratorio. La condizione di fuga è citata a O'Rourke (1994) e a Simon (1955): il secondo fornisce il satisficing, cioè il fatto che si agisca al superamento di una soglia di insoddisfazione anziché ottimizzando, e non fissa il livello di quella soglia; nessuno dei due fornisce una soglia di scorta precauzionale. Importare qui un meccanismo dalla letteratura sbagliata sarebbe la stessa attribuzione approssimativa che la User Story 2 esiste per correggere.
+
+La terza è che `wealth < subsistence_threshold` ha un significato letterale e verificabile: l'agente non può permettersi gli essenziali **nemmeno per un tick**. È destituzione osservata, non prevista, ed è ciò che l'espressione "fuga d'emergenza" denota.
+
+**Questa conclusione contraddice la prosa della User Story 5**, che presenta come difetto il fatto che "un agente con trenta tick di risparmi è trattato come uno che ne ha uno solo". Sotto un test di fame quel trattamento è corretto e voluto: chi ha trenta tick di risparmi non sta morendo di fame. Il requisito però — FR-008 — è formulato neutralmente e impone di scegliere, non di scegliere il precauzionale; la scelta qui è motivata e la motivazione è scritta. La prosa della user story va letta come motivazione del gate, non come suo esito predeterminato.
+
+### La riscrittura della riga 153
+
+> L'**orizzonte di sopravvivenza** di un agente è il rapporto `agent.wealth / subsistence_threshold(simulation, zone)`, un numero puro che esprime quanti tick di sussistenza i risparmi correnti coprono. È una grandezza derivata, non un parametro: non esiste alcun `N` globale. Ogni consumatore che ne richieda una soglia la dichiara per sé, con la propria fonte. La condizione di fuga d'emergenza vi applica la soglia **1** — destituzione osservata, incapacità di coprire anche un solo tick — e affida la persistenza al proprio `flight_trigger_ticks`, che vale 30 tick; la modulazione della fertilità non applica soglia e consuma l'orizzonte in forma logaritmica continua.
+
+### Conseguenza sul codice, dichiarata perché è scomoda
+
+**Nessuno dei due consumatori cambia.** La correzione di FR-008 è interamente nella spec di design e nella documentazione dei due moduli, che oggi non nominano l'orizzonte come grandezza comune. Un esito "nessuna riga di codice cambia" merita sospetto e va detto per intero anziché nascosto: la verifica è che i due comportamenti misurati corrispondano alla convenzione appena scritta, non che la convenzione sia stata piegata su ciò che il codice già fa. Le due letture del codice sopra sono la prova, e sono citate a riga.
+
+### **SC-014 non discrimina sotto questa scelta, ed è un rilievo per il gate**
+
+SC-014 chiede che "due agenti con pari ricchezza corrente ma orizzonti di sopravvivenza diversi ricevano esiti diversi", affermando che oggi ricevono lo stesso. **Verificato: non è vero.** La soglia di sussistenza è calcolata per zona ([migration.py:1118](../../epocha/apps/demography/migration.py:1118)), quindi due agenti con pari ricchezza in zone dai prezzi diversi hanno già oggi orizzonti diversi e possono già oggi ricevere esiti diversi — basta che i loro orizzonti stiano a cavallo di 1.
+
+Il criterio fallisce oggi **solo sotto la lettura precauzionale**, quella in cui "orizzonte diverso" significa due agenti entrambi sopra la soglia di fame ma con scorte diverse. SC-014 non è quindi un criterio neutro che misura una proprietà: **presuppone l'esito della deliberazione che dovrebbe verificare**, ed è la quinta occorrenza in questo work item della stessa patologia — un criterio che non fallisce dove il requisito è falso, qui aggravata dal fatto che non fallisce perché dà per deciso ciò che è in discussione.
+
+Il rilievo va al gate di fase 0, che deve ruolare su una delle due: riformulare SC-014 perché misuri la proprietà effettivamente scelta — che i due consumatori dichiarino e applichino la stessa definizione di orizzonte, verificabile per mutazione cambiando la definizione in un consumatore solo — oppure respingere la scelta del test di fame con una motivazione scientifica, non con l'esistenza del criterio. **Non si riscrive un criterio per farlo passare**: si dichiara che non discrimina e si lascia decidere.
