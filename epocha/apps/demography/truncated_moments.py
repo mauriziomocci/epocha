@@ -57,7 +57,7 @@ from functools import lru_cache
 
 import numpy as np
 from scipy.signal import fftconvolve
-from scipy.special import ndtr
+from scipy.special import ndtr, ndtri
 
 # Grid resolution mandated by amendment A1. Not tunable: two implementations
 # that pick different resolutions report different observables for the same
@@ -337,3 +337,202 @@ def check_rank_dispersion(target_dispersion: float) -> AdmissibleRegionResult:
             "",
         )
     return AdmissibleRegionResult(True, "", target_dispersion, float("nan"), "")
+
+
+# ---------------------------------------------------------------------------
+# Assortative mating (amendment A4, SC-017)
+# ---------------------------------------------------------------------------
+
+
+def assortative_amplitude_target(coefficient: float, parent_correlation: float) -> float:
+    """Amplitude ratio A4 predicts when the parents correlate at `r`.
+
+    Under random mating `Var(midparent) = V/2`; with correlated parents it is
+    `V(1 + r)/2`, so the stationary variance solves
+
+        V = b^2 * V * (1 + r)/2 + (1 - b^2/2) * s^2
+
+    giving `sqrt(V)/s = sqrt((1 - b^2/2) / (1 - b^2(1 + r)/2))` (A4). The
+    effect is to INFLATE the dispersion: `r > 0` feeds parental variance back
+    into the child that the residual scale was not sized for.
+
+    This is the UNTRUNCATED recursion. On the truncated family A1 adopts, the
+    clamp removes part of that inflation, and the two answers separate; use
+    `solve_assorted_stationary_state` for the family actually in force. This
+    function is the target to report a measurement against, never a gate --
+    SC-017 reports and does not reject.
+
+    Raises:
+        ValueError: if `r` is outside `[-1, 1]`, or if `1 - b^2(1+r)/2` is not
+            strictly positive. The second cannot happen at `b <= 1`, but the
+            domain is stated rather than left to a bound a future coefficient
+            could break.
+    """
+    if not -1.0 <= parent_correlation <= 1.0:
+        raise ValueError(f"parent correlation {parent_correlation} outside [-1, 1]")
+    denominator = 1.0 - coefficient**2 * (1.0 + parent_correlation) / 2.0
+    if denominator <= 0.0:
+        raise ValueError(
+            f"no stationary variance at coefficient {coefficient} and correlation "
+            f"{parent_correlation}: the recursion is explosive"
+        )
+    return math.sqrt((1.0 - coefficient**2 / 2.0) / denominator)
+
+
+@dataclass(frozen=True)
+class AssortedStationaryState:
+    """What SC-017 asks to be reported, in one object.
+
+    `realized_parent_correlation` is the Pearson correlation between the two
+    parents ON THE OBSERVED `[0, 1]` SCALE, which is what a population
+    measurement would return and what A4's formula takes. It is strictly below
+    the copula parameter that generated it whenever the clamp binds, because
+    mass piled on a bound is tied and carries no covariance.
+    """
+
+    stationary_mean: float
+    stationary_sd: float
+    realized_parent_correlation: float
+    boundary_mass: float
+    untruncated_target: float
+
+
+def _latent_edges(pmf: np.ndarray) -> np.ndarray:
+    """Latent cell edges of the Gaussian copula for a given marginal.
+
+    The copula is defined on `Z = Phi^-1(F(T))`, so a cell of the marginal maps
+    to the interval between the standard-normal quantiles of its cumulative
+    endpoints. Cells of zero mass collapse to a point and contribute nothing,
+    which is the correct behaviour rather than a degeneracy to guard.
+    """
+    cumulative = np.clip(np.cumsum(pmf), 0.0, 1.0)
+    edges = np.empty(pmf.size + 1)
+    edges[0] = 0.0
+    edges[1:] = cumulative
+    edges[-1] = 1.0
+    return ndtri(edges)
+
+
+def _assorted_parent_sum(pmf: np.ndarray, copula_correlation: float) -> tuple[np.ndarray, float]:
+    """Return `(pmf of T_mother + T_father, realized Pearson r)`.
+
+    At `copula_correlation = 0` this reduces to `np.convolve(pmf, pmf)`, the
+    independent case the rest of the module uses, and the tests assert that
+    identity rather than assume it.
+
+    The joint is built row by row from the conditional `Z_f | Z_m ~ N(rho*z,
+    1 - rho^2)`: for each mother cell, the father's cell probabilities are
+    differences of that conditional CDF at the latent edges. Summing the joint
+    over `i + j` gives the distribution of the parental sum exactly, because
+    both parents live on the same grid and the sum of two node indices IS the
+    index of the sum -- the same reduction a convolution performs, generalised
+    to a joint that no longer factorises.
+    """
+    size = pmf.size
+    nodes, _ = _grid()
+    if copula_correlation == 0.0:
+        joint_sum = np.convolve(pmf, pmf)
+        return joint_sum, 0.0
+
+    edges = _latent_edges(pmf)
+    # Representative latent position of each mother cell: the quantile of its
+    # own mid-cumulative, which is the cell's conditional median rather than an
+    # arbitrary endpoint.
+    cumulative = np.clip(np.cumsum(pmf), 0.0, 1.0)
+    mid = np.clip(cumulative - pmf / 2.0, 1e-15, 1.0 - 1e-15)
+    z_mother = ndtri(mid)
+
+    spread = math.sqrt(1.0 - copula_correlation**2)
+    standardised = (edges[None, :] - copula_correlation * z_mother[:, None]) / spread
+    conditional_cdf = ndtr(standardised)
+    conditional = np.diff(conditional_cdf, axis=1)
+    joint = pmf[:, None] * conditional
+    total = joint.sum()
+    if total > 0:
+        joint /= total
+
+    index_sum = (np.arange(size)[:, None] + np.arange(size)[None, :]).ravel()
+    parent_sum = np.bincount(index_sum, weights=joint.ravel(), minlength=2 * size - 1)
+
+    mean = float(np.dot(pmf, nodes))
+    variance = float(np.dot(pmf, (nodes - mean) ** 2))
+    cross = float(nodes @ joint @ nodes)
+    realized = (cross - mean**2) / variance if variance > 0 else 0.0
+    return parent_sum, realized
+
+
+@lru_cache(maxsize=256)
+def solve_assorted_stationary_state(
+    era_mean: float,
+    era_sd: float,
+    coefficient: float,
+    copula_correlation: float,
+) -> AssortedStationaryState:
+    """Stationary state of the two-parent branch under assortative mating.
+
+    A4 quotes two crossing thresholds on the TRUNCATED family and calls them
+    measured, but nothing in the repository could produce them: `_solve` takes
+    `np.convolve(pmf, pmf)`, which is the sum of two INDEPENDENT draws by
+    construction, and offers no correlation parameter. This function is the
+    missing instrument, and the convention it fixes is the part A4 left open.
+
+    THE CONVENTION, stated because more than one is defensible and two
+    implementations picking differently would report different thresholds for
+    the same era. Mating is a GAUSSIAN COPULA on the current marginal:
+    `Z = Phi^-1(F(T))` for both parents, jointly normal with correlation
+    `copula_correlation`. Chosen over the alternatives because it is the only
+    one that (i) leaves the marginal exactly untouched, so the assortment
+    changes who marries whom and nothing else, (ii) reduces to independence at
+    zero, checked rather than assumed, and (iii) needs one parameter. Perfect
+    rank ordering is the `copula_correlation = 1` limit. The measurement
+    reported is the realized Pearson correlation on the observed scale, not
+    the copula parameter, because that is what counting a real population
+    would return and what A4's formula consumes.
+
+    Only the two-parent branch is solved: it is the only one where mating
+    enters at all.
+    """
+    if not -1.0 < copula_correlation < 1.0:
+        if copula_correlation not in (0.0,):
+            raise ValueError(f"copula correlation {copula_correlation} outside (-1, 1)")
+    _, step = _grid()
+    signal = coefficient
+    residual_sd = era_sd * math.sqrt(1.0 - coefficient**2 / 2.0)
+    kernel = _gaussian_cell_kernel(residual_sd, step)
+    offset = (kernel.size - 1) // 2
+
+    pmf = _initial_distribution(era_mean, era_sd)
+    previous_sd = _moments(pmf)[1]
+    for _ in range(MAX_ITERATIONS):
+        parent_sum, realized_r = _assorted_parent_sum(pmf, copula_correlation)
+        midparent = np.arange(parent_sum.size) * step / 2.0
+        signal_values = era_mean + signal * (midparent - era_mean)
+        signal_on_grid = _clip_to_grid(signal_values, parent_sum, step)
+
+        pre_clip = fftconvolve(signal_on_grid, kernel)
+        body = pre_clip[offset : offset + GRID_NODES]
+        below = float(pre_clip[:offset].sum())
+        above = float(pre_clip[offset + GRID_NODES :].sum())
+        pmf = body.copy()
+        pmf[0] += below
+        pmf[-1] += above
+        total = pmf.sum()
+        if total > 0:
+            pmf /= total
+        boundary_mass = (below + above) / max(total, 1e-300)
+
+        mean, sd = _moments(pmf)
+        if abs(sd - previous_sd) < CONVERGENCE_TOL:
+            return AssortedStationaryState(
+                mean,
+                sd,
+                realized_r,
+                boundary_mass,
+                assortative_amplitude_target(coefficient, realized_r),
+            )
+        previous_sd = sd
+    raise FixedPointNotConvergedError(
+        f"assorted stationary distribution did not settle in {MAX_ITERATIONS} "
+        f"iterations at era_mean={era_mean}, era_sd={era_sd}, "
+        f"coefficient={coefficient}, copula={copula_correlation}"
+    )
