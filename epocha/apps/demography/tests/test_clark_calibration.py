@@ -165,3 +165,108 @@ class TestTheFixedPointIsWellPosed:
         settled = stationary_rank_distribution(0.5, initial=[0.0] * 5 + [1.0])
         assert len(settled) == 5
         assert sum(settled) == pytest.approx(1.0, abs=1e-9)
+
+
+class TestThePersistenceIsTheDeclaredHeuristic:
+    """`b = 0.7` is a declared design heuristic, NOT Clark's 0.75.
+
+    His constant applies to a LATENT status this model does not possess --
+    here the ladder IS the state variable, not a noisy observation of
+    something underlying it -- so his attenuation factor cannot be computed
+    and cannot be applied. The numerical closeness of 0.7 to 0.75 is
+    meaningless, and a future edit "correcting" it toward his figure would be
+    exactly the misattribution the amendment forbids. Without this test that
+    edit passes silently: every other test here is satisfied by either value.
+    """
+
+    def test_the_persistence_is_the_declared_value(self):
+        assert CLARK_PERSISTENCE == 0.7
+
+    def test_it_is_not_clarks_latent_constant(self):
+        assert CLARK_PERSISTENCE != 0.75, (
+            "0.75 is Clark's LATENT-status constant and does not belong on an "
+            "observable five-rank ladder"
+        )
+
+    def test_the_persistence_actually_enters_the_map(self):
+        """A constant nobody reads is not a parameter.
+
+        Measured at a fixed innovation inside the bracket: raising the
+        persistence pulls each child closer to its parent, so the stationary
+        dispersion rises. An implementation that hardcoded a different value,
+        or ignored the constant, gives the same number for both.
+        """
+        from epocha.apps.demography import clark_calibration
+
+        original = clark_calibration.CLARK_PERSISTENCE
+        probe_sigma = 0.688956
+        try:
+            baseline = realized_rank_dispersion(probe_sigma)
+            clark_calibration.CLARK_PERSISTENCE = 0.75
+            raised = realized_rank_dispersion(probe_sigma)
+        finally:
+            clark_calibration.CLARK_PERSISTENCE = original
+        assert raised != pytest.approx(baseline, rel=1e-6)
+
+
+class TestTheZoneMeanIsSolvedForNotAssumed:
+    """The transition matrix depends on the distribution being solved for.
+
+    That is what makes this a mean-field problem rather than a linear
+    stationary-vector one, and it is invisible on a symmetric ladder: a
+    uniform start has mean 2, the ladder is symmetric about 2, and the fixed
+    point stays there, so an implementation that hardcoded 2.0 would agree
+    with every symmetric test. These start ASYMMETRIC, where a frozen mean
+    and a solved one part company.
+    """
+
+    def test_an_asymmetric_start_settles_away_from_the_ladder_centre(self):
+        skewed = [0.7, 0.3, 0.0, 0.0, 0.0]
+        settled = stationary_rank_distribution(0.30, initial=skewed)
+        mean = sum(p * k for k, p in enumerate(settled))
+        assert mean < 1.5, "a population starting low must not be pulled to the centre"
+
+    def test_two_asymmetric_starts_settle_at_different_means(self):
+        """A frozen zone mean drags both to the same place; a solved one does
+        not, because each population is its own reference."""
+        low = stationary_rank_distribution(0.30, initial=[0.7, 0.3, 0.0, 0.0, 0.0])
+        high = stationary_rank_distribution(0.30, initial=[0.0, 0.0, 0.0, 0.3, 0.7])
+        low_mean = sum(p * k for k, p in enumerate(low))
+        high_mean = sum(p * k for k, p in enumerate(high))
+        assert high_mean - low_mean > 1.0
+
+
+class TestTheBracketIsWhereTheSolverCanWork:
+    """Why the bisection is bracketed above the collapse.
+
+    Two independent reasons, and both are measured rather than asserted.
+
+    First, no admitted target has a root down there: at the bracket's lower
+    endpoint the dispersion is already far below the smallest admitted target,
+    and the map is monotone above it, so the non-monotone stretch is
+    unreachable for any question the solver is allowed to be asked.
+
+    Second, and this is the one that would otherwise be discovered in
+    production: the mean-field iteration does not CONVERGE below the bracket.
+    Measured from the uniform start, it settles in 40 steps at the operating
+    amplitude, 19 at the top of the bracket, and 9,763 at its lower endpoint --
+    but 1,409,260 at 0.05, and at 0.03 it does not settle at all within three
+    million, because the innovation is too weak to move mass across a
+    half-unit rounding cell and the distribution creeps forever. The iteration
+    cap is therefore sized for the bracket, and refusing outside it is correct
+    behaviour rather than a missing feature.
+    """
+
+    def test_the_lower_endpoint_is_already_below_the_smallest_target(self):
+        assert realized_rank_dispersion(0.075) < S_RANK_MIN
+
+    def test_the_iteration_settles_quickly_across_the_whole_bracket(self):
+        """If this ever slows down, the cap is the thing to re-measure."""
+        for sigma in (0.075, 0.1, 0.3, 0.688956, 1.0, 1.39):
+            assert realized_rank_dispersion(sigma) >= 0.0  # must not raise
+
+    def test_below_the_bracket_the_solver_refuses_rather_than_guessing(self):
+        """An unconverged dispersion returned as if settled would silently
+        mis-calibrate every era using this rule."""
+        with pytest.raises(ClarkCalibrationError, match="did not settle"):
+            realized_rank_dispersion(0.05)
