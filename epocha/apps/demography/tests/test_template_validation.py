@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import json
+import random
 
 import pytest
 
@@ -355,4 +356,69 @@ class TestBoundaryMassIsReported:
         assert any("boundary mass" in m for m in messages)
         assert any(
             branch in m for m in messages for branch in ("two-parent", "single-parent", "no-parent")
+        )
+
+
+class TestTheLoaderCacheDoesNotLeakMutations:
+    """The memoised loader hands the SAME dict to every caller.
+
+    That is safe only while nobody mutates it, and this class is what makes
+    the invariant a gate rather than a sentence in a docstring -- the failure
+    mode this whole work item exists to correct is a property declared in
+    prose and contradicted by the code.
+    """
+
+    def test_the_birth_pipeline_leaves_the_cached_template_untouched(self, db):
+        import copy
+
+        from epocha.apps.demography import template_loader
+
+        template_loader.load_template.cache_clear()
+        pristine = copy.deepcopy(template_loader.load_template("industrial"))
+
+        # Everything the birth path does to a template it was handed.
+        from epocha.apps.demography.inheritance import apply_social_inheritance
+
+        template = template_loader.load_template("industrial")
+
+        class _Child:
+            education_level = 0.0
+            social_class = "working"
+
+        apply_social_inheritance(_Child(), None, None, template, 2.0, random.Random(1))
+
+        assert template_loader.load_template("industrial") == pristine, (
+            "a caller mutated the cached template; the memoised dict is shared"
+        )
+
+    def test_two_loads_return_the_same_object(self, db):
+        from epocha.apps.demography import template_loader
+
+        template_loader.load_template.cache_clear()
+        first = template_loader.load_template("industrial")
+        second = template_loader.load_template("industrial")
+        assert first is second, "the loader must be memoised, not merely fast"
+
+    def test_the_cache_key_includes_the_templates_directory(self, tmp_path, monkeypatch, db):
+        """A template read from a temporary directory must not poison the
+        entry for the shipped one of the same name."""
+        import json
+
+        from epocha.apps.demography import template_loader
+
+        template_loader.load_template.cache_clear()
+        shipped = template_loader.load_template("industrial")
+        assert shipped["social_inheritance"]["education_regression_rho"] == pytest.approx(0.60)
+
+        altered = json.loads(json.dumps(shipped))
+        altered["social_inheritance"]["education_regression_rho"] = 0.31
+        (tmp_path / "industrial.json").write_text(json.dumps(altered))
+        monkeypatch.setattr(template_loader, "TEMPLATES_DIR", tmp_path)
+        from_tmp = template_loader.load_template("industrial")
+        assert from_tmp["social_inheritance"]["education_regression_rho"] == pytest.approx(0.31)
+
+        monkeypatch.undo()
+        again = template_loader.load_template("industrial")
+        assert again["social_inheritance"]["education_regression_rho"] == pytest.approx(0.60), (
+            "the temporary directory's template poisoned the shipped entry"
         )

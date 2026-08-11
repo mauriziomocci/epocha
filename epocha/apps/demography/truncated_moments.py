@@ -258,8 +258,8 @@ def check_admissible_region(
         era_sd: declared amplitude of that distribution.
         coefficients: the transmission coefficients that govern the characters
             declared at this pair -- `h^2` for traits, `rho` for education.
-            EVERY distinct value is checked; see the note above for why the
-            largest is not the least favourable.
+            EVERY distinct value is checked; the class docstring above
+            explains why the largest is not the least favourable.
 
     The third check is evaluated on the WORST of the three kinship branches
     AND on every declared coefficient, not on a conventional branch and not
@@ -313,21 +313,19 @@ def check_admissible_region(
     labels = ("two-parent", "single-parent", "no-parent")
     ratios: list[float] = []
     masses: list[float] = []
-    ratio_labels: list[str] = []
-    mass_labels: list[str] = []
+    case_labels: list[str] = []
     for coefficient in sorted(set(coefficients)):
         for index, (parents, signal, residual) in enumerate(_branch_coefficients(coefficient)):
             _, sd, tail = _solve(era_mean, era_sd, parents, signal, residual * era_sd)
             ratios.append(sd / era_sd)
             masses.append(tail)
-            ratio_labels.append(f"{labels[index]} at coefficient {coefficient}")
-            mass_labels.append(f"{labels[index]} at coefficient {coefficient}")
+            case_labels.append(f"{labels[index]} branch at coefficient {coefficient}")
 
     worst_ratio = min(ratios)
     worst_mass = max(masses)
-    worst_mass_branch = mass_labels[masses.index(worst_mass)]
+    worst_mass_branch = case_labels[masses.index(worst_mass)]
     if worst_ratio < MIN_AMPLITUDE_RATIO:
-        worst_ratio_branch = ratio_labels[ratios.index(worst_ratio)]
+        worst_ratio_branch = case_labels[ratios.index(worst_ratio)]
         return AdmissibleRegionResult(
             False,
             f"realized stationary amplitude {worst_ratio:.2%} of the declared "
@@ -509,15 +507,25 @@ def solve_assorted_stationary_state(
     rank ordering is the `copula_correlation = 1` limit.
 
     Point (i) holds EXACTLY for the continuous copula and only approximately
-    for this discretisation, and the difference is stated rather than
-    glossed: the conditional is evaluated at one representative latent
-    position per mother cell instead of integrated over the cell, so the
-    mother's marginal is reproduced to 3e-18 and the father's to a maximum
-    per-cell error of 1.1e-3 at a copula parameter of 0.8. Re-solving both
-    crossing thresholds against the symmetrised joint `0.5 * (J + J^T)`
-    moves them by nothing at six decimals -- 0.540291 and 0.712160 either
-    way -- so the published figures are robust to the asymmetry; it was the
-    claim of exactness that needed qualifying, not the numbers. The measurement
+    for this discretisation, and the difference is stated with its
+    configuration rather than as a bare number, because it varies by an order
+    of magnitude across the pairs this model admits. The conditional is
+    evaluated at one representative latent position per mother cell instead
+    of integrated over the cell, so the construction is asymmetric: the
+    MOTHER's marginal is reproduced to 2e-17 and the FATHER's is not. At a
+    copula parameter of 0.8 the father's worst per-cell error measures
+    1.483e-3 on the education pair's STATIONARY distribution -- the one this
+    function actually solves -- against 1.110e-3 on that pair's initial
+    distribution and 4.068e-5 on the centred trait pair. Quoting the smallest
+    of the three without naming the configuration is the failure this module
+    exists to correct, so all three are named and `test_assortative_mating.py`
+    pins them.
+
+    Re-solving both crossing thresholds against the symmetrised joint
+    `0.5 * (J + J^T)` moves them by nothing at six decimals -- 0.540291 and
+    0.712160 either way -- so the published figures are robust to the
+    asymmetry; it was the claim of exactness that needed qualifying, not the
+    numbers. The measurement
     reported is the realized Pearson correlation on the observed scale, not
     the copula parameter, because that is what counting a real population
     would return and what A4's formula consumes.

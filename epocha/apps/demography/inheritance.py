@@ -2,11 +2,19 @@
 
 Source:
 - Falconer, D.S. & Mackay, T.F.C. (1996). Introduction to Quantitative
-  Genetics (4th ed.), Longman, chapter 10 -- resemblance between
-  relatives. The module cited chapter 8 until amendment A1, which
-  records the correction; A1 does not depend on the citation, because
-  it derives every coefficient in full (polygenic additive model with
-  an environmental noise term estimated at the population level).
+  Genetics (4th ed.), Longman. The material this module uses spans
+  chapters 8 to 10: 8 "Components of variance", 9 "Resemblance between
+  Relatives", 10 "Heritability" -- the last being where offspring-parent
+  regression and assortative mating sit.
+
+  VERIFICATION STATUS, stated because it was briefly overstated. The
+  chapter numbers and titles are verified against the fourth edition's
+  TABLE OF CONTENTS only; the book has not been opened and no claim here
+  rests on a page. The module cited "chapter 8" alone until 2026-08-11,
+  and a first correction wrote "chapter 10 -- resemblance between
+  relatives", which attaches chapter 9's title to chapter 10. Amendment
+  A1 derives every coefficient in full precisely so that nothing depends
+  on resolving this.
 
 Per-trait heritability (h^2) values used by callers of `inherit_trait` come
 from trait-specific primary studies (e.g. Jang, Livesley & Vernon 1996 for
@@ -345,7 +353,7 @@ def inherit_trait(
 ) -> float:
     """Compute a child's trait value under polygenic additive inheritance.
 
-    Formula (Falconer & Mackay 1996, ch. 10; amendment A1 of 2026-08-07):
+    Formula (Falconer & Mackay 1996, chs. 8-10; amendment A1 of 2026-08-07):
 
         child_T = m + b * (parent_term_T - m) + e_T
         e_T ~ N(0, c * era_sd)                        m = era_mean
@@ -519,7 +527,7 @@ def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict
        and `Agent.personality` JSONB entries alike (the Big Five, or
        unpublished-h2 traits like `humor_style`) -- is drawn through the
        polygenic additive kernel `inherit_trait` (Falconer & Mackay 1996,
-       ch. 10).
+       chs. 8-10).
     2. `derived_trait_formulas` (e.g. `cunning`, a Machiavellism proxy) are
        evaluated against the freshly inherited values from step 1, never
        against the parents' values directly. `cunning` has no published
@@ -664,8 +672,15 @@ def resolve_birth_attributes(template: dict, rng: Any) -> tuple[str, str]:
        p_male = sex_ratio / (1 + sex_ratio), then a single `rng.random()` is
        drawn and compared against it. A ratio of 1.05 -- about 105 male
        births per 100 female births -- is biologically near-universal across
-       human populations (Falconer & Mackay 1996, ch. 10, cite it as one of
-       the best-documented constants in human genetics) and is nonetheless
+       human populations. THE ATTRIBUTION THAT USED TO SIT HERE IS
+       WITHDRAWN: it credited Falconer & Mackay for calling this one of the
+       best-documented constants in human genetics, and that book is a
+       quantitative-genetics text whose chapters 8-10 are about variance
+       components, resemblance between relatives and heritability -- not
+       about the human secondary sex ratio. The claim was carried unverified
+       under chapter 8 and a mechanical renumbering made it worse rather than
+       better. The 1.05 figure is retained as a DECLARED, UNSOURCED design
+       parameter pending a proper demographic citation, and is nonetheless
        carried as a tunable per-era template parameter rather than a hard
        constant, since some era templates (sci_fi) deliberately deviate from
        it. This draw yields only "male" or "female": the biological
@@ -1246,7 +1261,7 @@ def apply_inheritance_at_birth(
     Fixed step order (mandatory, not incidental -- see "RNG stream" below):
 
     1. `apply_trait_inheritance` -- polygenic biological traits (Falconer &
-       Mackay 1996, ch. 10) and derived-trait formulas (e.g. `cunning`).
+       Mackay 1996, chs. 8-10) and derived-trait formulas (e.g. `cunning`).
     2. `resolve_birth_attributes` -- gender and sexual orientation, exactly
        two `rng.random()` draws.
     3. `apply_social_inheritance` -- social_class transmission (one of four

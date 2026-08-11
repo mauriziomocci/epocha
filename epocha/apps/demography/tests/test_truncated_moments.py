@@ -42,19 +42,21 @@ def boundary_mass(era_mean: float, era_sd: float, coefficient: float) -> float:
 
 
 class TestStationaryAmplitudeRatio:
-    """A1 publishes four measured configurations; all four are pinned here."""
+    """A1 publishes four measured configurations; all four are pinned here at
+    the values the CODE produces, which is what A1's rectification of
+    2026-08-11 aligned the document to."""
 
     @pytest.mark.parametrize(
         ("era_mean", "era_sd", "coefficient", "expected_ratio", "expected_edge"),
         [
             # traits at the declared pair, h2 = 0.55 (the highest shipped)
-            (0.50, 0.15, 0.55, 0.9991, 0.00086),
+            (0.50, 0.15, 0.55, 0.9991, 0.000847),
             # education at its declared pair, rho = 0.60 - the off-centre case
             (0.30, 0.15, 0.60, 0.9772, 0.02136),
             # rejected by check 3: the configuration that motivated the logit
-            (0.80, 0.15, 0.55, 0.9203, 0.08141),
+            (0.80, 0.15, 0.55, 0.9203, 0.080989),
             # rejected by check 3: wide amplitude at the centre
-            (0.50, 0.30, 0.55, 0.9074, 0.09120),
+            (0.50, 0.30, 0.55, 0.9074, 0.090885),
         ],
     )
     def test_reproduces_the_amendment_figures(

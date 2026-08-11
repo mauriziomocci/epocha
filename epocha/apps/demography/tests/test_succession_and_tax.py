@@ -29,13 +29,28 @@ import pytest
 from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent
-from epocha.apps.demography.inheritance import apply_estate_tax, distribute_estate
+from epocha.apps.demography.inheritance import (
+    apply_estate_tax,
+    distribute_estate,
+    inherit_trait,
+)
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import Government, World, Zone
 
 from .test_inheritance import _make_agent
+
+
+class _FixedDraw:
+    """Returns a caller-chosen number of sigmas from whatever it is asked for."""
+
+    def __init__(self, z: float) -> None:
+        self.z = z
+
+    def gauss(self, mu: float, sigma: float) -> float:
+        return mu + sigma * self.z
+
 
 ALL_TEMPLATES = (
     "pre_industrial_christian",
@@ -281,7 +296,16 @@ class TestTheEducationCoefficientsMatchTheirSource:
         code below always asserted on `rho**2`; it was the prose that
         carried the trap A1's own test constraint exists to prevent.
         """
-        assert math.sqrt(1.0 - 0.60**2 / 2.0) == pytest.approx(0.905539, abs=5e-7)
+        # Measured THROUGH the kernel, not asserted as a literal against a
+        # literal: the phase-6 audit caught the first version of this line
+        # doing exactly what it had just condemned elsewhere. A no-parent
+        # probe isolates the residual scale, and the two-parent branch is the
+        # one whose scale the value above names.
+        rng = _FixedDraw(1.0)
+        high = inherit_trait(0.30, 0.30, 0.60, 0.30, 0.15, rng)
+        low = inherit_trait(0.30, 0.30, 0.60, 0.30, 0.15, _FixedDraw(-1.0))
+        measured = (high - low) / (2.0 * 0.15)
+        assert measured == pytest.approx(0.905539, abs=5e-7)
         for name in ALL_TEMPLATES:
             rho = load_template(name)["social_inheritance"]["education_regression_rho"]
             assert 1.0 - rho**2 / 2.0 > 0.0

@@ -167,7 +167,6 @@ SCHEMA: dict[str, Any] = {
 ALLOWED_FERTILITY_AGENCY = {"biological", "planned"}
 
 
-@lru_cache(maxsize=32)
 def load_template(name: str) -> dict[str, Any]:
     """Load a demography template by name and validate it against A9.
 
@@ -175,10 +174,21 @@ def load_template(name: str) -> dict[str, Any]:
     the admissible-region figures to be reported AT LOAD; without the cache
     `apply_inheritance_at_birth` calls this once per birth, so the two INFO
     records were emitted per newborn and the 0.475 ms grid solve was repeated
-    for every one of them. The templates are read-only JSON files shipped
-    with the package and the returned dict is never mutated by any caller,
-    so caching is safe as well as correct here -- a test that needs a fresh
-    parse can call `load_template.cache_clear()`.
+    for every one of them.
+
+    THE CACHE SHARES ONE DICT ACROSS CALLERS, which is safe only while none
+    of them mutates it. That invariant is enforced by
+    `test_template_validation.py`, not merely asserted here: a property
+    stated in a docstring and not gated by a test gets violated silently, and
+    this module exists because that happened elsewhere in the same subsystem.
+    A test needing a fresh parse calls `load_template.cache_clear()`, which
+    clears the underlying `_load_template_cached`.
+
+    The key includes `TEMPLATES_DIR` because tests monkeypatch it: keying on
+    the name alone would let a template loaded from a temporary directory
+    poison the entry for the shipped one of the same name for the rest of the
+    session. No test does that today; the key costs nothing and removes the
+    trap rather than documenting it.
 
     Args:
         name: the template file name without the .json extension.
@@ -187,13 +197,28 @@ def load_template(name: str) -> dict[str, Any]:
         FileNotFoundError: template file does not exist.
         ValueError: the template violates any clause of the A9 contract.
     """
-    path = TEMPLATES_DIR / f"{name}.json"
+    return _load_template_cached(name, str(TEMPLATES_DIR))
+
+
+@lru_cache(maxsize=32)
+def _load_template_cached(name: str, templates_dir: str) -> dict[str, Any]:
+    """Parse, validate and report one template. See `load_template`.
+
+    `templates_dir` is part of the cache key and otherwise unused: tests
+    monkeypatch `TEMPLATES_DIR`, and keying on the name alone would let a
+    template read from a temporary directory poison the entry for the shipped
+    one of the same name.
+    """
+    path = Path(templates_dir) / f"{name}.json"
     if not path.exists():
         raise FileNotFoundError(f"Demography template not found: {path}")
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     validate_template(data, source=str(path))
     return data
+
+
+load_template.cache_clear = _load_template_cached.cache_clear
 
 
 def _fail(source: str, message: str) -> None:
@@ -338,7 +363,7 @@ def _report(label: str, era_mean: float, era_sd: float, result: AdmissibleRegion
     """
     logger.info(
         "demography template %s at (era_mean=%.4f, era_sd=%.4f): realized amplitude "
-        "%.2f%% of declared on the worst branch, boundary mass %.2f%% on the %s branch",
+        "%.2f%% of declared on the worst branch, boundary mass %.2f%% on the %s",
         label,
         era_mean,
         era_sd,

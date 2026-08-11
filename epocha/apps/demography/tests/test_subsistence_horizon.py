@@ -168,10 +168,32 @@ class TestBothConsumersDivideByTheSameThreshold:
 
         A consumer resolving it for a different zone -- or resolving a
         simulation-wide constant -- would still pass the boundary tests above
-        in a single-zone fixture. This one records every call and compares
-        the arguments.
+        in a single-zone fixture. This one puts the agent in a zone whose
+        threshold DIFFERS from the other zone's, records every call, and
+        compares the arguments.
+
+        The two-zone construction is load-bearing and was missing from the
+        first version, which the phase-6 audit killed by measurement: with
+        one zone in the world, `set(seen)` is a singleton whatever the
+        resolution rule is, and a mutant resolving `world.zones.first()`
+        instead of `agent.zone` stayed green across all 724 demography tests.
         """
         sim, zone = sim_with_zone
+        # A SECOND zone, priced differently, and the agent lives in it. A
+        # consumer reading the wrong zone now reads a different number, and
+        # the recorded arguments diverge.
+        other = Zone.objects.create(
+            world=zone.world,
+            name="OtherHorizonZone",
+            zone_type="residential",
+            boundary=Polygon.from_bbox((200, 200, 300, 300)),
+            center=Point(250, 250),
+        )
+        ZoneEconomy.objects.create(zone=other, market_prices={"FOOD": 19.7})
+        assert compute_subsistence_threshold(sim, other) != compute_subsistence_threshold(
+            sim, zone
+        ), "the two zones must price subsistence differently or nothing is discriminated"
+
         real = compute_subsistence_threshold
         seen: list[tuple] = []
 
@@ -183,13 +205,16 @@ class TestBothConsumersDivideByTheSameThreshold:
 
         monkeypatch.setattr(context_module, "compute_subsistence_threshold", spy)
 
-        agent = _make_agent(sim, zone, "Both", wealth=1.0)
+        agent = _make_agent(sim, other, "Both", wealth=1.0, age=30)
         becker_modulation(agent, SEED_COEFFS)
         template = {"migration": {"flight_trigger_ticks": 1}}
         zone_stats = {
             "world": zone.world,
             "government_stability": 0.7,
-            "zones": {zone.id: {"zone": zone, "wage": 10.0, "unemployment": 0.1}},
+            "zones": {
+                zone.id: {"zone": zone, "wage": 10.0, "unemployment": 0.1},
+                other.id: {"zone": other, "wage": 10.0, "unemployment": 0.1},
+            },
         }
         evaluate_emergency_flight(
             agent, sim, 10, template, zone_stats, consecutive_ticks_under_subsistence=5

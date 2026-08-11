@@ -269,3 +269,55 @@ class TestTheTruncatedCrossingsArePinned:
         assert traits.stationary_sd / TRAIT_ERA[1] == pytest.approx(0.9991, abs=5e-4)
         assert education.stationary_sd / EDUCATION_ERA[1] == pytest.approx(0.9772, abs=5e-4)
         assert education.boundary_mass == pytest.approx(0.0214, abs=5e-4)
+
+
+class TestTheCopulaDiscretisationErrorIsPinned:
+    """Three numbers the module's docstring publishes, none of which had a
+    witness until the phase-6 audit asked for one.
+
+    The construction evaluates the conditional at one representative latent
+    position per mother cell rather than integrating over it, so the joint is
+    asymmetric: the mother's marginal survives exactly, the father's does not.
+    The error varies by an order of magnitude across the admissible pairs,
+    which is why each figure is pinned WITH its configuration.
+    """
+
+    @staticmethod
+    def _marginal_errors(pmf, copula_correlation):
+        import numpy as np
+        from scipy.special import ndtr, ndtri
+
+        from epocha.apps.demography.truncated_moments import _latent_edges
+
+        cumulative = np.clip(np.cumsum(pmf), 0.0, 1.0)
+        edges = _latent_edges(pmf)
+        mid = np.clip(cumulative - pmf / 2.0, 1e-15, 1.0 - 1e-15)
+        z = ndtri(mid)
+        spread = math.sqrt(1.0 - copula_correlation**2)
+        conditional = np.diff(ndtr((edges[None, :] - copula_correlation * z[:, None]) / spread), 1)
+        joint = pmf[:, None] * conditional
+        joint /= joint.sum()
+        return (
+            float(np.abs(joint.sum(axis=1) - pmf).max()),
+            float(np.abs(joint.sum(axis=0) - pmf).max()),
+        )
+
+    @pytest.mark.parametrize(
+        ("era", "expected_father"),
+        [(EDUCATION_ERA, 1.110e-3), (TRAIT_ERA, 1.630e-5)],
+    )
+    def test_the_mother_marginal_survives_and_the_father_one_does_not(self, era, expected_father):
+        from epocha.apps.demography.truncated_moments import _initial_distribution
+
+        mother_error, father_error = self._marginal_errors(_initial_distribution(*era), 0.8)
+        assert mother_error < 1e-15, "the mother's marginal must be preserved exactly"
+        assert father_error == pytest.approx(expected_father, rel=1e-3)
+
+    def test_the_error_is_an_order_of_magnitude_larger_off_centre(self):
+        """Which is why the docstring names the configuration: a single
+        number here would be true of one pair and wrong for the other."""
+        from epocha.apps.demography.truncated_moments import _initial_distribution
+
+        _, off_centre = self._marginal_errors(_initial_distribution(*EDUCATION_ERA), 0.8)
+        _, centred = self._marginal_errors(_initial_distribution(*TRAIT_ERA), 0.8)
+        assert off_centre > 50 * centred
