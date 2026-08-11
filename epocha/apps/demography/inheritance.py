@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import logging
+import math
 from collections import deque
 from typing import Any
 
@@ -428,16 +429,34 @@ def inherit_trait(
         The child's inherited trait value, clamped to [lo, hi].
     """
     if mother_val is not None and father_val is not None:
-        midparent = (mother_val + father_val) / 2
-    elif mother_val is not None:
-        midparent = mother_val
-    elif father_val is not None:
-        midparent = father_val
+        parent_term = (mother_val + father_val) / 2
+        signal_coefficient = h2
+        # Var(midparent) = V/2 under random mating, so imposing V = era_sd^2
+        # on V = h2^2 * V/2 + c^2 * era_sd^2 gives c^2 = 1 - h2^2/2.
+        residual_scale = math.sqrt(1.0 - h2**2 / 2.0)
+    elif mother_val is not None or father_val is not None:
+        parent_term = mother_val if mother_val is not None else father_val
+        # Cov(child, one parent) = V_A/2 against Var(one parent) = V_P, so the
+        # regression coefficient on a single parent is h2/2 -- half of the
+        # midparent one, and derived rather than postulated.
+        signal_coefficient = h2 / 2.0
+        residual_scale = math.sqrt(1.0 - h2**2 / 4.0)
     else:
-        midparent = era_mean
+        parent_term = era_mean
+        signal_coefficient = 0.0
+        # No parental signal survives, so the residual carries the whole
+        # declared amplitude.
+        residual_scale = 1.0
 
-    noise = rng.gauss(era_mean, era_sd)
-    result = h2 * midparent + (1 - h2) * noise
+    # NOTE on the exponent, because getting it wrong is invisible to a slope
+    # test: `h2` already holds h-squared, so the identity's h^4 is `h2**2`.
+    # Writing `h2**4` inflates the standard deviation by 6.03% at h2 = 0.55
+    # and the variance by 12.43%, and leaves the regression slope untouched.
+    #
+    # ONE draw, on every branch: the RNG stream a tick consumes must not
+    # depend on which branch ran.
+    residual = rng.gauss(0.0, residual_scale * era_sd)
+    result = era_mean + signal_coefficient * (parent_term - era_mean) + residual
     return max(lo, min(hi, result))
 
 

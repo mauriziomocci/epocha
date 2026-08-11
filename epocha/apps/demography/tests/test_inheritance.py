@@ -98,6 +98,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import random
 import subprocess
@@ -145,12 +146,18 @@ class TestInheritTraitTwoParents:
     """Two known parents: exact midparent + single-draw noise formula."""
 
     def test_matches_hand_computed_formula_with_seeded_rng(self):
-        """h2 * midparent + (1 - h2) * noise, noise = rng.gauss(era_mean, era_sd).
+        """m + h2*(midparent - m) + e, with e ~ N(0, era_sd^2 * (1 - h2^2/2)).
 
-        The expected value is computed independently with an identically
-        seeded random.Random so the assertion is exact (mirrors the RNG
-        sequence the implementation is expected to draw from), not merely
-        plausible.
+        The residual scale is NOT (1 - h2). Amendment A1 (2026-08-07) derives
+        it from the variance identity: under random mating Var(midparent) is
+        half the population variance, so imposing that the stationary
+        dispersion equal the declared era_sd gives c = sqrt(1 - h2^2/2). The
+        previous writing summed its two coefficients to one, which is an
+        interpolation convention rather than a variance decomposition, and it
+        settled the population at 48.85% of the declared amplitude.
+
+        The seed is unchanged from before the amendment. What changed is the
+        formula, and therefore the expected value.
         """
         mother_val = 0.60
         father_val = 0.40
@@ -158,10 +165,11 @@ class TestInheritTraitTwoParents:
         era_mean = 0.50
         era_sd = 0.10
 
+        residual_scale = math.sqrt(1 - h2**2 / 2)
         expected_rng = random.Random(1234)
-        expected_noise = expected_rng.gauss(era_mean, era_sd)
+        expected_residual = expected_rng.gauss(0.0, residual_scale * era_sd)
         midparent = (mother_val + father_val) / 2
-        expected = h2 * midparent + (1 - h2) * expected_noise
+        expected = era_mean + h2 * (midparent - era_mean) + expected_residual
 
         actual_rng = random.Random(1234)
         actual = inherit_trait(mother_val, father_val, h2, era_mean, era_sd, actual_rng)
@@ -233,15 +241,24 @@ class TestInheritTraitSingleParentFallback:
     genetic signal."""
 
     def test_mother_only_uses_mother_as_parent_t(self):
-        """father_val is None: child_T = h2 * mother_val + (1 - h2) * noise."""
+        """father_val is None: m + (h2/2)*(mother - m) + e, e ~ N(0, s^2(1-h2^2/4)).
+
+        Both halves changed under amendment A1. The signal coefficient is
+        h2/2, which is what the parent-offspring regression implies -- Cov is
+        V_A/2 against Var of a single parent V_P -- rather than the h2 the
+        previous writing carried, which described the midparent case. And the
+        residual scale follows the same variance identity, at a single
+        parent's full variance rather than a midparent's half.
+        """
         mother_val = 0.70
         h2 = 0.4
         era_mean = 0.5
         era_sd = 0.1
 
+        residual_scale = math.sqrt(1 - h2**2 / 4)
         expected_rng = random.Random(42)
-        expected_noise = expected_rng.gauss(era_mean, era_sd)
-        expected = h2 * mother_val + (1 - h2) * expected_noise
+        expected_residual = expected_rng.gauss(0.0, residual_scale * era_sd)
+        expected = era_mean + (h2 / 2) * (mother_val - era_mean) + expected_residual
 
         actual_rng = random.Random(42)
         actual = inherit_trait(mother_val, None, h2, era_mean, era_sd, actual_rng)
@@ -249,15 +266,16 @@ class TestInheritTraitSingleParentFallback:
         assert actual == pytest.approx(expected)
 
     def test_father_only_uses_father_as_parent_t(self):
-        """mother_val is None: child_T = h2 * father_val + (1 - h2) * noise."""
+        """mother_val is None: the mirror of the mother-only branch."""
         father_val = 0.30
         h2 = 0.4
         era_mean = 0.5
         era_sd = 0.1
 
+        residual_scale = math.sqrt(1 - h2**2 / 4)
         expected_rng = random.Random(42)
-        expected_noise = expected_rng.gauss(era_mean, era_sd)
-        expected = h2 * father_val + (1 - h2) * expected_noise
+        expected_residual = expected_rng.gauss(0.0, residual_scale * era_sd)
+        expected = era_mean + (h2 / 2) * (father_val - era_mean) + expected_residual
 
         actual_rng = random.Random(42)
         actual = inherit_trait(None, father_val, h2, era_mean, era_sd, actual_rng)
@@ -296,10 +314,12 @@ class TestInheritTraitBothParentsUnknown:
         era_sd = 0.1
 
         expected_rng = random.Random(11)
-        expected_noise = expected_rng.gauss(era_mean, era_sd)
-        # No parental signal: midparent degrades to era_mean itself, exactly
-        # mirroring _regress_education_level's own neither-parent branch.
-        expected = h2 * era_mean + (1 - h2) * expected_noise
+        # No parental signal survives, so under amendment A1 the residual
+        # carries the WHOLE declared amplitude -- c = 1, not (1 - h2) and not
+        # the two-parent scale. Applying the two-parent scale here is the
+        # partial correction the amendment measured at 92.13% of target.
+        expected_residual = expected_rng.gauss(0.0, era_sd)
+        expected = era_mean + expected_residual
 
         actual_rng = random.Random(11)
         actual = inherit_trait(None, None, h2, era_mean, era_sd, actual_rng)
