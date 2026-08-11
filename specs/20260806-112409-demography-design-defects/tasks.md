@@ -52,5 +52,5 @@ la ha chiusa.
 
 - [x] **5.1** Whitepaper §4.1.2, §4.1.4, §4.1.5, §6.2 e §11 in entrambe le lingue (FR-010), con la dichiarazione esplicita di non comparabilità.
 - [x] **5.2** Suite intera, lint, controllo migrazioni.
-- [ ] **5.3** GATE PESANTE: audit avversariale sul codice fino a CONVERGED. Round 1: **NOT CONVERGED**, diciotto rilievi, tutti chiusi; round 2 in corso.
+- [ ] **5.3** GATE PESANTE: audit avversariale sul codice fino a CONVERGED. Round 1: **NOT CONVERGED**, 18 rilievi. Round 2: **NOT CONVERGED**, 9, di cui il bloccante introdotto dalla remediation del round 1. Round 3: **NOT CONVERGED**, 13, con la stessa classe di difetto sulla citazione colta per la terza volta. Tutti e 40 chiusi; round 4 da lanciare.
 - [ ] **5.4** Merge e ri-pin del whitepaper al commit di merge. **Richiede ratifica esplicita dell'utente**: il piano la colloca qui e nessun gate la sostituisce.

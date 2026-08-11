@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import copy
 import json
-import random
 
 import pytest
 
@@ -369,23 +368,66 @@ class TestTheLoaderCacheDoesNotLeakMutations:
     """
 
     def test_the_birth_pipeline_leaves_the_cached_template_untouched(self, db):
-        import copy
+        """ALL THREE passes of the birth path, not one.
+
+        A first version called only `apply_social_inheritance`, and a mutant
+        writing a key into `heritability` inside `apply_trait_inheritance`
+        stayed green. The pipeline is `apply_trait_inheritance`,
+        `resolve_birth_attributes` and `apply_social_inheritance`, and the
+        guard has to cover the surface its own comment claims.
+        """
+        import random as _random
 
         from epocha.apps.demography import template_loader
+        from epocha.apps.demography.inheritance import (
+            apply_social_inheritance,
+            apply_trait_inheritance,
+            resolve_birth_attributes,
+        )
 
         template_loader.load_template.cache_clear()
         pristine = copy.deepcopy(template_loader.load_template("industrial"))
-
-        # Everything the birth path does to a template it was handed.
-        from epocha.apps.demography.inheritance import apply_social_inheritance
-
         template = template_loader.load_template("industrial")
 
-        class _Child:
-            education_level = 0.0
-            social_class = "working"
+        from django.contrib.gis.geos import Point, Polygon
 
-        apply_social_inheritance(_Child(), None, None, template, 2.0, random.Random(1))
+        from epocha.apps.agents.models import Agent
+        from epocha.apps.simulation.models import Simulation
+        from epocha.apps.users.models import User
+        from epocha.apps.world.models import World, Zone
+
+        user = User.objects.create_user(
+            email="cache@epocha.dev", username="cacheuser", password="pass1234"
+        )
+        sim = Simulation.objects.create(name="CacheTest", seed=1, owner=user)
+        world = World.objects.create(simulation=sim, stability_index=0.7)
+        zone = Zone.objects.create(
+            world=world,
+            name="CacheZone",
+            zone_type="commercial",
+            boundary=Polygon.from_bbox((0, 0, 100, 100)),
+            center=Point(50, 50),
+        )
+
+        def _agent(name):
+            return Agent.objects.create(
+                simulation=sim,
+                name=name,
+                zone=zone,
+                role="farmer",
+                location=Point(50, 50),
+                age=30,
+                birth_tick=0,
+                education_level=0.5,
+                social_class="working",
+                personality={},
+            )
+
+        child, mother, father = _agent("Child"), _agent("Mother"), _agent("Father")
+        rng = _random.Random(20260811)
+        apply_trait_inheritance(child, mother, father, template, rng)
+        resolve_birth_attributes(template, rng)
+        apply_social_inheritance(child, mother, father, template, 2.0, rng)
 
         assert template_loader.load_template("industrial") == pristine, (
             "a caller mutated the cached template; the memoised dict is shared"
@@ -402,8 +444,6 @@ class TestTheLoaderCacheDoesNotLeakMutations:
     def test_the_cache_key_includes_the_templates_directory(self, tmp_path, monkeypatch, db):
         """A template read from a temporary directory must not poison the
         entry for the shipped one of the same name."""
-        import json
-
         from epocha.apps.demography import template_loader
 
         template_loader.load_template.cache_clear()

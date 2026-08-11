@@ -3,18 +3,18 @@
 Source:
 - Falconer, D.S. & Mackay, T.F.C. (1996). Introduction to Quantitative
   Genetics (4th ed.), Longman. The material this module uses spans
-  chapters 8 to 10: 8 "Components of variance", 9 "Resemblance between
-  Relatives", 10 "Heritability" -- the last being where offspring-parent
-  regression and assortative mating sit.
+  chapters 8 to 10.
 
-  VERIFICATION STATUS, stated because it was briefly overstated. The
-  chapter numbers and titles are verified against the fourth edition's
-  TABLE OF CONTENTS only; the book has not been opened and no claim here
-  rests on a page. The module cited "chapter 8" alone until 2026-08-11,
-  and a first correction wrote "chapter 10 -- resemblance between
-  relatives", which attaches chapter 9's title to chapter 10. Amendment
-  A1 derives every coefficient in full precisely so that nothing depends
-  on resolving this.
+  VERIFICATION STATUS, and NO CHAPTER TITLES, deliberately. The
+  numbers are verified against the fourth edition's table of
+  contents; the book has not been opened and no claim here rests on
+  a page. Titles are omitted because three consecutive audit rounds
+  caught a wrong one: first chapter 9's title attached to chapter
+  10, then a section heading inside chapter 8 promoted to that
+  chapter's title. A number is checkable against an index; a title
+  copied from memory is how this class of defect keeps recurring.
+  Amendment A1 derives every coefficient in full precisely so that
+  nothing depends on resolving it.
 
 Per-trait heritability (h^2) values used by callers of `inherit_trait` come
 from trait-specific primary studies (e.g. Jang, Livesley & Vernon 1996 for

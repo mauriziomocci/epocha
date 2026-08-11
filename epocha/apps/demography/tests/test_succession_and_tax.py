@@ -298,9 +298,11 @@ class TestTheEducationCoefficientsMatchTheirSource:
         """
         # Measured THROUGH the kernel, not asserted as a literal against a
         # literal: the phase-6 audit caught the first version of this line
-        # doing exactly what it had just condemned elsewhere. A no-parent
-        # probe isolates the residual scale, and the two-parent branch is the
-        # one whose scale the value above names.
+        # doing exactly what it had just condemned elsewhere. TWO parents,
+        # both at the era mean, so the signal term vanishes and what the two
+        # draws separate is the two-parent residual scale alone -- which is
+        # the branch the value 0.905539 names. (The comment here used to say
+        # "no-parent probe", which is a different branch with c = 1.)
         rng = _FixedDraw(1.0)
         high = inherit_trait(0.30, 0.30, 0.60, 0.30, 0.15, rng)
         low = inherit_trait(0.30, 0.30, 0.60, 0.30, 0.15, _FixedDraw(-1.0))

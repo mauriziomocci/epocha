@@ -212,12 +212,13 @@ class TestSignalAxisProbe:
         result = inherit_trait(None, None, coefficient, off_centre, ERA_SD, rng)
         assert rng.calls == 1, "the kernel must draw exactly once per call"
         assert result == pytest.approx(off_centre, abs=1e-12)
-        # And the probe genuinely discriminates: the same call at this file's
-        # own centred mean returns 0.5, so an implementation ignoring the
-        # declared mean would be indistinguishable there and is not here.
+        # The same call at this file's own centred mean must also land on it:
+        # two declared means, two different answers, so an implementation
+        # returning a constant fails one of them whichever constant it picks.
+        # (A third line asserting the two differ was removed: it followed from
+        # the two above and could not fail.)
         centred = inherit_trait(None, None, coefficient, ERA_MEAN, ERA_SD, _FixedDraw(0.0))
         assert centred == pytest.approx(ERA_MEAN, abs=1e-12)
-        assert result != pytest.approx(centred, abs=1e-3)
 
     @pytest.mark.parametrize("coefficient", SHIPPED_COEFFICIENTS)
     def test_single_parent_signal_is_half_the_two_parent_one(self, coefficient):

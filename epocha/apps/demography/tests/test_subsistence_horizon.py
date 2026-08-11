@@ -221,6 +221,11 @@ class TestBothConsumersDivideByTheSameThreshold:
         )
 
         assert len(seen) >= 2, f"both consumers must resolve the threshold; saw {seen!r}"
-        assert len(set(seen)) == 1, (
-            f"the two consumers resolved DIFFERENT (simulation, zone) pairs: {seen!r}"
+        # ABSOLUTE, not relative. `len(set(seen)) == 1` only says the two
+        # agree with each other, and a mutant moving BOTH to
+        # `world.zones.first()` -- which is not the agent's zone here --
+        # satisfied it. The pair must be the AGENT'S.
+        assert set(seen) == {(sim.id, other.id)}, (
+            f"the consumers must resolve the AGENT's zone {other.id}, not merely "
+            f"agree with each other: {seen!r}"
         )

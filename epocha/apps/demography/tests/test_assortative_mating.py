@@ -272,52 +272,112 @@ class TestTheTruncatedCrossingsArePinned:
 
 
 class TestTheCopulaDiscretisationErrorIsPinned:
-    """Three numbers the module's docstring publishes, none of which had a
-    witness until the phase-6 audit asked for one.
+    """The three numbers the module's docstring publishes, measured THROUGH
+    the module's own construction.
+
+    A first version of this class reimplemented the joint inside the test
+    file and never called `_assorted_parent_sum`, so replacing the module's
+    joint with its own symmetrisation -- the change that would make all three
+    figures false -- left it green. It now reads the joint the module builds.
 
     The construction evaluates the conditional at one representative latent
     position per mother cell rather than integrating over it, so the joint is
-    asymmetric: the mother's marginal survives exactly, the father's does not.
-    The error varies by an order of magnitude across the admissible pairs,
-    which is why each figure is pinned WITH its configuration.
+    asymmetric: the mother's marginal survives, the father's does not. The
+    error varies by an order of magnitude across the admissible pairs, which
+    is why each figure is pinned WITH its configuration.
     """
 
     @staticmethod
-    def _marginal_errors(pmf, copula_correlation):
+    def _module_joint(pmf, copula_correlation):
+        """The joint the MODULE builds -- not a copy of the construction.
+
+        A first version rebuilt the joint inside this file and checked it
+        against the module's returned SUM, which is invariant under
+        transposing the joint: a mutant symmetrising the module's joint left
+        the class green. The construction is now exposed as `copula_joint`
+        and read from there, so the asymmetry this class measures is the
+        module's asymmetry.
+        """
+        from epocha.apps.demography.truncated_moments import copula_joint
+
+        return copula_joint(pmf, copula_correlation)
+
+    @classmethod
+    def _marginal_errors(cls, pmf, copula_correlation):
         import numpy as np
-        from scipy.special import ndtr, ndtri
 
-        from epocha.apps.demography.truncated_moments import _latent_edges
-
-        cumulative = np.clip(np.cumsum(pmf), 0.0, 1.0)
-        edges = _latent_edges(pmf)
-        mid = np.clip(cumulative - pmf / 2.0, 1e-15, 1.0 - 1e-15)
-        z = ndtri(mid)
-        spread = math.sqrt(1.0 - copula_correlation**2)
-        conditional = np.diff(ndtr((edges[None, :] - copula_correlation * z[:, None]) / spread), 1)
-        joint = pmf[:, None] * conditional
-        joint /= joint.sum()
+        joint = cls._module_joint(pmf, copula_correlation)
         return (
             float(np.abs(joint.sum(axis=1) - pmf).max()),
             float(np.abs(joint.sum(axis=0) - pmf).max()),
         )
 
-    @pytest.mark.parametrize(
-        ("era", "expected_father"),
-        [(EDUCATION_ERA, 1.110e-3), (TRAIT_ERA, 1.630e-5)],
-    )
-    def test_the_mother_marginal_survives_and_the_father_one_does_not(self, era, expected_father):
+    @staticmethod
+    def _stationary_pmf(era, coefficient, copula_correlation):
+        """Re-run the module's own fixed point and return the settled pmf.
+
+        The headline figure in the docstring is measured on the STATIONARY
+        distribution -- the one the function actually solves -- and pinning
+        only the initial one, as the first version of this class did, leaves
+        the published number without a witness.
+        """
+        import numpy as np
+        from scipy.signal import fftconvolve
+
+        import epocha.apps.demography.truncated_moments as tm
+
+        era_mean, era_sd = era
+        _, step = tm._grid()
+        pmf = tm._initial_distribution(era_mean, era_sd)
+        residual = era_sd * math.sqrt(1.0 - coefficient**2 / 2.0)
+        kernel = tm._gaussian_cell_kernel(residual, step)
+        offset = (kernel.size - 1) // 2
+        previous = tm._moments(pmf)[1]
+        for _ in range(tm.MAX_ITERATIONS):
+            parent_sum, _ = tm._assorted_parent_sum(pmf, copula_correlation)
+            midparent = np.arange(parent_sum.size) * step / 2.0
+            signal = era_mean + coefficient * (midparent - era_mean)
+            on_grid = tm._clip_to_grid(signal, parent_sum, step)
+            pre = fftconvolve(on_grid, kernel)
+            body = pre[offset : offset + tm.GRID_NODES].copy()
+            body[0] += float(pre[:offset].sum())
+            body[-1] += float(pre[offset + tm.GRID_NODES :].sum())
+            body /= body.sum()
+            pmf = body
+            sd = tm._moments(pmf)[1]
+            if abs(sd - previous) < tm.CONVERGENCE_TOL:
+                return pmf
+            previous = sd
+        raise AssertionError("the stationary probe did not settle")
+
+    def test_the_headline_figure_on_the_stationary_education_distribution(self):
+        pmf = self._stationary_pmf(EDUCATION_ERA, EDUCATION_COEFFICIENT, 0.8)
+        mother_error, father_error = self._marginal_errors(pmf, 0.8)
+        assert mother_error < 1e-15
+        assert father_error == pytest.approx(1.483e-3, rel=1e-3)
+
+    def test_the_trait_pair_is_two_orders_smaller_on_the_same_distribution(self):
+        pmf = self._stationary_pmf(TRAIT_ERA, TRAIT_COEFFICIENT, 0.8)
+        _, father_error = self._marginal_errors(pmf, 0.8)
+        assert father_error == pytest.approx(4.068e-5, rel=1e-3)
+
+    def test_the_initial_education_distribution_measures_lower(self):
+        """Published alongside the headline precisely because they differ:
+        quoting the smaller one without naming its distribution is the defect
+        this whole passage exists to correct."""
         from epocha.apps.demography.truncated_moments import _initial_distribution
 
-        mother_error, father_error = self._marginal_errors(_initial_distribution(*era), 0.8)
-        assert mother_error < 1e-15, "the mother's marginal must be preserved exactly"
-        assert father_error == pytest.approx(expected_father, rel=1e-3)
+        mother_error, father_error = self._marginal_errors(
+            _initial_distribution(*EDUCATION_ERA), 0.8
+        )
+        assert mother_error < 1e-15, "the mother's marginal must be preserved"
+        assert father_error == pytest.approx(1.110e-3, rel=1e-3)
 
     def test_the_error_is_an_order_of_magnitude_larger_off_centre(self):
-        """Which is why the docstring names the configuration: a single
-        number here would be true of one pair and wrong for the other."""
-        from epocha.apps.demography.truncated_moments import _initial_distribution
-
-        _, off_centre = self._marginal_errors(_initial_distribution(*EDUCATION_ERA), 0.8)
-        _, centred = self._marginal_errors(_initial_distribution(*TRAIT_ERA), 0.8)
-        assert off_centre > 50 * centred
+        education = self._marginal_errors(
+            self._stationary_pmf(EDUCATION_ERA, EDUCATION_COEFFICIENT, 0.8), 0.8
+        )[1]
+        traits = self._marginal_errors(
+            self._stationary_pmf(TRAIT_ERA, TRAIT_COEFFICIENT, 0.8), 0.8
+        )[1]
+        assert education > 30 * traits

@@ -65,7 +65,11 @@ class TestStationaryAmplitudeRatio:
         ratio = stationary_amplitude_ratio(era_mean, era_sd, coefficient)
         edge = boundary_mass(era_mean, era_sd, coefficient)
         assert ratio == pytest.approx(expected_ratio, abs=5e-4)
-        assert edge == pytest.approx(expected_edge, abs=5e-4)
+        # RELATIVE on the mass, not absolute. At 5e-4 absolute the smallest
+        # of the four pins carries a 59% relative band, so the retracted
+        # 0.00086 would still pass a pin holding 0.000847 -- a number
+        # recorded correctly and unable to notice its own regression.
+        assert edge == pytest.approx(expected_edge, rel=2e-3)
 
     def test_untruncated_configuration_realizes_its_declared_amplitude(self):
         """Far from both bounds the kernel must realize what it declares.

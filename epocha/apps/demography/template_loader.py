@@ -187,8 +187,8 @@ def load_template(name: str) -> dict[str, Any]:
     The key includes `TEMPLATES_DIR` because tests monkeypatch it: keying on
     the name alone would let a template loaded from a temporary directory
     poison the entry for the shipped one of the same name for the rest of the
-    session. No test does that today; the key costs nothing and removes the
-    trap rather than documenting it.
+    session. `test_template_validation.py` does exactly that, so the key is
+    exercised rather than merely prudent.
 
     Args:
         name: the template file name without the .json extension.

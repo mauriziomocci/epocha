@@ -47,8 +47,9 @@ CONVERGED nell'aprile 2026. Il codice viene DOPO l'emendamento e dopo il suo gat
         nulla, perché nessun template dichiara era_noise e ogni tratto gira a media
         0,5; il costo vero è la scala del residuo, misurata al 21-51% della
         dispersione dichiarata. Restano da chiudere: la citazione verbatim di
-        Falconer per il coefficiente h²/2 a genitore singolo (e la discrepanza per
-        cui il modulo cita il capitolo 8 mentre la somiglianza fra parenti sta nel 10).
+        Falconer per il coefficiente h²/2 a genitore singolo. La citazione di
+        capitolo è chiusa: intervallo 8-10, numeri verificati sull'indice, titoli
+        omessi deliberatamente dopo tre round che ne hanno colto uno sbagliato.
      b) ORIZZONTE DI PIANIFICAZIONE della migrazione, che rende dimensionalmente
         coerente il guadagno atteso. Todaro (1969) è la fonte più vicina: il
         modello da riparare è il suo e porta già un orizzonte scontato. Sjaastad

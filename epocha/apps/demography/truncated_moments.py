@@ -258,7 +258,7 @@ def check_admissible_region(
         era_sd: declared amplitude of that distribution.
         coefficients: the transmission coefficients that govern the characters
             declared at this pair -- `h^2` for traits, `rho` for education.
-            EVERY distinct value is checked; the class docstring above
+            EVERY distinct value is checked; the paragraph BELOW these Args
             explains why the largest is not the least favourable.
 
     The third check is evaluated on the WORST of the three kinship branches
@@ -433,6 +433,38 @@ def _latent_edges(pmf: np.ndarray) -> np.ndarray:
     return ndtri(edges)
 
 
+def copula_joint(pmf: np.ndarray, copula_correlation: float) -> np.ndarray:
+    """Joint pmf of `(T_mother, T_father)` under the Gaussian copula.
+
+    Exposed rather than inlined because the ASYMMETRY of this construction is
+    a published property -- the mother's marginal survives and the father's
+    does not, by up to 1.5e-3 per cell -- and the only observable
+    `_assorted_parent_sum` returns is the distribution of the SUM, which is
+    invariant under transposing the joint. A test measuring the asymmetry
+    through the sum therefore cannot see it: symmetrising the joint leaves
+    every anti-diagonal total unchanged, and a mutant doing exactly that
+    survived until the construction was factored out here.
+
+    The conditional is evaluated at one representative latent position per
+    mother cell -- the quantile of its own mid-cumulative, its conditional
+    median rather than an arbitrary endpoint -- instead of being integrated
+    over the cell. That is what makes the result asymmetric.
+    """
+    edges = _latent_edges(pmf)
+    cumulative = np.clip(np.cumsum(pmf), 0.0, 1.0)
+    mid = np.clip(cumulative - pmf / 2.0, 1e-15, 1.0 - 1e-15)
+    z_mother = ndtri(mid)
+
+    spread = math.sqrt(1.0 - copula_correlation**2)
+    standardised = (edges[None, :] - copula_correlation * z_mother[:, None]) / spread
+    conditional = np.diff(ndtr(standardised), axis=1)
+    joint = pmf[:, None] * conditional
+    total = joint.sum()
+    if total > 0:
+        joint /= total
+    return joint
+
+
 def _assorted_parent_sum(pmf: np.ndarray, copula_correlation: float) -> tuple[np.ndarray, float]:
     """Return `(pmf of T_mother + T_father, realized Pearson r)`.
 
@@ -454,22 +486,7 @@ def _assorted_parent_sum(pmf: np.ndarray, copula_correlation: float) -> tuple[np
         joint_sum = np.convolve(pmf, pmf)
         return joint_sum, 0.0
 
-    edges = _latent_edges(pmf)
-    # Representative latent position of each mother cell: the quantile of its
-    # own mid-cumulative, which is the cell's conditional median rather than an
-    # arbitrary endpoint.
-    cumulative = np.clip(np.cumsum(pmf), 0.0, 1.0)
-    mid = np.clip(cumulative - pmf / 2.0, 1e-15, 1.0 - 1e-15)
-    z_mother = ndtri(mid)
-
-    spread = math.sqrt(1.0 - copula_correlation**2)
-    standardised = (edges[None, :] - copula_correlation * z_mother[:, None]) / spread
-    conditional_cdf = ndtr(standardised)
-    conditional = np.diff(conditional_cdf, axis=1)
-    joint = pmf[:, None] * conditional
-    total = joint.sum()
-    if total > 0:
-        joint /= total
+    joint = copula_joint(pmf, copula_correlation)
 
     index_sum = (np.arange(size)[:, None] + np.arange(size)[None, :]).ravel()
     parent_sum = np.bincount(index_sum, weights=joint.ravel(), minlength=2 * size - 1)
@@ -516,7 +533,7 @@ def solve_assorted_stationary_state(
     copula parameter of 0.8 the father's worst per-cell error measures
     1.483e-3 on the education pair's STATIONARY distribution -- the one this
     function actually solves -- against 1.110e-3 on that pair's initial
-    distribution and 4.068e-5 on the centred trait pair. Quoting the smallest
+    distribution and 4.068e-5 on the centred trait pair's stationary one. Quoting the smallest
     of the three without naming the configuration is the failure this module
     exists to correct, so all three are named and `test_assortative_mating.py`
     pins them.
