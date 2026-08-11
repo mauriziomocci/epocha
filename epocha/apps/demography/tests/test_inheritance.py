@@ -111,7 +111,6 @@ from epocha.apps.agents.models import Agent, Memory, Relationship
 from epocha.apps.demography.couple import form_couple
 from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
-    DEFAULT_ERA_MEAN_EDUCATION,
     DEFAULT_ERA_SD,
     FormulaError,
     apply_estate_tax,
@@ -748,6 +747,13 @@ def sim_with_zone(db):
     return sim, zone
 
 
+# What every shipped template declares under
+# `social_inheritance.era_noise.education.era_mean`. Read from the fixture
+# rather than from a module constant: amendment A2 moved this value into the
+# templates and A9 removed the constant that used to shadow it.
+DECLARED_ERA_MEAN_EDUCATION = 0.3
+
+
 def _make_agent(sim, zone, name, personality=None, **kwargs):
     """Helper: create an Agent with sensible defaults (mirrors test_couple.py)."""
     defaults = dict(
@@ -1365,6 +1371,10 @@ class TestApplySocialInheritancePatrilinealRigid:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": 0.5,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
@@ -1387,6 +1397,10 @@ class TestApplySocialInheritancePatrilinealRigid:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": 0.5,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="poor", education_level=0.2)
@@ -1433,6 +1447,10 @@ class TestApplySocialInheritanceClarkRegression:
             "social_inheritance": {
                 "class_rule": "clark_regression",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="elite", education_level=0.9)
@@ -1491,6 +1509,10 @@ class TestApplySocialInheritanceClarkRegression:
             "social_inheritance": {
                 "class_rule": "clark_regression",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
 
@@ -1592,6 +1614,10 @@ class TestSampledClassRulesNeverProduceEnslaved:
             "social_inheritance": {
                 "class_rule": "becker_tomes_elasticity_0.4",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="poor", education_level=0.2)
@@ -1643,6 +1669,10 @@ class TestSampledClassRulesNeverProduceEnslaved:
             "social_inheritance": {
                 "class_rule": "clark_regression",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         father = _make_agent(sim, zone, "Father", social_class="enslaved")
@@ -1672,6 +1702,10 @@ class TestApplySocialInheritanceBeckerTomes:
             "social_inheritance": {
                 "class_rule": "becker_tomes_elasticity_0.4",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="elite", education_level=0.9)
@@ -1719,6 +1753,10 @@ class TestApplySocialInheritanceMeritocratic:
             "social_inheritance": {
                 "class_rule": "meritocratic",
                 "education_regression_rho": 0.25,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
@@ -1783,6 +1821,10 @@ class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
             "social_inheritance": {
                 "class_rule": "meritocratic",
                 "education_regression_rho": 0.2,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.9)
@@ -1837,13 +1879,17 @@ class TestApplySocialInheritanceEducationRegression:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": rho,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=mother_edu)
         father = _make_agent(sim, zone, "Father", social_class="middle", education_level=father_edu)
         child = _make_agent(sim, zone, "Child")
 
-        expected = rho * (mother_edu + father_edu) / 2.0 + (1.0 - rho) * DEFAULT_ERA_MEAN_EDUCATION
+        expected = rho * (mother_edu + father_edu) / 2.0 + (1.0 - rho) * DECLARED_ERA_MEAN_EDUCATION
 
         rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
         apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
@@ -1853,12 +1899,14 @@ class TestApplySocialInheritanceEducationRegression:
 
     @pytest.mark.django_db
     def test_result_is_clamped_into_zero_one(self, sim_with_zone):
-        """rho = 0.0 isolates the era-mean term: an out-of-range
-        era_mean_education (only reachable via a template override -- the
-        Agent.education_level field itself is not range-restricted at the
-        DB level either, so this also guards against a future caller
-        passing an out-of-range value) must still clamp the final
-        education_level into [0.0, 1.0].
+        """rho = 0.0 isolates the era-mean term, which must still clamp.
+
+        After amendment A9 the loader REJECTS an era mean outside (0, 1) --
+        clause 5 checks it against A1's admissible region -- so this pair is
+        unreachable through `load_template`. The guard therefore covers the
+        caller that bypasses the loader, which is the only way to get here,
+        and `Agent.education_level` is not range-restricted at the database
+        level either.
         """
         sim, zone = sim_with_zone
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
@@ -1868,7 +1916,10 @@ class TestApplySocialInheritanceEducationRegression:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": 0.0,
-                "era_mean_education": 2.0,
+                "era_noise": {
+                    "education": {"era_mean": 2.0, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         child_high = _make_agent(sim, zone, "ChildHighEdu")
@@ -1882,7 +1933,10 @@ class TestApplySocialInheritanceEducationRegression:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": 0.0,
-                "era_mean_education": -1.0,
+                "era_noise": {
+                    "education": {"era_mean": -1.0, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         child_low = _make_agent(sim, zone, "ChildLowEdu")
@@ -1906,12 +1960,16 @@ class TestApplySocialInheritanceEducationRegression:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": rho,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=mother_edu)
         child = _make_agent(sim, zone, "Child")
 
-        expected = rho * mother_edu + (1.0 - rho) * DEFAULT_ERA_MEAN_EDUCATION
+        expected = rho * mother_edu + (1.0 - rho) * DECLARED_ERA_MEAN_EDUCATION
 
         rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
         apply_social_inheritance(child, mother, None, template, zone_class_mean=2.0, rng=rng)
@@ -1931,6 +1989,10 @@ class TestApplySocialInheritanceUnknownClassRule:
             "social_inheritance": {
                 "class_rule": "not_a_real_rule",
                 "education_regression_rho": 0.5,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
@@ -1957,6 +2019,10 @@ class TestApplySocialInheritanceUnknownClassValue:
             "social_inheritance": {
                 "class_rule": "clark_regression",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)

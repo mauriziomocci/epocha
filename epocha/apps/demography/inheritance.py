@@ -396,7 +396,7 @@ def inherit_trait(
     single-parent fallback makes taken to its limit (parental information
     degrades from two values, to one, to none). Mirrors
     `_regress_education_level`'s already-correct four-way fallback
-    (mother-only / father-only / both / neither -> era_mean_education).
+    (mother-only / father-only / both / neither -> the declared era mean).
     Reachable from the real birth pipeline: none of the five Big Five
     personality traits is an `Agent` model column, so their values come
     from `(parent.personality or {}).get(name)` in `apply_trait_
@@ -854,17 +854,11 @@ _BECKER_TOMES_RANK_NOISE_SD = 0.75
 # merit.
 _MERIT_RANK_SPAN = float(max(_CLASS_RANK.values()))
 
-# Era-mean education-level prior applied when neither the era template nor
-# a caller-supplied override provides era_mean_education. No era template
-# currently declares a `social_inheritance.era_mean_education` key (verified
-# across all five templates under epocha/apps/demography/templates/).
-# 0.3 matches Agent.education_level's own field default
-# (epocha/apps/agents/models.py), making the interim substitute consistent
-# with the model's own baseline rather than an arbitrary scale midpoint.
-# Documented, explicitly tunable placeholder in the same spirit as
-# DEFAULT_ERA_MEAN / DEFAULT_ERA_SD above, pending a per-era value carried
-# by the templates.
-DEFAULT_ERA_MEAN_EDUCATION = 0.3
+# `social_inheritance.era_noise.education` (amendment A2) now declares the
+# education mean per era, and A9 clause 3 makes the section mandatory, so the
+# module-level constant this file carried was left without a consumer and is
+# removed rather than kept as an unreachable default. The value it held, 0.3,
+# is what every template declares today.
 
 
 def _class_rank(social_class: str | None) -> int:
@@ -1035,7 +1029,8 @@ def apply_social_inheritance(
     1. Education-level regression runs FIRST (see `_regress_education_level`),
        using `template["social_inheritance"]["education_regression_rho"]`
        and `template["social_inheritance"].get("era_mean_education",
-       DEFAULT_ERA_MEAN_EDUCATION)`, and writes `child.education_level`
+       `social_inheritance["era_noise"]["education"]["era_mean"]`, and
+       writes `child.education_level`
        before anything else touches it.
     2. `template["social_inheritance"]["class_rule"]` then selects one of
        four branches -- `patrilineal_rigid`, `clark_regression`,
@@ -1090,7 +1085,15 @@ def apply_social_inheritance(
     # sees the correctly regressed value, not the untouched Agent field
     # default. See the docstring above for the full rationale.
     rho = social_inheritance["education_regression_rho"]
-    era_mean_education = social_inheritance.get("era_mean_education", DEFAULT_ERA_MEAN_EDUCATION)
+    # Declared per era in `social_inheritance.era_noise.education`, which
+    # amendment A2 made mandatory and A9 clause 3 validates. A direct subscript
+    # rather than a defaulted read: the previous code consulted
+    # `social_inheritance.era_mean_education`, a key A9 removed from the schema,
+    # so the read could never find it and always fell to a hardcoded constant --
+    # a dead read wearing a live default. There is no guard here because a
+    # template that reached this function passed a validator that requires the
+    # section; a guard that cannot fire is code that should not be written.
+    era_mean_education = social_inheritance["era_noise"]["education"]["era_mean"]
     child.education_level = _regress_education_level(mother, father, rho, era_mean_education)
 
     class_rule = social_inheritance["class_rule"]
