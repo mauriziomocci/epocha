@@ -734,116 +734,56 @@ class TestComputeDistanceCost:
 
 
 class TestComputeExpectedGain:
-    """compute_expected_gain: the declared Harris-Todaro operational
-    variant, implemented verbatim per the CONVERGED design.
+    """SUPERSEDED BY amendment A7 and by `test_migration_present_value.py`.
+
+    This class used to pin the design's declared-but-not-endorsed formula,
+    `(1 - u_j) * w_j - w_current - distance_cost_j`, including one test whose
+    stated purpose was to make its dimensional inconsistency VISIBLE rather
+    than latent -- a tick count subtracted from a money-per-tick, hidden in
+    the design's own worked example because that example's distance cost is
+    zero. The formula is now a discounted present value (Todaro 1969,
+    Sjaastad 1962) and those pins describe a model that no longer exists.
+
+    They are not re-pointed at the new formula: the replacement suite
+    exercises it against the source's own published annuity factors, the
+    tick-duration conversion, and the break-even distance the change moves,
+    none of which this class was shaped to express. What survives here is the
+    one property A7 explicitly leaves alone.
     """
 
     @pytest.mark.django_db
-    def test_matches_the_design_specs_worked_paris_example(self):
-        """Paris: unemployment_j=0.08, wage_j=90.0, wage_current=78.0,
-        distance_cost_j=0.0 (design spec: "Costo distanza in tick: Paris
-        0"). Hand computation: (1 - 0.08) * 90.0 - 78.0 - 0.0 = 82.8 -
-        78.0 = 4.8, exactly matching the design spec's own stated
-        "Expected gain Harris-Todaro se ti muovi a Paris: +4.8 LVR/tick".
+    def test_unemployment_weighting_is_still_harris_todaro(self):
+        """Harris & Todaro (1970) remain the source of the employment-
+        probability weighting on the destination wage, and only of that: A7
+        removes the horizon they cannot license, not the weighting they can.
         """
-        gain = compute_expected_gain(
-            unemployment_j=0.08, wage_j=90.0, wage_current=78.0, distance_cost_j=0.0
-        )
-
-        assert gain == pytest.approx(4.8)
-
-    @pytest.mark.django_db
-    def test_matches_hand_computed_value_for_a_generic_nonzero_case(self):
-        """A second, independently hand-computed case (not the design
-        spec's own worked example) so this test cannot pass merely by
-        replicating one known-good number: (1 - 0.2) * 50.0 - 30.0 - 2.0
-        = 40.0 - 30.0 - 2.0 = 8.0.
-        """
-        gain = compute_expected_gain(
-            unemployment_j=0.2, wage_j=50.0, wage_current=30.0, distance_cost_j=2.0
-        )
-
-        assert gain == pytest.approx(8.0)
-
-    @pytest.mark.django_db
-    def test_zero_unemployment_and_zero_distance_cost_reduces_to_the_wage_differential(self):
-        """Degenerate case, sanity-checks the formula's structure: with
-        no unemployment penalty and no distance cost, the expected gain
-        collapses to the raw wage differential.
-        """
-        gain = compute_expected_gain(
-            unemployment_j=0.0, wage_j=90.0, wage_current=78.0, distance_cost_j=0.0
-        )
-
-        assert gain == pytest.approx(90.0 - 78.0)
-
-    @pytest.mark.django_db
-    def test_pins_declared_not_endorsed_behavior_at_nonzero_distance_cost(self):
-        """DECLARED, NOT ENDORSED: this test documents what the CURRENT
-        formula outputs when `distance_cost_j` is non-zero (the design
-        spec's own Lyon figures: unemployment_j=0.12, wage_j=81.0,
-        wage_current=78.0, distance_cost_j=3.0 -- "Costo distanza in
-        tick: ... Lyon 3"), making the dimensional-inconsistency effect
-        VISIBLE rather than latent, per the mandatory scientific
-        disclosure this task carries. Hand computation: (1 - 0.12) * 81.0
-        - 78.0 - 3.0 = 71.28 - 78.0 - 3.0 = -9.72.
-
-        The magnitude problem this pins: `distance_cost_j=3.0` here means
-        "3 ticks of travel", yet the formula subtracts it as if it were
-        "3.0 LVR/tick" -- the SAME 3.0 would be subtracted whether it
-        meant three ticks or three currency units, because the formula
-        cannot tell the difference. This is NOT a claim that -9.72 is the
-        scientifically correct expected gain for moving to Lyon; it is a
-        pin of what this implementation currently, deliberately,
-        UNCORRECTED returns, so a future reader (in particular the
-        phase-6 audit, T046) sees the effect's actual size rather than
-        having to re-derive it.
-        """
-        gain = compute_expected_gain(
-            unemployment_j=0.12, wage_j=81.0, wage_current=78.0, distance_cost_j=3.0
-        )
-
-        assert gain == pytest.approx(-9.72)
+        annuity = 1000.0
+        certain = compute_expected_gain(0.0, 50.0, 30.0, 0, annuity)
+        risky = compute_expected_gain(0.4, 50.0, 30.0, 0, annuity)
+        assert certain == pytest.approx(annuity * 20.0, rel=1e-12)
+        assert risky == pytest.approx(annuity * 0.0, abs=1e-9)
 
 
-# ---------------------------------------------------------------------------
-# build_migration_outlook (Plan 3, T034, user story 4)
-# ---------------------------------------------------------------------------
-#
-# zone_stats SHAPE (this function's own contract, designed and pinned by
-# these tests -- not specified upstream of this task):
+# `zone_stats` CONTRACT, as `build_migration_outlook` fixes it and as these
+# tests pin it (designed by that task, not specified upstream):
 #
 #   {
 #       "world": <World instance>,
 #       "government_stability": <float, Government.stability>,
-#       "zones": {
-#           zone_id: {
-#               "zone": <Zone instance>,
-#               "wage": <float, compute_zone_wage's return value>,
-#               "unemployment": <float, compute_zone_unemployment's
-#                   return value>,
-#           },
-#           ...
-#       },
+#       "zones": {zone_id: {"zone": <Zone>, "wage": <float>,
+#                           "unemployment": <float>}, ...},
 #   }
 #
-# Generalizes the task's own "zone aggregates computed once per tick,
-# never recomputed per agent" principle to EVERY per-tick-constant input
-# build_migration_outlook needs, not only wage/unemployment: Government
-# has exactly one row per simulation (a OneToOneField, see PREFLIGHT
-# point 1), and World likewise -- both are exactly as safe to bundle into
-# a once-per-tick precomputed structure as the zone aggregates are, and
-# bundling them here is what lets the per-agent call below cost ZERO
-# database queries, not merely zero ZONE queries.
+# It generalises "zone aggregates computed once per tick, never recomputed
+# per agent" to EVERY per-tick constant the outlook needs: `Government` and
+# `World` are one row per simulation each, exactly as safe to bundle as the
+# zone aggregates, and bundling them is what lets the per-agent call cost
+# ZERO database queries rather than merely zero zone queries.
 #
-# "Reachable zone" definition PINNED by these tests: every zone present
-# in `zone_stats["zones"]` OTHER than the agent's own current zone
-# (`agent.zone_id`). No distance or radius bound is applied -- there is
-# no "maximum travel range" concept anywhere in the schema, and
-# `compute_distance_cost` already assigns a (possibly large) whole-tick
-# cost to every zone, so nothing is truly unreachable; the simplest
-# defensible reading, and the one implemented, is "every other zone of
-# the agent's world".
+# "Reachable zone", pinned here: every zone in `zone_stats["zones"]` other
+# than the agent's own. No radius bound exists in the schema, and
+# `compute_distance_cost` already prices every pair, so nothing is truly
+# unreachable -- only expensive.
 
 
 def _make_government(sim, stability=0.7):
@@ -889,7 +829,7 @@ class TestBuildMigrationOutlook:
             build_migration_outlook(agent, sim, tick=50, zone_stats=zone_stats)
 
     @pytest.mark.django_db
-    def test_carries_all_five_metrics_per_reachable_zone(self, sim_with_zone):
+    def test_carries_all_four_metrics_per_reachable_zone(self, sim_with_zone):
         """Hand-computed: wage_current=78.0 (agent's own zone), wage_j=
         90.0 (other zone) -> wage_differential=12.0. unemployment_j=0.08.
         distance_cost: the other zone sits at a (300, 400) grid offset
@@ -897,14 +837,24 @@ class TestBuildMigrationOutlook:
         the default World scale -- the same hand-verified 3-tick result
         `TestComputeDistanceCost.
         test_matches_hand_computed_conversion_chain_at_default_world_scale`
-        pins. zone_stability=0.7 (the single simulation-wide Government
-        row). expected_gain = (1 - 0.08) * 90.0 - 78.0 - 3 = 1.8.
+        pins.
+
+        FOUR metrics, not five: amendment A10 moved stability out of the
+        per-zone entry to outlook level, where it is reported once and named
+        as a simulation value.
+
+        The gain is now a present value (A7). At age 30 the agent has 32
+        years of working life left, which at 24-hour ticks and 10% per annum
+        is an annuity factor of 3501.218 ticks, so
+        `3501.218 * [(1 - 0.08) * 90 - 78] - 3 * 78 = 16571.85`. Under the
+        old form the same inputs gave 1.8 -- the per-tick flow advantage
+        minus a bare tick count, which is what A7 replaced.
         """
         sim, zone = sim_with_zone
         world = zone.world
         other_zone = _make_zone_at(world, 350, 450, "OtherZone")  # (50,50) + (300,400)
         government = _make_government(sim, stability=0.7)
-        agent = _make_agent(sim, zone, "Agent")
+        agent = _make_agent(sim, zone, "Agent", age=30)
 
         zone_stats = {
             "world": world,
@@ -921,8 +871,9 @@ class TestBuildMigrationOutlook:
         assert entry["wage_differential"] == pytest.approx(12.0)
         assert entry["unemployment"] == pytest.approx(0.08)
         assert entry["distance_cost"] == 3
-        assert entry["zone_stability"] == pytest.approx(0.7)
-        assert entry["expected_gain"] == pytest.approx(1.8)
+        assert "zone_stability" not in entry
+        assert outlook["government_stability"] == pytest.approx(0.7)
+        assert entry["expected_gain"] == pytest.approx(16571.85, rel=1e-6)
 
     @pytest.mark.django_db
     def test_agents_own_zone_is_excluded_from_reachable_zones(self, sim_with_zone):
@@ -947,11 +898,12 @@ class TestBuildMigrationOutlook:
         assert other_zone.id in outlook["reachable_zones"]
 
     @pytest.mark.django_db
-    def test_reports_the_simulation_wide_stability_for_every_reachable_zone(self, sim_with_zone):
+    def test_reports_the_simulation_wide_stability_once_at_outlook_level(self, sim_with_zone):
         """PREFLIGHT point 1: there is no per-zone stability anywhere in
-        the schema (`Government` is a `OneToOneField` to `Simulation`) --
-        every reachable zone must report the SAME simulation-wide value,
-        never a fabricated per-zone proxy.
+        the schema (`Government` is a `OneToOneField` to `Simulation`), and
+        amendment A10 rules that the field is therefore a SIMULATION value
+        rather than a zone one -- reported once, labelled, never copied into
+        the per-zone entries and never replaced by a fabricated proxy.
         """
         sim, zone = sim_with_zone
         world = zone.world
@@ -972,8 +924,14 @@ class TestBuildMigrationOutlook:
 
         outlook = build_migration_outlook(agent, sim, tick=50, zone_stats=zone_stats)
 
-        assert outlook["reachable_zones"][zone_b.id]["zone_stability"] == pytest.approx(0.42)
-        assert outlook["reachable_zones"][zone_c.id]["zone_stability"] == pytest.approx(0.42)
+        # Amendment A10 applied: reported ONCE, at outlook level, and named
+        # for what it is. Repeating the same constant inside every
+        # destination told a language model it was comparing zones on a
+        # dimension where they are identical -- which is the defect, not the
+        # absence of a per-zone signal.
+        assert outlook["government_stability"] == pytest.approx(0.42)
+        for entry in outlook["reachable_zones"].values():
+            assert "zone_stability" not in entry
 
     @pytest.mark.django_db
     def test_reports_the_agents_current_zone_id(self, sim_with_zone):
@@ -2014,22 +1972,22 @@ class TestProcessEmergencyFlightTrapped:
         scientifically meaningful case O'Rourke (1994) describes:
         destinations exist, the agent can see them, none is better. This
         test gives the agent a genuinely reachable `WorseZone` whose
-        expected gain is STRICTLY negative -- a distant zone whose
-        distance cost overwhelms its wage -- so the trapped verdict comes
+        expected gain is STRICTLY negative, so the trapped verdict comes
         from comparing options, not from having none.
 
-        Hand-verified: `WorseZone` sits 10,000 grid units away (default
-        `distance_scale=133.0`, `tick_duration_hours=24.0`), giving
-        `distance_km = 10_000 * 133.0 / 1000.0 = 1330.0`,
-        `ticks = ceil(1330.0 / 25.0) = 54`. A single wage row of 10.0 at
-        the eval tick over the default 5-tick window gives
-        `wage_j = 250.0 / (1 * 5) = 50.0`; `Worker`'s `role=""` keeps
-        `WorseZone`'s unemployment at 0.0 (no role-holders, see
-        `compute_zone_unemployment`'s own zero-role-holder contract).
-        `zone` (origin) has no wage data, so `wage_current = 0.0`.
-        `expected_gain = (1 - 0.0) * 50.0 - 0.0 - 54 = -4.0` -- reachable,
-        strictly negative, comfortably away from the 0.0 boundary the
-        next test targets.
+        REBUILT for amendment A7. The previous construction made the
+        destination worse through DISTANCE alone, on an origin with no wage
+        data at all: `expected_gain = 50.0 - 0.0 - 54 = -4.0` under the old
+        form, which subtracted a bare tick count. Under A7 the distance cost
+        is earnings foregone, priced at the agent's CURRENT wage (Sjaastad
+        p.84), so at `wage_current = 0.0` the whole cost term vanishes and a
+        destination paying 50.0 is unambiguously better -- correctly so: an
+        agent earning nothing forgoes nothing by travelling. Distance can no
+        longer make a destination worse on its own, which is the declared
+        consequence of capitalising the flow, so "strictly worse" now has to
+        mean what it says: a destination that PAYS LESS. The origin here
+        pays 50.0 per tick and `WorseZone` pays 2.0, giving a negative flow
+        advantage that no horizon can turn positive.
         """
         sim, zone = sim_with_zone
         _make_government(sim)
@@ -2039,7 +1997,9 @@ class TestProcessEmergencyFlightTrapped:
             simulation=sim, code="LVR", name="Livre", symbol="L", total_supply=50_000.0
         )
         worker = _make_agent(sim, worse_zone, "Worker", role="")
-        _make_wage(sim, currency, worker, tick=50, amount=250.0)
+        _make_wage(sim, currency, worker, tick=50, amount=10.0)  # wage_j = 2.0
+        local_worker = _make_agent(sim, zone, "LocalWorker", role="")
+        _make_wage(sim, currency, local_worker, tick=50, amount=250.0)  # wage_current = 50.0
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_trapped_agent_setup(sim, zone)
 
@@ -2061,32 +2021,44 @@ class TestProcessEmergencyFlightTrapped:
     ):
         """THE discriminating test for `best_entry["expected_gain"] <=
         0.0` in `_resolve_flight_decision` (`migration.py`): constructed
-        from round numbers so `expected_gain` lands on EXACTLY 0.0, a
-        true floating-point equality rather than an epsilon-away
-        approximation -- `(1 - 0.0) * 2.0 - 0.0 - 2 = 0.0`. A strict `<`
+        so `expected_gain` lands on EXACTLY 0.0, a true floating-point
+        equality rather than an epsilon-away approximation. A strict `<`
         in place of `<=` treats 0.0 as still-positive and sends the agent
         fleeing to a zone that gains them nothing; the test right above
-        this one (strictly negative, -4.0) cannot catch that mutation,
-        since -4.0 is `< 0.0` either way. This one is the only test in
+        this one (strictly negative) cannot catch that mutation, since a
+        negative value is `< 0.0` either way. This one is the only test in
         the suite that can.
 
-        Hand-verified: `BreakEvenZone` sits 200 grid units away, giving
-        `distance_km = 200 * 133.0 / 1000.0 = 26.6`,
-        `ticks = ceil(26.6 / 25.0) = 2`. A single wage row of 10.0 at the
-        eval tick over the default 5-tick window gives
-        `wage_j = 10.0 / (1 * 5) = 2.0` exactly (`10.0 / 5.0` has no
-        rounding error in IEEE 754). `wage_current = 0.0` (`zone` has no
-        wage data). `expected_gain = 1.0 * 2.0 - 0.0 - 2 = 0.0`.
+        REBUILT for amendment A7, and the construction is now cleaner than
+        it was. Under the old form the zero came from `1.0 * 2.0 - 0.0 - 2`,
+        which balanced a wage against a tick count. Under A7 the gain is
+        `a * [(1 - u) * w_j - w_current] - d * w_current`, and BOTH terms are
+        driven to zero exactly: `BreakEvenZone` shares the origin's centre,
+        so `distance_km = 0.0` and `d = 0`, and both zones carry one wage row
+        of the same amount over the same window, so `w_j == w_current` bit
+        for bit and the flow advantage is exactly 0.0. No annuity factor can
+        move a product of zero, so the equality holds at any tick duration,
+        age or discount rate -- the boundary is pinned structurally rather
+        than by a coincidence of round numbers.
         """
         sim, zone = sim_with_zone
         _make_government(sim)
         world = zone.world
-        break_even_zone = _make_zone_at(world, 250, 50, "BreakEvenZone")
+        # Same centre as the origin (50, 50): distance_km = 0.0 -> d = 0.
+        break_even_zone = _make_zone_at(world, 50, 50, "BreakEvenZone")
         currency = Currency.objects.create(
             simulation=sim, code="LVR", name="Livre", symbol="L", total_supply=50_000.0
         )
+        # compute_zone_wage divides by the zone POPULATION, so equal wage
+        # sums are not enough: both zones must also hold the same number of
+        # living agents, or the per-capita figures differ and the advantage
+        # is no longer exactly zero. The origin ends up with two -- the
+        # trapped agent and the local worker -- so the destination gets two.
         worker = _make_agent(sim, break_even_zone, "Worker", role="")
+        _make_agent(sim, break_even_zone, "Bystander", role="")
         _make_wage(sim, currency, worker, tick=50, amount=10.0)
+        local_worker = _make_agent(sim, zone, "LocalWorker", role="")
+        _make_wage(sim, currency, local_worker, tick=50, amount=10.0)
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_trapped_agent_setup(sim, zone)
 
@@ -2845,6 +2817,18 @@ def _build_flight_scenario(run_label):
     for agent in fleeing_agents:
         counters[agent.id] = 30
 
+    # `trapped_zone` must PAY WELL for its occupant to be trapped, which is
+    # not how the scenario used to work. Before amendment A7 the zone was
+    # simply placed very far away, and the bare tick count of the distance
+    # made every destination's gain negative. A7 prices distance as earnings
+    # foregone at the agent's current wage (Sjaastad p.84), so a zone with no
+    # wage data at all makes travel free and nothing is ever trapped there --
+    # correctly, since an agent earning nothing forgoes nothing by leaving.
+    # A local wage of 50.0 per tick against the destination's 50.0, minus the
+    # distance cost of a zone 100,000 units away, is what leaves no
+    # destination worth the move.
+    local_worker = _make_agent(sim, trapped_zone, f"{run_label}TrappedWorker", role="")
+    _make_wage(sim, currency, local_worker, tick=50, amount=500.0)
     trapped_agent = _make_agent(sim, trapped_zone, f"{run_label}TrappedAgent", wealth=4.0)
     counters[trapped_agent.id] = 30
 

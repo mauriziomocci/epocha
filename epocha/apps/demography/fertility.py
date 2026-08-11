@@ -104,6 +104,21 @@ def becker_modulation(agent, coeffs: Mapping[str, float]) -> float:
     )
 
     subsistence = compute_subsistence_threshold(agent.simulation, agent.zone)
+    # SURVIVAL HORIZON (amendment A8): `wealth / subsistence_threshold` is a
+    # pure number saying how many ticks of subsistence an agent's savings
+    # cover. It is a DERIVED QUANTITY and there is no global `N` threshold on
+    # it -- the design spec used to define one as "the number of ticks the
+    # agent can survive on current savings", which reduces the condition it
+    # appeared in to `wealth < wealth`. Each consumer declares its own
+    # threshold with its own reason: fertility consumes the horizon
+    # continuously in logarithmic form, emergency flight applies the
+    # threshold 1 and leaves duration to its own per-era
+    # `flight_trigger_ticks`.
+    #
+    # The 0.1 is a NUMERICAL GUARD against log(0) for a destitute agent, not
+    # a modelled floor on the horizon: it caps the signal at log(0.1) = -2.30
+    # instead of negative infinity. Documented as such rather than left to
+    # read like a calibrated parameter.
     wealth_signal = math.log(max(agent.wealth / max(subsistence, 1e-6), 0.1))
     zone_flp = _female_role_employment_fraction(agent.zone, agent.simulation)
     outlook = compute_aggregate_outlook(agent)
