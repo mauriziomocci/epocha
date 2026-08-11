@@ -224,7 +224,7 @@
   },
   "social_inheritance": {
     "class_rule": "patrilineal_rigid",
-    "education_regression_rho": 0.5,
+    "education_regression_rho": 0.6,
     "era_noise": {
       "education": {
         "era_mean": 0.3,

@@ -223,7 +223,7 @@
   },
   "social_inheritance": {
     "class_rule": "clark_regression",
-    "education_regression_rho": 0.4,
+    "education_regression_rho": 0.6,
     "era_noise": {
       "education": {
         "era_mean": 0.3,

@@ -3122,15 +3122,18 @@ class TestDistributeShariaSpouseAlsoSiblingConservesValue:
             f"allocation {allocation} sums to {sum(allocation.values())}, not the "
             f"full {inheritable} -- the spouse-is-also-sibling overwrite destroyed value"
         )
-        # No children: spouse_fraction = 0.25 -> spouse_amount = 250.0;
-        # residual = 750.0 split 2:1 male:male between the two brothers,
-        # 375.0 each via _split_two_to_one. The spouse-sibling receives
-        # BOTH entitlements added together (625.0 = 250.0 + 375.0), not
-        # merely one or the other.
+        # No children and a MALE surviving spouse, so the Quranic share is
+        # 1/2 (Q4:12; amendment A5 corrected the flat 1/4 this test used to
+        # encode) -> spouse_amount = 500.0; residual = 500.0 split 2:1
+        # male:male between the two brothers, 250.0 each via
+        # _split_two_to_one. The spouse-sibling receives BOTH entitlements
+        # added together (750.0 = 500.0 + 250.0), not merely one or the
+        # other -- which is the property this test exists for, and which A5
+        # does not touch: only the size of the first term moved.
         assert allocation[spouse_and_sibling.id] == pytest.approx(
-            625.0, abs=_CONSERVATION_TOLERANCE
+            750.0, abs=_CONSERVATION_TOLERANCE
         )
-        assert allocation[other_sibling.id] == pytest.approx(375.0, abs=_CONSERVATION_TOLERANCE)
+        assert allocation[other_sibling.id] == pytest.approx(250.0, abs=_CONSERVATION_TOLERANCE)
 
 
 class TestDistributeEqualSplitDuplicateHeirConservesValue:

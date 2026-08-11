@@ -821,15 +821,22 @@ _MAX_CLASS_RANK = max(_CLASS_RANK.values())
 _UNKNOWN_CLASS_FALLBACK_RANK = _EXTENDED_CLASS_RANK["working"]
 
 # Rank-noise standard deviation for the becker_tomes_elasticity_0.4 sampling
-# step. Solon (1999) and Chetty et al. (2014) report the point elasticity
-# (0.4) but not a residual-variance term for a discrete five-level class
-# ladder -- the underlying US intergenerational-mobility studies model
-# continuous log-income, not discrete class rank, so no directly published
-# standard deviation applies here. 0.75 (three-quarters of one rank step) is
-# a documented, explicitly tunable design parameter chosen to produce
-# visible sampling variability around the shifted mean without letting
-# noise dominate the elasticity signal; it is not itself sourced from Solon
-# or Chetty.
+# step. Solon (1999) reports the point elasticity (0.4) but not a
+# residual-variance term for a discrete five-level class ladder -- the
+# underlying US intergenerational-mobility studies model continuous
+# log-income, not discrete class rank, so no directly published standard
+# deviation applies here. 0.75 (three-quarters of one rank step) is a
+# documented, explicitly tunable design parameter chosen to produce visible
+# sampling variability around the shifted mean without letting noise
+# dominate the elasticity signal; it is not itself sourced from Solon.
+#
+# A11 (2026-08-11) REMOVED Chetty et al. (2014) from this attribution. The
+# claim that it corroborates a 0.3-0.5 elasticity range inverts the paper's
+# own conclusion: its measured values run 0.344 at baseline, 0.452 on
+# p10-p90, and 0.264 to 0.697 across subsamples, and the section's thesis is
+# that the elasticity is UNRELIABLE. The quantity that paper recommends is
+# the rank-rank slope, 0.341. Anyone wanting a Chetty-anchored figure must
+# change the quantity, not the attribution.
 #
 # U-2 (phase-6 audit round 1, T046): clamping the output at both ladder ends
 # (fix T046/I-1) means the realized rank distribution under this SD is NOT the
@@ -975,9 +982,12 @@ def _apply_becker_tomes(
 
     The 0.4 elasticity value is attributed to Solon, G. (1999),
     "Intergenerational Mobility in the Labor Market", Handbook of Labor
-    Economics 3A, and corroborated by Chetty, R. et al. (2014), "Is the
-    United States Still a Land of Opportunity?", who report a 0.3-0.5
-    range. Becker, G.S. & Tomes, N. (1979), "An Equilibrium Theory of the
+    Economics 3A, ALONE, and its verification status is declared UNVERIFIED:
+    the chapter is behind a paywall and has not been read. The previous
+    corroboration by Chetty et al. (2014) was removed by amendment A11 --
+    that paper does not report a 0.3-0.5 range, its measured elasticities
+    span 0.264 to 0.697, and its argument is that the elasticity is an
+    unreliable statistic. Becker, G.S. & Tomes, N. (1979), "An Equilibrium Theory of the
     Distribution of Income and Intergenerational Mobility", Journal of
     Political Economy, is the founding theoretical framework for
     intergenerational elasticity but did not publish this specific value
@@ -1709,21 +1719,20 @@ def apply_estate_tax(
     or the simulation itself, keeping it a pure two-line accounting step
     the caller composes with `resolve_heirs`.
 
-    tax_revenue = total_estate_value * rate, credited to `government`'s
-    treasury under `primary_currency_code` via `add_to_treasury` (imported
-    lazily inside this function -- this module's established pattern for
-    cross-app imports, see `_compute_zone_class_mean`,
-    `_resolve_spouse_heirs`, `apply_inheritance_at_birth`'s
-    `template_loader` import). The returned remainder,
-    `total_estate_value * (1.0 - rate)`, is the amount later split among
-    the resolved heirs.
+    The tax is credited to `government`'s treasury under
+    `primary_currency_code` via `add_to_treasury` (imported lazily inside
+    this function -- this module's established pattern for cross-app
+    imports, see `_compute_zone_class_mean`, `_resolve_spouse_heirs`,
+    `apply_inheritance_at_birth`'s `template_loader` import). The returned
+    remainder is the amount later split among the resolved heirs.
 
     Conservation (load-bearing for whitepaper Sezione 4.2/4.8's accounting
-    invariant): remainder + tax_revenue reproduces `total_estate_value`,
-    exactly up to floating-point rounding. Neither value is rounded,
-    clamped, or otherwise adjusted beyond what the multiplication itself
-    introduces -- doing so would silently create or destroy money relative
-    to the estate's true value.
+    invariant): `remainder + tax_revenue` reproduces `total_estate_value`
+    EXACTLY, in that summation order, for every rate in `[0, 1]` -- not
+    "up to rounding". See the construction below for how, and why the
+    obvious two-multiplications form does not. Neither value is rounded or
+    clamped: doing so would silently create or destroy money relative to
+    the estate's true value.
 
     Degenerate inputs are guarded explicitly rather than left to produce
     nonsensical output, matching this module's established
@@ -1769,8 +1778,32 @@ def apply_estate_tax(
     if total_estate_value <= 0.0:
         return 0.0
 
-    tax_revenue = total_estate_value * rate
-    remainder = total_estate_value * (1.0 - rate)
+    # A6: derive the SMALLER of the two terms by subtraction, never both by
+    # multiplication. Sterbenz's lemma makes `a - b` exact in binary floating
+    # point whenever `b/2 <= a <= 2b`, which is guaranteed for the smaller
+    # term on either side of a rate of one half. Computing both as
+    # independent products loses or creates money on 16.1% of estates at rate
+    # 0.15 and 6.0% at 0.40 -- one ulp each time, which is invisible in any
+    # single settlement and is exactly why it survived. The relative error is
+    # 1.9e-16; this is corrected because the module ASSERTS exact
+    # conservation and that assertion carries the whitepaper's accounting
+    # invariant, not because the numbers meaningfully change.
+    #
+    # THE GUARANTEE NAMES ITS SUMMATION ORDER: `remainder + tax_revenue`
+    # reproduces `total_estate_value` bit for bit. Floating-point addition is
+    # not associative, so a conservation claim that does not state the order
+    # it holds in is not a claim.
+    #
+    # Recorded as inadequate rather than left to be rediscovered: deriving
+    # the remainder alone fails even at the shipped rates, and deriving the
+    # tax alone is exact only up to 0.5 and then degrades -- 0.50% of trials
+    # at rate 0.51, 3.52% at 0.55, 6.05% at 0.60, 12.68% at 0.70.
+    if rate <= 0.5:
+        remainder = total_estate_value * (1.0 - rate)
+        tax_revenue = total_estate_value - remainder
+    else:
+        tax_revenue = total_estate_value * rate
+        remainder = total_estate_value - tax_revenue
 
     from epocha.apps.world.government import add_to_treasury
 
@@ -2034,10 +2067,41 @@ def _distribute_equal_split(heirs: dict[str, list], inheritable: float) -> dict[
     return _allocate_with_exact_remainder(ordered_shares, inheritable)
 
 
+# Quran 4:12, read on the primary text: "half of what your wives leave if they
+# are childless", "one-fourth" if they left children; and for the wife
+# "one-fourth of what you leave if you are childless", "one-eighth" with
+# children. The shares are GENDERED, and the module previously applied the
+# wife's pair to both, so a widower received exactly half his entitlement.
+# Powers (1986) remains the academic apparatus for the fixed-share-plus-
+# residuary structure but is no longer the source of these fractions: the
+# primary text is accessible and the project's constitution prefers it.
+_SHARIA_WIDOWER_SHARES = {False: 0.5, True: 0.25}
+_SHARIA_WIDOW_SHARES = {False: 0.25, True: 0.125}
+
+
+def _sharia_spouse_fraction(spouse: list, has_children: bool) -> float:
+    """Quranic fixed share of the surviving spouse, by the spouse's gender.
+
+    A non-binary spouse takes the widow's share, consistently with what the
+    design spec already fixes for non-binary heirs under this rule and with
+    `_split_two_to_one`, which gives a non-binary child a daughter's unit.
+    Declared simplification: classical Islamic jurisprudence recognised no
+    non-binary status, so neither reading is supported by the source and the
+    choice is made once, here, rather than differently in each function.
+    """
+    if not spouse:
+        return 0.0
+    is_widower = getattr(spouse[0], "gender", None) == "male"
+    shares = _SHARIA_WIDOWER_SHARES if is_widower else _SHARIA_WIDOW_SHARES
+    return shares[has_children]
+
+
 def _distribute_sharia(heirs: dict[str, list], inheritable: float) -> dict[int, float]:
-    """Spouse receives 1/8 of `inheritable` when the deceased leaves
-    children, otherwise 1/4; the remainder is divided among the children
-    with each son receiving twice a daughter's share (Powers, D.S. (1986),
+    """The surviving spouse receives the Quranic fixed share for their
+    gender -- a widower 1/2 childless and 1/4 with children, a widow 1/4 and
+    1/8 (Quran 4:12; see `_sharia_spouse_fraction`) -- and the remainder is
+    divided among the children with each son receiving twice a daughter's
+    share (Powers, D.S. (1986),
     "Studies in Qur'an and Hadith: The Formation of the Islamic Law of
     Inheritance" -- the fixed-share-plus-residuary structure of the
     classical fara'id system; see `_split_two_to_one` for the 2:1 ratio's
@@ -2065,12 +2129,13 @@ def _distribute_sharia(heirs: dict[str, list], inheritable: float) -> dict[int, 
        absorbs the ENTIRE residual on top of their own fixed fraction
        (mirroring the real "radd" -- return of residue -- effect for a
        sole surviving Quranic heir): in this one case the spouse's total
-       allocation is the WHOLE `inheritable` amount, not literally 1/4,
-       since there is no residuary heir left to receive the other 3/4.
+       allocation is the WHOLE `inheritable` amount, not literally the
+       fixed share, since there is no residuary heir left to receive the
+       rest.
     3. Else (no heir of any kind), the allocation is empty -- the treasury
        fallback.
 
-    The spouse's own fixed-fraction entry (1/8 or 1/4) is exact ONLY when
+    The spouse's own fixed-fraction entry is exact ONLY when
     step 1 actually receives the rest AND the spouse is not also a member
     of `pool`; step 2 is the degenerate case where the spouse is topped up
     beyond that fraction.
@@ -2101,7 +2166,7 @@ def _distribute_sharia(heirs: dict[str, list], inheritable: float) -> dict[int, 
     spouse = heirs.get("spouse", [])
     siblings = heirs.get("siblings", [])
 
-    spouse_fraction = 0.125 if children else 0.25
+    spouse_fraction = _sharia_spouse_fraction(spouse, bool(children))
     spouse_amount = inheritable * spouse_fraction if spouse else 0.0
     residual = inheritable - spouse_amount
 

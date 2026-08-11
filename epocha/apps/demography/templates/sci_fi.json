@@ -224,7 +224,7 @@
   },
   "social_inheritance": {
     "class_rule": "meritocratic",
-    "education_regression_rho": 0.2,
+    "education_regression_rho": 0.3,
     "era_noise": {
       "education": {
         "era_mean": 0.3,
