@@ -989,10 +989,23 @@ def _apply_meritocratic(child: Any, mother: Any, father: Any) -> None:
 
 
 def _regress_education_level(
-    mother: Any, father: Any, rho: float, era_mean_education: float
+    mother: Any,
+    father: Any,
+    rho: float,
+    era_mean_education: float,
+    era_sd_education: float,
+    rng: Any,
 ) -> float:
-    """child.education_level = rho * midparent_education + (1 - rho) *
-    era_mean_education, clamped to [0.0, 1.0].
+    """Education transmission, delegated to the amended polygenic kernel.
+
+    BEFORE amendment A3 this was a deterministic contraction,
+    `rho * midparent + (1 - rho) * era_mean`, with no random term at all. Its
+    fixed point is not a reduced dispersion but ZERO: measured over eight
+    generations from a starting dispersion of 0.150, it reaches 0.00004 at the
+    highest shipped coefficient and exact zero at the lowest, so education
+    becomes a population constant. That contradicts every source cited for it,
+    and it propagates -- the meritocratic class rule reads education, and the
+    homogamy score weights it between 0.25 and 0.40 in every era.
 
     Applied identically after every `class_rule` branch (design spec
     Sezione 5). Single-parent case degrades the midparent term to that
@@ -1005,17 +1018,20 @@ def _regress_education_level(
     mother_edu = mother.education_level if mother is not None else None
     father_edu = father.education_level if father is not None else None
 
-    if mother_edu is not None and father_edu is not None:
-        midparent_edu = (mother_edu + father_edu) / 2.0
-    elif mother_edu is not None:
-        midparent_edu = mother_edu
-    elif father_edu is not None:
-        midparent_edu = father_edu
-    else:
-        midparent_edu = era_mean_education
-
-    value = rho * midparent_edu + (1.0 - rho) * era_mean_education
-    return max(0.0, min(1.0, value))
+    # Education goes THROUGH the polygenic kernel rather than beside it.
+    # Amendment A3 gives it the treatment of A1 -- same family, same three
+    # kinship branches, residual scaled by the same variance identity -- and
+    # that is not an analogy but the same computation, so reimplementing it
+    # here would be a parallel twin of `inherit_trait` drifting from it at the
+    # next correction. `rho` plays the part `h2` plays for a trait.
+    return inherit_trait(
+        mother_edu,
+        father_edu,
+        rho,
+        era_mean_education,
+        era_sd_education,
+        rng,
+    )
 
 
 def apply_social_inheritance(
@@ -1093,8 +1109,15 @@ def apply_social_inheritance(
     # a dead read wearing a live default. There is no guard here because a
     # template that reached this function passed a validator that requires the
     # section; a guard that cannot fire is code that should not be written.
-    era_mean_education = social_inheritance["era_noise"]["education"]["era_mean"]
-    child.education_level = _regress_education_level(mother, father, rho, era_mean_education)
+    education_noise = social_inheritance["era_noise"]["education"]
+    child.education_level = _regress_education_level(
+        mother,
+        father,
+        rho,
+        education_noise["era_mean"],
+        education_noise["era_sd"],
+        rng,
+    )
 
     class_rule = social_inheritance["class_rule"]
 

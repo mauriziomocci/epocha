@@ -1792,9 +1792,11 @@ class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
 
     Two "middle" parents (rank 2) both at education_level=0.9, under
     sci_fi's own declared parameters (meritocratic, rho=0.2, era_mean_
-    education defaults to 0.3 -- no era template overrides it): the
-    correctly regressed child education_level is `0.2*0.9 + 0.8*0.3 =
-    0.42` (matching the audit's own hand-computed figure exactly), giving
+    education 0.3, declared in the template's era_noise section): with the
+    innovation residual held at zero the correctly regressed child
+    education_level is `0.3 + 0.2*(0.9 - 0.3) = 0.42` (matching the audit's
+    own hand-computed figure exactly, since the amended kernel reduces to the
+    previous one when the two coefficients happen to sum to one), giving
     merit `(0.9 + 0.42) / 2 = 0.66`, merit_rank `(1 - 0.66) * 4 = 1.36`,
     final rank `0.2*2 + 0.8*1.36 = 1.488`, rounding to 1 ("wealthy"). Read
     before regression (today's bug), the same child's education_level is
@@ -1844,8 +1846,20 @@ class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
         # bug -- the final education_level value is not a valid probe.
         child = _make_agent(sim, zone, "Child", intelligence=0.9, education_level=0.3)
 
-        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
-        apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
+        # A zero draw isolates the property under test. After amendment A3 the
+        # education regression carries an innovation term, so a seeded rng would
+        # displace the child's education by a random amount and the class label
+        # this test discriminates on would depend on the draw rather than on the
+        # dispatch order. With the residual at zero the regression returns
+        # exactly the 0.42 the audit hand-computed, and the label is decided by
+        # WHICH education value `_apply_meritocratic` read -- which is the bug.
+        class _ZeroResidual:
+            def gauss(self, mu: float, sigma: float) -> float:
+                return mu
+
+        apply_social_inheritance(
+            child, mother, father, template, zone_class_mean=2.0, rng=_ZeroResidual()
+        )
 
         assert child.education_level == pytest.approx(0.42), (
             f"child.education_level={child.education_level!r}, expected the "
@@ -1862,11 +1876,15 @@ class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
 
 
 class TestApplySocialInheritanceEducationRegression:
-    """child.education_level = rho*(mother.education_level +
-    father.education_level)/2 + (1-rho)*era_mean_education, clamped to
-    [0.0, 1.0]. Runs identically after every class_rule (design spec
-    Sezione 5). TRAP 1 guard: the field under test is `education_level`,
-    never `education` -- Agent has no such attribute.
+    """Education transmission, after amendment A3.
+
+    `child.education_level = m + rho*(midparent - m) + e`, with the residual
+    scaled by the same variance identity the traits use and `e` drawn once.
+    Before A3 this was a deterministic contraction whose fixed point was zero;
+    the expected values below therefore changed with the formula, at unchanged
+    seeds. Runs identically after every class_rule (design spec Sezione 5).
+    TRAP 1 guard: the field under test is `education_level`, never
+    `education` -- Agent has no such attribute.
     """
 
     @pytest.mark.django_db
@@ -1889,7 +1907,15 @@ class TestApplySocialInheritanceEducationRegression:
         father = _make_agent(sim, zone, "Father", social_class="middle", education_level=father_edu)
         child = _make_agent(sim, zone, "Child")
 
-        expected = rho * (mother_edu + father_edu) / 2.0 + (1.0 - rho) * DECLARED_ERA_MEAN_EDUCATION
+        era_sd = 0.15
+        expected_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        expected_residual = expected_rng.gauss(0.0, math.sqrt(1 - rho**2 / 2) * era_sd)
+        midparent = (mother_edu + father_edu) / 2.0
+        expected = (
+            DECLARED_ERA_MEAN_EDUCATION
+            + rho * (midparent - DECLARED_ERA_MEAN_EDUCATION)
+            + expected_residual
+        )
 
         rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
         apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
@@ -1969,7 +1995,15 @@ class TestApplySocialInheritanceEducationRegression:
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=mother_edu)
         child = _make_agent(sim, zone, "Child")
 
-        expected = rho * mother_edu + (1.0 - rho) * DECLARED_ERA_MEAN_EDUCATION
+        era_sd = 0.15
+        expected_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        expected_residual = expected_rng.gauss(0.0, math.sqrt(1 - rho**2 / 4) * era_sd)
+        # single parent: the signal coefficient is rho/2, as for a trait
+        expected = (
+            DECLARED_ERA_MEAN_EDUCATION
+            + (rho / 2) * (mother_edu - DECLARED_ERA_MEAN_EDUCATION)
+            + expected_residual
+        )
 
         rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
         apply_social_inheritance(child, mother, None, template, zone_class_mean=2.0, rng=rng)

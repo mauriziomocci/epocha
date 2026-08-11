@@ -176,7 +176,7 @@ La fase 1 è chiusa: il contratto di validazione a sei clausole di A9 è impleme
 |---|---|---|
 | `trait_inheritance.era_noise.<tratto>` | `apply_trait_inheritance` | **cablato.** Legge i momenti dichiarati per ogni tratto. |
 | `social_inheritance.era_noise.education.era_mean` | `_regress_education_level` | **cablato in fase 2.2.** |
-| `social_inheritance.era_noise.education.era_sd` | nulla | **INERTE.** L'istruzione è ancora deterministica: l'ampiezza acquista un consumatore solo quando A3 le dà il termine di innovazione, in fase 2.3. |
+| `social_inheritance.era_noise.education.era_sd` | `_regress_education_level` → `inherit_trait` | **cablato in fase 2.3.** |
 | `social_inheritance.era_noise.class_rank.target_dispersion` (1,0) | nulla | **INERTE.** La regola di Clark è deterministica: non esiste alcun `σ_clark` da risolvere finché A3 non lo introduce. `_BECKER_TOMES_RANK_NOISE_SD = 0.75` è l'ampiezza di un'altra regola e non va confusa con questo bersaglio. |
 
 **La lettura morta è stata rimossa in fase 2.2**, prima del previsto. Il piano la rinviava alla 2.3 sul presupposto che cambiare 0,3 in 0,30 fosse un no-op; è falso, perché fino a quel momento **nessun test poteva distinguere una lettura del template da una costante** — tutti i template sintetici della suite dichiaravano gli stessi valori dei ripieghi. Il difetto non era il valore ma il fatto che la sezione non fosse letta affatto, e questo si dimostra solo con un template che dichiari qualcosa di **diverso** dal ripiego. La costante `DEFAULT_ERA_MEAN_EDUCATION` è stata rimossa insieme alla lettura: senza consumatori restava un default irraggiungibile.
