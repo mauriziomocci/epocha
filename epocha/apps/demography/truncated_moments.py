@@ -450,6 +450,11 @@ def copula_joint(pmf: np.ndarray, copula_correlation: float) -> np.ndarray:
     median rather than an arbitrary endpoint -- instead of being integrated
     over the cell. That is what makes the result asymmetric.
     """
+    if not -1.0 < copula_correlation < 1.0:
+        # The caller validates too, but this function is public now: at
+        # exactly +/-1 the conditional spread is zero and the construction
+        # returns NaN with a RuntimeWarning instead of failing.
+        raise ValueError(f"copula correlation {copula_correlation} outside (-1, 1)")
     edges = _latent_edges(pmf)
     cumulative = np.clip(np.cumsum(pmf), 0.0, 1.0)
     mid = np.clip(cumulative - pmf / 2.0, 1e-15, 1.0 - 1e-15)

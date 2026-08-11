@@ -675,9 +675,8 @@ def resolve_birth_attributes(template: dict, rng: Any) -> tuple[str, str]:
        human populations. THE ATTRIBUTION THAT USED TO SIT HERE IS
        WITHDRAWN: it credited Falconer & Mackay for calling this one of the
        best-documented constants in human genetics, and that book is a
-       quantitative-genetics text whose chapters 8-10 are about variance
-       components, resemblance between relatives and heritability -- not
-       about the human secondary sex ratio. The claim was carried unverified
+       quantitative-genetics text, and nothing in the chapters this module
+       draws on concerns the human secondary sex ratio. The claim was carried unverified
        under chapter 8 and a mechanical renumbering made it worse rather than
        better. The 1.05 figure is retained as a DECLARED, UNSOURCED design
        parameter pending a proper demographic citation, and is nonetheless

@@ -346,6 +346,18 @@ class TestTheCopulaDiscretisationErrorIsPinned:
             pmf = body
             sd = tm._moments(pmf)[1]
             if abs(sd - previous) < tm.CONVERGENCE_TOL:
+                # ANCHORED ON THE SOLVER. This loop reproduces the module's
+                # fixed point, and a copy is only a stand-in while it agrees:
+                # a mutant changing the solver's residual scale would leave
+                # this loop -- and therefore the published figure's witness --
+                # untouched. Checking the settled moments against
+                # `solve_assorted_stationary_state` is what ties the two.
+                reference = tm.solve_assorted_stationary_state(
+                    era_mean, era_sd, coefficient, copula_correlation
+                )
+                mean, settled = tm._moments(pmf)
+                assert settled == pytest.approx(reference.stationary_sd, rel=1e-12)
+                assert mean == pytest.approx(reference.stationary_mean, rel=1e-12)
                 return pmf
             previous = sd
         raise AssertionError("the stationary probe did not settle")
@@ -356,7 +368,7 @@ class TestTheCopulaDiscretisationErrorIsPinned:
         assert mother_error < 1e-15
         assert father_error == pytest.approx(1.483e-3, rel=1e-3)
 
-    def test_the_trait_pair_is_two_orders_smaller_on_the_same_distribution(self):
+    def test_the_trait_pair_is_far_smaller_on_the_same_distribution(self):
         pmf = self._stationary_pmf(TRAIT_ERA, TRAIT_COEFFICIENT, 0.8)
         _, father_error = self._marginal_errors(pmf, 0.8)
         assert father_error == pytest.approx(4.068e-5, rel=1e-3)

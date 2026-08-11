@@ -8,8 +8,9 @@ Covers the polygenic additive inheritance kernel `inherit_trait`:
   audit-numbered `T046/I-1` (the social-class rank clamp)
 
 Scientific reference: Falconer, D.S. & Mackay, T.F.C. (1996), Introduction
-to Quantitative Genetics (4th ed.), Longman, chapter 8 (polygenic additive
-model with environmental noise term).
+to Quantitative Genetics (4th ed.), Longman, chapters 8-10. Numbers only and
+no titles: see `inheritance.py`'s module docstring for why, and
+`test_citation_hygiene.py` for the guard that keeps it that way.
 
 Also covers `evaluate_derived_formula` (SC-006), the restricted AST-based
 evaluator used to compute derived-trait formulas (design spec Sezione 4,

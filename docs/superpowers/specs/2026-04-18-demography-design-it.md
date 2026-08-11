@@ -652,7 +652,7 @@ child_T = h²_T · (mother_T + father_T) / 2 + (1 - h²_T) · ε_T
 ε_T ~ N(era_mean_T, era_sd_T)
 ```
 
-Il rumore ambientale `ε` è campionato da una distribuzione Normale la cui media e SD sono stimate dalla popolazione iniziale (tick 0) della simulazione (congelate dopo il tick 0). Questo modella l'ambiente come deviazione dal background genetico a livello di popolazione, un approccio metodologicamente standard (Falconer 1996 cap. 8).
+Il rumore ambientale `ε` è campionato da una distribuzione Normale la cui media e SD sono stimate dalla popolazione iniziale (tick 0) della simulazione (congelate dopo il tick 0). Questo modella l'ambiente come deviazione dal background genetico a livello di popolazione, un approccio metodologicamente standard (Falconer 1996 capp. 8-10).
 
 ### Tabella di heritability
 
@@ -1363,7 +1363,7 @@ R: Polderman integra 50 anni di twin study e dà stime h² consistenti attravers
 R: I valori Polderman sono moderni. La heritability storica può differire perché la varianza ambientale cambia nel tempo. L'MVP usa costanti moderne con il template che fornisce meccanismo di override per future calibrazioni. Questa è una limitazione documentata.
 
 **D: Come viene tratto il rumore ambientale `ε`?**
-R: Da una distribuzione Normale la cui media e SD sono uguali alla media e SD del tratto della popolazione al tick 0 della simulazione (congelate). Questo modella l'ambiente come deviazione dal background genetico della popolazione simulata, un approccio standard in genetica quantitativa (Falconer 1996 cap. 8).
+R: Da una distribuzione Normale la cui media e SD sono uguali alla media e SD del tratto della popolazione al tick 0 della simulazione (congelate). Questo modella l'ambiente come deviazione dal background genetico della popolazione simulata, un approccio standard in genetica quantitativa (Falconer 1996 capp. 8-10).
 
 ### Ereditarietà economica
 
