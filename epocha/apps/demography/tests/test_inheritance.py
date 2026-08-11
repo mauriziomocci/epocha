@@ -141,6 +141,25 @@ from epocha.apps.world.government import add_to_treasury
 from epocha.apps.world.models import Government, World, Zone
 
 
+class _NoGaussianNoise(random.Random):
+    """A seeded RNG whose Gaussian draws collapse to their mean.
+
+    Every other method is `random.Random`'s, so a test that needs the seeded
+    stream for gender or for a sampled class rule keeps it; only the
+    innovation terms -- education (A3) and the Clark rank (A3) -- go to zero.
+
+    This exists because a test pinning a DETERMINISTIC coefficient must not
+    also carry the stochastic term that coefficient sits next to. The
+    alternative, retuning the expected value until the seeded draw happens to
+    land on it, would be changing a seed to make a test pass; the coefficient
+    is the criterion, and the innovation is gated in
+    `test_education_innovation.py` and `test_clark_innovation_wiring.py`.
+    """
+
+    def gauss(self, mu: float, sigma: float) -> float:
+        return mu
+
+
 class TestInheritTraitTwoParents:
     """Two known parents: exact midparent + single-draw noise formula."""
 
@@ -1528,7 +1547,11 @@ class TestApplySocialInheritanceClarkRegression:
         monkeypatch.setattr(
             inheritance_module, "_rank_to_class_label", _capturing_rank_to_class_label
         )
-        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        # A3 adds the Clark innovation to this rank, so the seeded stream
+        # would displace both captured values by a draw and the 70/30
+        # coefficients -- the sole criterion here -- would no longer be
+        # readable off them. The innovation itself is gated separately.
+        rng = _NoGaussianNoise(0)
 
         # Scenario 1: father rank 0 ("elite"). The parent term (0.7*0=0)
         # vanishes regardless of the 0.7 coefficient's actual value -- this
@@ -1853,12 +1876,8 @@ class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
         # dispatch order. With the residual at zero the regression returns
         # exactly the 0.42 the audit hand-computed, and the label is decided by
         # WHICH education value `_apply_meritocratic` read -- which is the bug.
-        class _ZeroResidual:
-            def gauss(self, mu: float, sigma: float) -> float:
-                return mu
-
         apply_social_inheritance(
-            child, mother, father, template, zone_class_mean=2.0, rng=_ZeroResidual()
+            child, mother, father, template, zone_class_mean=2.0, rng=_NoGaussianNoise(0)
         )
 
         assert child.education_level == pytest.approx(0.42), (
@@ -2065,7 +2084,10 @@ class TestApplySocialInheritanceUnknownClassValue:
         )
         child = _make_agent(sim, zone, "Child")
 
-        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        # Zero innovation: the criterion is WHICH rank an unknown label falls
+        # back to, and a draw of the Clark amplitude spans two labels either
+        # side of 2.7, which would make the outcome a coin toss on the seed.
+        rng = _NoGaussianNoise(0)
         # "working" rank fallback (3): 0.7*3 + 0.3*2.0 = 2.7 -> rounds to 3.
         apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
 
@@ -2205,10 +2227,22 @@ class TestApplyInheritanceAtBirthEmptyZoneGuard:
     hand-computed from the documented fallback rank
     (_UNKNOWN_CLASS_FALLBACK_RANK, the "working" rank = 3) rather than only
     asserting "no exception raised".
+
+    Since A3 the rule is no longer deterministic. `apply_inheritance_at_birth`
+    builds its own rng, so the innovation is silenced at the seam where that
+    rng is made rather than by passing one in -- the criterion is the FALLBACK
+    MEAN reaching the arithmetic, not the draw layered on top of it.
     """
 
     @pytest.mark.django_db
-    def test_empty_zone_falls_back_to_working_rank_mean(self, sim_with_zone):
+    def test_empty_zone_falls_back_to_working_rank_mean(self, sim_with_zone, monkeypatch):
+        import epocha.apps.demography.inheritance as inheritance_module
+
+        monkeypatch.setattr(
+            inheritance_module,
+            "get_seeded_rng",
+            lambda simulation, tick, phase: _NoGaussianNoise(0),
+        )
         sim, populated_zone = sim_with_zone
         empty_zone = Zone.objects.create(
             world=populated_zone.world,

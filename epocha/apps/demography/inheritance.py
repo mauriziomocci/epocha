@@ -30,6 +30,10 @@ from typing import Any
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Q
 
+from epocha.apps.demography.clark_calibration import (
+    CLARK_PERSISTENCE,
+    solve_clark_innovation,
+)
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.world.stratification import _CLASS_RANK
 
@@ -924,16 +928,43 @@ def _apply_patrilineal_rigid(child: Any, mother: Any, father: Any) -> None:
         child.social_class = _RANK_TO_CLASS_LABEL[_UNKNOWN_CLASS_FALLBACK_RANK]
 
 
-def _apply_clark_regression(child: Any, mother: Any, father: Any, zone_class_mean: float) -> None:
-    """70% inherited from the father's rank, 30% regression toward the
-    zone's mean class rank (Clark, G. (2014), "The Son Also Rises: Surnames
-    and the History of Social Mobility", Princeton University Press).
+def _apply_clark_regression(
+    child: Any,
+    mother: Any,
+    father: Any,
+    zone_class_mean: float,
+    innovation_sd: float,
+    rng: Any,
+) -> None:
+    """70% inherited rank, 30% regression toward the zone mean, PLUS an
+    innovation (Clark, G. (2014), "The Son Also Rises"; the formal statement
+    is in Clark, Cummins, Hao & Diaz Vidal, Explorations in Economic History
+    2014, equations (3) and (4)).
 
-    Deterministic: no `rng` draw, matching the design spec's description of
-    this rule as a fixed 70/30 weighting rather than a sampled outcome.
+    THE INNOVATION IS NOT OPTIONAL, and its absence was not a simplification.
+    This rule shipped as a pure weighted average, which is a model with the
+    OPPOSITE asymptotic behaviour to Clark's: his is an AR(1) WITH an
+    innovation, `x_t = b*x_{t-1} + e_t`, and the same source states the
+    stationary identity that ties the innovation to the dispersion. Without
+    `e_t` every lineage walks monotonically to the mean and the
+    cross-sectional variance vanishes -- no mobility AND no stratification --
+    where Clark's model holds the variance constant and reshuffles
+    continuously. His low mobility is slow regression, not freezing. Measured
+    on the previous form: intergenerational mobility exactly 0.0000 and a
+    parent-child rank correlation of exactly 1.0000 from the second
+    generation, on a partition with two of the five ranks empty.
+
+    `innovation_sd` is SOLVED, never read off the identity: rounding to
+    integer labels and clamping at both ends are non-linear, so the
+    continuous-scale answer lands at 102.26% of the declared target. See
+    `clark_calibration.solve_clark_innovation`.
+
+    The draw is taken unconditionally so the RNG stream this rule consumes
+    does not depend on where the parent sits on the ladder.
     """
     parent_rank = _resolve_parent_rank(mother, father)
-    rank = 0.7 * parent_rank + 0.3 * zone_class_mean
+    rank = CLARK_PERSISTENCE * parent_rank + (1.0 - CLARK_PERSISTENCE) * zone_class_mean
+    rank += rng.gauss(0.0, innovation_sd)
     child.social_class = _rank_to_class_label(rank)
 
 
@@ -1124,7 +1155,13 @@ def apply_social_inheritance(
     if class_rule == "patrilineal_rigid":
         _apply_patrilineal_rigid(child, mother, father)
     elif class_rule == "clark_regression":
-        _apply_clark_regression(child, mother, father, zone_class_mean)
+        # The amplitude is solved once per declared target and memoised by the
+        # calibration module, so this is a dictionary lookup after the first
+        # birth of a simulation rather than a fixed-point solve per child.
+        target = social_inheritance["era_noise"]["class_rank"]["target_dispersion"]
+        _apply_clark_regression(
+            child, mother, father, zone_class_mean, solve_clark_innovation(target), rng
+        )
     elif class_rule == "becker_tomes_elasticity_0.4":
         _apply_becker_tomes(child, mother, father, zone_class_mean, rng)
     elif class_rule == "meritocratic":

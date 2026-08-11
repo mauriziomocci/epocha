@@ -866,36 +866,35 @@ One structural choice deserves stating before the equations, because it is a sec
 **Model.** The polygenic kernel is `inherit_trait()` (`inheritance.py:328`), whose body is four lines (`inheritance.py:430-441`):
 
 ```
-child_T = h²_T · midparent_T + (1 − h²_T) · ε_T                (4.46)
-ε_T ~ N(era_mean_T, era_sd_T)
+child_T = μ_T + b · (parent_term_T − μ_T) + e_T                (4.46)
+e_T ~ N(0, c · era_sd_T)
 
-midparent_T = (mother_T + father_T) / 2   both parents resolved
-            = mother_T                    mother only
-            = father_T                    father only
-            = era_mean_T                  neither
+parent_term_T = (mother_T + father_T) / 2   both parents resolved
+              = the one resolved parent      mother only / father only
+              = μ_T = era_mean_T             neither
+
+           b = h²_T,  c = √(1 − h⁴_T / 2)     both parents
+           b = h²_T / 2,  c = √(1 − h⁴_T / 4)  one parent
+           b = 0,  c = 1                       neither
 ```
 
-The result is clamped to `[lo, hi]`, default `[0, 1]`. The noise draw is taken exactly once per call and always *after* the midparent branch, so the RNG sequence this function consumes does not depend on which branch ran — a deliberate reproducibility property, not an accident of statement order.
+The result is clamped to `[lo, hi]`, default `[0, 1]`. The noise draw is taken exactly once per call and always *after* the branch, so the RNG sequence this function consumes does not depend on which branch ran — a deliberate reproducibility property, not an accident of statement order.
 
-Equation (4.46) is the formula the design spec specifies at its Sezione 4, and the implementation is a faithful transcription of it. It is **not** the Falconer and Mackay decomposition it cites, and the difference is measurable rather than interpretive. Under (4.46), with random mating and independent parents, offspring variance obeys the recursion
-
-```
-Var(child) = h⁴ · Var(midparent) + (1 − h²)² · era_sd²
-           = (h⁴ / 2) · Var(parent) + (1 − h²)² · era_sd²      (4.47)
-
-fixed point:  Var* = (1 − h²)² · era_sd² / (1 − h⁴ / 2)
-```
-
-because `Var(midparent) = Var(parent) / 2`, where `h⁴` denotes `(h²)²`, the square of the heritability, on the standard quantitative-genetics convention that `h²` is itself the parameter. For the modal trait configuration of the shipped templates — `h² = 0.55` (intelligence and strength) against `era_sd = 0.15` — equation (4.47) gives `sd* = 0.0733`, that is **48.8% of the era standard deviation the model claims to sample from**. The audit measured exactly this by simulating 4,000 agents over eight generations: the spread collapsed from 0.150 to a fixed point of 0.0733 and stayed there. The variance-preserving form the cited source calls for keeps the same conditional mean — `μ + h²·(midparent − μ)` is algebraically identical to `h²·midparent + (1 − h²)·μ` — and differs only in how the residual is scaled:
+Equation (4.46) is the variance-preserving form of the Falconer and Mackay (1996, ch. 8) decomposition, and the three residual scales are **derived from one identity rather than chosen**. Requiring the offspring variance to equal the parental variance `V` under random mating, with `Var(parent_term) = V/2` at two parents and `V` at one, gives
 
 ```
-Falconer & Mackay (1996, ch. 8), variance-preserving form:
-  child_T = μ_T + h²_T · (midparent_T − μ_T) + e_T             (4.48)
-  Var(e_T) = V_P · (1 − h⁴_T / 2)     so that Var(child) = V_P
-  single-parent regression coefficient is h²_T / 2, not h²_T
+V = b² · Var(parent_term) + c² · s²,   s = era_sd_T           (4.47)
+
+two parents:  V = h⁴ · V/2 + c² s²   ⇒  c = √(1 − h⁴/2)
+one parent:   V = (h⁴/4) · V + c² s² ⇒  c = √(1 − h⁴/4)
+no parent:    V = c² s²                ⇒  c = 1
 ```
 
-At `h² = 0.55` and `era_sd = 0.15`, (4.48) requires a residual standard deviation of `0.15 · √(1 − 0.55⁴/2) = 0.1382`, where (4.46) supplies `(1 − 0.55) · 0.15 = 0.0675` — slightly less than half. The single-parent line of (4.48) is the second discrepancy: (4.46)'s single-parent branch applies the full `h²` to the one known parent, so the implemented parent-offspring regression coefficient is `h²` where the cited source gives `h²/2`. Both departures are stated again, with their consequences, under Simplifications; they are recorded here because a chapter that presented (4.46) under a Falconer and Mackay heading without (4.47) and (4.48) beside it would be citing a source that does not support it.
+where `h⁴` denotes `(h²)²`, the square of the heritability, on the standard quantitative-genetics convention that `h²` is itself the parameter. **`h⁴` is `h2**2` in the code, not `h2**4`**: the variable already holds the square. Writing the exponent twice inflates the residual standard deviation by 6.03% and the variance by 12.43% at `h² = 0.55` while leaving the regression slope exactly correct, so a slope test cannot see it; `test_transmission_kernel.py` gates the scales themselves for that reason. At `h² = 0.55` and `era_sd = 0.15` the two-parent residual is `0.15 · 0.921276 = 0.138191` and the single-parent residual `0.15 · 0.961444 = 0.144217`.
+
+**What this replaced, and why it is recorded here.** Until the design-defect campaign of August 2026 the kernel shipped as `child_T = h²_T · midparent_T + (1 − h²_T) · ε_T` with `ε_T ~ N(era_mean_T, era_sd_T)` — a faithful transcription of the design spec's Sezione 4, and **not** the decomposition it cited. Its residual was scaled by `(1 − h²)` instead of `√(1 − h⁴/2)`, which at `h² = 0.55` supplies `0.0675` where the identity requires `0.138191` — slightly less than half — so the variance contracted every generation to a fixed point of `sd* = 0.0733`, **48.8% of the era standard deviation the model claimed to sample from**. The audit measured exactly that by simulating 4,000 agents over eight generations. The single-parent branch was the second departure: it applied the full `h²` to the one known parent where the source gives `h²/2`. Both are now fixed rather than documented as limitations, and the old form is stated here so the correction is auditable against what it corrected.
+
+Clamping to `[0, 1]` truncates the distribution, so the realized dispersion is below the declared `era_sd` even under the exact identity: the deterministic grid fixed point in `truncated_moments.py` puts the stationary amplitude at **91.8%** of the declared value at the modal configuration. That figure is measured and reported at template load, not gated — a band on it cannot separate a correct kernel from one whose residual is mis-scaled, which is precisely the failure the exact scale tests above exist to catch.
 
 Social transmission runs two steps, in a fixed order that the audit corrected: education regression first, then the class rule. The four class rules are (`inheritance.py:879-958`):
 
@@ -903,7 +902,8 @@ Social transmission runs two steps, in a fixed order that the audit corrected: e
 patrilineal_rigid : child.class = father.class   (string copy, no rank round-trip)
                                  ← mother.class ← "working"     (fallbacks)
 
-clark_regression  : rank = 0.7 · parent_rank + 0.3 · zone_class_mean   (4.49)
+clark_regression  : rank = 0.7 · parent_rank + 0.3 · zone_class_mean
+                          + N(0, σ_rank)                        (4.49)
 
 becker_tomes      : rank = 0.4 · parent_rank + 0.6 · zone_class_mean
                           + N(0, 0.75)
@@ -913,13 +913,17 @@ meritocratic      : merit = (child.intelligence + child.education) / 2
                           + 0.8 · (1 − merit) · 4
 ```
 
-where `parent_rank` is the *father's* rank on the ladder `elite=0 … poor=4, enslaved=5`, falling back to the mother's and then to `working` (`_resolve_parent_rank()`, `inheritance.py:859`), `zone_class_mean` is the mean rank of the living population of the mother's zone, and every sampled rule's output is clamped to `[0, 4]` before rounding to a label. That output ceiling is an audit fix: before it, ordinary weighted-average-plus-noise arithmetic under `becker_tomes` rounded to rank 5 — `enslaved` — for **25.25%** of children of two `poor` parents in an all-`poor` zone, in `modern_democracy`, the one era in which chattel slavery must never appear. `enslaved` survives as an *input* rank and reaches a child by exactly one route: `patrilineal_rigid`'s verbatim string copy from an already-enslaved father, which never passes through the rounding at all. Education regression is (`inheritance.py:961`):
+where `parent_rank` is the *father's* rank on the ladder `elite=0 … poor=4, enslaved=5`, falling back to the mother's and then to `working` (`_resolve_parent_rank()`, `inheritance.py:859`), `zone_class_mean` is the mean rank of the living population of the mother's zone, and every sampled rule's output is clamped to `[0, 4]` before rounding to a label. That output ceiling is an audit fix: before it, ordinary weighted-average-plus-noise arithmetic under `becker_tomes` rounded to rank 5 — `enslaved` — for **25.25%** of children of two `poor` parents in an all-`poor` zone, in `modern_democracy`, the one era in which chattel slavery must never appear. `enslaved` survives as an *input* rank and reaches a child by exactly one route: `patrilineal_rigid`'s verbatim string copy from an already-enslaved father, which never passes through the rounding at all.
+
+The innovation `N(0, σ_rank)` in (4.49) is not decoration and its absence was not a simplification. Clark's model is an AR(1) *with* an innovation, `x_t = b·x_{t−1} + e_t` (Clark, Cummins, Hao and Diaz Vidal 2014, eqs. 3-4); without `e_t` every lineage walks monotonically to the zone mean and the cross-sectional variance vanishes, which is the opposite asymptotic behaviour to the one the source describes — his low mobility is slow regression, not freezing. Measured on the form that shipped until August 2026: intergenerational mobility exactly 0.0000 and a parent-child rank correlation of exactly 1.0000 from the second generation, on a partition with two of the five ranks empty. The stationary identity `σ = s_rank · √(1 − b²)` fixes the amplitude on a continuous scale, but rounding to integer labels and clamping at both ends are non-linear, so that reading overshoots: at the declared `target_dispersion = 1.0` it realizes 1.0226. `clark_calibration.solve_clark_innovation()` therefore *solves* the amplitude against the realized dispersion of the rounded, clamped five-state chain by bisection to 1e-12, giving `σ_rank = 0.688956` — 96.47% of the naive reading — and a realized mobility of 0.4993. Education regression is (`inheritance.py:961`):
 
 ```
-child.education = ρ · midparent_education + (1 − ρ) · era_mean_education   (4.50)
+child.education = (4.46) with b, c from ρ in place of h²                (4.50)
 ```
 
-clamped to `[0, 1]`, with the same four-way midparent fallback as (4.46) and `era_mean_education = 0.3` (`DEFAULT_ERA_MEAN_EDUCATION`, `inheritance.py:831`) because no template declares the key. It runs before the class dispatch so that `meritocratic` — the only rule reading `child.education_level` — sees the regressed value rather than the `Agent` field default; running it second understated merit by 0.06 and the final rank by 0.19 at two parents of education 0.9 under `sci_fi`, enough to demote a child a full class.
+that is, education goes through the *same* kernel as the traits, with the era-specific regression coefficient `ρ` playing the role of `h²` and `era_mean_education`, `era_sd_education` declared per era under `social_inheritance.era_noise.education`. It is literally the same call, not an analogy.
+
+Until August 2026 this step was `ρ · midparent_education + (1 − ρ) · era_mean_education`, a pure deterministic contraction with no random term at all, and its fixed point is not a reduced dispersion but **zero**: measured over eight generations from a starting dispersion of 0.150, `ρ = 0.5` reached 0.00004 and `ρ = 0.2` reached exact zero, making education a constant. The consequence propagated, because the `meritocratic` class rule reads education and the homogamy score weights it between 0.25 and 0.40. The era mean was also a module constant of 0.3 that no template declared; it is now declared by all five. It runs before the class dispatch so that `meritocratic` — the only rule reading `child.education_level` — sees the regressed value rather than the `Agent` field default; running it second understated merit by 0.06 and the final rank by 0.19 at two parents of education 0.9 under `sci_fi`, enough to demote a child a full class.
 
 Estate settlement decomposes into a tax step and an allocation step:
 
@@ -986,7 +990,7 @@ Table 4.11 — Per-era social and economic inheritance parameters (all five ship
 
 Two facts about Table 4.11 must not be misread. First, the shipped templates exercise only three of the five implemented succession rules: `primogeniture` once, `shari'a` once, and `equal_split` three times. `matrilineal` and `nationalized` are implemented, separately tested, and declared by no template; they exist for future custom templates and for completeness of the five documented systems. Second, the ρ column disagrees with the design spec for three of the five templates, and the disagreement is not a rounding convention — it is recorded under Simplifications as an open finding. The `modern_democracy` estate-tax rate of 0.40 corresponds to the top-bracket historical estate and inheritance tax rates documented in Piketty (2014, tables 14.1–14.2); the pre-industrial 0.00 is not a claim that pre-industrial elites paid no death duties, but a scoping statement — feudal relief payments and analogous transfer-of-power levies belong to the economy layer, not to this line item.
 
-**Algorithm.** The birth path is `apply_inheritance_at_birth(child, mother, father, simulation, tick)` (`inheritance.py:1115`). It loads the era template, computes `zone_class_mean` over the mother's zone in one `values_list` query, draws a single `random.Random` from `get_seeded_rng(simulation, tick, phase="inheritance")`, and runs three steps against that one shared stream in a fixed order: `apply_trait_inheritance()` walks the heritable traits in a deterministic order (heritability-dict order first, then any parent-only personality keys sorted lexicographically, never a bare `set`, because `rng.gauss` is drawn once per trait and an unordered iteration would make the draw sequence depend on the interpreter's per-process string hash seed); `resolve_birth_attributes()` consumes exactly two `rng.random()` draws for gender and sexual orientation, gender from the secondary sex ratio via `p_male = ratio / (1 + ratio)` (1.05 in every template except `sci_fi`'s 1.0, and structurally incapable of producing `non_binary`, since the secondary sex ratio is a birth-sex statistic and not a gender-identity distribution), orientation by a cumulative walk over the template's own `sexual_orientation_distribution` in JSON insertion order, whose modern default — heterosexual 0.955, bisexual 0.030, homosexual 0.015 — comes from Chandra et al. (2011) and is carried as a tunable design parameter for eras where no comparable survey exists rather than as a claim of universality; and `apply_social_inheritance()` runs (4.50) then dispatches (4.49). The child's `wealth` is set to 0.0 unconditionally and `zone` to the mother's. Nothing is saved: the function mutates `child` and only `child`, leaving persistence to the Plan 4 birth orchestrator.
+**Algorithm.** The birth path is `apply_inheritance_at_birth(child, mother, father, simulation, tick)` (`inheritance.py:1115`). It loads the era template, computes `zone_class_mean` over the mother's zone in one `values_list` query, draws a single `random.Random` from `get_seeded_rng(simulation, tick, phase="inheritance")`, and runs three steps against that one shared stream in a fixed order: `apply_trait_inheritance()` walks the heritable traits in the template's own `heritability` insertion order, never a bare `set`, because `rng.gauss` is drawn once per trait and an unordered iteration would make the draw sequence depend on the interpreter's per-process string hash seed. The transmitted set is exactly the declared one: until August 2026 the walk was extended with any personality key present on a parent but absent from `heritability`, which silently gave an undeclared trait a `default` heritability and made the transmitted set depend on the parents rather than on the era. That `default` key has been removed from the schema, and a template declaring it is now rejected; `resolve_birth_attributes()` consumes exactly two `rng.random()` draws for gender and sexual orientation, gender from the secondary sex ratio via `p_male = ratio / (1 + ratio)` (1.05 in every template except `sci_fi`'s 1.0, and structurally incapable of producing `non_binary`, since the secondary sex ratio is a birth-sex statistic and not a gender-identity distribution), orientation by a cumulative walk over the template's own `sexual_orientation_distribution` in JSON insertion order, whose modern default — heterosexual 0.955, bisexual 0.030, homosexual 0.015 — comes from Chandra et al. (2011) and is carried as a tunable design parameter for eras where no comparable survey exists rather than as a claim of universality; and `apply_social_inheritance()` runs (4.50) then dispatches (4.49). The child's `wealth` is set to 0.0 unconditionally and `zone` to the mother's. Nothing is saved: the function mutates `child` and only `child`, leaving persistence to the Plan 4 birth orchestrator.
 
 The death path is `process_inheritance_batch(simulation, tick, deceased_agents)` (`inheritance.py:2959`). The batch is normalized to a list and sorted `age` descending, `id` ascending — oldest first — the Simultaneous Death Act convention the design spec adopts as a deterministic tiebreak (`inheritance.py:3210`). The simulation's primary currency is resolved once for the whole batch, falling back to the literal `"USD"` only when the simulation has no `Currency` row at all; before that fix the code credited a hardcoded `"USD"` unconditionally, which under `modern_democracy` sequestered 40% of every estate plus every unclaimed estate in a treasury key no spending path reads. Then, per deceased, inside one `transaction.atomic()`: resolve heirs; apply (4.51); distribute per (4.52); accumulate the transfer into a batch-wide pending-credit ledger rather than crediting immediately, since the same living heir may inherit from a second decedent later in the same batch; transfer the lender-side loans; generate mourning memories; and only then dissolve the couple. That last ordering is load-bearing and was corrected during implementation: both `_resolve_spouse_heirs()` and `generate_mourning_memories()` reach the surviving partner through `active_couple_for()`, which only sees a couple with `dissolved_at_tick IS NULL`, so dissolving first would silently discard a living spouse's inheritance *and* their mourning memory.
 
