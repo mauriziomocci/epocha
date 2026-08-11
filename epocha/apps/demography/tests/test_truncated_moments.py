@@ -15,10 +15,31 @@ import pytest
 
 from epocha.apps.demography.truncated_moments import (
     AdmissibleRegionResult,
-    boundary_mass,
+    _branch_coefficients,
+    _solve,
     check_admissible_region,
-    stationary_amplitude_ratio,
 )
+
+
+def stationary_amplitude_ratio(era_mean: float, era_sd: float, coefficient: float) -> float:
+    """Two-parent branch ratio, which is the branch A1 publishes its figures on.
+
+    A test-only helper. It is deliberately NOT part of the module's API: a
+    public entry point reporting one fixed branch is what A1 forbids, since
+    the branch that minimises the ratio is not predictable from the
+    configuration. Production code goes through `check_admissible_region`,
+    which takes the worst of the three and names it.
+    """
+    parents, signal, residual = _branch_coefficients(coefficient)[0]
+    _, sd, _ = _solve(era_mean, era_sd, parents, signal, residual * era_sd)
+    return sd / era_sd
+
+
+def boundary_mass(era_mean: float, era_sd: float, coefficient: float) -> float:
+    """Two-parent branch boundary mass. Test-only, for the same reason."""
+    parents, signal, residual = _branch_coefficients(coefficient)[0]
+    _, _, tail = _solve(era_mean, era_sd, parents, signal, residual * era_sd)
+    return tail
 
 
 class TestStationaryAmplitudeRatio:
@@ -92,7 +113,7 @@ class TestCheckAdmissibleRegion:
     def test_rejects_the_configuration_that_motivated_the_family_question(self):
         result = check_admissible_region(0.80, 0.15, (0.55,))
         assert not result.accepted
-        assert "ampiezza" in result.reason
+        assert "era_sd" in result.reason
         # the reason must carry the measured value, not just a verdict, and the
         # value must be the WORST branch's, not the published two-parent one
         assert "92.0" in result.reason
@@ -105,18 +126,18 @@ class TestCheckAdmissibleRegion:
         for mean in (0.0, 1.0):
             result = check_admissible_region(mean, 0.15, (0.55,))
             assert not result.accepted
-            assert "media" in result.reason
+            assert "era_mean" in result.reason
 
     def test_rejects_a_non_positive_amplitude(self):
         result = check_admissible_region(0.5, 0.0, (0.55,))
         assert not result.accepted
-        assert "ampiezza" in result.reason
+        assert "era_sd" in result.reason
 
     def test_rejects_a_pair_violating_the_bhatia_davis_bound(self):
         """s^2 < m(1-m) bounds every distribution on [0,1], this family included."""
         result = check_admissible_region(0.5, 0.51, (0.55,))
         assert not result.accepted
-        assert "Bhatia" in result.reason
+        assert "Bhatia-Davis" in result.reason
 
     def test_evaluates_the_worst_branch_not_a_conventional_one(self):
         """A1 requires the minimum over the three kinship branches.

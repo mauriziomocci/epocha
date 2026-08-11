@@ -44,14 +44,19 @@ shape and admissibility, not realism.
 from __future__ import annotations
 
 import json
+import logging
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from epocha.apps.demography.truncated_moments import (
+    AdmissibleRegionResult,
+    FixedPointNotConvergedError,
     check_admissible_region,
     check_rank_dispersion,
 )
+
+logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -186,7 +191,7 @@ def _fail(source: str, message: str) -> None:
 
 def _interval_text(interval: tuple[float, float | None]) -> str:
     low, high = interval
-    return f"[{low:g}, {high:g}]" if high is not None else f"maggiore di {low:g}"
+    return f"[{low:g}, {high:g}]" if high is not None else f"greater than {low:g}"
 
 
 def _check_leaf(value: Any, spec: tuple, path: str, source: str) -> None:
@@ -194,11 +199,11 @@ def _check_leaf(value: Any, spec: tuple, path: str, source: str) -> None:
     if isinstance(expected_type, tuple):
         # bool is a subclass of int; a flag where a number belongs is a defect
         if isinstance(value, bool) or not isinstance(value, expected_type):
-            _fail(source, f"{path} deve essere numerico, trovato {type(value).__name__}")
+            _fail(source, f"{path} must be numeric, found {type(value).__name__}")
     elif not isinstance(value, expected_type):
         _fail(
             source,
-            f"{path} deve essere di tipo {expected_type.__name__}, trovato {type(value).__name__}",
+            f"{path} must be of type {expected_type.__name__}, found {type(value).__name__}",
         )
     if interval is None:
         return
@@ -207,17 +212,17 @@ def _check_leaf(value: Any, spec: tuple, path: str, source: str) -> None:
         if not value > low:
             _fail(
                 source,
-                f"{path} = {value} fuori intervallo: deve essere {_interval_text(interval)}",
+                f"{path} = {value} out of range: must be {_interval_text(interval)}",
             )
     elif not low <= value <= high:
-        _fail(source, f"{path} = {value} fuori intervallo ammesso {_interval_text(interval)}")
+        _fail(source, f"{path} = {value} outside the admitted range {_interval_text(interval)}")
 
 
 def _walk(data: Any, schema: Any, path: str, source: str) -> None:
     """Clauses 1, 2, 3 and the entry half of 4, recursively."""
     if isinstance(schema, _Mapping):
         if not isinstance(data, dict):
-            _fail(source, f"{path} deve essere una sezione")
+            _fail(source, f"{path} must be a section")
         # No emptiness check here. For `era_noise` and `heritability` clauses 4
         # and 6 already reject an empty section, naming the characters that are
         # missing -- a generic guard would be dead code before them. And for
@@ -229,12 +234,12 @@ def _walk(data: Any, schema: Any, path: str, source: str) -> None:
 
     if isinstance(schema, dict):
         if not isinstance(data, dict):
-            _fail(source, f"{path} deve essere una sezione")
+            _fail(source, f"{path} must be a section")
         allowed = set(schema)
         unknown = sorted(set(data) - allowed)
         if unknown:
-            where = path or "livello superiore"
-            _fail(source, f"chiave sconosciuta in {where}: {', '.join(unknown)}")
+            where = path or "top level"
+            _fail(source, f"unknown key in {where}: {', '.join(unknown)}")
         for key, sub in schema.items():
             sub_path = f"{path}.{key}" if path else key
             if isinstance(sub, _Optional):
@@ -242,7 +247,7 @@ def _walk(data: Any, schema: Any, path: str, source: str) -> None:
                     _walk(data[key], sub.schema, sub_path, source)
                 continue
             if key not in data:
-                _fail(source, f"sezione o campo obbligatorio mancante: {sub_path}")
+                _fail(source, f"mandatory section or field missing: {sub_path}")
             _walk(data[key], sub, sub_path, source)
         return
 
@@ -255,26 +260,81 @@ def _check_transmitted_characters(data: dict[str, Any], source: str) -> None:
     declared = set(trait["heritability"])
     with_noise = set(trait["era_noise"])
 
+    # Both empty is the one arrangement the symmetric difference cannot see:
+    # it is zero, and the admissible-region pass then iterates nothing, so a
+    # template declaring no transmitted character at all would be accepted
+    # whole. A model that transmits nothing is not a valid era.
+    if not declared and not with_noise:
+        _fail(
+            source,
+            "trait_inheritance declares no transmitted character: both "
+            "heritability and era_noise are empty",
+        )
+
     if "default" in declared:
         _fail(
             source,
-            "trait_inheritance.heritability.default e' stata rimossa dallo schema: "
-            "ogni tratto dichiarato porta il proprio coefficiente",
+            "trait_inheritance.heritability.default has been removed from the "
+            "schema: every declared trait carries its own coefficient",
         )
     missing_noise = sorted(declared - with_noise)
     if missing_noise:
         _fail(
             source,
-            "trait_inheritance.era_noise non dichiara i caratteri "
-            f"{', '.join(missing_noise)}, presenti in heritability",
+            "trait_inheritance.era_noise does not declare the characters "
+            f"{', '.join(missing_noise)}, which are present in heritability",
         )
     orphan_noise = sorted(with_noise - declared)
     if orphan_noise:
         _fail(
             source,
-            "trait_inheritance.era_noise dichiara i caratteri "
-            f"{', '.join(orphan_noise)}, assenti da heritability",
+            "trait_inheritance.era_noise declares the characters "
+            f"{', '.join(orphan_noise)}, which are absent from heritability",
         )
+
+
+def _admissible_or_fail(
+    era_mean: float,
+    era_sd: float,
+    coefficients: tuple[float, ...],
+    label: str,
+    source: str,
+) -> AdmissibleRegionResult:
+    """Run A1's check, converting both failure modes into the documented one.
+
+    `load_template` promises `ValueError` for any A9 violation. The fixed
+    point can also fail to settle, which raises `FixedPointNotConvergedError`
+    -- a RuntimeError naming neither the template nor the field. A1 requires
+    the load to fail naming the pair, so it is translated here.
+    """
+    try:
+        result = check_admissible_region(era_mean, era_sd, coefficients)
+    except FixedPointNotConvergedError as exc:
+        _fail(source, f"{label}: admissible-region fixed point did not settle ({exc})")
+        raise  # unreachable; _fail always raises
+    if not result.accepted:
+        _fail(source, f"{label}: {result.reason}")
+    return result
+
+
+def _report(label: str, era_mean: float, era_sd: float, result: AdmissibleRegionResult) -> None:
+    """A1 requires the boundary mass to be reported at load, naming its branch.
+
+    It is an observable, not a gate: no source fixes how much boundary mass a
+    bounded phenotypic character may tolerate, so A1 declines to invent a
+    ceiling and lets the amplitude check bound it instead. Reporting it keeps
+    the quantity visible to whoever calibrates a future era.
+    """
+    logger.info(
+        "demography template %s at (era_mean=%.4f, era_sd=%.4f): realized amplitude "
+        "%.2f%% of declared on the worst branch, boundary mass %.2f%% on the %s branch",
+        label,
+        era_mean,
+        era_sd,
+        result.realized_ratio * 100.0,
+        result.boundary_mass * 100.0,
+        result.boundary_mass_branch,
+    )
 
 
 def _check_admissible_pairs(data: dict[str, Any], source: str) -> None:
@@ -291,22 +351,21 @@ def _check_admissible_pairs(data: dict[str, Any], source: str) -> None:
 
     for (era_mean, era_sd), names in groups.items():
         coefficients = tuple(trait["heritability"][name] for name in names)
-        result = check_admissible_region(era_mean, era_sd, coefficients)
-        if not result.accepted:
-            _fail(
-                source,
-                f"trait_inheritance.era_noise ({', '.join(sorted(names))}): {result.reason}",
-            )
+        label = f"trait_inheritance.era_noise ({', '.join(sorted(names))})"
+        result = _admissible_or_fail(era_mean, era_sd, coefficients, label, source)
+        _report(label, era_mean, era_sd, result)
 
     social = data["social_inheritance"]
     education = social["era_noise"]["education"]
-    result = check_admissible_region(
+    label = "social_inheritance.era_noise.education"
+    result = _admissible_or_fail(
         education["era_mean"],
         education["era_sd"],
         (social["education_regression_rho"],),
+        label,
+        source,
     )
-    if not result.accepted:
-        _fail(source, f"social_inheritance.era_noise.education: {result.reason}")
+    _report(label, education["era_mean"], education["era_sd"], result)
 
     rank = check_rank_dispersion(social["era_noise"]["class_rank"]["target_dispersion"])
     if not rank.accepted:
@@ -319,14 +378,14 @@ def _check_admissible_pairs(data: dict[str, Any], source: str) -> None:
 def validate_template(data: dict[str, Any], source: str) -> None:
     """Apply the six clauses of the A9 contract. Raises ValueError on any."""
     if not isinstance(data, dict):
-        _fail(source, "il documento non e' un oggetto JSON")
+        _fail(source, "the document is not a JSON object")
     _walk(data, SCHEMA, "", source)
 
     if data["fertility_agency"] not in ALLOWED_FERTILITY_AGENCY:
         _fail(
             source,
-            f"fertility_agency = {data['fertility_agency']!r} non ammesso: "
-            f"deve essere uno di {sorted(ALLOWED_FERTILITY_AGENCY)}",
+            f"fertility_agency = {data['fertility_agency']!r} not admitted: "
+            f"must be one of {sorted(ALLOWED_FERTILITY_AGENCY)}",
         )
 
     _check_transmitted_characters(data, source)

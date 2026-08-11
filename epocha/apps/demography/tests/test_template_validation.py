@@ -153,6 +153,16 @@ class TestClauseFourMissingEntries:
         with pytest.raises(ValueError, match="era_noise"):
             validate_template(template, source="test")
 
+    def test_rejects_a_template_that_transmits_nothing(self, template):
+        """Both sections empty is the arrangement the symmetric difference
+        cannot see: it is zero, and the admissible-region pass then iterates
+        nothing. Emptying only one side is caught by clauses 4 and 6; emptying
+        both was accepted whole until this check existed."""
+        template["trait_inheritance"]["heritability"] = {}
+        template["trait_inheritance"]["era_noise"] = {}
+        with pytest.raises(ValueError, match="no transmitted character"):
+            validate_template(template, source="test")
+
     def test_accepts_an_era_that_derives_no_traits(self, template):
         """A9 requires an entry per TRANSMITTED character, and a derived trait
         is not one: an era that derives none is legitimate and must load."""
@@ -189,7 +199,7 @@ class TestClauseFiveAdmissibleRegion:
             entry["era_mean"] = 0.80
         with pytest.raises(ValueError) as excinfo:
             validate_template(template, source="test")
-        assert "ampiezza stazionaria" in str(excinfo.value)
+        assert "realized stationary amplitude" in str(excinfo.value)
 
     def test_rejects_a_mean_on_the_boundary(self, template):
         template["trait_inheritance"]["era_noise"]["creativity"]["era_mean"] = 0.0
@@ -257,7 +267,7 @@ class TestTheDefaultSentinelIsGone:
         removing it.
         """
         template["trait_inheritance"]["heritability"]["default"] = 0.30
-        with pytest.raises(ValueError, match="rimossa dallo schema"):
+        with pytest.raises(ValueError, match="removed from the schema"):
             validate_template(template, source="test")
 
 
@@ -293,3 +303,51 @@ class TestValidationRunsOnLoad:
         monkeypatch.setattr(template_loader, "TEMPLATES_DIR", tmp_path)
         with pytest.raises(ValueError, match="estate_tax_rate"):
             template_loader.load_template("broken")
+
+
+class TestNonConvergenceIsAValueError:
+    """`load_template` documents ValueError for any A9 violation.
+
+    The fixed point can also fail to settle, and that raised a RuntimeError
+    naming neither the template nor the field, against A9's requirement to
+    name the field and A1's to name the pair.
+    """
+
+    def test_a_fixed_point_that_does_not_settle_fails_as_a_validation_error(
+        self, template, monkeypatch
+    ):
+        from epocha.apps.demography import truncated_moments
+
+        monkeypatch.setattr(truncated_moments, "MAX_ITERATIONS", 1)
+        truncated_moments._solve.cache_clear()
+        try:
+            with pytest.raises(ValueError) as excinfo:
+                validate_template(template, source="my-template.json")
+            message = str(excinfo.value)
+            assert "my-template.json" in message
+            assert "era_noise" in message
+            assert "did not settle" in message
+        finally:
+            truncated_moments._solve.cache_clear()
+
+
+class TestBoundaryMassIsReported:
+    """A1 requires the boundary mass reported at load, naming its branch.
+
+    It is an observable, not a gate -- the amendment deleted the ceiling it
+    once had, for want of any source fixing a tolerable value.
+    """
+
+    def test_load_reports_amplitude_and_boundary_mass_with_its_branch(self, caplog):
+        import logging
+
+        from epocha.apps.demography import template_loader
+
+        template_loader.load_template("industrial")  # warm the fixed-point cache
+        with caplog.at_level(logging.INFO, logger=template_loader.__name__):
+            template_loader.load_template("industrial")
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("boundary mass" in m for m in messages)
+        assert any(
+            branch in m for m in messages for branch in ("two-parent", "single-parent", "no-parent")
+        )

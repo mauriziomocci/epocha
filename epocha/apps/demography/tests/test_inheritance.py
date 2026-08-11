@@ -798,46 +798,87 @@ class TestApplyTraitInheritanceHeritabilityCoverage:
             assert 0.0 <= value <= 1.0, f"{name}={value} outside [0, 1]"
 
 
-class TestApplyTraitInheritanceDefaultHeritability:
-    """Personality traits absent from the heritability table use default h2=0.30."""
+class TestTransmittedSetIsClosed:
+    """The transmitted set is exactly `trait_inheritance.heritability`.
+
+    This class asserts the inverse of what it asserted before amendment A9
+    (2026-08-07). Until then the trait list was extended with every key found
+    in either parent's `personality` dict -- an unvalidated JSONField
+    populated by an LLM prompt -- so a key the model invented became a
+    transmitted character governed by a fallback heritability and a noise pair
+    no template had declared. Template validation cannot close a set that
+    runtime reopens; the set is closed in the kernel, and the old behaviour is
+    now a defect rather than a documented fallback.
+    """
 
     @pytest.mark.django_db
-    def test_unpublished_personality_trait_uses_default_h2(self, sim_with_zone):
-        """Requirement 2: humor_style (not in heritability) is inherited with
-        default_h2 = heritability["default"] = 0.30, using the documented
-        DEFAULT_ERA_MEAN / DEFAULT_ERA_SD noise prior since no era template
-        carries a per-trait noise spec (verified: none of the five era
-        templates declare era_mean/era_sd under trait_inheritance).
+    def test_an_undeclared_personality_key_is_not_transmitted(self, sim_with_zone):
+        """Both parents carry `humor_style`; the template does not declare it.
 
-        A minimal synthetic template isolates humor_style as the only
-        heritable trait, so the RNG draw sequence is unambiguous and the
-        expected value can be hand-computed exactly against a rng cloned
-        from the same seed/tick/phase (mirrors the exact-match style of
-        TestInheritTraitTwoParents above).
+        The child must not receive it. Inheriting it would mean transmitting a
+        character at a heritability and a noise pair that no source and no
+        template ever fixed, which is precisely what A9 removes.
         """
         sim, zone = sim_with_zone
         synthetic_template = {
             "trait_inheritance": {
-                "heritability": {"default": 0.30},
+                "heritability": {"openness": 0.55},
+                "era_noise": {"openness": {"era_mean": 0.5, "era_sd": 0.15}},
                 "derived_trait_formulas": {},
             }
         }
-        mother_val = 0.8
-        father_val = 0.2
-        mother = _make_agent(sim, zone, "Mother", personality={"humor_style": mother_val})
-        father = _make_agent(sim, zone, "Father", personality={"humor_style": father_val})
+        mother = _make_agent(sim, zone, "Mother", personality={"humor_style": 0.8})
+        father = _make_agent(sim, zone, "Father", personality={"humor_style": 0.2})
         child = _make_agent(sim, zone, "Child")
 
-        expected_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
-        expected = inherit_trait(
-            mother_val, father_val, 0.30, DEFAULT_ERA_MEAN, DEFAULT_ERA_SD, expected_rng
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_trait_inheritance(child, mother, father, synthetic_template, rng)
+
+        assert "humor_style" not in child.personality
+        assert "openness" in child.personality
+
+    @pytest.mark.django_db
+    def test_an_undeclared_key_does_not_consume_the_rng_stream(self, sim_with_zone):
+        """Closing the set must also close the RNG draw it used to make.
+
+        A key left untransmitted but still drawn for would shift every
+        subsequent draw in the tick, which is the determinism trap this work
+        item has to watch. The child's declared trait must therefore match the
+        value produced when no undeclared key is present at all.
+        """
+        sim, zone = sim_with_zone
+        template = {
+            "trait_inheritance": {
+                "heritability": {"openness": 0.55},
+                "era_noise": {"openness": {"era_mean": 0.5, "era_sd": 0.15}},
+                "derived_trait_formulas": {},
+            }
+        }
+        with_extra = _make_agent(sim, zone, "ChildA")
+        mother_a = _make_agent(sim, zone, "MotherA", personality={"humor_style": 0.8})
+        father_a = _make_agent(sim, zone, "FatherA", personality={"humor_style": 0.2})
+        apply_trait_inheritance(
+            with_extra,
+            mother_a,
+            father_a,
+            template,
+            get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance"),
         )
 
-        actual_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
-        apply_trait_inheritance(child, mother, father, synthetic_template, actual_rng)
+        without_extra = _make_agent(sim, zone, "ChildB")
+        mother_b = _make_agent(sim, zone, "MotherB", personality={})
+        father_b = _make_agent(sim, zone, "FatherB", personality={})
+        apply_trait_inheritance(
+            without_extra,
+            mother_b,
+            father_b,
+            template,
+            get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance"),
+        )
 
-        assert "humor_style" in child.personality
-        assert child.personality["humor_style"] == pytest.approx(expected)
+        assert with_extra.personality["openness"] == pytest.approx(
+            without_extra.personality["openness"]
+        )
 
 
 class TestApplyTraitInheritanceNeitherParentCarriesTheKey:
@@ -862,7 +903,8 @@ class TestApplyTraitInheritanceNeitherParentCarriesTheKey:
         sim, zone = sim_with_zone
         synthetic_template = {
             "trait_inheritance": {
-                "heritability": {"default": 0.30, "openness": 0.55},
+                "heritability": {"openness": 0.55},
+                "era_noise": {"openness": {"era_mean": 0.5, "era_sd": 0.15}},
                 "derived_trait_formulas": {},
             }
         }
@@ -951,7 +993,8 @@ class TestApplyTraitInheritanceRequiresMutablePersonalityDict:
         sim, zone = sim_with_zone
         synthetic_template = {
             "trait_inheritance": {
-                "heritability": {"default": 0.30, "openness": 0.55},
+                "heritability": {"openness": 0.55},
+                "era_noise": {"openness": {"era_mean": 0.5, "era_sd": 0.15}},
                 "derived_trait_formulas": {},
             }
         }

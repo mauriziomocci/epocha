@@ -75,9 +75,21 @@ def _build_system_prompt(agent) -> str:
         if template.get("fertility_agency") != "planned":
             available_demo_actions = [a for a in available_demo_actions if a != "avoid_conception"]
 
-    except Exception:
-        # Fallback: keep all three actions (legacy economy-only simulations).
+    except FileNotFoundError:
+        # Legacy economy-only simulations carry no demography template. Keeping
+        # all three actions is the documented fallback for them.
         pass
+    except ValueError:
+        # A template that exists but fails the six-clause A9 contract is a
+        # defect in the fixture, not a legacy simulation. Swallowing it here
+        # would degrade the prompt silently and defeat the loader gate, so it
+        # is logged and the actions are dropped rather than guessed at.
+        logger.exception(
+            "demography template %r failed validation; dropping demography "
+            "actions from the prompt rather than guessing at them",
+            template_name,
+        )
+        available_demo_actions = []
 
     action_vocab = _BASE_ACTIONS
     if available_demo_actions:

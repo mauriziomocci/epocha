@@ -131,6 +131,7 @@ Seguono la Demografia Plan 3 (eredità + migrazione) e la Plan 4, che cabla i mo
   | §4.6 Movimento | `epocha/apps/agents/movement.py` |
   | §4.7 Fazioni | `epocha/apps/agents/factions.py` |
   | §4.8 Economia — layer base | `epocha/apps/economy/{production,market,distribution,monetary,initialization,engine}.py` |
+  | §6.2 Template d'era | `epocha/apps/demography/{template_loader,truncated_moments}.py`, `epocha/apps/demography/templates/*.json` |
 
 ## Licenza
 

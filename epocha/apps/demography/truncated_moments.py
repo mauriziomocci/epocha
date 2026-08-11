@@ -231,40 +231,21 @@ def _solve(
     )
 
 
-def stationary_amplitude_ratio(era_mean: float, era_sd: float, coefficient: float) -> float:
-    """Realized stationary dispersion as a fraction of the declared `era_sd`.
-
-    Evaluated on the two-parent branch, which is the branch A1's published
-    measurements are quoted from. Callers applying A1's check must use
-    `check_admissible_region`, which takes the minimum over all three
-    branches -- the minimising branch is not predictable from the
-    configuration.
-    """
-    parents, signal, residual = _branch_coefficients(coefficient)[0]
-    _, sd, _ = _solve(era_mean, era_sd, parents, signal, residual * era_sd)
-    return sd / era_sd
-
-
-def boundary_mass(era_mean: float, era_sd: float, coefficient: float) -> float:
-    """Fraction of the stationary population the clamp pins on a bound.
-
-    Reported, never gated: no source fixes how much boundary mass a bounded
-    phenotypic character may carry, so A1 declines to invent a ceiling and
-    lets the amplitude check bound it instead (the two move together).
-    """
-    parents, signal, residual = _branch_coefficients(coefficient)[0]
-    _, _, tail = _solve(era_mean, era_sd, parents, signal, residual * era_sd)
-    return tail
-
-
 @dataclass(frozen=True)
 class AdmissibleRegionResult:
-    """Verdict of A1's admissible-region check for one declared pair."""
+    """Verdict of A1's admissible-region check for one declared pair.
+
+    `boundary_mass_branch` is not decoration. A1 requires the reported
+    boundary mass to declare which kinship branch produced it, because the
+    branch that maximises it is not predictable from the configuration --
+    generalising from one branch is the error this gate punished repeatedly.
+    """
 
     accepted: bool
     reason: str
     realized_ratio: float
     boundary_mass: float
+    boundary_mass_branch: str
 
 
 def check_admissible_region(
@@ -286,25 +267,33 @@ def check_admissible_region(
     if not (0.0 < era_mean < 1.0):
         return AdmissibleRegionResult(
             False,
-            f"media {era_mean} fuori da (0, 1) in senso stretto",
+            f"era_mean {era_mean} outside the open interval (0, 1)",
             float("nan"),
             float("nan"),
+            "",
         )
     if era_sd <= 0.0:
         return AdmissibleRegionResult(
-            False, f"ampiezza {era_sd} non positiva", float("nan"), float("nan")
+            False,
+            f"era_sd {era_sd} is not strictly positive",
+            float("nan"),
+            float("nan"),
+            "",
         )
     bhatia_davis = era_mean * (1.0 - era_mean)
     if era_sd**2 >= bhatia_davis:
         return AdmissibleRegionResult(
             False,
-            f"ampiezza {era_sd} viola il limite di Bhatia-Davis: "
-            f"s^2 = {era_sd**2:.4f} deve essere < m(1-m) = {bhatia_davis:.4f}",
+            f"era_sd {era_sd} violates the Bhatia-Davis bound, which constrains "
+            f"every distribution on [0, 1]: s^2 = {era_sd**2:.4f} must be below "
+            f"m(1-m) = {bhatia_davis:.4f}",
             float("nan"),
             float("nan"),
+            "",
         )
 
     coefficient = max(coefficients)
+    labels = ("two-parent", "single-parent", "no-parent")
     ratios: list[float] = []
     masses: list[float] = []
     for parents, signal, residual in _branch_coefficients(coefficient):
@@ -314,16 +303,20 @@ def check_admissible_region(
 
     worst_ratio = min(ratios)
     worst_mass = max(masses)
+    worst_mass_branch = labels[masses.index(worst_mass)]
     if worst_ratio < MIN_AMPLITUDE_RATIO:
+        worst_ratio_branch = labels[ratios.index(worst_ratio)]
         return AdmissibleRegionResult(
             False,
-            f"ampiezza stazionaria realizzata {worst_ratio:.2%} sotto il minimo "
-            f"{MIN_AMPLITUDE_RATIO:.0%} sul ramo peggiore, a media {era_mean} "
-            f"e ampiezza {era_sd}",
+            f"realized stationary amplitude {worst_ratio:.2%} of the declared "
+            f"era_sd, below the {MIN_AMPLITUDE_RATIO:.0%} floor, on the "
+            f"{worst_ratio_branch} branch, at era_mean {era_mean} and "
+            f"era_sd {era_sd}",
             worst_ratio,
             worst_mass,
+            worst_mass_branch,
         )
-    return AdmissibleRegionResult(True, "", worst_ratio, worst_mass)
+    return AdmissibleRegionResult(True, "", worst_ratio, worst_mass, worst_mass_branch)
 
 
 def check_rank_dispersion(target_dispersion: float) -> AdmissibleRegionResult:
@@ -336,9 +329,11 @@ def check_rank_dispersion(target_dispersion: float) -> AdmissibleRegionResult:
     if not (S_RANK_MIN <= target_dispersion <= S_RANK_MAX):
         return AdmissibleRegionResult(
             False,
-            f"target_dispersion {target_dispersion} fuori da "
-            f"[{S_RANK_MIN}, {S_RANK_MAX}], l'intervallo in cui la radice e' unica",
+            f"target_dispersion {target_dispersion} outside "
+            f"[{S_RANK_MIN}, {S_RANK_MAX}], the interval in which A3 proves the "
+            f"root of the Clark calibration unique",
             float("nan"),
             float("nan"),
+            "",
         )
-    return AdmissibleRegionResult(True, "", target_dispersion, float("nan"))
+    return AdmissibleRegionResult(True, "", target_dispersion, float("nan"), "")

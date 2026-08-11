@@ -441,22 +441,20 @@ def inherit_trait(
     return max(lo, min(hi, result))
 
 
-# Environmental-noise prior applied when neither the era template nor a
-# caller-supplied noise spec provides era_mean/era_sd for a trait. The
-# design spec (Sezione 4) calls for era_mean_T / era_sd_T estimated from the
-# tick-0 population and frozen thereafter (Falconer & Mackay 1996, ch. 8 --
-# environmental deviation estimated at the population level); no era
-# template (verified: none of the five templates under
-# epocha/apps/demography/templates/ declare a trait_inheritance.era_noise
-# section) and no population-statistics module currently supply that
-# estimate. DEFAULT_ERA_MEAN = 0.5 and DEFAULT_ERA_SD = 0.15 are a
-# documented, explicitly tunable interim substitute: mean at the scale
-# midpoint and a moderate spread for a generic [0, 1]-bounded trait. This is
-# a deliberate simplification of the tick-0-population-estimation mechanism,
-# scoped out of `apply_trait_inheritance` because it requires a
-# population-statistics snapshot this function's signature does not carry;
-# a later task must thread real per-trait era_mean/era_sd values through
-# once that machinery exists.
+# Environmental-noise prior kept ONLY as the defensive guard of amendment A9
+# (2026-08-07): a template that passes validation cannot reach it, because
+# clause 4 rejects any heritability key without its own era_noise entry. If it
+# fires, the loader was bypassed or the transmitted set has reopened, and the
+# call site logs a warning naming the character. The
+# original design spec (Sezione 4) called for era_mean_T / era_sd_T estimated
+# from the tick-0 population and frozen thereafter. That mechanism was never
+# built, and amendment A2 replaced it: all five templates now declare a
+# `trait_inheritance.era_noise` section giving, per era and per character, the
+# mean and amplitude of the OBSERVED distribution the kernel must realize, and
+# clause 5 of A9 refuses any pair outside the admissible region of A1. The two
+# values below match what those templates declare today, which is why closing
+# the fallback changed no shipped behaviour -- they were the silent default,
+# and are now the explicit declaration.
 DEFAULT_ERA_MEAN = 0.5
 DEFAULT_ERA_SD = 0.15
 
@@ -496,33 +494,33 @@ def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict
        against the parents' values directly. `cunning` has no published
        heritability and is therefore never drawn from the polygenic kernel.
 
-    Trait set for step 1: every key in
-    `template["trait_inheritance"]["heritability"]` except the "default"
-    sentinel, plus any key present in `mother.personality` or
-    `father.personality` that has no published h2 entry -- those inherit at
-    `heritability["default"]` (0.30 in every current era template),
-    documented in the design spec as a tunable default for personality
-    traits without a primary-study h2 (e.g. `humor_style`,
-    `attachment_style`). `social_class` is never included here: it carries
-    no heritability entry in any era template and is governed by the
-    social-inheritance rules (design spec Sezione 5), a separate mechanism.
+    Trait set for step 1: exactly the keys of
+    `template["trait_inheritance"]["heritability"]`, and nothing else.
+    Amendment A9 (2026-08-07) CLOSED this set. Until then it was extended
+    with every key found in either parent's `personality` dict -- an
+    unvalidated JSONField populated by an LLM prompt -- so a key the model
+    invented became a transmitted character governed by a fallback
+    heritability and a noise pair no template declared. A key present in
+    `personality` but absent from `heritability` is now left untouched on
+    the child: it is data the agent carries, not a character this model
+    transmits. The `"default"` sentinel that governed those keys was removed
+    from the schema by the same amendment, and the loader rejects it.
+    `social_class` is likewise not included: it carries no heritability entry
+    and is governed by the social-inheritance rules (design spec Sezione 5).
 
-    Trait names are collected in a deterministic order -- heritability
-    dict order first (JSON insertion order, stable), then any extra
-    personality-only names sorted lexicographically -- rather than via an
-    unordered Python `set`. `rng.gauss` is drawn exactly once per trait
-    (see `inherit_trait`), so an unordered iteration would make the RNG
-    draw sequence depend on the interpreter's per-process string hash seed,
-    breaking the bit-for-bit reproducibility the demography subsystem
-    requires for identically seeded runs.
+    Trait names are collected in heritability dict order -- JSON insertion
+    order, stable -- rather than via an unordered Python `set`. `rng.gauss`
+    is drawn exactly once per trait (see `inherit_trait`), so an unordered
+    iteration would make the RNG draw sequence depend on the interpreter's
+    per-process string hash seed, breaking the bit-for-bit reproducibility
+    the demography subsystem requires for identically seeded runs.
 
     era_mean / era_sd: read per-trait from
-    `template["trait_inheritance"].get("era_noise", {})[name]` when
-    present; otherwise `DEFAULT_ERA_MEAN` / `DEFAULT_ERA_SD` are used (see
-    their docstring for the full rationale -- this is a documented interim
-    substitute for the design spec's tick-0-population-estimated
-    era_mean_T / era_sd_T, no era template currently declares an
-    `era_noise` section).
+    `template["trait_inheritance"]["era_noise"][name]`, which amendment A2
+    made a mandatory section and A9 clause 4 requires to carry one entry per
+    declared character. `DEFAULT_ERA_MEAN` / `DEFAULT_ERA_SD` survive only as
+    the defensive guard of A9: unreachable for a template that passed
+    validation, and logged with the character's name if they ever fire.
 
     This function mutates `child` in place -- scalar attributes via
     `setattr`, personality entries via `child.personality[name] = value` --
@@ -564,24 +562,43 @@ def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict
 
     trait_inheritance = template["trait_inheritance"]
     heritability = trait_inheritance["heritability"]
-    default_h2 = heritability.get("default", 0.30)
-    era_noise = trait_inheritance.get("era_noise", {})
+    era_noise = trait_inheritance["era_noise"]
 
-    trait_names = [name for name in heritability if name != "default"]
-    covered = set(trait_names)
-    extra_names: set[str] = set()
-    for parent in (mother, father):
-        if parent is not None and parent.personality:
-            extra_names.update(parent.personality.keys())
-    extra_names -= covered
-    trait_names.extend(sorted(extra_names))
+    # THE TRANSMITTED SET IS CLOSED (design-spec amendment A9, 2026-08-07).
+    # It is exactly what `trait_inheritance.heritability` declares, and nothing
+    # else. Until that amendment this list was extended with every key found in
+    # either parent's `personality` dict -- a JSONField with no validators,
+    # populated by an LLM prompt -- so a key the model invented became a
+    # transmitted character governed by a hardcoded fallback heritability and a
+    # hardcoded noise pair that no template had declared. Template validation
+    # cannot close a set that runtime reopens, so the set is closed here, at the
+    # only place that decides what gets transmitted.
+    #
+    # A key present in `personality` but absent from `heritability` is now left
+    # untouched on the child rather than inherited: it is data the agent carries,
+    # not a character this model transmits.
+    trait_names = list(heritability)
 
     child_model = type(child)
     symbols: dict[str, float] = {}
 
     for name in trait_names:
-        h2 = heritability.get(name, default_h2)
-        noise_spec = era_noise.get(name, {})
+        h2 = heritability[name]
+        noise_spec = era_noise.get(name)
+        if noise_spec is None:
+            # A9 requires the defensive guard to name the character when it
+            # fires. For a template that passed validation it cannot: clause 4
+            # rejects any heritability key without its own era_noise entry. If
+            # this ever prints, the loader was bypassed or the set has reopened.
+            logger.warning(
+                "demography: no era_noise entry for transmitted character %r; "
+                "falling back to (%s, %s). A valid template cannot reach this "
+                "path -- the transmitted set has reopened.",
+                name,
+                DEFAULT_ERA_MEAN,
+                DEFAULT_ERA_SD,
+            )
+            noise_spec = {}
         era_mean = noise_spec.get("era_mean", DEFAULT_ERA_MEAN)
         era_sd = noise_spec.get("era_sd", DEFAULT_ERA_SD)
 
