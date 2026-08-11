@@ -267,10 +267,21 @@ class TestTheEducationCoefficientsMatchTheirSource:
             assert 0.0 <= rho <= 1.0
 
     def test_the_coefficient_still_leaves_a_residual_the_identity_admits(self):
-        """`sqrt(1 - rho^4/2)` must stay real: at rho = 0.60 the two-parent
-        residual scale is 0.9330, comfortably inside the domain, but the
+        """`sqrt(1 - rho**2/2)` must stay real: at rho = 0.60 the two-parent
+        residual scale is 0.905539, comfortably inside the domain, but the
         assertion states the boundary rather than trusting that 0.60 is far
-        from it."""
+        from it.
+
+        NOTATION, corrected after the phase-6 audit: an earlier version of
+        this docstring wrote `rho^4` and quoted 0.9330, which is neither
+        `sqrt(1 - 0.6**2/2) = 0.905539` nor `sqrt(1 - 0.6**4/2) = 0.967057`.
+        A1's convention that `h^4` means `h2**2` applies to HERITABILITY,
+        which is already a square; `rho` is a regression coefficient and its
+        residual is `sqrt(1 - rho**2/2)` with no fourth power anywhere. The
+        code below always asserted on `rho**2`; it was the prose that
+        carried the trap A1's own test constraint exists to prevent.
+        """
+        assert math.sqrt(1.0 - 0.60**2 / 2.0) == pytest.approx(0.905539, abs=5e-7)
         for name in ALL_TEMPLATES:
             rho = load_template(name)["social_inheritance"]["education_regression_rho"]
             assert 1.0 - rho**2 / 2.0 > 0.0

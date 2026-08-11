@@ -146,6 +146,30 @@ class TestTheHorizonIsDerivedFromAgeAndNotChosen:
         agent to migrate for having grown old."""
         assert residual_working_life_years(age) == 0.0
 
+    def test_the_cliff_at_sixty_two_is_pinned_because_it_is_sharp(self):
+        """The horizon reaching zero rather than tapering is a real
+        behavioural boundary, and it is pinned so it cannot move silently.
+
+        At 61 the factor is still 347.3 ticks; at 62 it is exactly 0.0.
+        """
+        assert annuity_for_agent(61, 24.0) == pytest.approx(347.3, rel=1e-3)
+        assert annuity_for_agent(62, 24.0) == 0.0
+
+    def test_an_agent_past_the_horizon_cannot_gain_from_any_destination(self):
+        """The consequence, stated as a test rather than left to be
+        rediscovered: with a zero annuity the gain collapses to
+        `-distance_cost * wage_current`, so a destination paying a thousand
+        times the origin is still rejected. The flight path refuses
+        `expected_gain <= 0.0`, which makes such an agent permanently
+        immobile -- correct under Sjaastad's investment framing, and a
+        limit no source endorses at that exact age. Declared in the module
+        docstring and in both whitepapers' known-limitations inventory.
+        """
+        annuity = annuity_for_agent(70, 24.0)
+        assert annuity == 0.0
+        assert compute_expected_gain(0.0, 10_000.0, 10.0, 1, annuity) < 0.0
+        assert compute_expected_gain(0.0, 10_000.0, 10.0, 0, annuity) == 0.0
+
 
 class TestTheGainIsAPresentValue:
     """Every term is money, and the two that were not are now.

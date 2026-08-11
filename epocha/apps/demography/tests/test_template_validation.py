@@ -343,7 +343,12 @@ class TestBoundaryMassIsReported:
 
         from epocha.apps.demography import template_loader
 
-        template_loader.load_template("industrial")  # warm the fixed-point cache
+        # `load_template` is memoised so the report fires once per template
+        # rather than once per birth, so the cache must be cleared to observe
+        # it. Clearing rather than calling twice: with the cache warm the
+        # second call returns without reporting at all, which is the point of
+        # the memoisation and would make this test unable to see anything.
+        template_loader.load_template.cache_clear()
         with caplog.at_level(logging.INFO, logger=template_loader.__name__):
             template_loader.load_template("industrial")
         messages = [r.getMessage() for r in caplog.records]

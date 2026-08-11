@@ -15,6 +15,9 @@ reads a constant instead of the template fails here and nowhere else.
 
 from __future__ import annotations
 
+import logging
+import random
+
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
@@ -221,3 +224,65 @@ class TestShippedTemplatesFeedTheKernel:
                 assert actual == pytest.approx(moments["era_mean"]), (
                     f"{name}: {trait} did not take its declared era mean"
                 )
+
+
+@pytest.mark.django_db
+class TestTheFallbackGuardNamesTheCharacter:
+    """SC-018: the guard fires, and when it does it names the character.
+
+    A9 keeps `DEFAULT_ERA_MEAN` / `DEFAULT_ERA_SD` in the code as a
+    DEFENSIVE guard, unreachable for a valid template because clause 4 of the
+    loader rejects any `heritability` key without its own `era_noise` entry.
+    Unreachable is not the same as untested: the criterion says the guard
+    must name the character, and a guard nobody has watched fire is a
+    guard nobody knows the behaviour of.
+
+    The template here is built in memory and never passes through
+    `load_template`, which is exactly the condition the guard exists for --
+    the loader bypassed, or the transmitted set reopened.
+    """
+
+    def test_an_undeclared_character_makes_the_guard_fire_by_name(self, sim_with_zone, caplog):
+        sim, zone = sim_with_zone
+        template = {
+            "trait_inheritance": {
+                "heritability": {"intelligence": 0.55, "invented_character": 0.4},
+                "era_noise": {"intelligence": {"era_mean": 0.5, "era_sd": 0.15}},
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother", intelligence=0.9)
+        father = _make_agent(sim, zone, "Father", intelligence=0.9)
+        child = _make_agent(sim, zone, "Child")
+        rng = random.Random(20260811)
+
+        with caplog.at_level(logging.WARNING):
+            apply_trait_inheritance(child, mother, father, template, rng)
+
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("invented_character" in message for message in messages), (
+            "the guard must NAME the character it fell back for; a warning "
+            f"that does not is not a diagnosis. Got: {messages!r}"
+        )
+        assert not any("intelligence" in message for message in messages), (
+            "a declared character must not trip the guard"
+        )
+
+    def test_a_fully_declared_template_never_trips_it(self, sim_with_zone, caplog):
+        """The other half of the criterion: a guard that fires for a VALID
+        template is noise, and noise in a log is how a real warning gets
+        ignored."""
+        sim, zone = sim_with_zone
+        template = {
+            "trait_inheritance": {
+                "heritability": {"intelligence": 0.55},
+                "era_noise": {"intelligence": {"era_mean": 0.5, "era_sd": 0.15}},
+            }
+        }
+        mother = _make_agent(sim, zone, "Mother2", intelligence=0.9)
+        father = _make_agent(sim, zone, "Father2", intelligence=0.9)
+        child = _make_agent(sim, zone, "Child2")
+
+        with caplog.at_level(logging.WARNING):
+            apply_trait_inheritance(child, mother, father, template, random.Random(1))
+
+        assert not caplog.records

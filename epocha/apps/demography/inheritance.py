@@ -2,7 +2,10 @@
 
 Source:
 - Falconer, D.S. & Mackay, T.F.C. (1996). Introduction to Quantitative
-  Genetics (4th ed.), Longman, chapter 8 (polygenic additive model with
+  Genetics (4th ed.), Longman, chapter 10 -- resemblance between
+  relatives. The module cited chapter 8 until amendment A1, which
+  records the correction; A1 does not depend on the citation, because
+  it derives every coefficient in full (polygenic additive model with
   an environmental noise term estimated at the population level).
 
 Per-trait heritability (h^2) values used by callers of `inherit_trait` come
@@ -342,75 +345,77 @@ def inherit_trait(
 ) -> float:
     """Compute a child's trait value under polygenic additive inheritance.
 
-    Formula (Falconer & Mackay 1996, ch. 8):
+    Formula (Falconer & Mackay 1996, ch. 10; amendment A1 of 2026-08-07):
 
-        child_T = h2 * midparent_T + (1 - h2) * noise_T
-        noise_T ~ N(era_mean, era_sd)
+        child_T = m + b * (parent_term_T - m) + e_T
+        e_T ~ N(0, c * era_sd)                        m = era_mean
 
-    CONTESTED AND DEFERRED (phase-6 audit round 1, T046, findings I-4 and
-    I-5 -- flagged again in round 2 as a documentation-honesty gap, NOT
-    resolved here): the audit's own analysis holds that this citation does
-    not support the SINGLE-PARENT branch below as implemented (I-4,
-    "polygenic variance collapse") and that "halves the genetic signal" is
-    not the correct characterization of what `h2 * parent_T + (1 - h2) *
-    noise_T` actually does relative to the two-parent case (I-5, contests
-    "halving", not "doubling"). Both findings are DESIGN-LEVEL: the code
-    faithfully implements what was specified, but the specification itself
-    is disputed -- fixing it requires reopening the phase-2 heavy gate on
-    the design spec, not a code patch on this branch, and is out of scope
-    here by explicit instruction. This note exists so a reader does not
-    take the formula or the "halves the genetic signal" claim below as
-    settled; both are open, tracked separately, and NEITHER the formula
-    NOR this docstring's own claim have been changed by this note.
+        parent_term_T = (mother_val + father_val) / 2   both parents
+                      = the one resolved parent          one parent
+                      = m                                neither
 
-    where `midparent_T = (mother_val + father_val) / 2` when both parents
-    are known. `noise` models the environmental contribution as a draw from
-    a Normal distribution whose mean and standard deviation are estimated
-    from the tick-0 population and frozen thereafter (design spec Sezione
-    4); it is drawn exactly once per call, via `rng.gauss(era_mean,
-    era_sd)`, and always AFTER the midparent branch below so that the RNG
-    sequence consumed by this function is independent of which branch ran.
+              b = h2,      c = sqrt(1 - h2**2 / 2)      both parents
+              b = h2 / 2,  c = sqrt(1 - h2**2 / 4)      one parent
+              b = 0,       c = 1                        neither
 
-    Fix I-1 (design spec's OWN fix numbering, predates the phase-6 audit
-    entirely -- unrelated to, and NOT the same finding as, this module's
-    unrelated audit finding also labelled "I-1", the social-class rank
-    clamp far below in this file, always written `T046/I-1` to keep the
-    two apart) -- single-parent fallback: when exactly one of mother_val /
-    father_val is known (None for the other), the midparent term degrades
-    to the known parent's value alone:
+    THE THREE RESIDUAL SCALES ARE DERIVED, NOT CHOSEN. Requiring the
+    offspring variance to equal the parental variance `V` under random
+    mating, with `Var(parent_term) = V/2` at two parents and `V` at one,
+    gives `V = b^2 * Var(parent_term) + c^2 * s^2` and the three closed
+    forms above. That identity is the whole content of a stable
+    `h2 = V_A / V_P`, which is what makes the citation a citation.
 
-        child_T = h2 * parent_T + (1 - h2) * noise_T
+    `h2**2` IS `h^4`, AND WRITING `h2**4` IS THE TRAP. The variable already
+    holds the SQUARE of the heritability, on the standard
+    quantitative-genetics convention, so the identity's `h^4` is `h2**2`.
+    The wrong exponent inflates the residual standard deviation by 6.03%
+    and the variance by 12.43% at h2 = 0.55 while leaving the regression
+    slope exactly correct -- invisible to any test that measures the slope.
+    `test_transmission_kernel.py` gates the scales themselves for that
+    reason.
 
-    This halves the genetic signal relative to the two-parent case
-    (CONTESTED, see the note at the top of this docstring -- findings I-4
-    and I-5 dispute this characterization; deferred, not resolved here),
-    which matches the real single-parent genetic flow rather than treating
-    the missing parent as contributing zero. Documented as a deliberate
-    simplification for genealogies where only one parent is resolved (adoption
-    scenarios, or synthetic tick-0 genealogies without both parents recorded).
+    WHAT THIS REPLACED. Until August 2026 the function computed
+    `child_T = h2 * midparent_T + (1 - h2) * noise_T` with
+    `noise_T ~ N(era_mean, era_sd)`, which is a convex combination whose
+    coefficients sum to one rather than a variance decomposition. It was a
+    faithful transcription of the design spec's Sezione 4 and it was NOT
+    the decomposition it cited. Two consequences, both measured rather than
+    argued: the population settled at 48.85% of its declared era amplitude
+    at h2 = 0.55 within roughly three generations, losing between 21% and
+    51% across the shipped coefficient range, so no result depending on the
+    variance of a heritable character was interpretable; and the
+    single-parent branch applied the FULL `h2` to the one known parent
+    where the parent-offspring regression gives `h2/2`, making the
+    implemented resemblance twice the cited model's -- two parents at 0.9
+    and mother-only at 0.9 returned a bit-identical value on identical RNG
+    state. Both are fixed here. The design spec's own audit had recorded
+    them as contested and deferred to a phase-2 gate; that gate ran, and
+    produced amendment A1.
 
-    Fix I-3 (phase-6 audit round 1, T046) -- neither parent known: when
-    BOTH mother_val and father_val are None, the midparent term degrades
-    further, to `era_mean` itself:
+    The signal acts on the parent's DEVIATION from the era mean rather than
+    on the parent's level, so an off-centre era reproduces its own mean
+    instead of drifting toward the midpoint of the scale.
 
-        child_T = h2 * era_mean + (1 - h2) * noise_T
+    The noise is drawn exactly once per call and always AFTER the branch,
+    so the RNG sequence this function consumes does not depend on which
+    branch ran -- a deliberate reproducibility property, not an accident of
+    statement order.
 
-    No parental signal survives here, so the child is drawn entirely from
-    the era distribution -- genetically, this is the same statement the
-    single-parent fallback makes taken to its limit (parental information
-    degrades from two values, to one, to none). Mirrors
-    `_regress_education_level`'s already-correct four-way fallback
-    (mother-only / father-only / both / neither -> the declared era mean).
-    Reachable from the real birth pipeline: none of the five Big Five
-    personality traits is an `Agent` model column, so their values come
-    from `(parent.personality or {}).get(name)` in `apply_trait_
-    inheritance`, which returns None whenever neither parent's personality
-    dict happens to carry that key -- before this fix, any such birth
-    raised `TypeError` uncaught.
+    The no-parent branch is reachable from the real birth pipeline: none of
+    the five Big Five personality traits is an `Agent` model column, so
+    their values come from `(parent.personality or {}).get(name)` in
+    `apply_trait_inheritance`, which returns None whenever neither parent's
+    personality dict carries that key.
 
     The result is clamped to [lo, hi] (default [0.0, 1.0], the typical range
     for Agent personality/trait scalars); callers pass the trait-specific
-    range when it differs.
+    range when it differs. Clamping truncates the distribution, so the
+    realized stationary amplitude sits below the declared `era_sd` even
+    under the exact identity -- 99.91% at the centred trait pair
+    (0.50, 0.15) and 97.72% at the off-centre education pair (0.30, 0.15).
+    `truncated_moments.check_admissible_region` measures it at template
+    load and rejects a declared pair whose worst kinship branch falls below
+    95%.
 
     This function is pure: no ORM access, no global state. Given the same
     rng state and inputs it is fully deterministic, which is required for
@@ -419,12 +424,15 @@ def inherit_trait(
     Args:
         mother_val: mother's trait value, or None if the mother is unknown.
         father_val: father's trait value, or None if the father is unknown.
-            Both may be None (fix I-3): the midparent term then falls back
-            to era_mean rather than raising.
-        h2: heritability coefficient for this trait, in [0, 1].
-        era_mean: mean of the era-specific environmental noise distribution.
-        era_sd: standard deviation of the era-specific environmental noise
-            distribution.
+            Both may be None: the parent term then falls back to era_mean
+            with a zero signal coefficient rather than raising.
+        h2: heritability coefficient for this trait, in [0, 1]. For
+            education this is the era's regression coefficient `rho`, which
+            plays the same structural role.
+        era_mean: mean of the era-specific distribution this character is
+            declared on.
+        era_sd: its declared amplitude. The residual is a FRACTION of it,
+            never the whole of it -- see the three scales above.
         rng: a random.Random-compatible instance exposing .gauss(mu, sigma).
         lo: lower clamp bound (default 0.0).
         hi: upper clamp bound (default 1.0).
@@ -511,7 +519,7 @@ def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict
        and `Agent.personality` JSONB entries alike (the Big Five, or
        unpublished-h2 traits like `humor_style`) -- is drawn through the
        polygenic additive kernel `inherit_trait` (Falconer & Mackay 1996,
-       ch. 8).
+       ch. 10).
     2. `derived_trait_formulas` (e.g. `cunning`, a Machiavellism proxy) are
        evaluated against the freshly inherited values from step 1, never
        against the parents' values directly. `cunning` has no published
@@ -656,7 +664,7 @@ def resolve_birth_attributes(template: dict, rng: Any) -> tuple[str, str]:
        p_male = sex_ratio / (1 + sex_ratio), then a single `rng.random()` is
        drawn and compared against it. A ratio of 1.05 -- about 105 male
        births per 100 female births -- is biologically near-universal across
-       human populations (Falconer & Mackay 1996, ch. 8, cite it as one of
+       human populations (Falconer & Mackay 1996, ch. 10, cite it as one of
        the best-documented constants in human genetics) and is nonetheless
        carried as a tunable per-era template parameter rather than a hard
        constant, since some era templates (sci_fi) deliberately deviate from
@@ -1085,10 +1093,11 @@ def apply_social_inheritance(
 
     1. Education-level regression runs FIRST (see `_regress_education_level`),
        using `template["social_inheritance"]["education_regression_rho"]`
-       and `template["social_inheritance"].get("era_mean_education",
-       `social_inheritance["era_noise"]["education"]["era_mean"]`, and
-       writes `child.education_level`
-       before anything else touches it.
+       together with the declared moments at
+       `template["social_inheritance"]["era_noise"]["education"]`, and writes
+       `child.education_level` before anything else touches it. The old
+       `era_mean_education` key is gone: A9 removed it from the schema, so a
+       template carrying it is now rejected.
     2. `template["social_inheritance"]["class_rule"]` then selects one of
        four branches -- `patrilineal_rigid`, `clark_regression`,
        `becker_tomes_elasticity_0.4`, `meritocratic` (see the per-branch
@@ -1237,7 +1246,7 @@ def apply_inheritance_at_birth(
     Fixed step order (mandatory, not incidental -- see "RNG stream" below):
 
     1. `apply_trait_inheritance` -- polygenic biological traits (Falconer &
-       Mackay 1996, ch. 8) and derived-trait formulas (e.g. `cunning`).
+       Mackay 1996, ch. 10) and derived-trait formulas (e.g. `cunning`).
     2. `resolve_birth_attributes` -- gender and sexual orientation, exactly
        two `rng.random()` draws.
     3. `apply_social_inheritance` -- social_class transmission (one of four

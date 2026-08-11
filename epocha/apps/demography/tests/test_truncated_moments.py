@@ -14,7 +14,6 @@ from __future__ import annotations
 import pytest
 
 from epocha.apps.demography.truncated_moments import (
-    AdmissibleRegionResult,
     _branch_coefficients,
     _solve,
     check_admissible_region,
@@ -51,7 +50,7 @@ class TestStationaryAmplitudeRatio:
             # traits at the declared pair, h2 = 0.55 (the highest shipped)
             (0.50, 0.15, 0.55, 0.9991, 0.00086),
             # education at its declared pair, rho = 0.60 - the off-centre case
-            (0.30, 0.15, 0.60, 0.9772, 0.02151),
+            (0.30, 0.15, 0.60, 0.9772, 0.02136),
             # rejected by check 3: the configuration that motivated the logit
             (0.80, 0.15, 0.55, 0.9203, 0.08141),
             # rejected by check 3: wide amplitude at the centre
@@ -142,19 +141,51 @@ class TestCheckAdmissibleRegion:
     def test_evaluates_the_worst_branch_not_a_conventional_one(self):
         """A1 requires the minimum over the three kinship branches.
 
-        The check must therefore differ when handed a coefficient set whose
-        worst member fails, even if another member passes.
+        REBUILT after the phase-6 audit. The previous version ran at
+        `(0.74, 0.165, 0.22)`, where the three branches measure 0.950062,
+        0.950150 and 0.950305 -- the two-parent branch IS the minimum there,
+        so an implementation computing only that branch satisfied the `<=`
+        by equality. A test named for discriminating a conventional branch
+        must be run where the conventional branch is not the answer.
+
+        At `(0.80, 0.20)` with coefficient 0.95 the two-parent branch
+        measures 0.913957 while the single-parent one measures 0.861890 --
+        a gap of 0.052, five hundred times any tolerance here.
         """
-        alone = check_admissible_region(0.74, 0.165, (0.22,))
-        assert isinstance(alone, AdmissibleRegionResult)
-        # the reported ratio must be the minimum across branches, so no branch
-        # may realize less than what the result reports
-        assert alone.realized_ratio <= stationary_amplitude_ratio(0.74, 0.165, 0.22)
+        result = check_admissible_region(0.80, 0.20, (0.95,))
+        two_parent = stationary_amplitude_ratio(0.80, 0.20, 0.95)
+        assert result.realized_ratio == pytest.approx(0.861890, abs=5e-6)
+        assert result.realized_ratio < two_parent - 0.05
+        assert not result.accepted, "0.86 is below the 95% floor and must be rejected"
+        assert "single-parent" in result.reason, (
+            f"the rejection must NAME the branch that failed: {result.reason!r}"
+        )
+
+    def test_evaluates_every_declared_coefficient_and_not_only_the_largest(self):
+        """The realized amplitude is NOT monotone in the coefficient.
+
+        Measured at `(0.25, 0.15)`: the worst branch gives 0.952679 at
+        `c = 0.80` and 0.952918 at `c = 0.95`, so the LARGER coefficient is
+        the more favourable one. An implementation checking `max(coefficients)`
+        and calling it "the least favourable" -- which is what this module
+        used to do, and used to say in its own docstring -- reports the wrong
+        number here.
+
+        Stated honestly: no shipped template is affected, because the
+        violations of monotonicity measure about 7e-4 and no pair straddles
+        the floor that finely. The defect being closed is a false claim in
+        the code, not an observed escape.
+        """
+        both = check_admissible_region(0.25, 0.15, (0.80, 0.95))
+        assert both.realized_ratio == pytest.approx(0.952679, abs=5e-6)
+        largest_only = check_admissible_region(0.25, 0.15, (0.95,))
+        assert largest_only.realized_ratio == pytest.approx(0.952918, abs=5e-6)
+        assert both.realized_ratio < largest_only.realized_ratio
 
     def test_reports_boundary_mass_without_gating_on_it(self):
         """A1 deleted the edge-mass ceiling; the quantity is reported, not gated.
 
-        (0.30, 0.15) carries 2.15% edge mass and must still be accepted - a
+        (0.30, 0.15) carries 2.14% edge mass and must still be accepted - a
         regression that reintroduced a 3% or lower ceiling would fail here,
         and one that reintroduced any ceiling at all would fail the pair the
         amendment declares.
@@ -162,7 +193,7 @@ class TestCheckAdmissibleRegion:
         result = check_admissible_region(0.30, 0.15, (0.60,))
         assert result.accepted
         # the reported mass is the worst branch's, which is the no-parent one at
-        # 2.26%, not the two-parent 2.15% the amendment publishes
+        # 2.26%, not the two-parent 2.14%
         assert result.boundary_mass == pytest.approx(0.0226, abs=1e-3)
 
 

@@ -46,6 +46,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -166,8 +167,18 @@ SCHEMA: dict[str, Any] = {
 ALLOWED_FERTILITY_AGENCY = {"biological", "planned"}
 
 
+@lru_cache(maxsize=32)
 def load_template(name: str) -> dict[str, Any]:
     """Load a demography template by name and validate it against A9.
+
+    MEMOISED, and the reason is the report rather than the parse. A1 asks for
+    the admissible-region figures to be reported AT LOAD; without the cache
+    `apply_inheritance_at_birth` calls this once per birth, so the two INFO
+    records were emitted per newborn and the 0.475 ms grid solve was repeated
+    for every one of them. The templates are read-only JSON files shipped
+    with the package and the returned dict is never mutated by any caller,
+    so caching is safe as well as correct here -- a test that needs a fresh
+    parse can call `load_template.cache_clear()`.
 
     Args:
         name: the template file name without the .json extension.

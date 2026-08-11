@@ -258,11 +258,29 @@ def check_admissible_region(
         era_sd: declared amplitude of that distribution.
         coefficients: the transmission coefficients that govern the characters
             declared at this pair -- `h^2` for traits, `rho` for education.
-            The check runs at the largest, which is the least favourable.
+            EVERY distinct value is checked; see the note above for why the
+            largest is not the least favourable.
 
-    The third check is evaluated on the WORST of the three kinship branches,
-    not on a conventional one: measured over a grid of configurations, the
-    two-parent branch fails to be the minimum in a majority of cases.
+    The third check is evaluated on the WORST of the three kinship branches
+    AND on every declared coefficient, not on a conventional branch and not
+    on the largest coefficient alone.
+
+    Neither shortcut is safe, and both were tried. The two-parent branch
+    fails to be the minimum in a majority of configurations, measured over a
+    grid. And the realized amplitude is NOT monotone in the coefficient: at
+    `(0.25, 0.15)` the worst branch measures 0.952679 at `c = 0.80` against
+    0.952918 at `c = 0.95`, and at `(0.30, 0.15)` 0.974967 against 0.975658
+    -- the larger coefficient is the more favourable one there. Evaluating
+    `max(coefficients)` and calling it "the least favourable" was therefore
+    a false claim in the previous version of this docstring, and one that
+    could in principle admit a pair whose lower-coefficient character
+    violates the floor. The violations of monotonicity measured about 7e-4,
+    so no shipped template was affected; the fix is to stop relying on a
+    property the function does not have rather than to bound the error.
+
+    Cost: `_solve` is memoised per `(era_mean, era_sd, branch, signal,
+    residual)`, so a group of characters sharing a coefficient costs one
+    solve, not one per character.
     """
     if not (0.0 < era_mean < 1.0):
         return AdmissibleRegionResult(
@@ -292,25 +310,29 @@ def check_admissible_region(
             "",
         )
 
-    coefficient = max(coefficients)
     labels = ("two-parent", "single-parent", "no-parent")
     ratios: list[float] = []
     masses: list[float] = []
-    for parents, signal, residual in _branch_coefficients(coefficient):
-        _, sd, tail = _solve(era_mean, era_sd, parents, signal, residual * era_sd)
-        ratios.append(sd / era_sd)
-        masses.append(tail)
+    ratio_labels: list[str] = []
+    mass_labels: list[str] = []
+    for coefficient in sorted(set(coefficients)):
+        for index, (parents, signal, residual) in enumerate(_branch_coefficients(coefficient)):
+            _, sd, tail = _solve(era_mean, era_sd, parents, signal, residual * era_sd)
+            ratios.append(sd / era_sd)
+            masses.append(tail)
+            ratio_labels.append(f"{labels[index]} at coefficient {coefficient}")
+            mass_labels.append(f"{labels[index]} at coefficient {coefficient}")
 
     worst_ratio = min(ratios)
     worst_mass = max(masses)
-    worst_mass_branch = labels[masses.index(worst_mass)]
+    worst_mass_branch = mass_labels[masses.index(worst_mass)]
     if worst_ratio < MIN_AMPLITUDE_RATIO:
-        worst_ratio_branch = labels[ratios.index(worst_ratio)]
+        worst_ratio_branch = ratio_labels[ratios.index(worst_ratio)]
         return AdmissibleRegionResult(
             False,
             f"realized stationary amplitude {worst_ratio:.2%} of the declared "
             f"era_sd, below the {MIN_AMPLITUDE_RATIO:.0%} floor, on the "
-            f"{worst_ratio_branch} branch, at era_mean {era_mean} and "
+            f"{worst_ratio_branch}, at era_mean {era_mean} and "
             f"era_sd {era_sd}",
             worst_ratio,
             worst_mass,
@@ -481,10 +503,21 @@ def solve_assorted_stationary_state(
     the same era. Mating is a GAUSSIAN COPULA on the current marginal:
     `Z = Phi^-1(F(T))` for both parents, jointly normal with correlation
     `copula_correlation`. Chosen over the alternatives because it is the only
-    one that (i) leaves the marginal exactly untouched, so the assortment
-    changes who marries whom and nothing else, (ii) reduces to independence at
-    zero, checked rather than assumed, and (iii) needs one parameter. Perfect
-    rank ordering is the `copula_correlation = 1` limit. The measurement
+    one that (i) preserves the marginal, so the assortment changes who
+    marries whom and nothing else, (ii) reduces to independence at zero,
+    checked rather than assumed, and (iii) needs one parameter. Perfect
+    rank ordering is the `copula_correlation = 1` limit.
+
+    Point (i) holds EXACTLY for the continuous copula and only approximately
+    for this discretisation, and the difference is stated rather than
+    glossed: the conditional is evaluated at one representative latent
+    position per mother cell instead of integrated over the cell, so the
+    mother's marginal is reproduced to 3e-18 and the father's to a maximum
+    per-cell error of 1.1e-3 at a copula parameter of 0.8. Re-solving both
+    crossing thresholds against the symmetrised joint `0.5 * (J + J^T)`
+    moves them by nothing at six decimals -- 0.540291 and 0.712160 either
+    way -- so the published figures are robust to the asymmetry; it was the
+    claim of exactness that needed qualifying, not the numbers. The measurement
     reported is the realized Pearson correlation on the observed scale, not
     the copula parameter, because that is what counting a real population
     would return and what A4's formula consumes.
@@ -493,8 +526,7 @@ def solve_assorted_stationary_state(
     enters at all.
     """
     if not -1.0 < copula_correlation < 1.0:
-        if copula_correlation not in (0.0,):
-            raise ValueError(f"copula correlation {copula_correlation} outside (-1, 1)")
+        raise ValueError(f"copula correlation {copula_correlation} outside (-1, 1)")
     _, step = _grid()
     signal = coefficient
     residual_sd = era_sd * math.sqrt(1.0 - coefficient**2 / 2.0)

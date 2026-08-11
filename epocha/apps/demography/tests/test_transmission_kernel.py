@@ -12,7 +12,8 @@ two-point probe, and the reason is recorded in the amendment: no band on the
 realized amplitude separates the correct model from the defective one. On the
 single-parent branch the defective model measures 95.82% of the declared
 amplitude and lands inside any tolerance wide enough to admit Monte Carlo
-noise -- in fourteen of the fourteen coefficients the templates ship. So the
+noise -- at every one of the thirteen distinct coefficients the templates
+ship. So the
 criterion is asserted on the coefficients themselves, which are closed forms
 of the transmission coefficient, to 1e-12.
 
@@ -34,9 +35,28 @@ import pytest
 
 from epocha.apps.demography.inheritance import inherit_trait
 
-# The thirteen coefficients the five era templates ship, plus the education
-# regression coefficient the same kernel governs after amendment A3.
-SHIPPED_COEFFICIENTS = [0.22, 0.40, 0.41, 0.42, 0.44, 0.45, 0.48, 0.50, 0.52, 0.54, 0.55, 0.60]
+# Every DISTINCT transmission coefficient the five era templates ship: the
+# eleven distinct heritability values across their thirteen heritable
+# characters, plus the two education-regression coefficients the same kernel
+# governs after amendment A3 (0.30 for sci-fi, 0.60 for the other four).
+# Counted from the templates rather than asserted -- an earlier version of
+# this comment said "thirteen coefficients plus the education one" and listed
+# twelve numbers, missing sci-fi's 0.30 entirely.
+SHIPPED_COEFFICIENTS = [
+    0.22,
+    0.30,
+    0.40,
+    0.41,
+    0.42,
+    0.44,
+    0.45,
+    0.48,
+    0.50,
+    0.52,
+    0.54,
+    0.55,
+    0.60,
+]
 
 ERA_MEAN = 0.5
 ERA_SD = 0.15
@@ -104,29 +124,53 @@ class TestResidualAxisProbe:
         expected = _residual_scale(coefficient, parents)
         assert measured == pytest.approx(expected, rel=PROBE_TOLERANCE)
 
-    def test_todays_writing_is_rejected_on_every_branch(self):
+    @pytest.mark.parametrize("parents", [2, 1, 0])
+    def test_todays_writing_is_rejected_on_every_branch(self, parents):
         """`(1 - h2)` is what the kernel wrote before the amendment.
 
-        It differs from the correct scale on all three branches, so a
-        criterion that misses any of them is not doing its job: at h2 = 0.55
-        the correct two-parent scale is 0.9213 against 0.45.
+        REBUILT after the phase-6 audit. The previous version compared
+        `_residual_scale(0.55, parents)` -- this file's own helper -- against
+        the literal `1 - 0.55` and never called `inherit_trait` at all. It
+        was an assertion about Python arithmetic: a kernel still shipping the
+        old scale passed it. The measurement below goes through the KERNEL,
+        which is the only thing that can reject an implementation.
         """
-        for parents in (2, 1, 0):
-            correct = _residual_scale(0.55, parents)
-            assert not math.isclose(correct, 1 - 0.55, rel_tol=1e-6)
+        z1, z2 = 1.0, -1.0
+        first = _call(0.55, parents, ERA_MEAN, z1)
+        second = _call(0.55, parents, ERA_MEAN, z2)
+        assert 0.0 < first < 1.0 and 0.0 < second < 1.0, "probe must stay interior"
+        measured = (first - second) / ((z1 - z2) * ERA_SD)
+        assert not math.isclose(measured, 1 - 0.55, rel_tol=1e-6), (
+            f"branch {parents}: the kernel's residual scale measures "
+            f"{measured!r}, which is the pre-amendment (1 - h2) writing"
+        )
 
-    def test_the_h2_to_the_fourth_trap_is_rejected(self):
+    @pytest.mark.parametrize("coefficient", SHIPPED_COEFFICIENTS)
+    @pytest.mark.parametrize("parents", [2, 1])
+    def test_the_h2_to_the_fourth_trap_is_rejected(self, coefficient, parents):
         """`1 - h2**4/2` where `1 - h2**2/2` belongs.
 
-        The slope is identical under both writings, so only a criterion on
-        the residual can tell them apart. The smallest gap over the shipped
-        coefficients is still six orders above the probe tolerance.
+        REBUILT for the same reason. The previous version compared two
+        closed forms to each other and asserted the GAP was large -- true of
+        the mathematics regardless of what the kernel does, so `h2**4` in
+        the implementation passed it. The trap is real and invisible to a
+        slope test (identical slope, standard deviation inflated 6.03% at
+        h2 = 0.55), so the criterion has to measure the kernel's own
+        residual and reject the wrong exponent's value.
         """
-        gaps = [
-            abs(math.sqrt(1 - c**2 / 2) - math.sqrt(1 - c**4 / 2)) / math.sqrt(1 - c**2 / 2)
-            for c in SHIPPED_COEFFICIENTS
-        ]
-        assert min(gaps) > 1e-6
+        z1, z2 = 1.0, -1.0
+        first = _call(coefficient, parents, ERA_MEAN, z1)
+        second = _call(coefficient, parents, ERA_MEAN, z2)
+        assert 0.0 < first < 1.0 and 0.0 < second < 1.0, "probe must stay interior"
+        measured = (first - second) / ((z1 - z2) * ERA_SD)
+
+        divisor = 2.0 if parents == 2 else 4.0
+        wrong = math.sqrt(1 - coefficient**4 / divisor)
+        assert not math.isclose(measured, wrong, rel_tol=1e-6), (
+            f"coefficient {coefficient}, branch {parents}: the kernel measures "
+            f"{measured!r}, which is the h2**4 writing"
+        )
+        assert measured == pytest.approx(_residual_scale(coefficient, parents), rel=PROBE_TOLERANCE)
 
 
 class TestSignalAxisProbe:
@@ -148,11 +192,27 @@ class TestSignalAxisProbe:
         assert measured == pytest.approx(expected, rel=PROBE_TOLERANCE)
 
     @pytest.mark.parametrize("coefficient", SHIPPED_COEFFICIENTS)
-    def test_no_parent_branch_carries_no_parental_signal(self, coefficient):
-        """With neither parent the value cannot depend on anything parental."""
-        assert _call(coefficient, 0, 0.9, z=0.0) == pytest.approx(
-            _call(coefficient, 0, 0.1, z=0.0), abs=1e-15
-        )
+    def test_no_parent_branch_resolves_to_the_declared_era_mean(self, coefficient):
+        """With neither parent the child sits exactly at the era mean.
+
+        REPLACED after the phase-6 audit. The previous test passed 0.9 and
+        0.1 as "parent values" to a branch whose helper calls
+        `inherit_trait(None, None, ...)`: neither value ever reached the
+        function, so the two calls were identical BY CONSTRUCTION and the
+        assertion held for any implementation whatsoever. A12 exempts this
+        branch from the signal probe for exactly that reason. What IS
+        assertable here is the LEVEL: with a zero draw the child must land on
+        the declared era mean. The probe is run at an OFF-CENTRE mean, not at
+        this file's own 0.5, because 0.5 is the midpoint of the clamp range
+        and a kernel that ignored the declared mean entirely would still
+        produce it.
+        """
+        off_centre = 0.28
+        rng = _FixedDraw(0.0)
+        result = inherit_trait(None, None, coefficient, off_centre, ERA_SD, rng)
+        assert rng.calls == 1, "the kernel must draw exactly once per call"
+        assert result == pytest.approx(off_centre, abs=1e-12)
+        assert off_centre != ERA_MEAN, "the probe must differ from the file's own mean"
 
     @pytest.mark.parametrize("coefficient", SHIPPED_COEFFICIENTS)
     def test_single_parent_signal_is_half_the_two_parent_one(self, coefficient):

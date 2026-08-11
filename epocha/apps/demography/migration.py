@@ -397,6 +397,26 @@ def residual_working_life_years(age: int | float) -> float:
     `WORKING_LIFE_END_AGE` it is zero and never negative: a negative horizon
     would flip the sign of the annuity below and pay an agent to migrate for
     having grown old.
+
+    DECLARED LIMIT -- THE CLIFF AT 62. Because the horizon reaches zero
+    rather than tapering to a small positive value, the annuity is exactly
+    0.0 from that age on, so `compute_expected_gain` collapses to
+    `-distance_cost_ticks * wage_current`: zero at a co-located destination
+    and strictly negative otherwise, NO MATTER how large the wage
+    differential. Since the flight path rejects `expected_gain <= 0.0`, an
+    agent at or past `WORKING_LIFE_END_AGE` is permanently immobile and
+    cannot flee starvation even toward a zone paying a thousand times its
+    own. Measured: the factor is 347.3 ticks at age 61 and 0.0 at 62.
+
+    This is arithmetically correct under Sjaastad's investment framing --
+    someone with no working life left recovers nothing from a move -- and
+    it is a sharp behavioural boundary that no source endorses at that
+    exact age. It is recorded here, in the whitepapers' known-limitations
+    inventory, and pinned by `test_migration_present_value.py` so it cannot
+    change silently. The natural refinement, deferred rather than invented
+    here, is a non-labour motive for late-life migration (joining kin,
+    fleeing a crisis) that does not run through the wage differential at
+    all; Sjaastad's model has nothing to say about it.
     """
     return max(0.0, float(WORKING_LIFE_END_AGE) - float(age))
 
@@ -1096,8 +1116,8 @@ def evaluate_emergency_flight(
     separately -- `build_migration_outlook` already turns `zone_stats`
     into exactly the `{"expected_gain": ...}` values this function needs,
     at zero extra database queries (T034's own proven contract), even
-    though it also computes wage_differential / distance_cost /
-    zone_stability values this function does not itself read. Recomputing
+    though it also computes wage_differential and distance_cost values this
+    function does not itself read. Recomputing
     that arithmetic separately here, just to avoid the unused fields,
     would be the DRY violation this module's Reuse-Before-Reinventing
     discipline exists to prevent.
@@ -1126,8 +1146,10 @@ def evaluate_emergency_flight(
     `build_migration_outlook` established, extended here.
 
     Args:
-        agent: the Agent instance being evaluated. Only `agent.wealth`
-            and `agent.zone_id` (the already-loaded FK column) are read.
+        agent: the Agent instance being evaluated. Only `agent.wealth`,
+            `agent.zone_id` (the already-loaded FK column) and `agent.age`
+            are read -- the age since amendment A7, which derives the
+            present-value horizon from it.
         simulation: the Simulation instance, passed through to
             `compute_subsistence_threshold` and `build_migration_outlook`.
         tick: the current simulation tick, passed through to
