@@ -161,3 +161,23 @@ Indipendenti fra loro e dalla fase 2; ordinabili come conviene.
 ## Complexity Tracking
 
 Nessuna violazione della costituzione da giustificare.
+
+---
+
+## Chiusura della fase 1 — che cosa ha spedito, e che cosa ha spedito INERTE
+
+La fase 1 è chiusa: il contratto di validazione a sei clausole di A9 è implementato e provato per mutazione, l'insieme dei caratteri trasmessi è chiuso, il §6.2 di entrambi i whitepaper è corretto, e la tabella di doc-sync copre i file che finora non mappava.
+
+**Due deviazioni dalla sequenza del piano, entrambe deliberate.** I dati di A2 — le sezioni `era_noise` nei cinque template — sono stati portati avanti dalla fase 2.2, perché A9 rende quelle sezioni obbligatorie e implementare la validazione prima dei dati avrebbe mandato rosse tutte e cinque le ere. E la chiusura dell'insieme trasmesso, nominalmente fase 2.1, è stata anticipata qui: è una cancellazione con un raggio d'azione di un test, e la guardia con warning che A9 richiede stamperebbe una falsità finché l'insieme resta aperto.
+
+**Quello che la fase 1 ha spedito inerte, e che la fase 2 deve cablare.** Va scritto qui perché altrimenti la fase 2.2 eredita un obbligo non dichiarato e il whitepaper racconta una storia non ancora vera:
+
+| dichiarato e validato | consumato da | stato |
+|---|---|---|
+| `trait_inheritance.era_noise.<tratto>` | `apply_trait_inheritance` | **cablato.** Legge i momenti dichiarati per ogni tratto. |
+| `social_inheritance.era_noise.education` (0,30 / 0,15) | nulla | **INERTE.** `_regress_education_level` usa `DEFAULT_ERA_MEAN_EDUCATION = 0.3` fisso, e non ha alcun parametro di dispersione perché oggi la regressione dell'istruzione è deterministica. La ampiezza dichiarata acquista un consumatore solo quando A3 le dà il termine di innovazione. |
+| `social_inheritance.era_noise.class_rank.target_dispersion` (1,0) | nulla | **INERTE.** La regola di Clark è deterministica: non esiste alcun `σ_clark` da risolvere finché A3 non lo introduce. `_BECKER_TOMES_RANK_NOISE_SD = 0.75` è l'ampiezza di un'altra regola e non va confusa con questo bersaglio. |
+
+**Una lettura morta da rimuovere in fase 2.** `_regress_education_level` legge `social_inheritance.get("era_mean_education", DEFAULT_ERA_MEAN_EDUCATION)`. Dopo A9 quella chiave è **sconosciuta allo schema** e il caricatore la respinge, quindi la lettura non può mai trovarla: è morta per costruzione, esattamente come lo era `heritability["default"]`. Va sostituita da `social_inheritance.era_noise.education.era_mean` quando A3 riscrive quella funzione, non prima, perché cambiare il valore da 0,3 a 0,30 è un no-op e cambiare la funzione senza il termine di innovazione sarebbe metà correzione.
+
+**Conseguenza per il gate di fase 6**: le tre righe sopra sono contratti senza consumatore, ed è ciò che accade quando un validatore si costruisce prima della cosa che valida. Sono dichiarate qui invece di essere scoperte più tardi; l'audit sul codice deve verificare che la fase 2 le abbia chiuse tutte e tre, non solo la prima.
