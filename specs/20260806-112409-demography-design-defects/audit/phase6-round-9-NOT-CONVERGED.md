@@ -59,7 +59,7 @@ Its docstring claimed the value of the test is exercising `_text_files`, the win
 ## VERIFIED
 
 - **Decisive reproduction: RED.** `git show b9350b8:...inheritance.py > epocha/_probe.py` → `2 failed, 16 passed`, both guards firing at `epocha/_probe.py:669` on `'resemblance between relatives'` and `'chapter 8'`. Probe removed, tree clean.
-- **`PROXIMITY_CHARS` removed from all four artifacts.** `grep -rn` over the repository returns two occurrences, both narrative and both correct.
+- **`PROXIMITY_CHARS` removed from all four artifacts.** `grep -rn` over the repository returns only narrative occurrences, all correct. (Round 10 noted that the count stated here — two — was a snapshot the filing of this very report invalidated, since the report and the register add two more. The count is dropped; the property is what matters.)
 - **Probes are outside the walk.** `REPO_ROOT` is `/app`, `tempfile.gettempdir()` is `/tmp`, no `basetemp` in `pyproject.toml`; `_text_files()` cannot reach them.
 - **The declared limit is honest**: in the reproduction, the `chapter 9` and `chapter 8` in the defective module's header do not fire because a blank line separates them from the region naming the source — exactly what the docstring declares.
 - **"138 violations against 0"** under the whole-file rule: measured 138 exactly.

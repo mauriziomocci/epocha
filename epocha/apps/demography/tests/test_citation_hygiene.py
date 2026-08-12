@@ -35,12 +35,24 @@ bibliographies, and two branches with no witness.
 THE SIZE, counted rather than asserted, because round 9 caught this file
 publishing an unverified figure about ITSELF in four artifacts at once. The
 series, all in total lines: 167 at birth, 543 at round 8's peak, 453 after
-the cut, 480 now. Round 8's cut was 16.6%, not "to a third" as the commit
-that made it says, and "back under 300" was true only of code lines -- 305
-to 255 -- while the two numbers it followed were total lines. Switching
-units mid-sentence is how a false series survives four reviews. Round 9
-spent 25 lines to give three live branches a witness, which is why this
-number goes up and is stated instead of being quietly dropped.
+the cut. Round 8's cut was 16.6%, not "to a third" as the commit that made
+it says, and "back under 300" was true only of code lines -- 305 to 255 --
+while the two numbers it followed were total lines. Switching units
+mid-sentence is how a false series survives four reviews. No current line
+count is stated here: round 9 stated one and round 10 found it wrong within
+a day, because a figure describing the file that carries it is invalidated
+by every edit to that file. Count it, do not read it.
+
+THE SECOND PROCESS RULE, from round 10, and the counterpart to the one
+above. WHEN A PAYLOAD OR A CONSTANT CHANGES, RUN THE MUTATION BATTERY
+AGAINST THE PREVIOUS VERSION TOO. Twice running, a repair destroyed a
+witness while adding one: round 8 deleted a constant together with the two
+tests that bound it, and round 9 capitalised the wrap-broken title payload
+-- correctly, to give the case-fold a witness -- and moved the break out of
+the title in the same edit, silently retiring the only witness whitespace
+flattening had. Both times the property lost was one this docstring
+asserts. A fix is not judged by the mutants it kills but by the ones it
+stops killing, and that is a difference, not a reading.
 """
 
 from __future__ import annotations
@@ -138,7 +150,17 @@ LIST_ITEM = re.compile(r"^(\s*)[-*+]\s")
 # file this project rewrites by hand at every checkpoint -- defeated the
 # whitespace class, and a title broken across two lines by wrapping never
 # matched the flat string it is compared against.
-HTML_ENTITIES = {"&nbsp;": " ", "&amp;": "&", "&#160;": " ", "&ndash;": "-", "&mdash;": "-"}
+#
+# `&#160;`, `&ndash;` and `&mdash;` were here too and are gone: round 10
+# counted them at ZERO occurrences in the repository and no test failed when
+# they went, so they were extensions for constructed cases -- the same
+# measurement that removed the numbered-list marker, applied to the entry the
+# same round left standing. `&amp;` stays on the other side of that line: it
+# is measured at 12 real occurrences, and although the guard does not depend
+# on it today -- `SOURCE` matches the surname alone -- it normalises an
+# entity the surveyed text actually contains, which a constructed case does
+# not.
+HTML_ENTITIES = {"&nbsp;": " ", "&amp;": "&"}
 
 # Files whose whole purpose is to talk ABOUT the defect. Only this one: a
 # broad allowlist would be the hole all over again.
@@ -319,35 +341,52 @@ def test_the_walk_reaches_the_files_that_actually_carry_the_citation():
     assert len(reached) >= 18, f"only {len(reached)} files mention the source; the walk has shrunk"
 
 
-@pytest.mark.parametrize(
-    ("relative", "payload"),
-    [
-        # A .py under the application root.
-        (
-            "epocha/apps/demography/_citation_probe.py",
-            '"""Falconer & Mackay (1996), chapter 8 -- components of variance."""\n',
-        ),
-        # A .md under the whitepapers, wrapped the way the real entries are,
-        # with the offence SIX lines below the author name and a sanctioned
-        # range in between. Both holes round 5 found, in one probe.
-        (
-            "docs/whitepaper/_citation_probe.md",
-            "- Falconer, D. S., and Mackay, T. F. C. (1996). *Introduction to\n"
-            "  Quantitative Genetics*, 4th edition. Longman, Harlow.\n"
-            "  Chapters 8-10, numbers verified against the table of contents.\n"
-            "  Filler line to push the offence out of a short window.\n"
-            "  Another filler line.\n"
-            "  (See chapter 3 for the pedigree method, and chapter 9 --\n"
-            "  resemblance between relatives -- for the covariance algebra.)\n",
-        ),
-        # The build map, which the previous walk did not reach at all.
-        (
-            "docs/build-map/_citation_probe.html",
-            "<p>Falconer &amp; Mackay 1996, capitolo 10 -- somiglianza fra parenti.</p>\n",
-        ),
-    ],
-)
-def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, payload, tmp_path):
+# Named rather than inlined into the parametrize, so the completeness test
+# below can read the same list instead of reaching into pytest's marks.
+INJECTION_CASES = [
+    # A .py under the application root.
+    (
+        "epocha/apps/demography/_citation_probe.py",
+        '"""Falconer & Mackay (1996), chapter 8 -- components of variance."""\n',
+        "components of variance",
+    ),
+    # A .md under the whitepapers, wrapped the way the real entries are,
+    # with the offence SIX lines below the author name and a sanctioned
+    # range in between. Both holes round 5 found, in one probe.
+    (
+        "docs/whitepaper/_citation_probe.md",
+        "- Falconer, D. S., and Mackay, T. F. C. (1996). *Introduction to\n"
+        "  Quantitative Genetics*, 4th edition. Longman, Harlow.\n"
+        "  Chapters 8-10, numbers verified against the table of contents.\n"
+        "  Filler line to push the offence out of a short window.\n"
+        "  Another filler line.\n"
+        "  (See chapter 3 for the pedigree method, and chapter 9 --\n"
+        "  resemblance between relatives -- for the covariance algebra.)\n",
+        "resemblance between relatives",
+    ),
+    # The build map, which the previous walk did not reach at all.
+    (
+        "docs/build-map/_citation_probe.html",
+        "<p>Falconer &amp; Mackay 1996, capitolo 10 -- somiglianza fra parenti.</p>\n",
+        "somiglianza fra parenti",
+    ),
+    # The fourth forbidden title had no witness until round 10: three
+    # payloads cannot testify for four strings while the assertion only
+    # checks that SOMETHING was caught. The form is the one the Italian
+    # whitepaper carried at commit 5a2713e, `epocha-whitepaper.it.md:901`,
+    # reduced to the single title so it testifies for that one alone.
+    (
+        "docs/whitepaper/_citation_probe.it.md",
+        "Falconer & Mackay 1996, cap. 8 -- componenti della varianza.\n",
+        "componenti della varianza",
+    ),
+]
+
+
+@pytest.mark.parametrize(("relative", "payload", "expected_title"), INJECTION_CASES)
+def test_the_guard_catches_a_violation_injected_into_a_real_file(
+    relative, payload, expected_title, tmp_path
+):
     """Write the offence to disk, read it back, expect BOTH guards to fire.
 
     Each payload carries a forbidden title AND a chapter outside the range, so
@@ -355,7 +394,14 @@ def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, paylo
     unable to fail: with the union, deleting the Italian titles, deleting
     `components of variance`, or dropping `capitolo` from the chapter pattern
     each left all eighteen tests green, because the other branch of the same
-    payload still fired. Three live branches, one criterion, no witness.
+    payload still fired.
+
+    Separating them was not enough, and round 10 measured why: `assert titles`
+    checks that SOMETHING was caught, so three payloads could not testify for
+    four forbidden strings and `componenti della varianza` could be deleted
+    with the suite still green. The assertion therefore names WHICH title it
+    expects, and `test_every_forbidden_title_has_a_witness` below refuses to
+    let a fifth string be added without one.
 
     The probes no longer walk the repository -- `files=[probe]` scopes both
     helpers -- so what this exercises is region assembly and offender
@@ -374,8 +420,30 @@ def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, paylo
         chapters = _chapter_offenders([probe])
     finally:
         probe.unlink(missing_ok=True)
-    assert titles, f"the title guard missed the violation injected into {relative}"
+    assert {title for _, _, title in titles} == {expected_title}, (
+        f"the title guard did not report exactly {expected_title!r} for {relative}: {titles!r}"
+    )
     assert chapters, f"the chapter guard missed the violation injected into {relative}"
+
+
+def test_every_forbidden_title_has_a_witness():
+    """No forbidden string may be added without a payload that testifies for it.
+
+    This is the structural half of round 10's second blocking finding. The
+    first half -- naming the expected title above -- fixes the four strings
+    that exist; this one fixes the class, by failing the moment a fifth is
+    added with no probe behind it. Without it the next entry is silently
+    deletable, which is exactly how the fourth one got here.
+    """
+    covered = {
+        expected
+        for _, _, expected in (
+            test_the_guard_catches_a_violation_injected_into_a_real_file.pytestmark[0].args[1]
+        )
+    }
+    assert covered == set(FORBIDDEN_TITLES), (
+        f"forbidden titles with no witness: {sorted(set(FORBIDDEN_TITLES) - covered)}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -401,9 +469,15 @@ def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, paylo
             # `inheritance.py:6` at commit 5a2713e -- carried initial capitals.
             # Lower-casing before the comparison is therefore load-bearing, and
             # until this payload was capitalised nothing failed when it went.
+            # The break falls INSIDE the title, which is the whole point: round
+            # 9 capitalised this payload to give `.lower()` a witness and moved
+            # the break out of the title in the same edit, which silently
+            # retired the witness for whitespace flattening. Both properties
+            # ride on this one payload; changing either without re-running the
+            # mutation battery against the PREVIOUS version loses the other.
             "title broken across two lines by wrapping",
-            "- Falconer, D. S., and Mackay (1996). The index gives 9\n"
-            "  *Resemblance between Relatives* for the covariance algebra.\n",
+            "- Falconer, D. S., and Mackay (1996). The index gives 9 *Resemblance\n"
+            "  between Relatives* for the covariance algebra.\n",
             True,
         ),
         (

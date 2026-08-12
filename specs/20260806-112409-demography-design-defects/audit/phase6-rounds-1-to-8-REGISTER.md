@@ -20,7 +20,8 @@
 | 6 | NOT CONVERGED | 11 | `0dcfc75` | Five demonstrated escapes against the rebuilt guard, all from a bound expressed as a count of lines. Replaced by the citation region. |
 | 7 | NOT CONVERGED | 8 | `aac0917` | A retracted sentence still standing on the build map; the paragraph bound producing false positives; the list split cutting an author-date entry in half. |
 | 8 | NOT CONVERGED | 10 | `f0e3261` | `PROXIMITY_CHARS` suppressed a false positive that does not exist and opened a real blind spot at 812 characters. Deleted with two tests that bound nothing. The process rule was adopted here. |
-| 9 | NOT CONVERGED | 6 | this branch | See `phase6-round-9-NOT-CONVERGED.md`, filed in full. |
+| 9 | NOT CONVERGED | 6 | `64be598` | See `phase6-round-9-NOT-CONVERGED.md`, filed in full. |
+| 10 | NOT CONVERGED | 5 | this branch | See `phase6-round-10-NOT-CONVERGED.md`, filed in full. First round run against a written stopping criterion (`5b33d4b`). |
 
 ## Round 8's findings, as far as round 9 could check them
 
