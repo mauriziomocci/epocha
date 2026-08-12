@@ -1,20 +1,25 @@
 # Specification Quality Checklist: Build map bilingue in un solo file
 
-**Revisione**: 7 — **Feature**: [spec.md](../spec.md)
+**Revisione**: 8 — **Feature**: [spec.md](../spec.md)
 
 > **Questo file è un registro, non un racconto.** Fino alla revisione 6 era una
-> cronaca di 278 righe, e i round 4 e 5 hanno speso sei dei loro sei rilievi
-> bloccanti su contraddizioni interne al racconto invece che alla spec. Il round
-> 5 lo ha detto con precisione: «il verbale non è sottoposto alla disciplina che
+> cronaca di 278 righe. I tre bloccanti del round 4 stavano nella spec; i tre
+> del round 5 stavano qui, ed è la ragione del taglio — la frase che attribuiva
+> al racconto anche quelli del round 4 era falsa e il round 6 l'ha colta. Il
+> round 5 lo ha detto con precisione: «il verbale non è sottoposto alla disciplina che
 > il verbale impone alla spec». Il rimedio non è scrivere meglio la cronaca, è
 > **non tenerne una**: una riga per round, e le regole di processo qui perché
 > sono l'unico contenuto che sopravvive al work item.
 
 ## Checklist
 
-- [x] Nessun dettaglio implementativo, **con un'eccezione dichiarata**: FR-007 e
-      D-2 nominano i token `s-done`/`s-prog`/`s-todo` e FR-007b prescrive un
-      meccanismo. Senza, i requisiti non sarebbero decidibili.
+- [x] Nessun dettaglio implementativo, **con un'eccezione dichiarata in sette
+      siti**, non tre: FR-007 e D-2 nominano i token `s-done`/`s-prog`/`s-todo`;
+      FR-007b prescrive un meccanismo; FR-009 e SC-005 nominano
+      `test_citation_hygiene.py`; FR-009a prescrive un test nella suite; e il
+      test 3 di User Story 2 fissa `beautifulsoup4` in `requirements/base.txt`.
+      Senza, i requisiti non sarebbero decidibili. L'elenco parziale presentato
+      come chiuso era il difetto che questo work item insegue da sei round.
 - [x] Centrata sul valore per l'utente
 - [x] Tutte le sezioni obbligatorie presenti, FAQ inclusa
 - [x] Nessun marcatore [NEEDS CLARIFICATION]
@@ -35,10 +40,14 @@
 | 3 | NOT CONVERGED | 9 | 1 | il corpo della costituzione corretto, il suo log no — recidiva del bloccante del round 2 |
 | 4 | NOT CONVERGED | 7 | 3 | la terza regola non applicata a se stessa: tre affermazioni corrette sopravvivevano stale |
 | 5 | NOT CONVERGED | 8 | 3 | **la spec è pulita**; tutti e tre i bloccanti erano in questo file |
+| 6 | NOT CONVERGED | 6 | 1 | il bloccante torna nel **normativo**: due elenchi chiusi degli stessi «tre limiti», con contenuti diversi, che in unione sono quattro |
 
-Totale 53 rilievi, 16 bloccanti. Non esistono file di rapporto separati per
-questo work item: i rilievi e le loro chiusure vivono nei messaggi di commit,
-che sono l'artefatto verificabile — `git log develop..HEAD`.
+Totale 59 rilievi, 17 bloccanti. Non esistono file di rapporto separati per
+questo work item. Circa due terzi dei rilievi sono ricostruibili dai messaggi di
+commit — `git log develop..HEAD` — e i restanti, tutti non bloccanti e tutti
+chiusi, vivono nella cronaca alla revisione 6: `git show b2b3120:specs/20260812-143706-bilingual-build-map/checklists/requirements.md`.
+La frase che li dichiarava tutti nei commit era misurata a occhio e il round 6
+l'ha contata.
 
 ## Le quattro regole di processo
 
@@ -66,5 +75,5 @@ sede invece di eliminarne una.
 
 ## Aperto
 
-Round 6 sulla revisione 7. Se converge: `/speckit-plan`, `/speckit-tasks`,
+Round 7 sulla revisione 8. Se converge: `/speckit-plan`, `/speckit-tasks`,
 implementazione.

@@ -2,7 +2,7 @@
 
 **Branch**: `20260812-143706-bilingual-build-map`
 **Creata**: 2026-08-12
-**Revisione**: 7 — la serie dei round sta nel registro, `checklists/requirements.md`, unica sede
+**Revisione**: 8 — la serie dei round sta nel registro, `checklists/requirements.md`, unica sede
 **Stato**: bozza. L'emendamento alla costituzione **e' stato ratificato dall'utente il 2026-08-12** ed e' in vigore come versione 1.1.0.
 
 ## Il problema, e perché non è "tradurre una pagina"
@@ -206,8 +206,8 @@ senza fare nulla.
 ## Requirements *(mandatory)*
 
 > Questa sezione porta **solo il normativo**. Il perché di ogni scelta sta in
-> «Decisioni di design»; la cronaca di cosa sbagliava ogni revisione sta nel
-> verbale, `checklists/requirements.md`. La separazione è la correzione del
+> «Decisioni di design»; il registro dei round sta in
+> `checklists/requirements.md` e i rilievi nei messaggi di commit. La separazione è la correzione del
 > difetto che i round 3 e 4 hanno colto quattro volte: un requisito che racconta
 > la propria storia offre alla revisione successiva una superficie che non è il
 > requisito, e ogni contraddizione fra la storia e il testo diventa un rilievo.
@@ -236,10 +236,13 @@ senza fare nulla.
   `16.6%` e `16,6%` sono lo stesso numero, `2 844` e `2,844` pure.
 - **FR-007b**: ogni blocco registra l'**impronta di entrambi i testi**, normativo
   e mirror. La guardia fallisce se un testo è cambiato e la sua impronta no.
-- **FR-008**: la guardia **dichiara nel proprio docstring il limite** di ciò che
-  non prende. Limiti noti alla stesura: i numeri scritti a lettere non sono
-  confrontati; una traduzione presente ma sbagliata passa; ricalcolare l'impronta
-  senza tradurre compra il verde.
+- **FR-008**: la guardia **dichiara nel proprio docstring i limiti** di ciò che
+  non prende. Sono **quattro** ed è questa l'unica sede che li enumera: (a) i
+  numeri scritti a lettere non sono confrontati; (b) una traduzione presente ma
+  sbagliata passa; (c) ricalcolare l'impronta senza tradurre compra il verde;
+  (d) la lingua effettiva del contenuto non è un predicato calcolabile — la
+  guardia verifica presenza e freschezza delle varianti, non che siano scritte
+  nella lingua giusta.
 - **FR-009**: `test_citation_hygiene.py` resta a **zero offender** e la build map
   resta fra i file che la sua camminata raggiunge. Baseline: 20 test verdi.
   Nessun tempo di parete entra nel requisito.
@@ -322,10 +325,10 @@ pubblicata, quindi non era riproducibile.)*
 ## Rischi dichiarati
 
 - **Che la guardia diventi il difetto**, come è successo a quella sulle
-  citazioni, cresciuta da 167 a 543 righe prima di essere tagliata. Le due regole
-  di processo valgono qui dal primo giorno: si estende solo per una divergenza
-  **osservata**, mai per una costruita; e quando cambia un payload o una costante
-  la batteria di mutazioni si rilancia anche contro la versione precedente.
+  citazioni, cresciuta da 167 a 543 righe prima di essere tagliata. Le regole di
+  processo che governano una guardia strutturale valgono qui dal primo giorno, e
+  stanno in una sede sola, `checklists/requirements.md`: riformularle qui è
+  ciò che le farebbe divergere.
 - **La traduzione stessa**: prosa densa, dove si perdono le sfumature dei numeri
   misurati. È per questo che FR-007 li mette sotto guardia invece di affidarli
   alla rilettura, e per questo il limite di FR-008 dice a voce alta quali numeri
@@ -357,10 +360,11 @@ checksum distingue una traduzione da un bump pigro. Garantisce che l'omissione
 sia un atto deliberato e visibile nel diff invece di una dimenticanza. La classe
 di guasto da chiudere è la dimenticanza.
 
-**Che cosa resta scoperto?** L'elenco normativo è in FR-008, unica sede; qui il senso. I numeri scritti a lettere non sono
-confrontati; una traduzione sbagliata ma presente passa; la lingua effettiva del
-contenuto non è un predicato calcolabile. I tre limiti vivranno nel docstring
-della guardia, come fa quella sulle citazioni.
+**Che cosa resta scoperto?** Quattro cose, enumerate in FR-008 e in nessun
+altro posto: un elenco chiuso ripetuto in due sedi diverge, ed e' divergito
+qui — fino alla revisione 7 questa risposta ne elencava tre e FR-008 tre, ma
+non gli stessi tre. Vivranno nel docstring della guardia, come fa quella
+sulle citazioni.
 
 **Che cosa costa?** Ogni checkpoint della build map costerà il doppio in
 scrittura più l'aggiornamento delle impronte, per sempre. È il prezzo di mettere la
