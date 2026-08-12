@@ -8,10 +8,10 @@ Source:
   VERIFICATION STATUS, and NO CHAPTER TITLES, deliberately. The
   numbers are verified against the fourth edition's table of
   contents; the book has not been opened and no claim here rests on
-  a page. Titles are omitted because three consecutive audit rounds
-  caught a wrong one: first chapter 9's title attached to chapter
-  10, then a section heading inside chapter 8 promoted to that
-  chapter's title. A number is checkable against an index; a title
+  a page. Titles are omitted because four consecutive audit rounds
+  caught a wrong one: first one chapter's title attached to a
+  different chapter, then a section heading promoted to its chapter's
+  title. A number is checkable against an index; a title
   copied from memory is how this class of defect keeps recurring.
   Amendment A1 derives every coefficient in full precisely so that
   nothing depends on resolving it.
@@ -675,11 +675,12 @@ def resolve_birth_attributes(template: dict, rng: Any) -> tuple[str, str]:
        human populations. THE ATTRIBUTION THAT USED TO SIT HERE IS
        WITHDRAWN: it credited Falconer & Mackay for calling this one of the
        best-documented constants in human genetics, and that book is a
-       quantitative-genetics text, and nothing in the chapters this module
-       draws on concerns the human secondary sex ratio. The claim was carried unverified
-       under chapter 8 and a mechanical renumbering made it worse rather than
-       better. The 1.05 figure is retained as a DECLARED, UNSOURCED design
-       parameter pending a proper demographic citation, and is nonetheless
+       quantitative-genetics text, and nothing in the material this module
+       draws on concerns the human secondary sex ratio. The claim was carried
+       unverified, and a mechanical renumbering of the citation made it worse
+       rather than better. The 1.05 figure is retained as a DECLARED,
+       UNSOURCED design parameter pending a proper demographic citation, and
+       is nonetheless
        carried as a tunable per-era template parameter rather than a hard
        constant, since some era templates (sci_fi) deliberately deviate from
        it. This draw yields only "male" or "female": the biological

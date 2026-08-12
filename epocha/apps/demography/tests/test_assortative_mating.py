@@ -138,6 +138,38 @@ class TestTheTruncatedSolverIsConsistentWithTheIndependentOne:
             previous_r = state.realized_parent_correlation
             previous_sd = state.stationary_sd
 
+    @pytest.mark.parametrize("degenerate", [1.0, -1.0, 1.5])
+    def test_the_public_joint_rejects_a_degenerate_correlation(self, degenerate):
+        """`copula_joint` became public last round and shipped its domain
+        guard without a witness -- deleting all five lines of it left every
+        test in the file green.
+
+        At exactly +/-1 the conditional spread is zero, so the construction
+        returns an array of NaN with a RuntimeWarning instead of failing, and
+        the caller gets a silently meaningless joint.
+        """
+        from epocha.apps.demography.truncated_moments import (
+            _initial_distribution,
+            copula_joint,
+        )
+
+        with pytest.raises(ValueError):
+            copula_joint(_initial_distribution(*EDUCATION_ERA), degenerate)
+
+    def test_the_public_joint_accepts_the_interior(self):
+        """The other half: a guard that rejects the legitimate domain is a
+        guard someone deletes."""
+        import numpy as np
+
+        from epocha.apps.demography.truncated_moments import (
+            _initial_distribution,
+            copula_joint,
+        )
+
+        joint = copula_joint(_initial_distribution(*EDUCATION_ERA), 0.8)
+        assert np.isfinite(joint).all()
+        assert joint.sum() == pytest.approx(1.0, rel=1e-12)
+
     def test_the_realized_correlation_is_below_the_copula_parameter(self):
         """Clamping to `[0, 1]` piles mass on the bounds, and tied values carry
         no covariance, so the correlation the population actually shows is
