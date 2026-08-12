@@ -93,7 +93,11 @@ Spec-Driven Layout (Spec Kit adoption since 2026-05-16):
 
 Model selection per phase (inherited): Opus for phases 1-4 and 6-7 (scientific judgment, audits, design), Sonnet for phase 5 implementation, Haiku never. Escalation to Opus is mandatory whenever Sonnet faces a strategic decision outside the specified execution.
 
-Italian for spec files (project rule, see `feedback_italian_specs.md` memory); English for everything else (code, commits, plans, docstrings, README, whitepaper EN, CLAUDE.md). The whitepaper Italian mirror is the only exception where translated technical prose is the deliverable.
+Italian for spec files **and for the build map** (project rule, see `feedback_italian_specs.md` memory); English for everything else (code, commits, plans, docstrings, README, whitepaper EN, CLAUDE.md). The build map joins the specs rather than the code because it is the artifact the user must read and act on at every checkpoint, which is the same reason the specs are in Italian.
+
+Two deliverables carry translated technical prose, and each declares which text is normative: the **whitepaper**, whose Italian mirror follows the normative English; and the **build map**, whose normative text is the Italian one, with English as the mirror. A bilingual deliverable without a declared normative text cannot answer "verify against reality first" — it does not say against which text — so declaring it is part of the deliverable, not an afterthought.
+
+Neither bilingual deliverable may rely on prose alone to stay aligned. The build map's two languages are held together by a structural guard in the suite; the whitepapers by the doc-sync rule and the frozen-at-commit pin. A property asserted in prose and not enforced by a mechanism gets violated silently — measured sixteen times on this project during the phase-6 gate of the demography design-defects work item.
 
 ## Governance
 
@@ -105,4 +109,23 @@ All PRs and reviews must verify compliance with the five core principles. Comple
 
 For runtime development guidance, use `CLAUDE.md` (project-level), `~/.claude/CLAUDE.md` (global), and the memories under `~/.claude/projects/-Users-mauriziomocci-Documents-workspace-Opensource-epocha/memory/` (session continuity).
 
-**Version**: 1.0.0 | **Ratified**: 2026-05-16 | **Last Amended**: 2026-05-16
+## Amendment log
+
+**1.1.0 — 2026-08-12.** The language rule gains the build map, which moves from
+"everything else" to the Italian side, and the constitution now names both
+bilingual deliverables with their normative text and requires a mechanism rather
+than prose to keep each aligned. Ratified explicitly by the user on 2026-08-12,
+raised by the phase-2 gate of work item `20260812-143706-bilingual-build-map`,
+whose first audit round found the feature would otherwise create a second
+exception to a sentence reading "the only exception".
+
+*Migration guidance for in-flight work items*: none is affected. The only work
+item open at ratification is the one that raised the amendment. Existing
+artifacts do not move: the whitepapers keep English as their normative text and
+the specs stay Italian, both unchanged. The build map is English-only until
+`20260812-143706-bilingual-build-map` ships; until then it satisfies the amended
+rule by being a single-language artifact, and the guard that FR-006 to FR-007b
+require is what makes the bilingual state enforceable when it arrives. No
+retroactive translation of anything is implied.
+
+**Version**: 1.1.0 | **Ratified**: 2026-05-16 | **Last Amended**: 2026-08-12
