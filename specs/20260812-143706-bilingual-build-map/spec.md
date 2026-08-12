@@ -224,6 +224,12 @@ senza fare nulla.
 - **FR-003a**: sono esenti riferimenti di capitolo, percorsi di file, SHA,
   numeri di fase, nomi di modulo, nomi di branch e citazioni autore-anno.
   L'esenzione è **dichiarata per singolo elemento**, mai dedotta dall'aspetto.
+- **FR-003b**: la guardia fallisce se esiste **testo visibile non chiavato** che
+  non ricada nelle esenzioni di FR-003a. Senza questa clausola FR-003 non è
+  assegnato a nessuno: la guardia confronta le chiavi, quindi un blocco aggiunto
+  senza chiave in una lingua sola non violerebbe alcun predicato e passerebbe
+  tutti e quattro i test di mutazione. È il caso più probabile del flusso reale,
+  perché a un checkpoint si aggiunge prosa, non chiavi.
 - **FR-004**: un comando visibile alterna le lingue senza ricaricare; la scelta
   persiste dove la persistenza è disponibile.
 - **FR-005**: la pagina resta **self-contained**: nessuna risorsa esterna,
@@ -360,8 +366,9 @@ checksum distingue una traduzione da un bump pigro. Garantisce che l'omissione
 sia un atto deliberato e visibile nel diff invece di una dimenticanza. La classe
 di guasto da chiudere è la dimenticanza.
 
-**Che cosa resta scoperto?** Quattro cose, enumerate in FR-008 e in nessun
-altro posto: un elenco chiuso ripetuto in due sedi diverge, ed e' divergito
+**Che cosa resta scoperto?** Le cose che FR-008 enumera, in quella sede e in
+nessun'altra — qui non se ne ripete né l'elenco né il numero, perché anche la
+sola cardinalità in due sedi diverge appena il numero cambia: un elenco chiuso ripetuto in due sedi diverge, ed e' divergito
 qui — fino alla revisione 7 questa risposta ne elencava tre e FR-008 tre, ma
 non gli stessi tre. Vivranno nel docstring della guardia, come fa quella
 sulle citazioni.

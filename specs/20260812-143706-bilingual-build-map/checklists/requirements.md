@@ -1,6 +1,6 @@
 # Specification Quality Checklist: Build map bilingue in un solo file
 
-**Revisione**: 8 — **Feature**: [spec.md](../spec.md)
+**Revisione**: 9 — **Feature**: [spec.md](../spec.md)
 
 > **Questo file è un registro, non un racconto.** Fino alla revisione 6 era una
 > cronaca di 278 righe. I tre bloccanti del round 4 stavano nella spec; i tre
@@ -41,8 +41,9 @@
 | 4 | NOT CONVERGED | 7 | 3 | la terza regola non applicata a se stessa: tre affermazioni corrette sopravvivevano stale |
 | 5 | NOT CONVERGED | 8 | 3 | **la spec è pulita**; tutti e tre i bloccanti erano in questo file |
 | 6 | NOT CONVERGED | 6 | 1 | il bloccante torna nel **normativo**: due elenchi chiusi degli stessi «tre limiti», con contenuti diversi, che in unione sono quattro |
+| 7 | **CONVERGED** | 5 | 0 | nessun bloccante: nessun requisito contraddittorio o indecidibile, nessun criterio infalsificabile, nessuna affermazione falsa alla misura |
 
-Totale 59 rilievi, 17 bloccanti. Non esistono file di rapporto separati per
+Totale 64 rilievi, 17 bloccanti, chiusi in sette round. Non esistono file di rapporto separati per
 questo work item. Circa due terzi dei rilievi sono ricostruibili dai messaggi di
 commit — `git log develop..HEAD` — e i restanti, tutti non bloccanti e tutti
 chiusi, vivono nella cronaca alla revisione 6: `git show b2b3120:specs/20260812-143706-bilingual-build-map/checklists/requirements.md`.
@@ -73,7 +74,12 @@ tenerla allineata in più posti, è tenerla in un posto solo.** Il conteggio dei
 criteri manuali è divergito cinque volte perché ogni correzione aggiungeva una
 sede invece di eliminarne una.
 
-## Aperto
+## Gate di fase 2: CHIUSO
 
-Round 7 sulla revisione 8. Se converge: `/speckit-plan`, `/speckit-tasks`,
-implementazione.
+Round 7 **CONVERGED** sulla revisione 8. Cinque rilievi, nessuno bloccante.
+Il piu' sostanziale — FR-003 non assegnato ad alcun predicato, quindi un blocco
+non chiavato sarebbe passato — e' stato chiuso nella revisione 9 con FR-003b
+invece di essere rimandato al piano, perche' era un buco di copertura e costava
+una riga. Gli altri quattro sono migliorabilita' e si chiudono durante il piano.
+
+**Prossimo passo**: `/speckit-plan`, poi `/speckit-tasks`, poi implementazione.
