@@ -653,7 +653,7 @@ child_T = h²_T · (mother_T + father_T) / 2 + (1 - h²_T) · ε_T
 ε_T ~ N(era_mean_T, era_sd_T)
 ```
 
-The environmental noise `ε` is drawn from a Normal distribution whose mean and SD are estimated from the initial-tick population of the simulation (frozen after tick 0). This models environment as deviation from the population-level genetic background, which is methodologically standard (Falconer 1996 ch. 8).
+The environmental noise `ε` is drawn from a Normal distribution whose mean and SD are estimated from the initial-tick population of the simulation (frozen after tick 0). This models environment as deviation from the population-level genetic background, which is methodologically standard (Falconer 1996 chs. 8-10).
 
 ### Heritability table
 
@@ -1364,7 +1364,7 @@ A: Polderman integrates 50 years of twin studies and gives consistent h² estima
 A: Polderman values are modern. Historical heritability may differ because environmental variance changes over time. MVP uses modern constants with the template providing an override mechanism for future calibration. This is a documented limitation.
 
 **Q: How is environmental noise `ε` drawn?**
-A: From a Normal distribution whose mean and standard deviation equal the population's trait mean and SD at tick 0 of the simulation (frozen). This models environment as deviation from the genetic background of the simulated population, a standard approach in quantitative genetics (Falconer 1996 ch. 8).
+A: From a Normal distribution whose mean and standard deviation equal the population's trait mean and SD at tick 0 of the simulation (frozen). This models environment as deviation from the genetic background of the simulated population, a standard approach in quantitative genetics (Falconer 1996 chs. 8-10).
 
 ### Economic inheritance
 

@@ -148,10 +148,37 @@ class TestFullMVPFlow:
         assert sim.current_tick == 3
         # 2 agents * 3 ticks = 6 decision logs
         assert DecisionLog.objects.filter(simulation=sim).count() == 6
-        # Dedup is active: consecutive identical actions do not create duplicate memories.
-        # 3 ticks of "socialize" for each agent produce 1 memory per agent = 2 total.
-        # Count only decision memories; political cycle may create stratification memories too.
-        assert (
-            Memory.objects.filter(agent__simulation=sim, content__startswith="I decided to").count()
-            == 2
+        # Dedup is active: a decision memory is suppressed when the agent's
+        # MOST RECENT memory inside the window already records the same
+        # action (engine.py, `recent_duplicate`). Three ticks of "socialize"
+        # therefore collapse to fewer than one memory per tick per agent.
+        decision_memories = Memory.objects.filter(
+            agent__simulation=sim, content__startswith="I decided to"
         )
+        assert decision_memories.count() < 6, "dedup suppressed nothing"
+
+        # The exact surviving count is NOT 2 in general, and asserting it was
+        # a latent flake this branch tripped: `world/generator.py:172` places
+        # agents with the UNSEEDED GLOBAL `random`, so agent positions -- and
+        # through the economy, the wealth ORDER -- depend on how much
+        # randomness the rest of the suite consumed first. When the order
+        # flips, `update_social_classes` writes a mobility memory that
+        # legitimately interrupts an agent's streak and a further decision
+        # memory is correctly created. Merely adding a test file elsewhere in
+        # the suite was enough to flip it. What dedup actually guarantees,
+        # and what survives any placement, is that no agent ever holds two
+        # ADJACENT memories recording the same action.
+        for agent in Agent.objects.filter(simulation=sim):
+            contents = list(
+                Memory.objects.filter(agent=agent)
+                .order_by("tick_created", "id")
+                .values_list("content", flat=True)
+            )
+            for earlier, later in zip(contents, contents[1:]):
+                if not later.startswith("I decided to"):
+                    continue
+                prefix = later.split(".")[0] + "."
+                assert not earlier.startswith(prefix), (
+                    f"{agent.name} holds adjacent duplicate memories of "
+                    f"{prefix!r}: dedup did not fire"
+                )

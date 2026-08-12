@@ -8,8 +8,9 @@ Covers the polygenic additive inheritance kernel `inherit_trait`:
   audit-numbered `T046/I-1` (the social-class rank clamp)
 
 Scientific reference: Falconer, D.S. & Mackay, T.F.C. (1996), Introduction
-to Quantitative Genetics (4th ed.), Longman, chapter 8 (polygenic additive
-model with environmental noise term).
+to Quantitative Genetics (4th ed.), Longman, chapters 8-10. Numbers only and
+no titles: see `inheritance.py`'s module docstring for why, and
+`test_citation_hygiene.py` for the guard that keeps it that way.
 
 Also covers `evaluate_derived_formula` (SC-006), the restricted AST-based
 evaluator used to compute derived-trait formulas (design spec Sezione 4,
@@ -98,6 +99,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import random
 import subprocess
@@ -110,7 +112,6 @@ from epocha.apps.agents.models import Agent, Memory, Relationship
 from epocha.apps.demography.couple import form_couple
 from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
-    DEFAULT_ERA_MEAN_EDUCATION,
     DEFAULT_ERA_SD,
     FormulaError,
     apply_estate_tax,
@@ -141,16 +142,41 @@ from epocha.apps.world.government import add_to_treasury
 from epocha.apps.world.models import Government, World, Zone
 
 
+class _NoGaussianNoise(random.Random):
+    """A seeded RNG whose Gaussian draws collapse to their mean.
+
+    Every other method is `random.Random`'s, so a test that needs the seeded
+    stream for gender or for a sampled class rule keeps it; only the
+    innovation terms -- education (A3) and the Clark rank (A3) -- go to zero.
+
+    This exists because a test pinning a DETERMINISTIC coefficient must not
+    also carry the stochastic term that coefficient sits next to. The
+    alternative, retuning the expected value until the seeded draw happens to
+    land on it, would be changing a seed to make a test pass; the coefficient
+    is the criterion, and the innovation is gated in
+    `test_education_innovation.py` and `test_clark_innovation_wiring.py`.
+    """
+
+    def gauss(self, mu: float, sigma: float) -> float:
+        return mu
+
+
 class TestInheritTraitTwoParents:
     """Two known parents: exact midparent + single-draw noise formula."""
 
     def test_matches_hand_computed_formula_with_seeded_rng(self):
-        """h2 * midparent + (1 - h2) * noise, noise = rng.gauss(era_mean, era_sd).
+        """m + h2*(midparent - m) + e, with e ~ N(0, era_sd^2 * (1 - h2^2/2)).
 
-        The expected value is computed independently with an identically
-        seeded random.Random so the assertion is exact (mirrors the RNG
-        sequence the implementation is expected to draw from), not merely
-        plausible.
+        The residual scale is NOT (1 - h2). Amendment A1 (2026-08-07) derives
+        it from the variance identity: under random mating Var(midparent) is
+        half the population variance, so imposing that the stationary
+        dispersion equal the declared era_sd gives c = sqrt(1 - h2^2/2). The
+        previous writing summed its two coefficients to one, which is an
+        interpolation convention rather than a variance decomposition, and it
+        settled the population at 48.85% of the declared amplitude.
+
+        The seed is unchanged from before the amendment. What changed is the
+        formula, and therefore the expected value.
         """
         mother_val = 0.60
         father_val = 0.40
@@ -158,10 +184,11 @@ class TestInheritTraitTwoParents:
         era_mean = 0.50
         era_sd = 0.10
 
+        residual_scale = math.sqrt(1 - h2**2 / 2)
         expected_rng = random.Random(1234)
-        expected_noise = expected_rng.gauss(era_mean, era_sd)
+        expected_residual = expected_rng.gauss(0.0, residual_scale * era_sd)
         midparent = (mother_val + father_val) / 2
-        expected = h2 * midparent + (1 - h2) * expected_noise
+        expected = era_mean + h2 * (midparent - era_mean) + expected_residual
 
         actual_rng = random.Random(1234)
         actual = inherit_trait(mother_val, father_val, h2, era_mean, era_sd, actual_rng)
@@ -233,15 +260,24 @@ class TestInheritTraitSingleParentFallback:
     genetic signal."""
 
     def test_mother_only_uses_mother_as_parent_t(self):
-        """father_val is None: child_T = h2 * mother_val + (1 - h2) * noise."""
+        """father_val is None: m + (h2/2)*(mother - m) + e, e ~ N(0, s^2(1-h2^2/4)).
+
+        Both halves changed under amendment A1. The signal coefficient is
+        h2/2, which is what the parent-offspring regression implies -- Cov is
+        V_A/2 against Var of a single parent V_P -- rather than the h2 the
+        previous writing carried, which described the midparent case. And the
+        residual scale follows the same variance identity, at a single
+        parent's full variance rather than a midparent's half.
+        """
         mother_val = 0.70
         h2 = 0.4
         era_mean = 0.5
         era_sd = 0.1
 
+        residual_scale = math.sqrt(1 - h2**2 / 4)
         expected_rng = random.Random(42)
-        expected_noise = expected_rng.gauss(era_mean, era_sd)
-        expected = h2 * mother_val + (1 - h2) * expected_noise
+        expected_residual = expected_rng.gauss(0.0, residual_scale * era_sd)
+        expected = era_mean + (h2 / 2) * (mother_val - era_mean) + expected_residual
 
         actual_rng = random.Random(42)
         actual = inherit_trait(mother_val, None, h2, era_mean, era_sd, actual_rng)
@@ -249,15 +285,16 @@ class TestInheritTraitSingleParentFallback:
         assert actual == pytest.approx(expected)
 
     def test_father_only_uses_father_as_parent_t(self):
-        """mother_val is None: child_T = h2 * father_val + (1 - h2) * noise."""
+        """mother_val is None: the mirror of the mother-only branch."""
         father_val = 0.30
         h2 = 0.4
         era_mean = 0.5
         era_sd = 0.1
 
+        residual_scale = math.sqrt(1 - h2**2 / 4)
         expected_rng = random.Random(42)
-        expected_noise = expected_rng.gauss(era_mean, era_sd)
-        expected = h2 * father_val + (1 - h2) * expected_noise
+        expected_residual = expected_rng.gauss(0.0, residual_scale * era_sd)
+        expected = era_mean + (h2 / 2) * (father_val - era_mean) + expected_residual
 
         actual_rng = random.Random(42)
         actual = inherit_trait(None, father_val, h2, era_mean, era_sd, actual_rng)
@@ -296,10 +333,12 @@ class TestInheritTraitBothParentsUnknown:
         era_sd = 0.1
 
         expected_rng = random.Random(11)
-        expected_noise = expected_rng.gauss(era_mean, era_sd)
-        # No parental signal: midparent degrades to era_mean itself, exactly
-        # mirroring _regress_education_level's own neither-parent branch.
-        expected = h2 * era_mean + (1 - h2) * expected_noise
+        # No parental signal survives, so under amendment A1 the residual
+        # carries the WHOLE declared amplitude -- c = 1, not (1 - h2) and not
+        # the two-parent scale. Applying the two-parent scale here is the
+        # partial correction the amendment measured at 92.13% of target.
+        expected_residual = expected_rng.gauss(0.0, era_sd)
+        expected = era_mean + expected_residual
 
         actual_rng = random.Random(11)
         actual = inherit_trait(None, None, h2, era_mean, era_sd, actual_rng)
@@ -728,6 +767,13 @@ def sim_with_zone(db):
     return sim, zone
 
 
+# What every shipped template declares under
+# `social_inheritance.era_noise.education.era_mean`. Read from the fixture
+# rather than from a module constant: amendment A2 moved this value into the
+# templates and A9 removed the constant that used to shadow it.
+DECLARED_ERA_MEAN_EDUCATION = 0.3
+
+
 def _make_agent(sim, zone, name, personality=None, **kwargs):
     """Helper: create an Agent with sensible defaults (mirrors test_couple.py)."""
     defaults = dict(
@@ -798,46 +844,87 @@ class TestApplyTraitInheritanceHeritabilityCoverage:
             assert 0.0 <= value <= 1.0, f"{name}={value} outside [0, 1]"
 
 
-class TestApplyTraitInheritanceDefaultHeritability:
-    """Personality traits absent from the heritability table use default h2=0.30."""
+class TestTransmittedSetIsClosed:
+    """The transmitted set is exactly `trait_inheritance.heritability`.
+
+    This class asserts the inverse of what it asserted before amendment A9
+    (2026-08-07). Until then the trait list was extended with every key found
+    in either parent's `personality` dict -- an unvalidated JSONField
+    populated by an LLM prompt -- so a key the model invented became a
+    transmitted character governed by a fallback heritability and a noise pair
+    no template had declared. Template validation cannot close a set that
+    runtime reopens; the set is closed in the kernel, and the old behaviour is
+    now a defect rather than a documented fallback.
+    """
 
     @pytest.mark.django_db
-    def test_unpublished_personality_trait_uses_default_h2(self, sim_with_zone):
-        """Requirement 2: humor_style (not in heritability) is inherited with
-        default_h2 = heritability["default"] = 0.30, using the documented
-        DEFAULT_ERA_MEAN / DEFAULT_ERA_SD noise prior since no era template
-        carries a per-trait noise spec (verified: none of the five era
-        templates declare era_mean/era_sd under trait_inheritance).
+    def test_an_undeclared_personality_key_is_not_transmitted(self, sim_with_zone):
+        """Both parents carry `humor_style`; the template does not declare it.
 
-        A minimal synthetic template isolates humor_style as the only
-        heritable trait, so the RNG draw sequence is unambiguous and the
-        expected value can be hand-computed exactly against a rng cloned
-        from the same seed/tick/phase (mirrors the exact-match style of
-        TestInheritTraitTwoParents above).
+        The child must not receive it. Inheriting it would mean transmitting a
+        character at a heritability and a noise pair that no source and no
+        template ever fixed, which is precisely what A9 removes.
         """
         sim, zone = sim_with_zone
         synthetic_template = {
             "trait_inheritance": {
-                "heritability": {"default": 0.30},
+                "heritability": {"openness": 0.55},
+                "era_noise": {"openness": {"era_mean": 0.5, "era_sd": 0.15}},
                 "derived_trait_formulas": {},
             }
         }
-        mother_val = 0.8
-        father_val = 0.2
-        mother = _make_agent(sim, zone, "Mother", personality={"humor_style": mother_val})
-        father = _make_agent(sim, zone, "Father", personality={"humor_style": father_val})
+        mother = _make_agent(sim, zone, "Mother", personality={"humor_style": 0.8})
+        father = _make_agent(sim, zone, "Father", personality={"humor_style": 0.2})
         child = _make_agent(sim, zone, "Child")
 
-        expected_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
-        expected = inherit_trait(
-            mother_val, father_val, 0.30, DEFAULT_ERA_MEAN, DEFAULT_ERA_SD, expected_rng
+        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        apply_trait_inheritance(child, mother, father, synthetic_template, rng)
+
+        assert "humor_style" not in child.personality
+        assert "openness" in child.personality
+
+    @pytest.mark.django_db
+    def test_an_undeclared_key_does_not_consume_the_rng_stream(self, sim_with_zone):
+        """Closing the set must also close the RNG draw it used to make.
+
+        A key left untransmitted but still drawn for would shift every
+        subsequent draw in the tick, which is the determinism trap this work
+        item has to watch. The child's declared trait must therefore match the
+        value produced when no undeclared key is present at all.
+        """
+        sim, zone = sim_with_zone
+        template = {
+            "trait_inheritance": {
+                "heritability": {"openness": 0.55},
+                "era_noise": {"openness": {"era_mean": 0.5, "era_sd": 0.15}},
+                "derived_trait_formulas": {},
+            }
+        }
+        with_extra = _make_agent(sim, zone, "ChildA")
+        mother_a = _make_agent(sim, zone, "MotherA", personality={"humor_style": 0.8})
+        father_a = _make_agent(sim, zone, "FatherA", personality={"humor_style": 0.2})
+        apply_trait_inheritance(
+            with_extra,
+            mother_a,
+            father_a,
+            template,
+            get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance"),
         )
 
-        actual_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
-        apply_trait_inheritance(child, mother, father, synthetic_template, actual_rng)
+        without_extra = _make_agent(sim, zone, "ChildB")
+        mother_b = _make_agent(sim, zone, "MotherB", personality={})
+        father_b = _make_agent(sim, zone, "FatherB", personality={})
+        apply_trait_inheritance(
+            without_extra,
+            mother_b,
+            father_b,
+            template,
+            get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance"),
+        )
 
-        assert "humor_style" in child.personality
-        assert child.personality["humor_style"] == pytest.approx(expected)
+        assert with_extra.personality["openness"] == pytest.approx(
+            without_extra.personality["openness"]
+        )
 
 
 class TestApplyTraitInheritanceNeitherParentCarriesTheKey:
@@ -862,7 +949,8 @@ class TestApplyTraitInheritanceNeitherParentCarriesTheKey:
         sim, zone = sim_with_zone
         synthetic_template = {
             "trait_inheritance": {
-                "heritability": {"default": 0.30, "openness": 0.55},
+                "heritability": {"openness": 0.55},
+                "era_noise": {"openness": {"era_mean": 0.5, "era_sd": 0.15}},
                 "derived_trait_formulas": {},
             }
         }
@@ -951,7 +1039,8 @@ class TestApplyTraitInheritanceRequiresMutablePersonalityDict:
         sim, zone = sim_with_zone
         synthetic_template = {
             "trait_inheritance": {
-                "heritability": {"default": 0.30, "openness": 0.55},
+                "heritability": {"openness": 0.55},
+                "era_noise": {"openness": {"era_mean": 0.5, "era_sd": 0.15}},
                 "derived_trait_formulas": {},
             }
         }
@@ -1302,6 +1391,10 @@ class TestApplySocialInheritancePatrilinealRigid:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": 0.5,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
@@ -1324,6 +1417,10 @@ class TestApplySocialInheritancePatrilinealRigid:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": 0.5,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="poor", education_level=0.2)
@@ -1370,6 +1467,10 @@ class TestApplySocialInheritanceClarkRegression:
             "social_inheritance": {
                 "class_rule": "clark_regression",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="elite", education_level=0.9)
@@ -1428,6 +1529,10 @@ class TestApplySocialInheritanceClarkRegression:
             "social_inheritance": {
                 "class_rule": "clark_regression",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
 
@@ -1443,7 +1548,11 @@ class TestApplySocialInheritanceClarkRegression:
         monkeypatch.setattr(
             inheritance_module, "_rank_to_class_label", _capturing_rank_to_class_label
         )
-        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        # A3 adds the Clark innovation to this rank, so the seeded stream
+        # would displace both captured values by a draw and the 70/30
+        # coefficients -- the sole criterion here -- would no longer be
+        # readable off them. The innovation itself is gated separately.
+        rng = _NoGaussianNoise(0)
 
         # Scenario 1: father rank 0 ("elite"). The parent term (0.7*0=0)
         # vanishes regardless of the 0.7 coefficient's actual value -- this
@@ -1529,6 +1638,10 @@ class TestSampledClassRulesNeverProduceEnslaved:
             "social_inheritance": {
                 "class_rule": "becker_tomes_elasticity_0.4",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="poor", education_level=0.2)
@@ -1580,6 +1693,10 @@ class TestSampledClassRulesNeverProduceEnslaved:
             "social_inheritance": {
                 "class_rule": "clark_regression",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         father = _make_agent(sim, zone, "Father", social_class="enslaved")
@@ -1609,6 +1726,10 @@ class TestApplySocialInheritanceBeckerTomes:
             "social_inheritance": {
                 "class_rule": "becker_tomes_elasticity_0.4",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="elite", education_level=0.9)
@@ -1656,6 +1777,10 @@ class TestApplySocialInheritanceMeritocratic:
             "social_inheritance": {
                 "class_rule": "meritocratic",
                 "education_regression_rho": 0.25,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
@@ -1691,9 +1816,11 @@ class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
 
     Two "middle" parents (rank 2) both at education_level=0.9, under
     sci_fi's own declared parameters (meritocratic, rho=0.2, era_mean_
-    education defaults to 0.3 -- no era template overrides it): the
-    correctly regressed child education_level is `0.2*0.9 + 0.8*0.3 =
-    0.42` (matching the audit's own hand-computed figure exactly), giving
+    education 0.3, declared in the template's era_noise section): with the
+    innovation residual held at zero the correctly regressed child
+    education_level is `0.3 + 0.2*(0.9 - 0.3) = 0.42` (matching the audit's
+    own hand-computed figure exactly, since the amended kernel reduces to the
+    previous one when the two coefficients happen to sum to one), giving
     merit `(0.9 + 0.42) / 2 = 0.66`, merit_rank `(1 - 0.66) * 4 = 1.36`,
     final rank `0.2*2 + 0.8*1.36 = 1.488`, rounding to 1 ("wealthy"). Read
     before regression (today's bug), the same child's education_level is
@@ -1720,6 +1847,10 @@ class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
             "social_inheritance": {
                 "class_rule": "meritocratic",
                 "education_regression_rho": 0.2,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.9)
@@ -1739,8 +1870,16 @@ class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
         # bug -- the final education_level value is not a valid probe.
         child = _make_agent(sim, zone, "Child", intelligence=0.9, education_level=0.3)
 
-        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
-        apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
+        # A zero draw isolates the property under test. After amendment A3 the
+        # education regression carries an innovation term, so a seeded rng would
+        # displace the child's education by a random amount and the class label
+        # this test discriminates on would depend on the draw rather than on the
+        # dispatch order. With the residual at zero the regression returns
+        # exactly the 0.42 the audit hand-computed, and the label is decided by
+        # WHICH education value `_apply_meritocratic` read -- which is the bug.
+        apply_social_inheritance(
+            child, mother, father, template, zone_class_mean=2.0, rng=_NoGaussianNoise(0)
+        )
 
         assert child.education_level == pytest.approx(0.42), (
             f"child.education_level={child.education_level!r}, expected the "
@@ -1757,11 +1896,15 @@ class TestApplySocialInheritanceMeritocraticReadsRegressedEducationLevel:
 
 
 class TestApplySocialInheritanceEducationRegression:
-    """child.education_level = rho*(mother.education_level +
-    father.education_level)/2 + (1-rho)*era_mean_education, clamped to
-    [0.0, 1.0]. Runs identically after every class_rule (design spec
-    Sezione 5). TRAP 1 guard: the field under test is `education_level`,
-    never `education` -- Agent has no such attribute.
+    """Education transmission, after amendment A3.
+
+    `child.education_level = m + rho*(midparent - m) + e`, with the residual
+    scaled by the same variance identity the traits use and `e` drawn once.
+    Before A3 this was a deterministic contraction whose fixed point was zero;
+    the expected values below therefore changed with the formula, at unchanged
+    seeds. Runs identically after every class_rule (design spec Sezione 5).
+    TRAP 1 guard: the field under test is `education_level`, never
+    `education` -- Agent has no such attribute.
     """
 
     @pytest.mark.django_db
@@ -1774,13 +1917,25 @@ class TestApplySocialInheritanceEducationRegression:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": rho,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=mother_edu)
         father = _make_agent(sim, zone, "Father", social_class="middle", education_level=father_edu)
         child = _make_agent(sim, zone, "Child")
 
-        expected = rho * (mother_edu + father_edu) / 2.0 + (1.0 - rho) * DEFAULT_ERA_MEAN_EDUCATION
+        era_sd = 0.15
+        expected_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        expected_residual = expected_rng.gauss(0.0, math.sqrt(1 - rho**2 / 2) * era_sd)
+        midparent = (mother_edu + father_edu) / 2.0
+        expected = (
+            DECLARED_ERA_MEAN_EDUCATION
+            + rho * (midparent - DECLARED_ERA_MEAN_EDUCATION)
+            + expected_residual
+        )
 
         rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
         apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
@@ -1790,12 +1945,14 @@ class TestApplySocialInheritanceEducationRegression:
 
     @pytest.mark.django_db
     def test_result_is_clamped_into_zero_one(self, sim_with_zone):
-        """rho = 0.0 isolates the era-mean term: an out-of-range
-        era_mean_education (only reachable via a template override -- the
-        Agent.education_level field itself is not range-restricted at the
-        DB level either, so this also guards against a future caller
-        passing an out-of-range value) must still clamp the final
-        education_level into [0.0, 1.0].
+        """rho = 0.0 isolates the era-mean term, which must still clamp.
+
+        After amendment A9 the loader REJECTS an era mean outside (0, 1) --
+        clause 5 checks it against A1's admissible region -- so this pair is
+        unreachable through `load_template`. The guard therefore covers the
+        caller that bypasses the loader, which is the only way to get here,
+        and `Agent.education_level` is not range-restricted at the database
+        level either.
         """
         sim, zone = sim_with_zone
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
@@ -1805,7 +1962,10 @@ class TestApplySocialInheritanceEducationRegression:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": 0.0,
-                "era_mean_education": 2.0,
+                "era_noise": {
+                    "education": {"era_mean": 2.0, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         child_high = _make_agent(sim, zone, "ChildHighEdu")
@@ -1819,7 +1979,10 @@ class TestApplySocialInheritanceEducationRegression:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": 0.0,
-                "era_mean_education": -1.0,
+                "era_noise": {
+                    "education": {"era_mean": -1.0, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         child_low = _make_agent(sim, zone, "ChildLowEdu")
@@ -1843,12 +2006,24 @@ class TestApplySocialInheritanceEducationRegression:
             "social_inheritance": {
                 "class_rule": "patrilineal_rigid",
                 "education_regression_rho": rho,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=mother_edu)
         child = _make_agent(sim, zone, "Child")
 
-        expected = rho * mother_edu + (1.0 - rho) * DEFAULT_ERA_MEAN_EDUCATION
+        era_sd = 0.15
+        expected_rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        expected_residual = expected_rng.gauss(0.0, math.sqrt(1 - rho**2 / 4) * era_sd)
+        # single parent: the signal coefficient is rho/2, as for a trait
+        expected = (
+            DECLARED_ERA_MEAN_EDUCATION
+            + (rho / 2) * (mother_edu - DECLARED_ERA_MEAN_EDUCATION)
+            + expected_residual
+        )
 
         rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
         apply_social_inheritance(child, mother, None, template, zone_class_mean=2.0, rng=rng)
@@ -1868,6 +2043,10 @@ class TestApplySocialInheritanceUnknownClassRule:
             "social_inheritance": {
                 "class_rule": "not_a_real_rule",
                 "education_regression_rho": 0.5,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
@@ -1894,6 +2073,10 @@ class TestApplySocialInheritanceUnknownClassValue:
             "social_inheritance": {
                 "class_rule": "clark_regression",
                 "education_regression_rho": 0.4,
+                "era_noise": {
+                    "education": {"era_mean": DECLARED_ERA_MEAN_EDUCATION, "era_sd": 0.15},
+                    "class_rank": {"target_dispersion": 1.0},
+                },
             }
         }
         mother = _make_agent(sim, zone, "Mother", social_class="middle", education_level=0.5)
@@ -1902,7 +2085,10 @@ class TestApplySocialInheritanceUnknownClassValue:
         )
         child = _make_agent(sim, zone, "Child")
 
-        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        # Zero innovation: the criterion is WHICH rank an unknown label falls
+        # back to, and a draw of the Clark amplitude spans two labels either
+        # side of 2.7, which would make the outcome a coin toss on the seed.
+        rng = _NoGaussianNoise(0)
         # "working" rank fallback (3): 0.7*3 + 0.3*2.0 = 2.7 -> rounds to 3.
         apply_social_inheritance(child, mother, father, template, zone_class_mean=2.0, rng=rng)
 
@@ -2042,10 +2228,22 @@ class TestApplyInheritanceAtBirthEmptyZoneGuard:
     hand-computed from the documented fallback rank
     (_UNKNOWN_CLASS_FALLBACK_RANK, the "working" rank = 3) rather than only
     asserting "no exception raised".
+
+    Since A3 the rule is no longer deterministic. `apply_inheritance_at_birth`
+    builds its own rng, so the innovation is silenced at the seam where that
+    rng is made rather than by passing one in -- the criterion is the FALLBACK
+    MEAN reaching the arithmetic, not the draw layered on top of it.
     """
 
     @pytest.mark.django_db
-    def test_empty_zone_falls_back_to_working_rank_mean(self, sim_with_zone):
+    def test_empty_zone_falls_back_to_working_rank_mean(self, sim_with_zone, monkeypatch):
+        import epocha.apps.demography.inheritance as inheritance_module
+
+        monkeypatch.setattr(
+            inheritance_module,
+            "get_seeded_rng",
+            lambda simulation, tick, phase: _NoGaussianNoise(0),
+        )
         sim, populated_zone = sim_with_zone
         empty_zone = Zone.objects.create(
             world=populated_zone.world,
@@ -2925,15 +3123,18 @@ class TestDistributeShariaSpouseAlsoSiblingConservesValue:
             f"allocation {allocation} sums to {sum(allocation.values())}, not the "
             f"full {inheritable} -- the spouse-is-also-sibling overwrite destroyed value"
         )
-        # No children: spouse_fraction = 0.25 -> spouse_amount = 250.0;
-        # residual = 750.0 split 2:1 male:male between the two brothers,
-        # 375.0 each via _split_two_to_one. The spouse-sibling receives
-        # BOTH entitlements added together (625.0 = 250.0 + 375.0), not
-        # merely one or the other.
+        # No children and a MALE surviving spouse, so the Quranic share is
+        # 1/2 (Q4:12; amendment A5 corrected the flat 1/4 this test used to
+        # encode) -> spouse_amount = 500.0; residual = 500.0 split 2:1
+        # male:male between the two brothers, 250.0 each via
+        # _split_two_to_one. The spouse-sibling receives BOTH entitlements
+        # added together (750.0 = 500.0 + 250.0), not merely one or the
+        # other -- which is the property this test exists for, and which A5
+        # does not touch: only the size of the first term moved.
         assert allocation[spouse_and_sibling.id] == pytest.approx(
-            625.0, abs=_CONSERVATION_TOLERANCE
+            750.0, abs=_CONSERVATION_TOLERANCE
         )
-        assert allocation[other_sibling.id] == pytest.approx(375.0, abs=_CONSERVATION_TOLERANCE)
+        assert allocation[other_sibling.id] == pytest.approx(250.0, abs=_CONSERVATION_TOLERANCE)
 
 
 class TestDistributeEqualSplitDuplicateHeirConservesValue:

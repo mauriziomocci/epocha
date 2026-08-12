@@ -368,89 +368,189 @@ def compute_distance_cost(from_zone: Zone, to_zone: Zone, world: World) -> int:
 # ---------------------------------------------------------------------------
 
 
+# Hours in a Julian year, the divisor that turns `World.tick_duration_hours`
+# into ticks per year. Fixed, not tunable: it is a unit conversion.
+HOURS_PER_YEAR = 8760.0
+
+# Sjaastad, L.A. (1962), "The Costs and Returns of Human Migration", Journal
+# of Political Economy 70(5, part 2):80-93, uses 10% per annum and declares it
+# an assumption at p.92 rather than an estimate, entertaining lower values in
+# note 23 (p.90) and much higher ones in note 26 (p.91). Todaro (1969) states
+# the present-value decision rule but supplies neither a discount rate nor a
+# horizon. TUNABLE, and declared so: nothing in either source fixes it.
+SJAASTAD_ANNUAL_DISCOUNT_RATE = 0.10
+
+# The age at which residual working life reaches zero. DERIVED, not chosen:
+# Sjaastad's own horizons are 45 remaining years for the 15-19 bracket and 40
+# for 20-24 (p.89), and the midpoints of those brackets, 17 and 22, both give
+# 62. Reproducing BOTH of his published figures from one constant is what
+# makes this a derivation from the source rather than a preference.
+WORKING_LIFE_END_AGE = 62
+
+
+def residual_working_life_years(age: int | float) -> float:
+    """Sjaastad's horizon: the working life the agent has left, in years.
+
+    The horizon is DERIVED from age and is not a free parameter -- an older
+    agent has fewer periods over which to recover the cost of a move, which
+    is the whole content of treating migration as an investment. Past
+    `WORKING_LIFE_END_AGE` it is zero and never negative: a negative horizon
+    would flip the sign of the annuity below and pay an agent to migrate for
+    having grown old.
+
+    DECLARED LIMIT -- THE CLIFF AT 62. Because the horizon reaches zero
+    rather than tapering to a small positive value, the annuity is exactly
+    0.0 from that age on, so `compute_expected_gain` collapses to
+    `-distance_cost_ticks * wage_current`: zero at a co-located destination
+    and strictly negative otherwise, NO MATTER how large the wage
+    differential. Since the flight path rejects `expected_gain <= 0.0`, an
+    agent at or past `WORKING_LIFE_END_AGE` is permanently immobile and
+    cannot flee starvation even toward a zone paying a thousand times its
+    own. Measured: the factor is 347.3 ticks at age 61 and 0.0 at 62.
+
+    This is arithmetically correct under Sjaastad's investment framing --
+    someone with no working life left recovers nothing from a move -- and
+    it is a sharp behavioural boundary that no source endorses at that
+    exact age. It is recorded here, in the whitepapers' known-limitations
+    inventory, and pinned by `test_migration_present_value.py` so it cannot
+    change silently. The natural refinement, deferred rather than invented
+    here, is a non-labour motive for late-life migration (joining kin,
+    fleeing a crisis) that does not run through the wage differential at
+    all; Sjaastad's model has nothing to say about it.
+    """
+    return max(0.0, float(WORKING_LIFE_END_AGE) - float(age))
+
+
+def present_value_annuity_ticks(horizon_ticks: float, rate_per_tick: float) -> float:
+    """`a(H, r) = (1 - e^(-rH)) / r`, in TICKS.
+
+    The present value of one unit of income PER TICK received for
+    `horizon_ticks` ticks and discounted continuously at `rate_per_tick`.
+    Because the result carries the dimension of ticks, multiplying it by a
+    money-per-tick flow yields money -- which is the whole point, and what
+    the previous form got wrong.
+
+    Verified against the source: at 10% per annum with a tick that IS a year,
+    45 and 40 remaining years give 9.889 and 9.817, the two factors Sjaastad
+    prints at p.89.
+
+    At `rate_per_tick = 0` the expression is `0/0`; the limit is `H`, since
+    an undiscounted unit flow is worth exactly its duration. Returned
+    directly rather than left for the caller to discover as a
+    ZeroDivisionError.
+    """
+    if horizon_ticks <= 0.0:
+        return 0.0
+    if rate_per_tick <= 0.0:
+        return float(horizon_ticks)
+    return (1.0 - math.exp(-rate_per_tick * horizon_ticks)) / rate_per_tick
+
+
+def annuity_for_agent(age: int | float, tick_duration_hours: float) -> float:
+    """The agent's own present-value factor, in ticks.
+
+    THE CONVERSION MUST GO THROUGH `World.tick_duration_hours` and MUST NOT
+    assume a tick is a day: that field is configurable, and a model that
+    hardcodes 24 silently misprices every simulation running at any other
+    resolution.
+
+        ticks_per_year = 8760 / tick_duration_hours
+        r_tick         = r_year / ticks_per_year
+        H_tick         = H_years * ticks_per_year
+    """
+    if tick_duration_hours <= 0.0:
+        raise ValueError(f"tick_duration_hours {tick_duration_hours} must be positive")
+    ticks_per_year = HOURS_PER_YEAR / float(tick_duration_hours)
+    return present_value_annuity_ticks(
+        residual_working_life_years(age) * ticks_per_year,
+        SJAASTAD_ANNUAL_DISCOUNT_RATE / ticks_per_year,
+    )
+
+
 def compute_expected_gain(
-    unemployment_j: float, wage_j: float, wage_current: float, distance_cost_j: float
+    unemployment_j: float,
+    wage_j: float,
+    wage_current: float,
+    distance_cost_ticks: float,
+    annuity_ticks: float,
 ) -> float:
-    """The declared operational variant of Harris & Todaro (1970) this
-    plan implements (design spec Sezione 6): `E[gain_j] = (1 -
-    unemployment_j) * wage_j - wage_current - distance_cost_j`.
+    """Discounted present value of moving to zone `j` (Todaro 1969; Sjaastad
+    1962), in the currency of the wages:
 
-    CANONICAL FORM VS. THIS OPERATIONAL VARIANT: Harris & Todaro (1970)
-    compares a migrant's EXPECTED urban income, `p * w_urban + (1-p) *
-    w_informal` (formal-sector wage weighted by the probability `p` of
-    finding formal work, plus the informal-sector wage weighted by the
-    complementary probability of not finding it), against the rural
-    origin income. This implementation sets the informal-sector wage
-    term to ZERO (an agent who fails to find formal work in the
-    destination zone is modelled as earning nothing there, not falling
-    back to an informal-sector wage), and adds an explicit distance-cost
-    term the canonical two-sector model does not carry. Both
-    simplifications are DOCUMENTED and TUNABLE, not silent: a per-zone
-    informal-sector wage parameter could be added later without changing
-    this function's shape, and the design spec itself frames the
-    zero-informal-wage choice as a deliberate, revisitable placeholder.
+        E[gain_j] = a(H, r) * [ (1 - u_j) * w_j - w_current ]
+                    - distance_cost_ticks * w_current
 
-    MANDATORY SCIENTIFIC DISCLOSURE -- a dimensional inconsistency in the
-    CONVERGED design, implemented here VERBATIM and NOT silently
-    corrected: `(1 - unemployment_j) * wage_j` and `wage_current` are a
-    CURRENCY RATE -- the design spec's own worked example reports them in
-    "LVR/tick" (docs/superpowers/specs/2026-04-18-demography-design-it.md,
-    Sezione 6, the `migration_outlook` block) -- while `distance_cost_j`,
-    as `compute_distance_cost` (T032) fixes it, is a raw COUNT OF TICKS,
-    not a currency-denominated quantity. Subtracting a tick count from a
-    currency rate does not balance dimensionally. The design's own worked
-    example does not expose this: it computes the Paris case, whose
-    distance cost is 0 ("Costo distanza in tick: Paris 0, Lyon 3,
-    Countryside 5", line 811 of the same design spec document) --
-    `(1 - 0.08) * 90 - 78 - 0 = 4.8`, matching the spec's own stated
-    "+4.8 LVR/tick" -- with the third term simply absent, so the mismatch
-    never surfaces. `TestComputeExpectedGain.
-    test_pins_declared_not_endorsed_behavior_at_nonzero_distance_cost` in
-    this module's test suite exercises the Lyon case instead
-    (distance_cost_j=3.0) specifically to make the effect's magnitude
-    VISIBLE rather than latent.
+    Every term is money. `a` carries ticks and the wages are money per tick,
+    so the first term is money; the second prices the travel time at the wage
+    the agent is currently earning, which is Sjaastad's own definition of the
+    cost (p.84: outlays plus earnings foregone while travelling and searching,
+    partly a function of distance).
 
-    This function implements the design EXACTLY as specified -- this plan
-    executes a CONVERGED design and does not reopen it. The phase-6
-    adversarial audit (T046, round 1) HAS RULED on this (handoff open
-    question 11): monetize the distance cost as forgone earnings,
-    `distance_cost_ticks * wage_current` -- it restores dimensional
-    balance, still reproduces the Paris worked example exactly (its own
-    distance cost is 0 either way), and means something economically
-    (wages lost while walking); the rejected alternative, an explicit
-    one-currency-unit-per-tick scaling constant, was ruled strictly
-    worse, because it would make the migration threshold depend on the
-    arbitrary scale of the currency. The ruling ALSO NOTES an interaction
-    with fix T046/I-8: fixing the wage divisor moved `wage_current`, and
-    therefore the monetized cost the ruling specifies, by the same 20%.
-    NOT IMPLEMENTED HERE: the ruling is recorded, not applied -- this
-    function still computes the UNCORRECTED, dimensionally-inconsistent
-    formula verbatim, deliberately. Implementing the ruling is a
-    dimensional-model change belonging to a separate, dedicated design
-    work item (a phase-2 requirements gate of its own), not to this
-    module's phase-6 remediation passes.
+    WHAT THIS REPLACED, AND WHY THE SOURCES CHANGED. The previous form was
+    `(1 - u_j) * w_j - w_current - distance_cost_j`, which subtracts a COUNT
+    OF TICKS from a MONEY-PER-TICK. The design spec's own worked example does
+    not expose it, because it computes the destination whose distance cost is
+    zero. Monetising the cost alone does not fix it either: that leaves one
+    money against two rates.
 
-    Query cost: none -- this is pure arithmetic over four float
-    arguments; it issues no database queries and accepts no ORM objects.
+    Harris & Todaro (1970), AER 60(1):126-142 -- the source this module used
+    to cite for the whole comparison -- is a ONE-PERIOD equilibrium equality,
+    `W_u * E_u / L_u = W_R`, with no horizon, no discounting and no cost. It
+    remains the source of the employment-probability weighting on the
+    destination wage and it CANNOT license a horizon. Todaro (1969), AER
+    59(1):138-148, states the decision as `V(0) = sum [p(t) Y_u(t) - Y_r(t)]
+    e^(-it) - C(0)`: a lump-sum cost subtracted from a DISCOUNTED FLOW, never
+    netted against a rate. The correct structure was in the literature the
+    module was already citing.
+
+    THE DECLARED CONSEQUENCE, because it is large and it is a loss. At 24-hour
+    ticks, a 40-year horizon and 10% per annum, `a` is 3583 ticks, so the
+    design's worked example of +4.8 per tick becomes a present value of
+    +17,199. The break-even distance cost moves from 4.8 ticks to 220.5,
+    against shipped costs of 0, 3 and 5: DISTANCE STOPS BITING, and the
+    threshold widens by roughly a factor of forty-five. This is what the cited
+    model implies, and the source says so itself -- Sjaastad observes (p.84)
+    that marginal costs per mile would have to be implausibly high to
+    reconcile the observed distance effect with the present value of the
+    differential, "even at very high discount rates". The investment model
+    under-predicts the friction of distance, and its own author writes it down.
+
+    DECLARED LIMIT, found by rebuilding this module's own trapped-agent
+    fixtures against the new form. Sjaastad's cost has two components,
+    out-of-pocket outlays AND earnings foregone, and only the second is
+    modelled here, because `compute_distance_cost` returns ticks and nothing
+    in the schema prices a journey in currency. The consequence is sharp at
+    the bottom: an agent whose current zone has no wage data at all has
+    `wage_current = 0`, so travel costs nothing and no destination paying
+    anything is ever rejected on distance. That is correct under the
+    modelled component -- someone earning nothing forgoes nothing by leaving
+    -- and it is wrong under the unmodelled one, which is precisely the
+    population for whom an out-of-pocket fare bites hardest. Adding it needs
+    a currency-denominated travel price that does not exist yet.
+
+    The informal-sector wage of the canonical Harris-Todaro model stays at
+    zero -- an agent who finds no formal work in the destination earns nothing
+    there -- a documented, tunable simplification unchanged by this amendment.
+
+    Currency-scale invariance is preserved: `a` is dimensionless in the
+    currency, and the cost is priced in it rather than added as a constant.
 
     Args:
-        unemployment_j: destination zone's unemployment fraction (e.g.
-            `compute_zone_unemployment`'s return value), in `[0.0, 1.0]`.
-        wage_j: destination zone's per-capita, per-tick wage (e.g.
-            `compute_zone_wage`'s return value).
-        wage_current: the agent's current zone's per-capita, per-tick
-            wage, on the same footing as `wage_j`.
-        distance_cost_j: the whole-tick travel cost to the destination
-            zone (`compute_distance_cost`'s return value, an `int` widened
-            to `float` here through ordinary arithmetic).
+        unemployment_j: destination zone's unemployment fraction, in [0, 1].
+        wage_j: destination zone's per-capita, per-tick wage.
+        wage_current: the agent's current zone's wage, on the same footing.
+        distance_cost_ticks: whole-tick travel cost (`compute_distance_cost`).
+        annuity_ticks: the agent's own present-value factor, from
+            `annuity_for_agent`. Passed in rather than computed here so the
+            function stays pure arithmetic and the caller resolves the agent's
+            age and the world's tick duration once.
 
     Returns:
-        The expected gain from moving to the destination zone, in the
-        same currency-rate units as `wage_j` / `wage_current` -- positive
-        favors moving, negative favors staying, subject to the dimensional
-        caveat disclosed above.
+        The present value of moving, in the wages' currency. Positive favours
+        moving.
     """
-    return (1.0 - unemployment_j) * wage_j - wage_current - distance_cost_j
+    flow_advantage = (1.0 - unemployment_j) * wage_j - wage_current
+    return annuity_ticks * flow_advantage - distance_cost_ticks * wage_current
 
 
 # ---------------------------------------------------------------------------
@@ -462,8 +562,9 @@ def build_migration_outlook(
     agent: Any, simulation: Simulation, tick: int, zone_stats: dict
 ) -> dict:
     """Build the per-agent migration_outlook block (design spec Sezione
-    6): wage differential, unemployment, distance cost, zone stability,
-    and Harris-Todaro expected gain, for every reachable zone.
+    6): wage differential, unemployment, distance cost and the discounted
+    expected gain (Todaro 1969, Sjaastad 1962) for every reachable zone,
+    plus the simulation-wide government stability reported once.
 
     `zone_stats` CONTRACT (this function's own contract -- designed here,
     not specified upstream of this task -- see the module test suite's
@@ -514,30 +615,25 @@ def build_migration_outlook(
     expected to already carry every zone of that world, since the
     caller's once-per-tick precomputation has no cheaper way to build it).
 
-    SIMULATION-WIDE STABILITY (PREFLIGHT point 1, handoff open question
-    12, RULED by the phase-6 audit T046 round 1): `Government` carries
-    exactly ONE `stability` scalar per `Simulation` -- there is NO
-    per-zone stability anywhere in the current schema, even though the
-    design spec's own worked example shows stability differing by zone
-    ("Paris crisi (0.3), qui stabile (0.7), Countryside stabile (0.6)").
-    The ruling: the model DOES need a genuine per-zone signal -- a
-    constant reported per zone carries no information and actively
-    misleads an LLM consumer into believing it is comparing zones on a
-    dimension where they are identical -- but inventing an unvalidated
-    proxy (population pressure, local unemployment, or anything else)
-    under this plan's own SC-005 constraint would have been worse than
-    the honest conflation, so refusing to invent one was also ruled
-    correct. The prescribed remedy is EITHER drop `zone_stability` from
-    the per-zone block entirely and report it once at outlook level, OR
-    label it explicitly as simulation-wide in the prompt text -- NEITHER
-    is applied here; a real per-zone field needs a schema migration this
-    plan's own SC-005 forbids, so it is a separate, dedicated design work
-    item, not this module's phase-6 remediation. This function still
-    reports the SAME simulation-wide `zone_stats["government_stability"]`
-    value for EVERY reachable zone, unlabeled, exactly as before the
-    ruling -- the same conflation already exists in merged code at
-    `demography/context.py`'s `compute_aggregate_outlook`, inherited here
-    knowingly, not "fixed".
+    SIMULATION-WIDE STABILITY (amendment A10, applied). `Government` carries
+    exactly ONE `stability` scalar per `Simulation`; there is no per-zone
+    stability anywhere in the schema, even though the design spec's own
+    worked example prints three different values for three zones ("Paris
+    crisi (0.3), qui stabile (0.7), Countryside stabile (0.6)"). A10 rules
+    that the EXAMPLE is what is wrong, not the clause: the field is a
+    simulation value. This function therefore reports it ONCE, at outlook
+    level, under `government_stability`, and no longer copies it into every
+    destination entry.
+
+    Building a genuine per-zone signal was considered and rejected as a
+    different piece of work: it means defining what makes a zone unstable,
+    with its own source, and propagating it -- a new model, not the
+    correction of a defect. The defect being removed here is precise, and it
+    is not the absence of a signal: a constant repeated per zone induces a
+    language model to believe it is comparing zones on a dimension where they
+    are identical. Saying so removes exactly that deception at no cost.
+    DECLARED LIMIT: the migration decision cannot discriminate between zones
+    on stability.
 
     WAGE DIFFERENTIAL: `zone_stats["zones"][zone_id]["wage"] -
     zone_stats["zones"][agent.zone_id]["wage"]` -- destination minus the
@@ -556,8 +652,8 @@ def build_migration_outlook(
     are both pure functions (see their own docstrings).
 
     Args:
-        agent: the Agent instance considering migration. Only
-            `agent.id` and `agent.zone_id` are read (both already-loaded
+        agent: the Agent instance considering migration. Only `agent.id`,
+            `agent.zone_id` and `agent.age` are read (all already-loaded
             plain columns).
         simulation: the Simulation instance (currently unused by this
             function's own body -- accepted for API symmetry with this
@@ -570,9 +666,9 @@ def build_migration_outlook(
         zone_stats: the once-per-tick precomputed bundle described above.
 
     Returns:
-        `{"current_zone_id": agent.zone_id, "reachable_zones": {zone_id:
-        {"wage_differential", "unemployment", "distance_cost",
-        "zone_stability", "expected_gain"}, ...}}`.
+        `{"current_zone_id": agent.zone_id, "government_stability": float,
+        "reachable_zones": {zone_id: {"wage_differential", "unemployment",
+        "distance_cost", "expected_gain"}, ...}}`.
     """
     world = zone_stats["world"]
     government_stability = zone_stats["government_stability"]
@@ -580,6 +676,10 @@ def build_migration_outlook(
 
     current_zone = zones[agent.zone_id]["zone"]
     wage_current = zones[agent.zone_id]["wage"]
+    # The horizon is the AGENT'S, resolved once per agent rather than per
+    # destination: it depends on age alone, and an older agent has fewer
+    # periods over which to recover the cost of any move.
+    annuity_ticks = annuity_for_agent(agent.age, world.tick_duration_hours)
 
     reachable_zones: dict[int, dict] = {}
     for zone_id in sorted(zones):
@@ -595,13 +695,21 @@ def build_migration_outlook(
             "wage_differential": wage_j - wage_current,
             "unemployment": unemployment_j,
             "distance_cost": distance_cost_j,
-            "zone_stability": government_stability,
             "expected_gain": compute_expected_gain(
-                unemployment_j, wage_j, wage_current, distance_cost_j
+                unemployment_j, wage_j, wage_current, distance_cost_j, annuity_ticks
             ),
         }
 
-    return {"current_zone_id": agent.zone_id, "reachable_zones": reachable_zones}
+    return {
+        "current_zone_id": agent.zone_id,
+        # A10: reported ONCE, at outlook level, and named for what it is.
+        # `Government.stability` is one scalar per simulation, and repeating
+        # it inside every destination entry told a language model it was
+        # comparing zones on a dimension where they are identical. Removing
+        # the per-zone copy removes exactly that deception, at no cost.
+        "government_stability": government_stability,
+        "reachable_zones": reachable_zones,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1008,8 +1116,8 @@ def evaluate_emergency_flight(
     separately -- `build_migration_outlook` already turns `zone_stats`
     into exactly the `{"expected_gain": ...}` values this function needs,
     at zero extra database queries (T034's own proven contract), even
-    though it also computes wage_differential / distance_cost /
-    zone_stability values this function does not itself read. Recomputing
+    though it also computes wage_differential and distance_cost values this
+    function does not itself read. Recomputing
     that arithmetic separately here, just to avoid the unused fields,
     would be the DRY violation this module's Reuse-Before-Reinventing
     discipline exists to prevent.
@@ -1038,8 +1146,10 @@ def evaluate_emergency_flight(
     `build_migration_outlook` established, extended here.
 
     Args:
-        agent: the Agent instance being evaluated. Only `agent.wealth`
-            and `agent.zone_id` (the already-loaded FK column) are read.
+        agent: the Agent instance being evaluated. Only `agent.wealth`,
+            `agent.zone_id` (the already-loaded FK column) and `agent.age`
+            are read -- the age since amendment A7, which derives the
+            present-value horizon from it.
         simulation: the Simulation instance, passed through to
             `compute_subsistence_threshold` and `build_migration_outlook`.
         tick: the current simulation tick, passed through to

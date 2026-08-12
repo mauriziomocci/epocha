@@ -2,8 +2,19 @@
 
 Source:
 - Falconer, D.S. & Mackay, T.F.C. (1996). Introduction to Quantitative
-  Genetics (4th ed.), Longman, chapter 8 (polygenic additive model with
-  an environmental noise term estimated at the population level).
+  Genetics (4th ed.), Longman. The material this module uses spans
+  chapters 8 to 10.
+
+  VERIFICATION STATUS, and NO CHAPTER TITLES, deliberately. The
+  numbers are verified against the fourth edition's table of
+  contents; the book has not been opened and no claim here rests on
+  a page. Titles are omitted because four consecutive audit rounds
+  caught a wrong one: first one chapter's title attached to a
+  different chapter, then a section heading promoted to its chapter's
+  title. A number is checkable against an index; a title
+  copied from memory is how this class of defect keeps recurring.
+  Amendment A1 derives every coefficient in full precisely so that
+  nothing depends on resolving it.
 
 Per-trait heritability (h^2) values used by callers of `inherit_trait` come
 from trait-specific primary studies (e.g. Jang, Livesley & Vernon 1996 for
@@ -23,12 +34,17 @@ from __future__ import annotations
 
 import ast
 import logging
+import math
 from collections import deque
 from typing import Any
 
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Q
 
+from epocha.apps.demography.clark_calibration import (
+    CLARK_PERSISTENCE,
+    solve_clark_innovation,
+)
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.world.stratification import _CLASS_RANK
 
@@ -337,75 +353,77 @@ def inherit_trait(
 ) -> float:
     """Compute a child's trait value under polygenic additive inheritance.
 
-    Formula (Falconer & Mackay 1996, ch. 8):
+    Formula (Falconer & Mackay 1996, chs. 8-10; amendment A1 of 2026-08-07):
 
-        child_T = h2 * midparent_T + (1 - h2) * noise_T
-        noise_T ~ N(era_mean, era_sd)
+        child_T = m + b * (parent_term_T - m) + e_T
+        e_T ~ N(0, c * era_sd)                        m = era_mean
 
-    CONTESTED AND DEFERRED (phase-6 audit round 1, T046, findings I-4 and
-    I-5 -- flagged again in round 2 as a documentation-honesty gap, NOT
-    resolved here): the audit's own analysis holds that this citation does
-    not support the SINGLE-PARENT branch below as implemented (I-4,
-    "polygenic variance collapse") and that "halves the genetic signal" is
-    not the correct characterization of what `h2 * parent_T + (1 - h2) *
-    noise_T` actually does relative to the two-parent case (I-5, contests
-    "halving", not "doubling"). Both findings are DESIGN-LEVEL: the code
-    faithfully implements what was specified, but the specification itself
-    is disputed -- fixing it requires reopening the phase-2 heavy gate on
-    the design spec, not a code patch on this branch, and is out of scope
-    here by explicit instruction. This note exists so a reader does not
-    take the formula or the "halves the genetic signal" claim below as
-    settled; both are open, tracked separately, and NEITHER the formula
-    NOR this docstring's own claim have been changed by this note.
+        parent_term_T = (mother_val + father_val) / 2   both parents
+                      = the one resolved parent          one parent
+                      = m                                neither
 
-    where `midparent_T = (mother_val + father_val) / 2` when both parents
-    are known. `noise` models the environmental contribution as a draw from
-    a Normal distribution whose mean and standard deviation are estimated
-    from the tick-0 population and frozen thereafter (design spec Sezione
-    4); it is drawn exactly once per call, via `rng.gauss(era_mean,
-    era_sd)`, and always AFTER the midparent branch below so that the RNG
-    sequence consumed by this function is independent of which branch ran.
+              b = h2,      c = sqrt(1 - h2**2 / 2)      both parents
+              b = h2 / 2,  c = sqrt(1 - h2**2 / 4)      one parent
+              b = 0,       c = 1                        neither
 
-    Fix I-1 (design spec's OWN fix numbering, predates the phase-6 audit
-    entirely -- unrelated to, and NOT the same finding as, this module's
-    unrelated audit finding also labelled "I-1", the social-class rank
-    clamp far below in this file, always written `T046/I-1` to keep the
-    two apart) -- single-parent fallback: when exactly one of mother_val /
-    father_val is known (None for the other), the midparent term degrades
-    to the known parent's value alone:
+    THE THREE RESIDUAL SCALES ARE DERIVED, NOT CHOSEN. Requiring the
+    offspring variance to equal the parental variance `V` under random
+    mating, with `Var(parent_term) = V/2` at two parents and `V` at one,
+    gives `V = b^2 * Var(parent_term) + c^2 * s^2` and the three closed
+    forms above. That identity is the whole content of a stable
+    `h2 = V_A / V_P`, which is what makes the citation a citation.
 
-        child_T = h2 * parent_T + (1 - h2) * noise_T
+    `h2**2` IS `h^4`, AND WRITING `h2**4` IS THE TRAP. The variable already
+    holds the SQUARE of the heritability, on the standard
+    quantitative-genetics convention, so the identity's `h^4` is `h2**2`.
+    The wrong exponent inflates the residual standard deviation by 6.03%
+    and the variance by 12.43% at h2 = 0.55 while leaving the regression
+    slope exactly correct -- invisible to any test that measures the slope.
+    `test_transmission_kernel.py` gates the scales themselves for that
+    reason.
 
-    This halves the genetic signal relative to the two-parent case
-    (CONTESTED, see the note at the top of this docstring -- findings I-4
-    and I-5 dispute this characterization; deferred, not resolved here),
-    which matches the real single-parent genetic flow rather than treating
-    the missing parent as contributing zero. Documented as a deliberate
-    simplification for genealogies where only one parent is resolved (adoption
-    scenarios, or synthetic tick-0 genealogies without both parents recorded).
+    WHAT THIS REPLACED. Until August 2026 the function computed
+    `child_T = h2 * midparent_T + (1 - h2) * noise_T` with
+    `noise_T ~ N(era_mean, era_sd)`, which is a convex combination whose
+    coefficients sum to one rather than a variance decomposition. It was a
+    faithful transcription of the design spec's Sezione 4 and it was NOT
+    the decomposition it cited. Two consequences, both measured rather than
+    argued: the population settled at 48.85% of its declared era amplitude
+    at h2 = 0.55 within roughly three generations, losing between 21% and
+    51% across the shipped coefficient range, so no result depending on the
+    variance of a heritable character was interpretable; and the
+    single-parent branch applied the FULL `h2` to the one known parent
+    where the parent-offspring regression gives `h2/2`, making the
+    implemented resemblance twice the cited model's -- two parents at 0.9
+    and mother-only at 0.9 returned a bit-identical value on identical RNG
+    state. Both are fixed here. The design spec's own audit had recorded
+    them as contested and deferred to a phase-2 gate; that gate ran, and
+    produced amendment A1.
 
-    Fix I-3 (phase-6 audit round 1, T046) -- neither parent known: when
-    BOTH mother_val and father_val are None, the midparent term degrades
-    further, to `era_mean` itself:
+    The signal acts on the parent's DEVIATION from the era mean rather than
+    on the parent's level, so an off-centre era reproduces its own mean
+    instead of drifting toward the midpoint of the scale.
 
-        child_T = h2 * era_mean + (1 - h2) * noise_T
+    The noise is drawn exactly once per call and always AFTER the branch,
+    so the RNG sequence this function consumes does not depend on which
+    branch ran -- a deliberate reproducibility property, not an accident of
+    statement order.
 
-    No parental signal survives here, so the child is drawn entirely from
-    the era distribution -- genetically, this is the same statement the
-    single-parent fallback makes taken to its limit (parental information
-    degrades from two values, to one, to none). Mirrors
-    `_regress_education_level`'s already-correct four-way fallback
-    (mother-only / father-only / both / neither -> era_mean_education).
-    Reachable from the real birth pipeline: none of the five Big Five
-    personality traits is an `Agent` model column, so their values come
-    from `(parent.personality or {}).get(name)` in `apply_trait_
-    inheritance`, which returns None whenever neither parent's personality
-    dict happens to carry that key -- before this fix, any such birth
-    raised `TypeError` uncaught.
+    The no-parent branch is reachable from the real birth pipeline: none of
+    the five Big Five personality traits is an `Agent` model column, so
+    their values come from `(parent.personality or {}).get(name)` in
+    `apply_trait_inheritance`, which returns None whenever neither parent's
+    personality dict carries that key.
 
     The result is clamped to [lo, hi] (default [0.0, 1.0], the typical range
     for Agent personality/trait scalars); callers pass the trait-specific
-    range when it differs.
+    range when it differs. Clamping truncates the distribution, so the
+    realized stationary amplitude sits below the declared `era_sd` even
+    under the exact identity -- 99.91% at the centred trait pair
+    (0.50, 0.15) and 97.72% at the off-centre education pair (0.30, 0.15).
+    `truncated_moments.check_admissible_region` measures it at template
+    load and rejects a declared pair whose worst kinship branch falls below
+    95%.
 
     This function is pure: no ORM access, no global state. Given the same
     rng state and inputs it is fully deterministic, which is required for
@@ -414,12 +432,15 @@ def inherit_trait(
     Args:
         mother_val: mother's trait value, or None if the mother is unknown.
         father_val: father's trait value, or None if the father is unknown.
-            Both may be None (fix I-3): the midparent term then falls back
-            to era_mean rather than raising.
-        h2: heritability coefficient for this trait, in [0, 1].
-        era_mean: mean of the era-specific environmental noise distribution.
-        era_sd: standard deviation of the era-specific environmental noise
-            distribution.
+            Both may be None: the parent term then falls back to era_mean
+            with a zero signal coefficient rather than raising.
+        h2: heritability coefficient for this trait, in [0, 1]. For
+            education this is the era's regression coefficient `rho`, which
+            plays the same structural role.
+        era_mean: mean of the era-specific distribution this character is
+            declared on.
+        era_sd: its declared amplitude. The residual is a FRACTION of it,
+            never the whole of it -- see the three scales above.
         rng: a random.Random-compatible instance exposing .gauss(mu, sigma).
         lo: lower clamp bound (default 0.0).
         hi: upper clamp bound (default 1.0).
@@ -428,35 +449,51 @@ def inherit_trait(
         The child's inherited trait value, clamped to [lo, hi].
     """
     if mother_val is not None and father_val is not None:
-        midparent = (mother_val + father_val) / 2
-    elif mother_val is not None:
-        midparent = mother_val
-    elif father_val is not None:
-        midparent = father_val
+        parent_term = (mother_val + father_val) / 2
+        signal_coefficient = h2
+        # Var(midparent) = V/2 under random mating, so imposing V = era_sd^2
+        # on V = h2^2 * V/2 + c^2 * era_sd^2 gives c^2 = 1 - h2^2/2.
+        residual_scale = math.sqrt(1.0 - h2**2 / 2.0)
+    elif mother_val is not None or father_val is not None:
+        parent_term = mother_val if mother_val is not None else father_val
+        # Cov(child, one parent) = V_A/2 against Var(one parent) = V_P, so the
+        # regression coefficient on a single parent is h2/2 -- half of the
+        # midparent one, and derived rather than postulated.
+        signal_coefficient = h2 / 2.0
+        residual_scale = math.sqrt(1.0 - h2**2 / 4.0)
     else:
-        midparent = era_mean
+        parent_term = era_mean
+        signal_coefficient = 0.0
+        # No parental signal survives, so the residual carries the whole
+        # declared amplitude.
+        residual_scale = 1.0
 
-    noise = rng.gauss(era_mean, era_sd)
-    result = h2 * midparent + (1 - h2) * noise
+    # NOTE on the exponent, because getting it wrong is invisible to a slope
+    # test: `h2` already holds h-squared, so the identity's h^4 is `h2**2`.
+    # Writing `h2**4` inflates the standard deviation by 6.03% at h2 = 0.55
+    # and the variance by 12.43%, and leaves the regression slope untouched.
+    #
+    # ONE draw, on every branch: the RNG stream a tick consumes must not
+    # depend on which branch ran.
+    residual = rng.gauss(0.0, residual_scale * era_sd)
+    result = era_mean + signal_coefficient * (parent_term - era_mean) + residual
     return max(lo, min(hi, result))
 
 
-# Environmental-noise prior applied when neither the era template nor a
-# caller-supplied noise spec provides era_mean/era_sd for a trait. The
-# design spec (Sezione 4) calls for era_mean_T / era_sd_T estimated from the
-# tick-0 population and frozen thereafter (Falconer & Mackay 1996, ch. 8 --
-# environmental deviation estimated at the population level); no era
-# template (verified: none of the five templates under
-# epocha/apps/demography/templates/ declare a trait_inheritance.era_noise
-# section) and no population-statistics module currently supply that
-# estimate. DEFAULT_ERA_MEAN = 0.5 and DEFAULT_ERA_SD = 0.15 are a
-# documented, explicitly tunable interim substitute: mean at the scale
-# midpoint and a moderate spread for a generic [0, 1]-bounded trait. This is
-# a deliberate simplification of the tick-0-population-estimation mechanism,
-# scoped out of `apply_trait_inheritance` because it requires a
-# population-statistics snapshot this function's signature does not carry;
-# a later task must thread real per-trait era_mean/era_sd values through
-# once that machinery exists.
+# Environmental-noise prior kept ONLY as the defensive guard of amendment A9
+# (2026-08-07): a template that passes validation cannot reach it, because
+# clause 4 rejects any heritability key without its own era_noise entry. If it
+# fires, the loader was bypassed or the transmitted set has reopened, and the
+# call site logs a warning naming the character. The
+# original design spec (Sezione 4) called for era_mean_T / era_sd_T estimated
+# from the tick-0 population and frozen thereafter. That mechanism was never
+# built, and amendment A2 replaced it: all five templates now declare a
+# `trait_inheritance.era_noise` section giving, per era and per character, the
+# mean and amplitude of the OBSERVED distribution the kernel must realize, and
+# clause 5 of A9 refuses any pair outside the admissible region of A1. The two
+# values below match what those templates declare today, which is why closing
+# the fallback changed no shipped behaviour -- they were the silent default,
+# and are now the explicit declaration.
 DEFAULT_ERA_MEAN = 0.5
 DEFAULT_ERA_SD = 0.15
 
@@ -490,39 +527,39 @@ def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict
        and `Agent.personality` JSONB entries alike (the Big Five, or
        unpublished-h2 traits like `humor_style`) -- is drawn through the
        polygenic additive kernel `inherit_trait` (Falconer & Mackay 1996,
-       ch. 8).
+       chs. 8-10).
     2. `derived_trait_formulas` (e.g. `cunning`, a Machiavellism proxy) are
        evaluated against the freshly inherited values from step 1, never
        against the parents' values directly. `cunning` has no published
        heritability and is therefore never drawn from the polygenic kernel.
 
-    Trait set for step 1: every key in
-    `template["trait_inheritance"]["heritability"]` except the "default"
-    sentinel, plus any key present in `mother.personality` or
-    `father.personality` that has no published h2 entry -- those inherit at
-    `heritability["default"]` (0.30 in every current era template),
-    documented in the design spec as a tunable default for personality
-    traits without a primary-study h2 (e.g. `humor_style`,
-    `attachment_style`). `social_class` is never included here: it carries
-    no heritability entry in any era template and is governed by the
-    social-inheritance rules (design spec Sezione 5), a separate mechanism.
+    Trait set for step 1: exactly the keys of
+    `template["trait_inheritance"]["heritability"]`, and nothing else.
+    Amendment A9 (2026-08-07) CLOSED this set. Until then it was extended
+    with every key found in either parent's `personality` dict -- an
+    unvalidated JSONField populated by an LLM prompt -- so a key the model
+    invented became a transmitted character governed by a fallback
+    heritability and a noise pair no template declared. A key present in
+    `personality` but absent from `heritability` is now left untouched on
+    the child: it is data the agent carries, not a character this model
+    transmits. The `"default"` sentinel that governed those keys was removed
+    from the schema by the same amendment, and the loader rejects it.
+    `social_class` is likewise not included: it carries no heritability entry
+    and is governed by the social-inheritance rules (design spec Sezione 5).
 
-    Trait names are collected in a deterministic order -- heritability
-    dict order first (JSON insertion order, stable), then any extra
-    personality-only names sorted lexicographically -- rather than via an
-    unordered Python `set`. `rng.gauss` is drawn exactly once per trait
-    (see `inherit_trait`), so an unordered iteration would make the RNG
-    draw sequence depend on the interpreter's per-process string hash seed,
-    breaking the bit-for-bit reproducibility the demography subsystem
-    requires for identically seeded runs.
+    Trait names are collected in heritability dict order -- JSON insertion
+    order, stable -- rather than via an unordered Python `set`. `rng.gauss`
+    is drawn exactly once per trait (see `inherit_trait`), so an unordered
+    iteration would make the RNG draw sequence depend on the interpreter's
+    per-process string hash seed, breaking the bit-for-bit reproducibility
+    the demography subsystem requires for identically seeded runs.
 
     era_mean / era_sd: read per-trait from
-    `template["trait_inheritance"].get("era_noise", {})[name]` when
-    present; otherwise `DEFAULT_ERA_MEAN` / `DEFAULT_ERA_SD` are used (see
-    their docstring for the full rationale -- this is a documented interim
-    substitute for the design spec's tick-0-population-estimated
-    era_mean_T / era_sd_T, no era template currently declares an
-    `era_noise` section).
+    `template["trait_inheritance"]["era_noise"][name]`, which amendment A2
+    made a mandatory section and A9 clause 4 requires to carry one entry per
+    declared character. `DEFAULT_ERA_MEAN` / `DEFAULT_ERA_SD` survive only as
+    the defensive guard of A9: unreachable for a template that passed
+    validation, and logged with the character's name if they ever fire.
 
     This function mutates `child` in place -- scalar attributes via
     `setattr`, personality entries via `child.personality[name] = value` --
@@ -564,24 +601,43 @@ def apply_trait_inheritance(child: Any, mother: Any, father: Any, template: dict
 
     trait_inheritance = template["trait_inheritance"]
     heritability = trait_inheritance["heritability"]
-    default_h2 = heritability.get("default", 0.30)
-    era_noise = trait_inheritance.get("era_noise", {})
+    era_noise = trait_inheritance["era_noise"]
 
-    trait_names = [name for name in heritability if name != "default"]
-    covered = set(trait_names)
-    extra_names: set[str] = set()
-    for parent in (mother, father):
-        if parent is not None and parent.personality:
-            extra_names.update(parent.personality.keys())
-    extra_names -= covered
-    trait_names.extend(sorted(extra_names))
+    # THE TRANSMITTED SET IS CLOSED (design-spec amendment A9, 2026-08-07).
+    # It is exactly what `trait_inheritance.heritability` declares, and nothing
+    # else. Until that amendment this list was extended with every key found in
+    # either parent's `personality` dict -- a JSONField with no validators,
+    # populated by an LLM prompt -- so a key the model invented became a
+    # transmitted character governed by a hardcoded fallback heritability and a
+    # hardcoded noise pair that no template had declared. Template validation
+    # cannot close a set that runtime reopens, so the set is closed here, at the
+    # only place that decides what gets transmitted.
+    #
+    # A key present in `personality` but absent from `heritability` is now left
+    # untouched on the child rather than inherited: it is data the agent carries,
+    # not a character this model transmits.
+    trait_names = list(heritability)
 
     child_model = type(child)
     symbols: dict[str, float] = {}
 
     for name in trait_names:
-        h2 = heritability.get(name, default_h2)
-        noise_spec = era_noise.get(name, {})
+        h2 = heritability[name]
+        noise_spec = era_noise.get(name)
+        if noise_spec is None:
+            # A9 requires the defensive guard to name the character when it
+            # fires. For a template that passed validation it cannot: clause 4
+            # rejects any heritability key without its own era_noise entry. If
+            # this ever prints, the loader was bypassed or the set has reopened.
+            logger.warning(
+                "demography: no era_noise entry for transmitted character %r; "
+                "falling back to (%s, %s). A valid template cannot reach this "
+                "path -- the transmitted set has reopened.",
+                name,
+                DEFAULT_ERA_MEAN,
+                DEFAULT_ERA_SD,
+            )
+            noise_spec = {}
         era_mean = noise_spec.get("era_mean", DEFAULT_ERA_MEAN)
         era_sd = noise_spec.get("era_sd", DEFAULT_ERA_SD)
 
@@ -616,8 +672,15 @@ def resolve_birth_attributes(template: dict, rng: Any) -> tuple[str, str]:
        p_male = sex_ratio / (1 + sex_ratio), then a single `rng.random()` is
        drawn and compared against it. A ratio of 1.05 -- about 105 male
        births per 100 female births -- is biologically near-universal across
-       human populations (Falconer & Mackay 1996, ch. 8, cite it as one of
-       the best-documented constants in human genetics) and is nonetheless
+       human populations. THE ATTRIBUTION THAT USED TO SIT HERE IS
+       WITHDRAWN: it credited Falconer & Mackay for calling this one of the
+       best-documented constants in human genetics, and that book is a
+       quantitative-genetics text, and nothing in the material this module
+       draws on concerns the human secondary sex ratio. The claim was carried
+       unverified, and a mechanical renumbering of the citation made it worse
+       rather than better. The 1.05 figure is retained as a DECLARED,
+       UNSOURCED design parameter pending a proper demographic citation, and
+       is nonetheless
        carried as a tunable per-era template parameter rather than a hard
        constant, since some era templates (sci_fi) deliberately deviate from
        it. This draw yields only "male" or "female": the biological
@@ -781,15 +844,22 @@ _MAX_CLASS_RANK = max(_CLASS_RANK.values())
 _UNKNOWN_CLASS_FALLBACK_RANK = _EXTENDED_CLASS_RANK["working"]
 
 # Rank-noise standard deviation for the becker_tomes_elasticity_0.4 sampling
-# step. Solon (1999) and Chetty et al. (2014) report the point elasticity
-# (0.4) but not a residual-variance term for a discrete five-level class
-# ladder -- the underlying US intergenerational-mobility studies model
-# continuous log-income, not discrete class rank, so no directly published
-# standard deviation applies here. 0.75 (three-quarters of one rank step) is
-# a documented, explicitly tunable design parameter chosen to produce
-# visible sampling variability around the shifted mean without letting
-# noise dominate the elasticity signal; it is not itself sourced from Solon
-# or Chetty.
+# step. Solon (1999) reports the point elasticity (0.4) but not a
+# residual-variance term for a discrete five-level class ladder -- the
+# underlying US intergenerational-mobility studies model continuous
+# log-income, not discrete class rank, so no directly published standard
+# deviation applies here. 0.75 (three-quarters of one rank step) is a
+# documented, explicitly tunable design parameter chosen to produce visible
+# sampling variability around the shifted mean without letting noise
+# dominate the elasticity signal; it is not itself sourced from Solon.
+#
+# A11 (2026-08-11) REMOVED Chetty et al. (2014) from this attribution. The
+# claim that it corroborates a 0.3-0.5 elasticity range inverts the paper's
+# own conclusion: its measured values run 0.344 at baseline, 0.452 on
+# p10-p90, and 0.264 to 0.697 across subsamples, and the section's thesis is
+# that the elasticity is UNRELIABLE. The quantity that paper recommends is
+# the rank-rank slope, 0.341. Anyone wanting a Chetty-anchored figure must
+# change the quantity, not the attribution.
 #
 # U-2 (phase-6 audit round 1, T046): clamping the output at both ladder ends
 # (fix T046/I-1) means the realized rank distribution under this SD is NOT the
@@ -818,17 +888,11 @@ _BECKER_TOMES_RANK_NOISE_SD = 0.75
 # merit.
 _MERIT_RANK_SPAN = float(max(_CLASS_RANK.values()))
 
-# Era-mean education-level prior applied when neither the era template nor
-# a caller-supplied override provides era_mean_education. No era template
-# currently declares a `social_inheritance.era_mean_education` key (verified
-# across all five templates under epocha/apps/demography/templates/).
-# 0.3 matches Agent.education_level's own field default
-# (epocha/apps/agents/models.py), making the interim substitute consistent
-# with the model's own baseline rather than an arbitrary scale midpoint.
-# Documented, explicitly tunable placeholder in the same spirit as
-# DEFAULT_ERA_MEAN / DEFAULT_ERA_SD above, pending a per-era value carried
-# by the templates.
-DEFAULT_ERA_MEAN_EDUCATION = 0.3
+# `social_inheritance.era_noise.education` (amendment A2) now declares the
+# education mean per era, and A9 clause 3 makes the section mandatory, so the
+# module-level constant this file carried was left without a consumer and is
+# removed rather than kept as an unreachable default. The value it held, 0.3,
+# is what every template declares today.
 
 
 def _class_rank(social_class: str | None) -> int:
@@ -894,16 +958,43 @@ def _apply_patrilineal_rigid(child: Any, mother: Any, father: Any) -> None:
         child.social_class = _RANK_TO_CLASS_LABEL[_UNKNOWN_CLASS_FALLBACK_RANK]
 
 
-def _apply_clark_regression(child: Any, mother: Any, father: Any, zone_class_mean: float) -> None:
-    """70% inherited from the father's rank, 30% regression toward the
-    zone's mean class rank (Clark, G. (2014), "The Son Also Rises: Surnames
-    and the History of Social Mobility", Princeton University Press).
+def _apply_clark_regression(
+    child: Any,
+    mother: Any,
+    father: Any,
+    zone_class_mean: float,
+    innovation_sd: float,
+    rng: Any,
+) -> None:
+    """70% inherited rank, 30% regression toward the zone mean, PLUS an
+    innovation (Clark, G. (2014), "The Son Also Rises"; the formal statement
+    is in Clark, Cummins, Hao & Diaz Vidal, Explorations in Economic History
+    2014, equations (3) and (4)).
 
-    Deterministic: no `rng` draw, matching the design spec's description of
-    this rule as a fixed 70/30 weighting rather than a sampled outcome.
+    THE INNOVATION IS NOT OPTIONAL, and its absence was not a simplification.
+    This rule shipped as a pure weighted average, which is a model with the
+    OPPOSITE asymptotic behaviour to Clark's: his is an AR(1) WITH an
+    innovation, `x_t = b*x_{t-1} + e_t`, and the same source states the
+    stationary identity that ties the innovation to the dispersion. Without
+    `e_t` every lineage walks monotonically to the mean and the
+    cross-sectional variance vanishes -- no mobility AND no stratification --
+    where Clark's model holds the variance constant and reshuffles
+    continuously. His low mobility is slow regression, not freezing. Measured
+    on the previous form: intergenerational mobility exactly 0.0000 and a
+    parent-child rank correlation of exactly 1.0000 from the second
+    generation, on a partition with two of the five ranks empty.
+
+    `innovation_sd` is SOLVED, never read off the identity: rounding to
+    integer labels and clamping at both ends are non-linear, so the
+    continuous-scale answer lands at 102.26% of the declared target. See
+    `clark_calibration.solve_clark_innovation`.
+
+    The draw is taken unconditionally so the RNG stream this rule consumes
+    does not depend on where the parent sits on the ladder.
     """
     parent_rank = _resolve_parent_rank(mother, father)
-    rank = 0.7 * parent_rank + 0.3 * zone_class_mean
+    rank = CLARK_PERSISTENCE * parent_rank + (1.0 - CLARK_PERSISTENCE) * zone_class_mean
+    rank += rng.gauss(0.0, innovation_sd)
     child.social_class = _rank_to_class_label(rank)
 
 
@@ -914,9 +1005,12 @@ def _apply_becker_tomes(
 
     The 0.4 elasticity value is attributed to Solon, G. (1999),
     "Intergenerational Mobility in the Labor Market", Handbook of Labor
-    Economics 3A, and corroborated by Chetty, R. et al. (2014), "Is the
-    United States Still a Land of Opportunity?", who report a 0.3-0.5
-    range. Becker, G.S. & Tomes, N. (1979), "An Equilibrium Theory of the
+    Economics 3A, ALONE, and its verification status is declared UNVERIFIED:
+    the chapter is behind a paywall and has not been read. The previous
+    corroboration by Chetty et al. (2014) was removed by amendment A11 --
+    that paper does not report a 0.3-0.5 range, its measured elasticities
+    span 0.264 to 0.697, and its argument is that the elasticity is an
+    unreliable statistic. Becker, G.S. & Tomes, N. (1979), "An Equilibrium Theory of the
     Distribution of Income and Intergenerational Mobility", Journal of
     Political Economy, is the founding theoretical framework for
     intergenerational elasticity but did not publish this specific value
@@ -959,10 +1053,23 @@ def _apply_meritocratic(child: Any, mother: Any, father: Any) -> None:
 
 
 def _regress_education_level(
-    mother: Any, father: Any, rho: float, era_mean_education: float
+    mother: Any,
+    father: Any,
+    rho: float,
+    era_mean_education: float,
+    era_sd_education: float,
+    rng: Any,
 ) -> float:
-    """child.education_level = rho * midparent_education + (1 - rho) *
-    era_mean_education, clamped to [0.0, 1.0].
+    """Education transmission, delegated to the amended polygenic kernel.
+
+    BEFORE amendment A3 this was a deterministic contraction,
+    `rho * midparent + (1 - rho) * era_mean`, with no random term at all. Its
+    fixed point is not a reduced dispersion but ZERO: measured over eight
+    generations from a starting dispersion of 0.150, it reaches 0.00004 at the
+    highest shipped coefficient and exact zero at the lowest, so education
+    becomes a population constant. That contradicts every source cited for it,
+    and it propagates -- the meritocratic class rule reads education, and the
+    homogamy score weights it between 0.25 and 0.40 in every era.
 
     Applied identically after every `class_rule` branch (design spec
     Sezione 5). Single-parent case degrades the midparent term to that
@@ -975,17 +1082,20 @@ def _regress_education_level(
     mother_edu = mother.education_level if mother is not None else None
     father_edu = father.education_level if father is not None else None
 
-    if mother_edu is not None and father_edu is not None:
-        midparent_edu = (mother_edu + father_edu) / 2.0
-    elif mother_edu is not None:
-        midparent_edu = mother_edu
-    elif father_edu is not None:
-        midparent_edu = father_edu
-    else:
-        midparent_edu = era_mean_education
-
-    value = rho * midparent_edu + (1.0 - rho) * era_mean_education
-    return max(0.0, min(1.0, value))
+    # Education goes THROUGH the polygenic kernel rather than beside it.
+    # Amendment A3 gives it the treatment of A1 -- same family, same three
+    # kinship branches, residual scaled by the same variance identity -- and
+    # that is not an analogy but the same computation, so reimplementing it
+    # here would be a parallel twin of `inherit_trait` drifting from it at the
+    # next correction. `rho` plays the part `h2` plays for a trait.
+    return inherit_trait(
+        mother_edu,
+        father_edu,
+        rho,
+        era_mean_education,
+        era_sd_education,
+        rng,
+    )
 
 
 def apply_social_inheritance(
@@ -998,9 +1108,11 @@ def apply_social_inheritance(
 
     1. Education-level regression runs FIRST (see `_regress_education_level`),
        using `template["social_inheritance"]["education_regression_rho"]`
-       and `template["social_inheritance"].get("era_mean_education",
-       DEFAULT_ERA_MEAN_EDUCATION)`, and writes `child.education_level`
-       before anything else touches it.
+       together with the declared moments at
+       `template["social_inheritance"]["era_noise"]["education"]`, and writes
+       `child.education_level` before anything else touches it. The old
+       `era_mean_education` key is gone: A9 removed it from the schema, so a
+       template carrying it is now rejected.
     2. `template["social_inheritance"]["class_rule"]` then selects one of
        four branches -- `patrilineal_rigid`, `clark_regression`,
        `becker_tomes_elasticity_0.4`, `meritocratic` (see the per-branch
@@ -1054,15 +1166,36 @@ def apply_social_inheritance(
     # sees the correctly regressed value, not the untouched Agent field
     # default. See the docstring above for the full rationale.
     rho = social_inheritance["education_regression_rho"]
-    era_mean_education = social_inheritance.get("era_mean_education", DEFAULT_ERA_MEAN_EDUCATION)
-    child.education_level = _regress_education_level(mother, father, rho, era_mean_education)
+    # Declared per era in `social_inheritance.era_noise.education`, which
+    # amendment A2 made mandatory and A9 clause 3 validates. A direct subscript
+    # rather than a defaulted read: the previous code consulted
+    # `social_inheritance.era_mean_education`, a key A9 removed from the schema,
+    # so the read could never find it and always fell to a hardcoded constant --
+    # a dead read wearing a live default. There is no guard here because a
+    # template that reached this function passed a validator that requires the
+    # section; a guard that cannot fire is code that should not be written.
+    education_noise = social_inheritance["era_noise"]["education"]
+    child.education_level = _regress_education_level(
+        mother,
+        father,
+        rho,
+        education_noise["era_mean"],
+        education_noise["era_sd"],
+        rng,
+    )
 
     class_rule = social_inheritance["class_rule"]
 
     if class_rule == "patrilineal_rigid":
         _apply_patrilineal_rigid(child, mother, father)
     elif class_rule == "clark_regression":
-        _apply_clark_regression(child, mother, father, zone_class_mean)
+        # The amplitude is solved once per declared target and memoised by the
+        # calibration module, so this is a dictionary lookup after the first
+        # birth of a simulation rather than a fixed-point solve per child.
+        target = social_inheritance["era_noise"]["class_rank"]["target_dispersion"]
+        _apply_clark_regression(
+            child, mother, father, zone_class_mean, solve_clark_innovation(target), rng
+        )
     elif class_rule == "becker_tomes_elasticity_0.4":
         _apply_becker_tomes(child, mother, father, zone_class_mean, rng)
     elif class_rule == "meritocratic":
@@ -1128,7 +1261,7 @@ def apply_inheritance_at_birth(
     Fixed step order (mandatory, not incidental -- see "RNG stream" below):
 
     1. `apply_trait_inheritance` -- polygenic biological traits (Falconer &
-       Mackay 1996, ch. 8) and derived-trait formulas (e.g. `cunning`).
+       Mackay 1996, chs. 8-10) and derived-trait formulas (e.g. `cunning`).
     2. `resolve_birth_attributes` -- gender and sexual orientation, exactly
        two `rng.random()` draws.
     3. `apply_social_inheritance` -- social_class transmission (one of four
@@ -1610,21 +1743,20 @@ def apply_estate_tax(
     or the simulation itself, keeping it a pure two-line accounting step
     the caller composes with `resolve_heirs`.
 
-    tax_revenue = total_estate_value * rate, credited to `government`'s
-    treasury under `primary_currency_code` via `add_to_treasury` (imported
-    lazily inside this function -- this module's established pattern for
-    cross-app imports, see `_compute_zone_class_mean`,
-    `_resolve_spouse_heirs`, `apply_inheritance_at_birth`'s
-    `template_loader` import). The returned remainder,
-    `total_estate_value * (1.0 - rate)`, is the amount later split among
-    the resolved heirs.
+    The tax is credited to `government`'s treasury under
+    `primary_currency_code` via `add_to_treasury` (imported lazily inside
+    this function -- this module's established pattern for cross-app
+    imports, see `_compute_zone_class_mean`, `_resolve_spouse_heirs`,
+    `apply_inheritance_at_birth`'s `template_loader` import). The returned
+    remainder is the amount later split among the resolved heirs.
 
     Conservation (load-bearing for whitepaper Sezione 4.2/4.8's accounting
-    invariant): remainder + tax_revenue reproduces `total_estate_value`,
-    exactly up to floating-point rounding. Neither value is rounded,
-    clamped, or otherwise adjusted beyond what the multiplication itself
-    introduces -- doing so would silently create or destroy money relative
-    to the estate's true value.
+    invariant): `remainder + tax_revenue` reproduces `total_estate_value`
+    EXACTLY, in that summation order, for every rate in `[0, 1]` -- not
+    "up to rounding". See the construction below for how, and why the
+    obvious two-multiplications form does not. Neither value is rounded or
+    clamped: doing so would silently create or destroy money relative to
+    the estate's true value.
 
     Degenerate inputs are guarded explicitly rather than left to produce
     nonsensical output, matching this module's established
@@ -1670,8 +1802,32 @@ def apply_estate_tax(
     if total_estate_value <= 0.0:
         return 0.0
 
-    tax_revenue = total_estate_value * rate
-    remainder = total_estate_value * (1.0 - rate)
+    # A6: derive the SMALLER of the two terms by subtraction, never both by
+    # multiplication. Sterbenz's lemma makes `a - b` exact in binary floating
+    # point whenever `b/2 <= a <= 2b`, which is guaranteed for the smaller
+    # term on either side of a rate of one half. Computing both as
+    # independent products loses or creates money on 16.1% of estates at rate
+    # 0.15 and 6.0% at 0.40 -- one ulp each time, which is invisible in any
+    # single settlement and is exactly why it survived. The relative error is
+    # 1.9e-16; this is corrected because the module ASSERTS exact
+    # conservation and that assertion carries the whitepaper's accounting
+    # invariant, not because the numbers meaningfully change.
+    #
+    # THE GUARANTEE NAMES ITS SUMMATION ORDER: `remainder + tax_revenue`
+    # reproduces `total_estate_value` bit for bit. Floating-point addition is
+    # not associative, so a conservation claim that does not state the order
+    # it holds in is not a claim.
+    #
+    # Recorded as inadequate rather than left to be rediscovered: deriving
+    # the remainder alone fails even at the shipped rates, and deriving the
+    # tax alone is exact only up to 0.5 and then degrades -- 0.50% of trials
+    # at rate 0.51, 3.52% at 0.55, 6.05% at 0.60, 12.68% at 0.70.
+    if rate <= 0.5:
+        remainder = total_estate_value * (1.0 - rate)
+        tax_revenue = total_estate_value - remainder
+    else:
+        tax_revenue = total_estate_value * rate
+        remainder = total_estate_value - tax_revenue
 
     from epocha.apps.world.government import add_to_treasury
 
@@ -1935,10 +2091,41 @@ def _distribute_equal_split(heirs: dict[str, list], inheritable: float) -> dict[
     return _allocate_with_exact_remainder(ordered_shares, inheritable)
 
 
+# Quran 4:12, read on the primary text: "half of what your wives leave if they
+# are childless", "one-fourth" if they left children; and for the wife
+# "one-fourth of what you leave if you are childless", "one-eighth" with
+# children. The shares are GENDERED, and the module previously applied the
+# wife's pair to both, so a widower received exactly half his entitlement.
+# Powers (1986) remains the academic apparatus for the fixed-share-plus-
+# residuary structure but is no longer the source of these fractions: the
+# primary text is accessible and the project's constitution prefers it.
+_SHARIA_WIDOWER_SHARES = {False: 0.5, True: 0.25}
+_SHARIA_WIDOW_SHARES = {False: 0.25, True: 0.125}
+
+
+def _sharia_spouse_fraction(spouse: list, has_children: bool) -> float:
+    """Quranic fixed share of the surviving spouse, by the spouse's gender.
+
+    A non-binary spouse takes the widow's share, consistently with what the
+    design spec already fixes for non-binary heirs under this rule and with
+    `_split_two_to_one`, which gives a non-binary child a daughter's unit.
+    Declared simplification: classical Islamic jurisprudence recognised no
+    non-binary status, so neither reading is supported by the source and the
+    choice is made once, here, rather than differently in each function.
+    """
+    if not spouse:
+        return 0.0
+    is_widower = getattr(spouse[0], "gender", None) == "male"
+    shares = _SHARIA_WIDOWER_SHARES if is_widower else _SHARIA_WIDOW_SHARES
+    return shares[has_children]
+
+
 def _distribute_sharia(heirs: dict[str, list], inheritable: float) -> dict[int, float]:
-    """Spouse receives 1/8 of `inheritable` when the deceased leaves
-    children, otherwise 1/4; the remainder is divided among the children
-    with each son receiving twice a daughter's share (Powers, D.S. (1986),
+    """The surviving spouse receives the Quranic fixed share for their
+    gender -- a widower 1/2 childless and 1/4 with children, a widow 1/4 and
+    1/8 (Quran 4:12; see `_sharia_spouse_fraction`) -- and the remainder is
+    divided among the children with each son receiving twice a daughter's
+    share (Powers, D.S. (1986),
     "Studies in Qur'an and Hadith: The Formation of the Islamic Law of
     Inheritance" -- the fixed-share-plus-residuary structure of the
     classical fara'id system; see `_split_two_to_one` for the 2:1 ratio's
@@ -1966,12 +2153,13 @@ def _distribute_sharia(heirs: dict[str, list], inheritable: float) -> dict[int, 
        absorbs the ENTIRE residual on top of their own fixed fraction
        (mirroring the real "radd" -- return of residue -- effect for a
        sole surviving Quranic heir): in this one case the spouse's total
-       allocation is the WHOLE `inheritable` amount, not literally 1/4,
-       since there is no residuary heir left to receive the other 3/4.
+       allocation is the WHOLE `inheritable` amount, not literally the
+       fixed share, since there is no residuary heir left to receive the
+       rest.
     3. Else (no heir of any kind), the allocation is empty -- the treasury
        fallback.
 
-    The spouse's own fixed-fraction entry (1/8 or 1/4) is exact ONLY when
+    The spouse's own fixed-fraction entry is exact ONLY when
     step 1 actually receives the rest AND the spouse is not also a member
     of `pool`; step 2 is the degenerate case where the spouse is topped up
     beyond that fraction.
@@ -2002,7 +2190,7 @@ def _distribute_sharia(heirs: dict[str, list], inheritable: float) -> dict[int, 
     spouse = heirs.get("spouse", [])
     siblings = heirs.get("siblings", [])
 
-    spouse_fraction = 0.125 if children else 0.25
+    spouse_fraction = _sharia_spouse_fraction(spouse, bool(children))
     spouse_amount = inheritable * spouse_fraction if spouse else 0.0
     residual = inheritable - spouse_amount
 

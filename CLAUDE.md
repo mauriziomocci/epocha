@@ -337,6 +337,7 @@ After any code change, update documentation in the same commit:
 | §4.6 Movement | `epocha/apps/agents/movement.py` |
 | §4.7 Factions | `epocha/apps/agents/factions.py` |
 | §4.8 Economy — base layer | `epocha/apps/economy/{production,market,distribution,monetary,initialization,engine}.py` |
+| §6.2 Era templates | `epocha/apps/demography/{template_loader,truncated_moments}.py`, `epocha/apps/demography/templates/*.json` |
 
 Note the two traps in this mapping, both verified against the source tree on 2026-07-17: the §4.4 belief filter lives in `agents/belief.py`, not `belief_filter.py`, and §4.6 Movement lives in `agents/movement.py`, not under `world/`. The mapping is mirrored in the project memory `feedback_whitepaper_doc_sync.md` and in the Contributing section of both READMEs; all four copies change together. Extend the table whenever a module in §8 is promoted to §4 — the Knowledge Graph (§8.1) is the only one still pending.
 
@@ -459,5 +460,5 @@ Constitution authoritative at `.specify/memory/constitution.md` — supersedes c
 
 See memory `feedback_speckit_mandatory.md` for the absolute rule.
 
-**Active feature plan**: `specs/20260717-120706-demography-inheritance-migration/plan.md`
+**Active feature plan**: `specs/20260806-112409-demography-design-defects/plan.md`
 <!-- SPECKIT END -->
