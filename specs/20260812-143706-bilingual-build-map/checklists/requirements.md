@@ -2,7 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-08-12
-**Revisione**: 4, dopo il round 3 del gate pesante di fase 2
+**Revisione**: 5, dopo il round 4 del gate pesante di fase 2
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -34,8 +34,9 @@
 
 - [x] All functional requirements have clear acceptance criteria
 - [x] User scenarios cover primary flows
-- [x] **Feature meets measurable outcomes defined in Success Criteria** — con i
-      criteri manuali **enumerati** nella spec invece che contati: il round 2 ha mostrato che
+- [x] **Feature meets measurable outcomes defined in Success Criteria** — i
+      criteri manuali hanno **una sola sede autoritativa** nella spec, in coda ai
+      Success Criteria, e nessun altro punto li rienumera: il round 2 ha mostrato che
       il default e la presenza delle varianti sono statici e quindi
       automatizzabili con `beautifulsoup4`. Restano manuali il comportamento del
       comando di alternanza e la persistenza, che richiedono un browser che il
@@ -163,4 +164,57 @@ una violazione osservata; una correzione si giudica dai mutanti che smette di
 uccidere. Tutte e tre dicono la stessa cosa da tre angoli: **il difetto non e'
 dove lo si e' visto**.
 
-**Prossimo passo**: round 4 sulla revisione 4.
+
+
+
+## Round 4 — NOT CONVERGED, 7 rilievi, 3 bloccanti
+
+Il round esisteva per una domanda sola — la terza regola e' stata applicata a se
+stessa? — e la risposta misurata e' **no**. Tre delle nove affermazioni corrette
+sopravvivevano stale nel commit che istituiva la regola contro questo.
+
+- **R4-1**: l'intestazione della spec diceva ancora «Revisione 3, dopo il round
+  2» mentre il verbale diceva 4. Prima del commit erano allineate: la
+  remediation ha rotto un allineamento che funzionava.
+- **R4-2**: il conteggio dei criteri manuali divergeva per la **quarta** volta, e
+  stavolta dentro la spec stessa — una riga diceva «quattro», un'altra «resta
+  davvero manuale solo» due, e una terza contava male i propri marcatori. Chiuso
+  smettendo di contare: c'e' **una sola sede autoritativa** e ogni altra rinvia.
+  Il rimedio non era contare meglio, era avere un posto solo.
+- **R4-3**: la promessa che D-4 ritira sopravviveva nella definizione del
+  deliverable e nel **titolo** di User Story 3. Corretti entrambi: il meccanismo
+  rende visibile la divergenza, non la impedisce.
+
+Quattro non bloccanti: «due sedi su cinque» dopo averne elencate otto, il backup
+della roadmap fuori dall'elenco chiuso, 99,9% arrotondato a 100%, e il rapporto
+fra righe normative e righe di verbale che peggiora.
+
+## La terza regola, eseguita come PROCEDURA
+
+Il round 4 ha chiesto che la regola lasciasse un residuo verificabile invece
+della parola «chiuso». Eseguita, ecco l'output. Ambito: `specs/`, costituzione,
+`CLAUDE.md`, i due README, `docs/memory-backup/`, la build map e la memoria viva.
+
+```
+1  'requires a mechanism'                   0
+1b 'pretende un meccanismo' non negato      0   (1 match, verificato falso positivo:
+                                                 il NON e' a fine riga precedente)
+2  'are held together'                      0
+3  'impedisce ... divergenza'               0
+4  'Resta davvero manuale solo'             0
+5  '41% sul minimo'                         0
+5b dispersione al 100%                      0
+6  'spazi e trattini 170'                   0
+7  '163 occorrenze' come cifra secca        0
+8  'due sedi su cinque'                     0
+9  'quasi tremila'                          0
+
+memoria viva == backup: identici
+```
+
+L'unico match ha richiesto di aprire il file per essere giudicato, ed e'
+esattamente il motivo per cui la procedura va **eseguita** e non dichiarata: un
+conteggio a zero senza ispezione del residuo e' un altro criterio che non puo'
+fallire.
+
+**Prossimo passo**: round 5 sulla revisione 5.

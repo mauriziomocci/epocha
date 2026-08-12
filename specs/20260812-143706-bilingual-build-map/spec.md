@@ -2,7 +2,7 @@
 
 **Branch**: `20260812-143706-bilingual-build-map`
 **Creata**: 2026-08-12
-**Revisione**: 3, dopo il round 2 del gate pesante (round 1: 13 rilievi, 4 bloccanti; round 2: 16, 5 bloccanti)
+**Revisione**: 5, dopo il round 4 del gate pesante. Serie: round 1 → 13 rilievi (4 bloccanti); round 2 → 16 (5); round 3 → 9 (1); round 4 → 7 (3)
 **Stato**: bozza. L'emendamento alla costituzione **e' stato ratificato dall'utente il 2026-08-12** ed e' in vigore come versione 1.1.0.
 
 ## Il problema, e perché non è "tradurre una pagina"
@@ -19,7 +19,8 @@ l'allineamento fra le due lingue **regola inderogabile**.
 Il modo ingenuo — un secondo file — realizza ciò che quella regola vieta per
 nome: due file, due URL, due board, sincronia affidata alla buona volontà. Il
 deliverable è quindi **un file solo che porta entrambe le lingue, più il
-meccanismo che impedisce loro di divergere**.
+meccanismo che rende visibile la loro divergenza** — visibile, non impossibile:
+vedi D-4, nessun checksum sa distinguere una traduzione da un bump pigro.
 
 ## Perché farlo, senza inventare causalità
 
@@ -149,13 +150,13 @@ senza fare nulla.
 3. **Automatizzabile, e va automatizzato**: FR-002 definisce il default come *lo
    stato a riposo del documento*, che è statico e quindi verificabile parsando
    l'HTML con `beautifulsoup4>=4.12`, già in `requirements/base.txt:27`. La
-   revisione 2 mandava al banco manuale anche questo. Resta davvero manuale solo
-   il **comportamento del comando di alternanza** e la **persistenza**, che
-   richiedono un browser che il progetto non ha. Un criterio spedito al manuale
-   quando è automatizzabile sembra coperto e non lo è, che è la forma dei sedici
-   già contati.
+   revisione 2 mandava al banco manuale anche questo. **L'elenco dei criteri
+   manuali sta in un posto solo**, in coda ai Success Criteria, e questa riga non
+   lo ripete: rienumerarlo qui è ciò che lo ha fatto divergere per tre round di
+   fila. Un criterio spedito al manuale quando è automatizzabile sembra coperto e
+   non lo è, che è la forma dei sedici già contati.
 
-### User Story 3 — Il meccanismo impedisce la divergenza (P1)
+### User Story 3 — Il meccanismo rende visibile la divergenza (P1)
 
 **Test di accettazione**, tutti automatici e tutti provati **per mutazione**:
 1. Aggiunto un blocco con la sola variante inglese, la guardia fallisce e nomina
@@ -258,7 +259,7 @@ senza fare nulla.
   Baseline verificata: **20 test verdi**. Il tempo di parete non entra nel
   requisito — tre esecuzioni nel container danno 12,28 s, 8,85 s e 7,24 s, una
   dispersione del 69,6% sul minimo, e una quarta esecuzione a 14,47 s la porta
-  al 100% — per la stessa ragione per cui SC-005 ha
+  al 99,9% — per la stessa ragione per cui SC-005 ha
   cancellato il tetto del 2%: un criterio su un tempo di parete non può fallire
   in modo affidabile.
 - **FR-009a**: la guardia è **un test eseguito dalla suite**, altrimenti FR-006,
@@ -270,7 +271,8 @@ senza fare nulla.
 - **FR-010**: la regola della build map è estesa alle due lingue **in tutte le
   sedi che la portano**, non solo in `CLAUDE.md`: la costituzione, la memoria
   `feedback_build_map_source_of_truth.md` con il suo backup, la roadmap
-  `project_roadmap_post_mvp.md`, e i due README che la descrivono senza dire che
+  `project_roadmap_post_mvp.md` con il suo backup, che porta la regola in forma
+  imperativa, e i due README che la descrivono senza dire che
   è bilingue né quale testo è normativo; l'indice `MEMORY.md` con il suo backup,
   che porta la regola in prima riga; e **la mappa stessa**, la cui riga «It is
   mandatory to update it — it is not a snapshot» enuncia la regola dentro
@@ -299,12 +301,15 @@ senza fare nulla.
   ordini di grandezza sotto la soglia qualunque cosa faccia l'implementazione.)*
 - **SC-006**: la pagina si apre senza rete e senza server. *(manuale)*
 
-**I criteri manuali sono quattro, ed è l'elenco che vale**: la lingua effettiva
-del contenuto, il comportamento del comando di alternanza, la persistenza della
-scelta, e l'apertura da file locale. La revisione 3 ne dichiarava due nel
-verbale e ne marcava quattro qui, cioè ha chiuso il rilievo «conteggio dato in
-due modi» riproducendolo. Un conteggio derivato in due sedi diverge; un elenco
-enumerato una volta sola no, ed è per questo che qui c'è l'elenco.
+**Elenco autoritativo dei criteri manuali, unica sede.** Sono quattro: la lingua
+effettiva del contenuto (SC-001, in parte), il comportamento del comando di
+alternanza (SC-002), la persistenza della scelta (User Story 2, test 2 — non ha
+un SC proprio), l'apertura da file locale (SC-006). Nessun altro punto del
+documento li rienumera né li conta: ogni altra sede rinvia qui.
+
+Il rilievo «conteggio dato in due modi» è stato chiuso e riprodotto per tre
+round consecutivi, ogni volta perché la correzione aggiungeva una sede invece
+di eliminarne. Il rimedio non è contare meglio, è **avere un posto solo**.
 
 ## Assumptions
 
