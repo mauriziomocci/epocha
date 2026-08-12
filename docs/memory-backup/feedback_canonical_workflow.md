@@ -132,7 +132,10 @@ Il Governance della costituzione esige che ogni emendamento lasci una riga qui.
   italiano: e' l'artefatto che l'utente deve leggere e approvare a ogni
   checkpoint. La costituzione ora nomina entrambi i deliverable bilingui con il
   loro testo normativo — whitepaper con l'inglese normativo, build map con
-  l'italiano — e pretende un **meccanismo** e non la prosa per tenerli allineati.
+  l'italiano — e pretende che ciascuno **dichiari come** le sue lingue restano allineate — con
+  un meccanismo o con una pratica manuale — invece di lasciarlo implicito. NON
+  pretende un meccanismo per entrambi: i whitepaper sono tenuti da una checklist
+  di revisione, e dirlo e' precisamente il punto.
   Ratificato dall'utente; sollevato dal round 1 del gate di fase 2 del work item
   `20260812-143706-bilingual-build-map`.
 

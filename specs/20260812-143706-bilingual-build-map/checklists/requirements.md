@@ -2,7 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-08-12
-**Revisione**: 3, dopo il round 2 del gate pesante di fase 2
+**Revisione**: 4, dopo il round 3 del gate pesante di fase 2
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -34,8 +34,8 @@
 
 - [x] All functional requirements have clear acceptance criteria
 - [x] User scenarios cover primary flows
-- [x] **Feature meets measurable outcomes defined in Success Criteria** — con
-      **due** criteri dichiarati manuali, non cinque: il round 2 ha mostrato che
+- [x] **Feature meets measurable outcomes defined in Success Criteria** — con i
+      criteri manuali **enumerati** nella spec invece che contati: il round 2 ha mostrato che
       il default e la presenza delle varianti sono statici e quindi
       automatizzabili con `beautifulsoup4`. Restano manuali il comportamento del
       comando di alternanza e la persistenza, che richiedono un browser che il
@@ -67,7 +67,7 @@ I quattro bloccanti, e cosa e' cambiato:
   limite.
 - **F-4 chiuso, ed era il piu' grave**: prosa riscritta in una lingua sola, senza
   toccare stati ne' numeri, passava ogni controllo — sul caso piu' frequente a un
-  checkpoint, su un paragrafo di 24 750 caratteri di prosa pura. Chiuso da
+  checkpoint, su un paragrafo di 24 750 caratteri di HTML interno, 762 dei quali marcatura. Chiuso da
   FR-007b, l'impronta del blocco normativo, che rende obsoleto il mirror quando
   il normativo cambia.
 
@@ -76,10 +76,11 @@ su entrambe le meta' e il rischio vero e' la co-locazione; il tetto del 2% non
 era un tetto e come criterio non poteva fallire (0,09 ms contro 9,71 s, tre
 ordini di grandezza); byte e caratteri erano scambiati; due conteggi di
 caratteri e parole non erano riproducibili e sono rimossi; due cifre
-autoinvalidanti residue sono state riscritte in forma relazionale; i criteri manuali sono ora **due**, non cinque ne' sette:
-il round 2 ha mostrato che il default e la presenza delle varianti sono statici
-e quindi automatizzabili con `beautifulsoup4`, e restano manuali solo
-l'alternanza e la persistenza, che richiedono un browser; la lingua normativa e' dichiarata (italiano, con
+autoinvalidanti residue sono state riscritte in forma relazionale; il round 2 ha mostrato che il default e la presenza delle
+varianti sono statici e quindi automatizzabili con `beautifulsoup4`; i criteri
+manuali residui sono **enumerati una volta sola nella spec** invece di essere
+contati, perche' un conteggio derivato in due sedi diverge e infatti era
+divergito; la lingua normativa e' dichiarata (italiano, con
 l'inglese mirror); i due casi d'ambiente — JavaScript assente e persistenza non
 disponibile nell'artifact — sono requisiti espliciti; e l'argomento del «perche'
 farlo» e' stato riscritto, perche' quello della prima stesura inventava una
@@ -121,3 +122,45 @@ automatizzabili spediti al manuale, la collocazione della guardia e il tempo di
 parete dentro un requisito.
 
 **Prossimo passo**: round 3 sulla revisione 3.
+
+
+## Round 3 — NOT CONVERGED, 9 rilievi, 1 bloccante
+
+Tutti chiusi nella revisione 4.
+
+**Il bloccante, R3-1, e' la recidiva esatta di R2-1**: la correzione dell'emendamento
+ha riparato il CORPO della costituzione e non il LOG dell'emendamento nello stesso
+file, ne' la memoria che lo registra — che `constitution.md:108` elenca fra i
+quattro adempimenti che rendono valido un emendamento, quindi era il record
+costitutivo a dire il falso sul proprio contenuto. Le tre copie sono ora
+rilavorate insieme.
+
+Otto non bloccanti: tre frasi altrove promettevano ancora l'inderogabilita' che
+D-4 aveva appena ritirato, e una l'aveva scritta il commit stesso della
+correzione; il conteggio dei criteri manuali era di nuovo dato in due modi, dopo
+che il round 2 aveva chiuso proprio quel rilievo; la dispersione dei tempi era
+calcolata sul massimo e dichiarata sul minimo (69,6%, non 41%); l'etichetta del
+terzo metodo di conteggio era sbagliata; due cifre secche sopravvivevano accanto
+all'intervallo che le sostituiva; l'elenco chiuso di FR-003a non copriva nomi di
+branch e citazioni autore-anno; FR-010 diceva «tutte le sedi» e ne nominava
+cinque su sette; «quasi tremila caratteri» erano 3 252.
+
+## LA TERZA REGOLA DI PROCESSO, che e' il prodotto di questo round
+
+> **Prima di scrivere «chiuso», si greppa l'AFFERMAZIONE corretta su tutto il
+> branch, non il rilievo che la nominava.**
+
+Tre round di fila hanno prodotto lo stesso guasto: la correzione viene applicata
+dove il rilievo puntava e non dove la stessa affermazione vive. Il round 2 ha
+trovato un emendamento committato senza rilavorare il verbale; il round 3 ha
+trovato un corpo corretto senza il suo log, un «inderogabile» ritirato in un
+punto su quattro, un intervallo adottato accanto a due cifre secche rimaste, e
+un conteggio ricalcolato senza guardare le marcature che lo contraddicevano.
+**Quattro dei nove rilievi di questo round sparirebbero con quel solo passo.**
+
+E' la terza dopo quelle nate dal gate di fase 6 — si estende una guardia solo per
+una violazione osservata; una correzione si giudica dai mutanti che smette di
+uccidere. Tutte e tre dicono la stessa cosa da tre angoli: **il difetto non e'
+dove lo si e' visto**.
+
+**Prossimo passo**: round 4 sulla revisione 4.

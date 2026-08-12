@@ -96,8 +96,9 @@ Questa è la risposta al rilievo più grave del round 1, e senza di essa la feat
 non manterrebbe la sua promessa centrale. Chiave, stato e numeri non intercettano
 **il caso più frequente di divergenza a un checkpoint: la prosa riscritta in una
 lingua sola.** Quel caso ha entrambe le chiavi, lo stesso stato e gli stessi
-numeri, e passerebbe ogni controllo — su un paragrafo il cui HTML interno è 24 750 caratteri, di cui
-23 988 di testo una volta tolta la marcatura. Con l'impronta, modificare il testo normativo senza aggiornare il
+numeri, e passerebbe ogni controllo — su un paragrafo il cui HTML interno è 24 750 caratteri, di cui fra
+23 976 e 23 988 di testo una volta tolta la marcatura, secondo che le entità
+siano risolte o no. Con l'impronta, modificare il testo normativo senza aggiornare il
 mirror rende l'impronta obsoleta e la guardia rossa.
 
 **Il limite di questo meccanismo, dichiarato invece che taciuto, ed e' il rilievo
@@ -170,7 +171,7 @@ senza fare nulla.
 ### Edge Cases
 
 - **Il paragrafo maggiore**: 24 750 caratteri di HTML interno, 24 889 byte,
-  23 988 caratteri di solo testo. La prima stesura diceva «byte» dove erano
+  fra 23 976 e 23 988 caratteri di solo testo, secondo il metodo. La prima stesura diceva «byte» dove erano
   caratteri e la seconda chiamava «prosa pura» una grandezza che includeva 762
   caratteri di marcatura. Il numero giusto sotto la grandezza sbagliata è il modo
   esatto in cui un dato falso sopravvive a una rilettura. Va spezzato per lingua
@@ -184,7 +185,7 @@ senza fare nulla.
   impronta: nessun caso speciale.
 - **I numeri scritti a lettere.** Fra 163 e 179 occorrenze nel testo visibile
   **a seconda del metodo di conteggio** — confine di parola case-sensitive 163,
-  case-insensitive 179, delimitazione su spazi e trattini 170 — concentrate nella
+  case-insensitive 179, delimitazione sui soli spazi, trattini conservati, 170 — concentrate nella
   here-band, cioè nel testo che cambia a ogni checkpoint. La revisione 2 dava un
   totale preso da un metodo e una ripartizione presa da un altro, che è lo stesso
   cambio di unità a metà frase che questa spec rimprovera altrove: qui il metodo
@@ -212,7 +213,7 @@ senza fare nulla.
 - **FR-003**: è traducibile **tutto il testo visibile della pagina**, e non lo
   sono soltanto gli identificatori tecnici elencati sotto. La revisione 2
   enumerava cinque categorie e lasciava fuori dell'altro testo visibile —
-  misurate quasi tremila caratteri fra note, deck, legenda, etichette di blocco,
+  misurati oltre tremila caratteri — 3 252 fra note, deck, legenda, etichette di blocco,
   intestazioni di colonna e il pannello delle regole — e fra quel testo c'era la
   riga che enuncia la regola della mappa stessa, «It is mandatory to update it —
   it is not a snapshot», che il lettore italiano avrebbe letto in inglese senza
@@ -220,7 +221,10 @@ senza fare nulla.
   ogni categoria dimenticata è un buco silenzioso, mentre l'esenzione per elenco
   chiuso rende visibile ciò che si sottrae.
 - **FR-003a**: sono esenti gli identificatori tecnici — riferimenti di capitolo,
-  percorsi di file, SHA, numeri di fase, nomi di modulo — e l'esenzione è
+  percorsi di file, SHA, numeri di fase, nomi di modulo, **nomi di branch**
+  (`20260806-112409-demography-design-defects` compare nel file) e **citazioni
+  autore-anno** (`Sjaastad 1962`, `Harris & Todaro 1970`), che il Principio I
+  vieta di alterare — e l'esenzione è
   **dichiarata per singolo elemento**, non dedotta dal suo aspetto. Un tag ibrido
   come `wired · engine.py:394` porta insieme uno stato e un percorso, e nessuna
   euristica lo classifica correttamente. Il caso che lo dimostra è `not wired`,
@@ -253,7 +257,8 @@ senza fare nulla.
   offender** e la build map resta fra i file che la sua camminata raggiunge.
   Baseline verificata: **20 test verdi**. Il tempo di parete non entra nel
   requisito — tre esecuzioni nel container danno 12,28 s, 8,85 s e 7,24 s, una
-  dispersione del 41% sul minimo — per la stessa ragione per cui SC-005 ha
+  dispersione del 69,6% sul minimo, e una quarta esecuzione a 14,47 s la porta
+  al 100% — per la stessa ragione per cui SC-005 ha
   cancellato il tetto del 2%: un criterio su un tempo di parete non può fallire
   in modo affidabile.
 - **FR-009a**: la guardia è **un test eseguito dalla suite**, altrimenti FR-006,
@@ -266,7 +271,10 @@ senza fare nulla.
   sedi che la portano**, non solo in `CLAUDE.md`: la costituzione, la memoria
   `feedback_build_map_source_of_truth.md` con il suo backup, la roadmap
   `project_roadmap_post_mvp.md`, e i due README che la descrivono senza dire che
-  è bilingue né quale testo è normativo. Il progetto tratta già altrove le copie
+  è bilingue né quale testo è normativo; l'indice `MEMORY.md` con il suo backup,
+  che porta la regola in prima riga; e **la mappa stessa**, la cui riga «It is
+  mandatory to update it — it is not a snapshot» enuncia la regola dentro
+  l'artefatto che la regola governa. Il progetto tratta già altrove le copie
   multiple come un insieme che cambia insieme, e la memoria rimasta 94 giorni
   stale è il precedente che ha generato l'intera regola. Il testo originale di
   questo requisito nominava due sedi su cinque,
@@ -291,6 +299,13 @@ senza fare nulla.
   ordini di grandezza sotto la soglia qualunque cosa faccia l'implementazione.)*
 - **SC-006**: la pagina si apre senza rete e senza server. *(manuale)*
 
+**I criteri manuali sono quattro, ed è l'elenco che vale**: la lingua effettiva
+del contenuto, il comportamento del comando di alternanza, la persistenza della
+scelta, e l'apertura da file locale. La revisione 3 ne dichiarava due nel
+verbale e ne marcava quattro qui, cioè ha chiuso il rilievo «conteggio dato in
+due modi» riproducendolo. Un conteggio derivato in due sedi diverge; un elenco
+enumerato una volta sola no, ed è per questo che qui c'è l'elenco.
+
 ## Assumptions
 
 - Le lingue sono due e restano due: nessun sistema di localizzazione generico,
@@ -312,8 +327,9 @@ la guardia e i suoi test provati per mutazione.
 **Ricorrente, ed è quello che conta**: da qui in avanti **ogni checkpoint della
 build map costa il doppio in scrittura**, più l'aggiornamento delle impronte. La
 sola sessione di oggi ne avrebbe richiesti cinque. Non è riducibile: ridurlo
-rinviando una lingua ricrea il problema che la feature chiude. La guardia rende
-quel costo **inevitabile invece che facoltativo**, il che è il punto, e va
+rinviando una lingua ricrea il problema che la feature chiude. La guardia non rende quel
+costo inevitabile — D-4 dice perché non può — ma rende **visibile chi non lo
+paga**, il che è quanto un meccanismo può dare, e va
 soppesato prima di approvare — su un artefatto il cui modo tipico di guastarsi è
 proprio «non viene aggiornato abbastanza spesso».
 
@@ -323,8 +339,8 @@ Fotografia al commit `f0e2582`, **non soglie**: 60 670 byte su 629 righe; quindi
 blocchi con titolo, descrizione e pill; tredici etichette `needs`; 37 tag di cui
 34 identificatori tecnici e 3 di prosa; tre paragrafi narrativi, il maggiore da
 24 750 caratteri (24 889 byte); 53 regioni di citazione, una sola delle quali
-nomina la fonte, lunga 2 844 caratteri con zero riferimenti di capitolo; 163
-occorrenze di numeri scritti a lettere. *(Il conteggio di caratteri e parole del
+nomina la fonte, lunga 2 844 caratteri con zero riferimenti di capitolo; fra 163 e 179
+occorrenze di numeri scritti a lettere secondo il metodo, come all'edge case. *(Il conteggio di caratteri e parole del
 testo visibile che la prima stesura riportava è rimosso: quattro metodi di
 estrazione ovvi danno quattro coppie diverse e nessuna coincideva con quella
 pubblicata, quindi non era riproducibile.)*
@@ -373,9 +389,10 @@ contenuto non è un predicato calcolabile. I tre limiti vivranno nel docstring
 della guardia, come fa quella sulle citazioni.
 
 **Che cosa costa?** Ogni checkpoint della build map costerà il doppio in
-scrittura più l'aggiornamento delle impronte, per sempre. È il prezzo di rendere
-la regola inderogabile un meccanismo invece di un'intenzione, e va soppesato
-prima di approvare.
+scrittura più l'aggiornamento delle impronte, per sempre. È il prezzo di mettere la
+regola sotto un meccanismo che ne rende visibile la violazione, invece di
+lasciarla un'intenzione. Non è il prezzo dell'inderogabilità, che nessun
+checksum sa dare: vedi la risposta sopra.
 
 **Perché non serve la mappa da Django, così da avere una sola sorgente?**
 Valutato e respinto il 2026-07-17: metterebbe il board dietro un login e

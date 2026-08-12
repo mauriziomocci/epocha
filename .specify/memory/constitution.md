@@ -97,7 +97,10 @@ Italian for spec files (see `feedback_italian_specs.md`) **and for the build map
 
 Two deliverables carry translated technical prose, and each declares which text is normative: the **whitepaper**, whose Italian mirror follows the normative English; and the **build map**, whose normative text is the Italian one, with English as the mirror. A bilingual deliverable without a declared normative text cannot answer "verify against reality first" — it does not say against which text — so declaring it is part of the deliverable, not an afterthought.
 
-A bilingual deliverable must state how its languages are kept aligned, and whether that is a mechanism or a manual practice. The build map's two languages are held together by a structural guard in the suite. **The whitepapers are not**: the doc-sync rule is a PR review checklist, the project has no active git hooks, and `feedback_whitepaper_doc_sync.md` says building one is deliberately deferred while the developer is single. The frozen-at-commit pin records a fact; it does not fail.
+A bilingual deliverable must state how its languages are kept aligned, and whether that is a mechanism or a manual practice. The build map's two languages are watched by a structural guard in the suite —
+watched, not held together: no checksum distinguishes a translation from a lazy
+bump, so the guard makes an omission a deliberate, diff-visible act rather than a
+silent one. **The whitepapers are not**: the doc-sync rule is a PR review checklist, the project has no active git hooks, and `feedback_whitepaper_doc_sync.md` says building one is deliberately deferred while the developer is single. The frozen-at-commit pin records a fact; it does not fail.
 
 That asymmetry is stated rather than papered over, because the first version of this clause claimed both deliverables were mechanically held and was caught in the same gate that wrote it. A property asserted in prose and not enforced by a mechanism gets violated silently — measured sixteen times during the phase-6 gate of the demography design-defects work item — and a constitution that misdescribes its own enforcement is the worst place for that class to live. Promoting the whitepaper doc-sync to a mechanism is a separate work item, not a sentence.
 
@@ -115,8 +118,10 @@ For runtime development guidance, use `CLAUDE.md` (project-level), `~/.claude/CL
 
 **1.1.0 — 2026-08-12.** The language rule gains the build map, which moves from
 "everything else" to the Italian side, and the constitution now names both
-bilingual deliverables with their normative text and requires a mechanism rather
-than prose to keep each aligned. Ratified explicitly by the user on 2026-08-12,
+bilingual deliverables with their normative text and requires each to state HOW
+its languages are kept aligned — by a mechanism or by a manual practice — rather
+than leaving that unsaid. It does not require a mechanism for both: the
+whitepapers are held by a review checklist, and saying so is the point. Ratified explicitly by the user on 2026-08-12,
 raised by the phase-2 gate of work item `20260812-143706-bilingual-build-map`,
 whose first audit round found the feature would otherwise create a second
 exception to a sentence reading "the only exception".
