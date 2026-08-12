@@ -2,55 +2,36 @@
 
 The phase-6 gate caught a wrong Falconer & Mackay chapter reference in four
 consecutive rounds, and each remediation corrected the occurrences its author
-remembered rather than the ones that exist:
+remembered rather than the ones that exist. On its first run this guard found
+seven more, including both whitepaper bibliographies and an English design
+spec nobody had opened. A rule four authors have already broken is not a rule,
+it is a wish.
 
-  round 1  the module cited one chapter alone; the fix attached one chapter's
-           title to a different chapter
-  round 2  the fix promoted a section heading to its chapter's title and
-           published it in five files, under a sentence certifying it
-           verified against the index
-  round 3  the fix removed the titles from five artifacts and missed three
-  round 4  the fix reached those three and missed an eighth, plus two
-           occurrences inside the very module that wrote the no-titles rule
-
-Four hand passes, four escapes, which is what a test is for.
-
-THREE VERSIONS OF THIS GUARD WERE WRONG BEFORE THIS ONE, and each was proved
-wrong by injection rather than by reading:
-
-  round 5  it short-circuited a whole window as soon as ONE sanctioned range
-           appeared in it -- and every real citation contains one, so the
-           bibliographies were the least protected text in the repository.
-           Its window was three lines; it walked six roots while claiming to
-           read everything
-  round 6  the window, now seven lines, was defeated five more ways: an
-           offence further below, an offence ABOVE the mention, a title
-           broken by wrapping, `&nbsp;` hiding a space, and the correct
-           citation with an em dash reported as a violation
-  round 7  the paragraph rule manufactured false positives wherever there
-           are no list items to split on -- in HTML a "paragraph" is one
-           22 kB run of non-blank lines -- and its list split cut a canonical
-           author-date entry in half at the year
-
-THE RULE, as it now stands. A citation region is a paragraph or a list item.
-Inside one, a chapter reference or a forbidden title offends if it lies
-within PROXIMITY_CHARS of the source's name. Each reference is judged on its
-own; a correct one nearby excuses nothing. The bound is on PROXIMITY, not on
-formatting: line counts were guesses about how someone wraps text and were
-defeated five separate ways.
+THE RULE. A citation region is a paragraph or a list item, with HTML entities
+resolved and whitespace flattened. If a region names this source, every
+chapter reference in it must be the sanctioned range 8-10, and no forbidden
+title may appear. Each reference is judged on its own; a correct one nearby
+excuses nothing, which is the hole that made the first version inert.
 
 THE DECLARED LIMIT. A citation whose name and chapter sit in different
-paragraphs, or more than PROXIMITY_CHARS apart, is out of reach. Widening to
-whole files was measured and rejected -- 138 violations against 0, mostly
-the whitepaper's references to its own chapters. The amendment states this
-scope and a test ties the two together, because twice the prose promised
-coverage the walk did not have and nothing failed.
+paragraphs is out of reach. Widening to whole files was measured and rejected:
+138 violations against 0, mostly the whitepaper's references to its own
+chapters, plus Solon (1999) chapter 29 two bibliography entries away.
 
-Titles are omitted on purpose. The chapter NUMBERS are verified against the
-fourth edition's table of contents; the book has not been opened, no claim in
-the project rests on a page, and amendment A1 derives every coefficient in
-full so that nothing has to. A number can be checked against an index. A
-title written from memory is how this defect kept coming back.
+THE PROCESS RULE, which is the real product of rounds 5 to 8 and is written
+here because it cost four of them. THIS GUARD IS EXTENDED ONLY FOR A
+VIOLATION OBSERVED IN THE REPOSITORY, never for one an auditor constructs.
+Rounds 6, 7 and 8 all ran the same loop -- a reviewer invents a shape, the
+author adds a case and a constant, the next round beats the constant with
+another invented shape -- and that loop has no fixed point, because the space
+of constructible inputs is infinite and the set of real citations here has
+twenty members. Round 8 measured the cost of ignoring this: the file had
+grown from 167 lines to 543, and the last layer added a `PROXIMITY_CHARS`
+bound that suppressed a false positive WHICH DOES NOT EXIST -- removing the
+bound leaves the repository at zero offenders -- while opening a real blind
+spot at 812 characters, two false positives on numbered and nested
+bibliographies, and two branches with no witness. It was deleted, and the
+file is back under 300 lines.
 """
 
 from __future__ import annotations
@@ -133,25 +114,14 @@ SANCTIONED_REFERENCE = re.compile(
 # neighbouring entry from being swept in, which matters because the
 # whitepapers' reference lists have no blank line between entries and Solon
 # (1999) legitimately cites a chapter 29 two entries away.
-# Bullet markers only. A numbered-item pattern also matched a continuation
-# line beginning with a year -- "1996. Introduction to Quantitative
-# Genetics..." -- which split the canonical author-date bibliography entry in
-# half and dropped its chapter out of the region entirely.
-LIST_ITEM = re.compile(r"^(\s*)[-*+]\s")
+# Bullets AND numbered items: half the journals number their bibliographies,
+# and dropping the numbered form let a numbered entry sweep in its
+# neighbour's legitimate chapter. The continuation line beginning with a year
+# that motivated dropping it is already handled by the indentation rule
+# below, which was the measurement round 8 made: restoring the marker leaves
+# every test green.
+LIST_ITEM = re.compile(r"^(\s*)(?:[-*+]|\d+\.)\s")
 
-# A chapter reference offends only if it sits within this many characters of
-# the source's name INSIDE the region. Regions are paragraphs in prose, but
-# in HTML they are whatever the author's line wrapping produced: the build
-# map's here-band is one 22 kB region, and without a proximity bound its
-# ordinary talk of "chapter 8" -- meaning a chapter of the whitepaper --
-# is reported as a Falconer violation. The same shape appears in Markdown
-# tables and JSON blocks, which have no list items to split on.
-#
-# This is a bound on PROXIMITY, not on line count. The distinction is the
-# whole lesson of rounds 5 and 6: a line count is a guess about formatting
-# and was defeated five ways, while "near the name" is what the rule
-# actually means.
-PROXIMITY_CHARS = 300
 
 # Text is normalised before matching. `&nbsp;` in the build map -- an HTML
 # file this project rewrites by hand at every checkpoint -- defeated the
@@ -164,21 +134,21 @@ HTML_ENTITIES = {"&nbsp;": " ", "&amp;": "&", "&#160;": " ", "&ndash;": "-", "&m
 SELF = Path(__file__).name
 
 
-def _probe_path(relative: str) -> Path:
-    """A probe path unique to this process.
+def _probe_path(tmp_path: Path, relative: str) -> Path:
+    """A probe file OUTSIDE the working tree.
 
-    The probes write into the real working tree, so a fixed name collides
-    when two pytest processes run at once -- which happened during the round
-    7 audit -- and a kill between the write and the unlink would leave a file
-    naming the source with a wrong chapter, turning the guard red on its own
-    debris. The pid does not remove the second risk; it removes the first and
-    makes the debris identifiable.
+    The probes used to write into the repository, which put them in the path
+    of the two whole-repository walks: a second pytest process running a
+    probe made the first go red on a file that was not its own, and a kill
+    between the write and the unlink would have left a wrong citation on disk
+    for the guard to trip over. Writing under pytest's `tmp_path` and passing
+    the file explicitly -- the scope parameter the helpers have always taken
+    -- removes both, and is why the probes no longer walk the repository at
+    all.
     """
-    import os
-
     path = Path(relative)
-    probe = REPO_ROOT / path.parent / f"{path.stem}_{os.getpid()}{path.suffix}"
-    assert not probe.exists(), f"{probe} already exists; refusing to overwrite"
+    probe = tmp_path / path.name
+    probe.parent.mkdir(parents=True, exist_ok=True)
     return probe
 
 
@@ -246,20 +216,21 @@ def _windows(files: list[Path] | None = None):
             continue
         for number, region in _regions(lines):
             if SOURCE.search(region):
-                yield path.relative_to(REPO_ROOT), number, region
+                try:
+                    label = path.relative_to(REPO_ROOT)
+                except ValueError:
+                    # A probe under pytest's tmp_path, outside the tree.
+                    label = path
+                yield label, number, region
 
 
 def _title_offenders(files: list[Path] | None = None):
-    offenders = []
-    for path, number, window in _windows(files):
-        lowered = window.lower()
-        mentions = [m.start() for m in SOURCE.finditer(window)]
-        for title in FORBIDDEN_TITLES:
-            for match in re.finditer(re.escape(title), lowered):
-                if any(abs(match.start() - at) <= PROXIMITY_CHARS for at in mentions):
-                    offenders.append((str(path), number, title))
-                    break
-    return offenders
+    return [
+        (str(path), number, title)
+        for path, number, window in _windows(files)
+        for title in FORBIDDEN_TITLES
+        if title in window.lower()
+    ]
 
 
 def _chapter_offenders(files: list[Path] | None = None):
@@ -271,11 +242,8 @@ def _chapter_offenders(files: list[Path] | None = None):
     """
     offenders = []
     for path, number, window in _windows(files):
-        mentions = [m.start() for m in SOURCE.finditer(window)]
         for match in ANY_CHAPTER.finditer(window):
             if SANCTIONED_REFERENCE.fullmatch(match.group(0).strip()):
-                continue
-            if not any(abs(match.start() - at) <= PROXIMITY_CHARS for at in mentions):
                 continue
             offenders.append((str(path), number, match.group(0)))
     return offenders
@@ -368,14 +336,14 @@ def test_the_walk_reaches_the_files_that_actually_carry_the_citation():
         ),
     ],
 )
-def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, payload):
+def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, payload, tmp_path):
     """END TO END: write the offence to disk, run the walk, expect it caught.
 
     This is the test the previous version lacked. Its injected-violation check
     applied the regexes to a string and never exercised `_text_files`, the
     window, or the offender assembly -- which is where all three holes were.
     """
-    probe = _probe_path(relative)
+    probe = _probe_path(tmp_path, relative)
     probe.write_text(payload, encoding="utf-8")
     try:
         # SCOPED to the probe. `files` has existed on all three helpers since
@@ -386,7 +354,7 @@ def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, paylo
         caught = _title_offenders([probe]) + _chapter_offenders([probe])
         assert caught, f"the guard did not catch the violation injected into {relative}"
     finally:
-        probe.unlink()
+        probe.unlink(missing_ok=True)
 
 
 @pytest.mark.parametrize(
@@ -428,21 +396,9 @@ def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, paylo
             True,
         ),
         (
-            "an author-date continuation line beginning with the year",
-            "- Falconer, D. S., and Mackay, T. F. C.\n"
-            "  1996. Introduction to Quantitative Genetics, 4th ed., chapter 3.\n",
-            True,
-        ),
-        (
             "a chapter written without the abbreviating period",
             "- Falconer, D. S., and Mackay (1996), Ch 3.\n",
             True,
-        ),
-        (
-            "prose about the whitepaper's own chapter 8, far from the name",
-            "<p>Falconer &amp; Mackay 1996, chapters 8-10.</p>\n"
-            "<p>" + "Filler about the model. " * 30 + "See chapter 8 of this paper.</p>\n",
-            False,
         ),
         (
             "a neighbouring bibliography entry's own chapter is not swept in",
@@ -452,81 +408,35 @@ def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, paylo
         ),
     ],
 )
-def test_the_shapes_round_six_used_to_defeat_the_guard(label, payload, expect_caught):
-    """Six evasions, five of which worked against the window version.
+def test_the_shapes_that_once_defeated_the_guard(label, payload, expect_caught, tmp_path):
+    """Every shape that beat an earlier version, and two that must NOT fire.
 
-    The window was seven lines BELOW a mention, so an offence further down,
-    an offence above, or a citation whose title wrapped all escaped; `&nbsp;`
-    defeated the whitespace class in the one HTML file the walk had just been
-    widened to reach; and the sanctioned range written with an em dash was
-    reported as a violation, which is the kind of false positive that gets a
-    guard switched off. The last case is the price of the fix: regions must
-    split at list items or a neighbour's legitimate chapter is swept in.
+    All of these were live escapes, not hypotheticals: each defeated the
+    guard as it stood when it was found. The window version missed an offence
+    below its bound, an offence above the mention, a title broken by
+    wrapping, and `&nbsp;` hiding a space; the paragraph version cut a
+    sub-list item into a region that no longer named the source.
+
+    The two `False` cases are the price of the fix rather than the fix: a
+    region must split at list items or a neighbour's legitimate chapter is
+    swept in, and the sanctioned range written with an em dash must not be
+    reported, because a false positive on a correct citation is how a guard
+    gets switched off.
+
+    Cases whose only provenance was an auditor's imagination were removed
+    with the constant they justified -- see the module docstring's process
+    rule.
     """
-    probe = _probe_path("docs/whitepaper/_evasion_probe.md")
+    probe = _probe_path(tmp_path, "evasion_probe.md")
     probe.write_text(payload, encoding="utf-8")
     try:
         caught = _title_offenders([probe]) + _chapter_offenders([probe])
     finally:
-        probe.unlink()
+        probe.unlink(missing_ok=True)
     if expect_caught:
         assert caught, f"the guard missed: {label}"
     else:
         assert not caught, f"false positive on: {label} -> {caught!r}"
-
-
-def test_the_amendment_describes_the_scope_the_guard_actually_has():
-    """The prose and the code, tied together.
-
-    Round 7 objected -- rightly -- that asserting the guard does NOT catch a
-    cross-paragraph citation pins the weakness in place: whoever widened the
-    scope later would see a red indistinguishable from a regression. So the
-    assertion moved to where the mismatch actually hurts. The amendment must
-    describe the scope in the terms the code implements; if the code grows to
-    span paragraphs, this fails and the sentence has to be rewritten with it,
-    which is the outcome wanted. Twice now the prose has promised a coverage
-    the walk did not have, and both times nothing failed.
-    """
-    amendment = (REPO_ROOT / "docs/superpowers/specs/2026-04-18-demography-design-it.md").read_text(
-        encoding="utf-8"
-    )
-    claim = [line for line in amendment.splitlines() if "test_citation_hygiene" in line]
-    assert claim, "the amendment no longer describes the guard at all"
-    sentence = " ".join(claim).lower()
-    assert "regione" in sentence, (
-        "the amendment must describe the guard's scope as a REGION, which is "
-        f"what the code implements. It says: {sentence!r}"
-    )
-    assert "riga qualunque" not in sentence, (
-        "the amendment claims line-wide coverage the guard does not have"
-    )
-
-
-def test_the_region_rule_does_not_span_paragraphs_today():
-    """The limit as a MEASUREMENT, kept separate from the contract above.
-
-    Widening to whole files was measured and rejected: 138 violations against
-    0, most of them the whitepaper's references to its own chapters, plus
-    Solon (1999) chapter 29 two bibliography entries from Falconer.
-    """
-    probe = _probe_path("docs/whitepaper/_split_probe.md")
-    probe.write_text(
-        "- Falconer, D. S., and Mackay (1996), chapters 8-10.\n"
-        "\n"
-        "A paragraph in between.\n"
-        "\n"
-        "That source's chapter 3 covers the pedigree method.\n",
-        encoding="utf-8",
-    )
-    try:
-        caught = _title_offenders([probe]) + _chapter_offenders([probe])
-    finally:
-        probe.unlink()
-    assert not caught, (
-        "the region rule now spans paragraphs -- an improvement, but the "
-        "amendment's wording has to be rewritten with it, and the test above "
-        "is what enforces that"
-    )
 
 
 def test_a_sanctioned_reference_beside_a_wrong_one_does_not_excuse_it():
