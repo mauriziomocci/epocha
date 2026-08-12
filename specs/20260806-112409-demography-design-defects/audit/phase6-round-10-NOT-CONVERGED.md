@@ -12,12 +12,13 @@
 
 `test_citation_hygiene.py`, the case labelled `"title broken across two lines by wrapping"`. Before `64be598` the payload really did break the forbidden title across the wrap (`...on resemblance\n  between relatives...`). Round 9 capitalised it to give `.lower()` a witness — correctly, that mutant now dies — and in the same edit moved the whole title onto the second line. The line break stayed in the payload; the title stopped straddling it.
 
-Measured, both sides:
+Measured, both sides. The mutation is the STRICT one — replace the flattening return, `return " ".join(text.split())` → `return text`, leaving entity resolution in place. Round 11 caught this table naming it loosely: blanking the whole function body also disables `&nbsp;` resolution and yields different numbers, so anyone re-running it as first written gets 2 failed where they read 1.
 
-| version | mutation `_normalise` → `return text` | result |
+| version | strict: flattening removed | whole body → `return text` |
 |---|---|---|
-| `ad1d942` (before) | applied | **1 failed**, and the test that falls is exactly this case |
-| `64be598` / HEAD | applied | **18 passed** |
+| `ad1d942` (before) | **1 failed** — and the test that falls is exactly this case | 2 failed |
+| `64be598` (after) | **18 passed** | 1 failed (the `&nbsp;` case) |
+| after this round's fix | 1 failed | 2 failed |
 
 Whitespace flattening is a live branch — it is the only thing that makes a wrap-broken title match the flat string it is compared against — and it is asserted twice in prose. From that commit it was defended by nothing, while the case label went on claiming the shape the payload had stopped having. Class 2 to the letter. **Occurrence fifteen.**
 
@@ -45,7 +46,9 @@ The rest of the series was re-counted by hand and holds exactly: 167 at birth (`
 
 Round 9 deleted the numbered-list marker because it killed nothing and rested on a bibliography the repository does not contain. Three entries of `HTML_ENTITIES` were in the identical condition: `&#160;`, `&ndash;` and `&mdash;` occur **zero times** in the repository and removing any of them leaves 18 of 18 green.
 
-**Closed by deletion.** `&amp;` stays and the reason is stated: at 12 measured occurrences it normalises an entity the surveyed text actually contains, which a constructed case does not — even though the guard does not depend on it today, since `SOURCE` matches the surname alone.
+**Closed by deletion.** `&amp;` stays and the reason is stated: it normalises an entity the surveyed text actually contains — 13 occurrences over 12 lines of the build map; this report first published the line count as an occurrence count, which round 11 corrected — even though the guard does not depend on it today, since `SOURCE` matches the surname alone.
+
+**Round 11 addendum**: the same measurement reaches `&nbsp;`, which this round left standing. `git log -S` over all refs shows it has never appeared outside the guard file, so round 6 introduced it as an escape that was constructed rather than observed. It is kept, but now as a **declared** exception with its judgement written beside it, and the docstring that called all those cases live escapes is corrected.
 
 ## F-5 MISSING — non-blocking — three further branches without a witness, and no observed violation behind them
 

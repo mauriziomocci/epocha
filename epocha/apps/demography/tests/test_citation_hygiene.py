@@ -146,20 +146,31 @@ SANCTIONED_REFERENCE = re.compile(
 LIST_ITEM = re.compile(r"^(\s*)[-*+]\s")
 
 
-# Text is normalised before matching. `&nbsp;` in the build map -- an HTML
-# file this project rewrites by hand at every checkpoint -- defeated the
-# whitespace class, and a title broken across two lines by wrapping never
-# matched the flat string it is compared against.
+# Text is normalised before matching, so that an entity cannot hide the space
+# before a chapter number and a title broken across two lines by wrapping
+# still matches the flat string it is compared against.
 #
-# `&#160;`, `&ndash;` and `&mdash;` were here too and are gone: round 10
-# counted them at ZERO occurrences in the repository and no test failed when
-# they went, so they were extensions for constructed cases -- the same
-# measurement that removed the numbered-list marker, applied to the entry the
-# same round left standing. `&amp;` stays on the other side of that line: it
-# is measured at 12 real occurrences, and although the guard does not depend
-# on it today -- `SOURCE` matches the surname alone -- it normalises an
-# entity the surveyed text actually contains, which a constructed case does
-# not.
+# `&#160;`, `&ndash;` and `&mdash;` were here and are gone: round 10 counted
+# them at ZERO occurrences in the repository and no test failed when they
+# went, so they were extensions for constructed cases -- the same measurement
+# that removed the numbered-list marker.
+#
+# `&amp;` stays on measured grounds: 13 occurrences over 12 lines of the build
+# map. The guard does not depend on it today, since `SOURCE` matches the
+# surname alone, but it normalises an entity the surveyed text actually
+# contains, which a constructed case does not.
+#
+# `&nbsp;` stays as a DECLARED EXCEPTION to the process rule, which is better
+# than an undeclared one. Round 6 introduced it as a live escape; `git log -S`
+# over all refs says otherwise -- it has never appeared in the build map, or
+# anywhere outside this file, in any reachable commit. So its witness below
+# testifies for a constructed case. It is kept anyway, on a judgement stated
+# rather than hidden: the surveyed set includes an HTML page rewritten by hand
+# at every checkpoint, `&nbsp;` is the most common entity of that format, and
+# `ANY_CHAPTER` matches on `\s*`, so one such entity between the keyword and
+# the number would silently disarm the chapter guard on the very file that
+# carries the citation. Removing a cheap defence is not the same decision as
+# adding one, and the rule above governs additions.
 HTML_ENTITIES = {"&nbsp;": " ", "&amp;": "&"}
 
 # Files whose whole purpose is to talk ABOUT the defect. Only this one: a
@@ -435,12 +446,7 @@ def test_every_forbidden_title_has_a_witness():
     added with no probe behind it. Without it the next entry is silently
     deletable, which is exactly how the fourth one got here.
     """
-    covered = {
-        expected
-        for _, _, expected in (
-            test_the_guard_catches_a_violation_injected_into_a_real_file.pytestmark[0].args[1]
-        )
-    }
+    covered = {expected for _, _, expected in INJECTION_CASES}
     assert covered == set(FORBIDDEN_TITLES), (
         f"forbidden titles with no witness: {sorted(set(FORBIDDEN_TITLES) - covered)}"
     )
@@ -512,8 +518,15 @@ def test_every_forbidden_title_has_a_witness():
 def test_the_shapes_that_once_defeated_the_guard(label, payload, expect_caught, tmp_path):
     """Every shape that beat an earlier version, and two that must NOT fire.
 
-    All of these were live escapes, not hypotheticals: each defeated the
-    guard as it stood when it was found. The window version missed an offence
+    All but one of these defeated the guard as it stood when it was found.
+    The exception is `&nbsp;`, and round 11 caught the claim: `git log -S`
+    over all refs shows that entity has never appeared outside this file, so
+    that case was constructed, not observed. It is kept for the reason given
+    beside `HTML_ENTITIES` above, and the claim is corrected here rather than
+    left standing -- a docstring that calls a constructed case observed is
+    how the next reviewer is told to build one.
+
+    The window version missed an offence
     below its bound, an offence above the mention, a title broken by
     wrapping, and `&nbsp;` hiding a space; the paragraph version cut a
     sub-list item into a region that no longer named the source.

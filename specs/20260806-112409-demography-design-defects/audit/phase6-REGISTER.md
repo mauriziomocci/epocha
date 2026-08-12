@@ -1,4 +1,6 @@
-# Phase-6 audit on the CODE, rounds 1 to 8 — register, with its limit declared
+# Phase-6 audit on the CODE — register of all rounds, with its limit declared
+
+> Renamed at round 11. It was filed as `phase6-rounds-1-to-8-REGISTER.md` and by then tabulated ten rounds: a file whose name is an assertion goes stale the same way a docstring does, and this one was in an `audit/` directory, which is the last place a wrong label should survive.
 
 **Why this file exists.** Round 9 found that no phase-6 report had been filed: `audit/` held only the phase-0 and phase-2 rounds. Eight rounds and 83 findings were asserted closed in `tasks.md` and on the build map with **no artifact a reader could check**, and that assertion is what the merge ratification rests on. This register does not manufacture the missing reports. It records what is reconstructible from the commits and from `tasks.md:55`, and states plainly what is not.
 
@@ -21,7 +23,8 @@
 | 7 | NOT CONVERGED | 8 | `aac0917` | A retracted sentence still standing on the build map; the paragraph bound producing false positives; the list split cutting an author-date entry in half. |
 | 8 | NOT CONVERGED | 10 | `f0e3261` | `PROXIMITY_CHARS` suppressed a false positive that does not exist and opened a real blind spot at 812 characters. Deleted with two tests that bound nothing. The process rule was adopted here. |
 | 9 | NOT CONVERGED | 6 | `64be598` | See `phase6-round-9-NOT-CONVERGED.md`, filed in full. |
-| 10 | NOT CONVERGED | 5 | this branch | See `phase6-round-10-NOT-CONVERGED.md`, filed in full. First round run against a written stopping criterion (`5b33d4b`). |
+| 10 | NOT CONVERGED | 5 | `37cc452` | See `phase6-round-10-NOT-CONVERGED.md`, filed in full. First round run against a written stopping criterion (`5b33d4b`). |
+| 11 | **CONVERGED** | 7, none blocking | this branch | See `phase6-round-11-CONVERGED.md`. Ran the mutation battery against both `64be598` and `37cc452`: no mutant that killed before survives now, and four more die. All twenty tests shown killable. |
 
 ## Round 8's findings, as far as round 9 could check them
 

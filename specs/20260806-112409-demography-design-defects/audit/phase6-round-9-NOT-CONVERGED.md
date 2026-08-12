@@ -20,9 +20,13 @@ This is not a constructed shape. The historical violation carried initial capita
 
 **Closed** by capitalising the payload already present at the "title broken across two lines by wrapping" case. Zero new cases, zero new constants. Mutation: dropping `.lower()` now fails 1 of 18.
 
+**REOPENED BY ROUND 10, and this is the finding to read, not the closure above.** That capitalisation moved the line break out of the title in the same edit, retiring the only witness whitespace flattening had — a live branch this same file asserts twice. The repair destroyed a witness while adding one, for the second round running, and the second process rule comes from it: when a payload or a constant changes, run the mutation battery against the PREVIOUS version too. See `phase6-round-10-NOT-CONVERGED.md`, F-1.
+
 ## F-2 INCORRECT — "back under 300 lines" is false, and was published in four artifacts
 
-`wc -l`: **453** at `f0e3261`, not under 300. The full series in total lines is 167 at birth (`a6d4ffe`), 445, 543 at round 8's peak (`aac0917`), 453 after the cut. Round 8's cut is **16.6%**, not "to a third of its size", which is the subject line of the commit that made it. In code lines — blanks, comments and docstrings excluded — 305 to 255.
+`wc -l`: **453** at `f0e3261`, not under 300. Round 8's cut is **16.6%**, not "to a third of its size", which is the subject line of the commit that made it. In code lines — blanks, comments and docstrings excluded — 305 to 255.
+
+The series in total lines, **every commit that touches the file**, corrected by round 11 which found this paragraph calling an incomplete list "the full series": 167 (`a6d4ffe`), 275 (`d25574f`), 445 (`0dcfc75`), 543 (`aac0917`), 453 (`f0e3261`), 480 (`64be598`). Round 10 re-counted three of the four figures printed here, declared them exact, and did not notice that `d25574f` was missing altogether — a completeness claim checked by re-verifying its members, which is the one thing that cannot detect an omission.
 
 Worse than the number is the unit switch inside one sentence: 167 and 543 are total lines, "under 300" holds only for code lines. The claim appeared in `test_citation_hygiene.py:34`, `docs/build-map/epocha-build-map.html:365`, `HANDOFF-2026-08-12.md:46`, `tasks.md:55`, and in the commit subject. A file that exists to stop an unverified figure from circulating had published one about itself.
 
