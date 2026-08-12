@@ -1,278 +1,70 @@
 # Specification Quality Checklist: Build map bilingue in un solo file
 
-**Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-08-12
-**Revisione**: 6, dopo il round 4 e la rettifica del verbale stesso del gate pesante di fase 2
-**Feature**: [spec.md](../spec.md)
+**Revisione**: 7 — **Feature**: [spec.md](../spec.md)
 
-## Content Quality
+> **Questo file è un registro, non un racconto.** Fino alla revisione 6 era una
+> cronaca di 278 righe, e i round 4 e 5 hanno speso sei dei loro sei rilievi
+> bloccanti su contraddizioni interne al racconto invece che alla spec. Il round
+> 5 lo ha detto con precisione: «il verbale non è sottoposto alla disciplina che
+> il verbale impone alla spec». Il rimedio non è scrivere meglio la cronaca, è
+> **non tenerne una**: una riga per round, e le regole di processo qui perché
+> sono l'unico contenuto che sopravvive al work item.
 
-- [~] **No implementation details** — parzialmente, e deliberatamente. FR-007 e
-      D-2 nominano i token `s-done`/`s-prog`/`s-todo`, che sono classi CSS del
-      file, e FR-007b prescrive un meccanismo. Senza di essi i requisiti non
-      sarebbero decidibili: sono le chiusure dei due bloccanti del round 1. La
-      spunta piena era falsa e nascondeva la scelta invece di dichiararla.
-- [x] Focused on user value and business needs
-- [x] Written for non-technical stakeholders
-- [x] All mandatory sections completed — **inclusa la FAQ**, che la revisione 2
-      non aveva mentre questa casella era spuntata. Rilievo bloccante del round 2.
+## Checklist
 
-## Requirement Completeness
+- [x] Nessun dettaglio implementativo, **con un'eccezione dichiarata**: FR-007 e
+      D-2 nominano i token `s-done`/`s-prog`/`s-todo` e FR-007b prescrive un
+      meccanismo. Senza, i requisiti non sarebbero decidibili.
+- [x] Centrata sul valore per l'utente
+- [x] Tutte le sezioni obbligatorie presenti, FAQ inclusa
+- [x] Nessun marcatore [NEEDS CLARIFICATION]
+- [x] Requisiti verificabili e non ambigui
+- [x] Criteri di successo misurabili
+- [x] Scenari di accettazione definiti, casi limite identificati
+- [x] Ambito delimitato, dipendenze e assunzioni identificate
+- [x] I criteri manuali hanno **una sola sede autoritativa**, in coda ai Success
+      Criteria della spec. Questo file non li rienumera: rienumerarli è ciò che
+      li ha fatti divergere in cinque round consecutivi.
 
-- [x] No [NEEDS CLARIFICATION] markers remain
-- [x] Requirements are testable and unambiguous
-- [x] Success criteria are measurable
-- [x] Success criteria are technology-agnostic (no implementation details)
-- [x] All acceptance scenarios are defined
-- [x] Edge cases are identified
-- [x] Scope is clearly bounded
-- [x] **Dependencies and assumptions identified** — l'emendamento alla
-      costituzione e' **ratificato** (1.1.0, 2026-08-12) e la dipendenza e'
-      sciolta.
+## Registro dei round
 
-## Feature Readiness
+| round | verdetto | rilievi | bloccanti | il rilievo che conta |
+|---|---|---|---|---|
+| 1 | NOT CONVERGED | 13 | 4 | la feature creava una seconda eccezione a una frase costituzionale che diceva «the only exception» |
+| 2 | NOT CONVERGED | 16 | 5 | l'emendamento contraddiceva se stesso: vietava la prosa come collante e citava come meccanismo una checklist manuale |
+| 3 | NOT CONVERGED | 9 | 1 | il corpo della costituzione corretto, il suo log no — recidiva del bloccante del round 2 |
+| 4 | NOT CONVERGED | 7 | 3 | la terza regola non applicata a se stessa: tre affermazioni corrette sopravvivevano stale |
+| 5 | NOT CONVERGED | 8 | 3 | **la spec è pulita**; tutti e tre i bloccanti erano in questo file |
 
-- [x] All functional requirements have clear acceptance criteria
-- [x] User scenarios cover primary flows
-- [x] **Feature meets measurable outcomes defined in Success Criteria** — i
-      criteri manuali hanno **una sola sede autoritativa** nella spec, in coda ai
-      Success Criteria, e nessun altro punto li rienumera: il round 2 ha mostrato che
-      il default e la presenza delle varianti sono statici e quindi
-      automatizzabili con `beautifulsoup4`. Restano manuali il comportamento del
-      comando di alternanza e la persistenza, che richiedono un browser che il
-      progetto non ha. Dichiararli tali resta obbligatorio dopo aver contato
-      sedici criteri che passavano senza verificare nulla.
-- [~] **No implementation details leak** — vedi sopra: qui il meccanismo
-      appartiene alla spec perche' e' cio' che rende i requisiti verificabili.
+Totale 53 rilievi, 16 bloccanti. Non esistono file di rapporto separati per
+questo work item: i rilievi e le loro chiusure vivono nei messaggi di commit,
+che sono l'artefatto verificabile — `git log develop..HEAD`.
 
-## Stato del gate di fase 2
+## Le quattro regole di processo
 
-**Round 1: NOT CONVERGED**, 13 rilievi, 4 bloccanti. Tutti e 13 chiusi nella
-revisione 2 della spec; F-1 e' stato chiuso dalla ratifica dell'utente.
+Sono il prodotto che sopravvive al work item. Le prime due vengono dal gate di
+fase 6 della demografia, la terza e la quarta da qui.
 
-I quattro bloccanti, e cosa e' cambiato:
+1. **Una guardia strutturale si estende solo per una violazione osservata nel
+   repository, mai per una costruita da chi rivede.** Lo spazio degli input
+   costruibili è infinito, quello dei casi reali è piccolo e osservabile.
+2. **Quando cambia un payload o una costante, la batteria di mutazioni si
+   rilancia anche contro la versione precedente.** Una correzione si giudica dai
+   mutanti che smette di uccidere, non da quelli che uccide.
+3. **Prima di scrivere «chiuso», si greppa l'affermazione corretta su tutto il
+   branch, non il rilievo che la nominava.** Il difetto non è dove l'hai visto.
+4. **Una verifica deve dimostrare di poter fallire prima di essere creduta.**
+   Controlla che i propri bersagli esistano, non silenzia gli errori, e porta un
+   controllo positivo e uno negativo. Nata perché una procedura pubblicata come
+   prova cercava in un percorso inesistente e restituiva undici zeri, nessuno
+   dei quali una misura.
 
-- **F-1 governance — CHIUSO.** La costituzione diceva che il mirror italiano del
-  whitepaper era «the only exception»; questa feature ne creava una seconda.
-  **Ratificato dall'utente il 2026-08-12**, costituzione a 1.1.0 con tutti e
-  quattro gli adempimenti. Il round 2 ha poi trovato che l'emendamento
-  contraddiceva se stesso (R2-2) e che questo verbale continuava a dichiararlo
-  aperto (R2-1): entrambi chiusi nella revisione 3.
-- **F-2 chiuso**: FR-003 e FR-007 si contraddicevano sulle etichette di stato —
-  una pill tradotta correttamente era insieme dovuta e vietata. Lo stato ora si
-  confronta sul token di classe che il file gia' porta (`s-done`/`s-prog`/`s-todo`),
-  che e' indipendente dalla lingua.
-- **F-3 chiuso**: FR-006 non diceva come si identifica un blocco. Ora la chiave
-  stabile e' un requisito, e FR-008 — che senza chiavi era contraddittorio e con
-  le chiavi era vuoto — e' cancellato e sostituito dall'obbligo di dichiarare il
-  limite.
-- **F-4 chiuso, ed era il piu' grave**: prosa riscritta in una lingua sola, senza
-  toccare stati ne' numeri, passava ogni controllo — sul caso piu' frequente a un
-  checkpoint, su un paragrafo di 24 750 caratteri di HTML interno, 762 dei quali marcatura. Chiuso da
-  FR-007b, l'impronta del blocco normativo, che rende obsoleto il mirror quando
-  il normativo cambia.
+Una quinta, implicita in tutte: **il rimedio a un'informazione che diverge non è
+tenerla allineata in più posti, è tenerla in un posto solo.** Il conteggio dei
+criteri manuali è divergito cinque volte perché ogni correzione aggiungeva una
+sede invece di eliminarne una.
 
-I nove non bloccanti sono chiusi: la stima sulle regioni di citazione era falsa
-su entrambe le meta' e il rischio vero e' la co-locazione; il tetto del 2% non
-era un tetto e come criterio non poteva fallire (0,09 ms contro 9,71 s, tre
-ordini di grandezza); byte e caratteri erano scambiati; due conteggi di
-caratteri e parole non erano riproducibili e sono rimossi; due cifre
-autoinvalidanti residue sono state riscritte in forma relazionale; il round 2 ha mostrato che il default e la presenza delle
-varianti sono statici e quindi automatizzabili con `beautifulsoup4`; i criteri
-manuali residui sono **enumerati una volta sola nella spec** invece di essere
-contati, perche' un conteggio derivato in due sedi diverge e infatti era
-divergito; la lingua normativa e' dichiarata (italiano, con
-l'inglese mirror); i due casi d'ambiente — JavaScript assente e persistenza non
-disponibile nell'artifact — sono requisiti espliciti; e l'argomento del «perche'
-farlo» e' stato riscritto, perche' quello della prima stesura inventava una
-causalita' che i numeri della spec stessa contraddicevano.
+## Aperto
 
-Con la ratifica, tutti e 13 i rilievi del round 1 risultano chiusi.
-
-
-## Round 2 — NOT CONVERGED, 16 rilievi, 5 bloccanti
-
-Tutti chiusi nella revisione 3. I cinque bloccanti:
-
-- **R2-1**: il verbale del gate dichiarava aperto l'emendamento che la
-  costituzione dello stesso branch dichiarava ratificato, e citava
-  `constitution.md:96` per un testo che quella riga non porta piu'. Difetto
-  creato dal commit dell'emendamento senza rilavorare la spec. Chiuso.
-- **R2-2**: l'emendamento **contraddiceva se stesso** — vietava l'allineamento
-  affidato alla sola prosa e citava come meccanismo la doc-sync rule, che e' una
-  checklist di PR con zero hook attivi. Corretto nella costituzione, che ora
-  dichiara l'asimmetria.
-- **R2-3**: FR-007b si comprava con l'edit di un token, ricalcolando l'impronta
-  senza tradurre. Chiuso **dichiarando il limite** invece di promettere cio' che
-  nessun checksum puo' dare, ritirando la parola «inderogabile» da D-4 e
-  registrando le impronte di entrambi i testi perche' l'aggiramento resti
-  leggibile nel diff.
-- **R2-4**: FR-003 enumerava cinque categorie e lasciava fuori dell'altro testo
-  visibile, **fra cui la riga che enuncia la regola della mappa**. Invertito:
-  traducibile e' tutto il testo visibile, con esenzione per elenco chiuso e
-  dichiarata per singolo elemento.
-- **R2-5**: mancava la FAQ, obbligatoria per regola CRITICAL, mentre la casella
-  «All mandatory sections completed» era spuntata. Aggiunta.
-
-Undici non bloccanti chiusi: la citazione di memoria che non nominava la build
-map, l'intervallo dei numeri a lettere con il metodo dichiarato, i caratteri
-di marcatura contati come prosa, il `try/catch` attribuito a uno storage
-inesistente, il conteggio dei criteri manuali dato in due modi, le due spunte
-false, le tre sedi mancanti di FR-010, l'asimmetria dell'impronta, i due criteri
-automatizzabili spediti al manuale, la collocazione della guardia e il tempo di
-parete dentro un requisito.
-
-**Prossimo passo**: round 3 sulla revisione 3.
-
-
-## Round 3 — NOT CONVERGED, 9 rilievi, 1 bloccante
-
-Tutti chiusi nella revisione 4.
-
-**Il bloccante, R3-1, e' la recidiva esatta di R2-1**: la correzione dell'emendamento
-ha riparato il CORPO della costituzione e non il LOG dell'emendamento nello stesso
-file, ne' la memoria che lo registra — che `constitution.md:108` elenca fra i
-quattro adempimenti che rendono valido un emendamento, quindi era il record
-costitutivo a dire il falso sul proprio contenuto. Le tre copie sono ora
-rilavorate insieme.
-
-Otto non bloccanti: tre frasi altrove promettevano ancora l'inderogabilita' che
-D-4 aveva appena ritirato, e una l'aveva scritta il commit stesso della
-correzione; il conteggio dei criteri manuali era di nuovo dato in due modi, dopo
-che il round 2 aveva chiuso proprio quel rilievo; la dispersione dei tempi era
-calcolata sul massimo e dichiarata sul minimo (69,6%, non 41%); l'etichetta del
-terzo metodo di conteggio era sbagliata; due cifre secche sopravvivevano accanto
-all'intervallo che le sostituiva; l'elenco chiuso di FR-003a non copriva nomi di
-branch e citazioni autore-anno; FR-010 diceva «tutte le sedi» e ne nominava
-cinque su sette; «quasi tremila caratteri» erano 3 252.
-
-## LA TERZA REGOLA DI PROCESSO, che e' il prodotto di questo round
-
-> **Prima di scrivere «chiuso», si greppa l'AFFERMAZIONE corretta su tutto il
-> branch, non il rilievo che la nominava.**
-
-Tre round di fila hanno prodotto lo stesso guasto: la correzione viene applicata
-dove il rilievo puntava e non dove la stessa affermazione vive. Il round 2 ha
-trovato un emendamento committato senza rilavorare il verbale; il round 3 ha
-trovato un corpo corretto senza il suo log, un «inderogabile» ritirato in un
-punto su quattro, un intervallo adottato accanto a due cifre secche rimaste, e
-un conteggio ricalcolato senza guardare le marcature che lo contraddicevano.
-**Quattro dei nove rilievi di questo round sparirebbero con quel solo passo.**
-
-E' la terza dopo quelle nate dal gate di fase 6 — si estende una guardia solo per
-una violazione osservata; una correzione si giudica dai mutanti che smette di
-uccidere. Tutte e tre dicono la stessa cosa da tre angoli: **il difetto non e'
-dove lo si e' visto**.
-
-
-
-
-## Round 4 — NOT CONVERGED, 7 rilievi, 3 bloccanti
-
-Il round esisteva per una domanda sola — la terza regola e' stata applicata a se
-stessa? — e la risposta misurata e' **no**. Tre delle nove affermazioni corrette
-sopravvivevano stale nel commit che istituiva la regola contro questo.
-
-- **R4-1**: l'intestazione della spec diceva ancora «Revisione 3, dopo il round
-  2» mentre il verbale diceva 4. Prima del commit erano allineate: la
-  remediation ha rotto un allineamento che funzionava.
-- **R4-2**: il conteggio dei criteri manuali divergeva per la **quarta** volta, e
-  stavolta dentro la spec stessa — una riga diceva «quattro», un'altra «resta
-  davvero manuale solo» due, e una terza contava male i propri marcatori. Chiuso
-  smettendo di contare: c'e' **una sola sede autoritativa** e ogni altra rinvia.
-  Il rimedio non era contare meglio, era avere un posto solo.
-- **R4-3**: la promessa che D-4 ritira sopravviveva nella definizione del
-  deliverable e nel **titolo** di User Story 3. Corretti entrambi: il meccanismo
-  rende visibile la divergenza, non la impedisce.
-
-Quattro non bloccanti: «due sedi su cinque» dopo averne elencate otto, il backup
-della roadmap fuori dall'elenco chiuso, 99,9% arrotondato a 100%, e il rapporto
-fra righe normative e righe di verbale che peggiora.
-
-## La terza regola, eseguita come PROCEDURA
-
-Il round 4 ha chiesto che la regola lasciasse un residuo verificabile invece
-della parola «chiuso». Eseguita, ecco l'output. Ambito: `specs/`, costituzione,
-`CLAUDE.md`, i due README, `docs/memory-backup/`, la build map e la memoria viva.
-
-```
-1  'requires a mechanism'                   0
-1b 'pretende un meccanismo' non negato      0   (1 match, verificato falso positivo:
-                                                 il NON e' a fine riga precedente)
-2  'are held together'                      0
-3  'impedisce ... divergenza'               0
-4  'Resta davvero manuale solo'             0
-5  '41% sul minimo'                         0
-5b dispersione al 100%                      0
-6  'spazi e trattini 170'                   0
-7  '163 occorrenze' come cifra secca        0
-8  'due sedi su cinque'                     0
-9  'quasi tremila'                          0
-
-memoria viva == backup: identici
-```
-
-L'unico match ha richiesto di aprire il file per essere giudicato, ed e'
-esattamente il motivo per cui la procedura va **eseguita** e non dichiarata: un
-conteggio a zero senza ispezione del residuo e' un altro criterio che non puo'
-fallire.
-
-
-
-
-## RETTIFICA: gli undici zeri di sopra erano falsi
-
-Va scritto qui, sopra ogni altra cosa, perche' e' il difetto piu' istruttivo di
-tutto il gate e l'ho commesso io nel verbale che celebrava la procedura.
-
-Il blocco di grep pubblicato sopra come «residuo verificabile» **non verificava
-nulla**. Il wrapper era:
-
-```
-ROOTS="specs/... .specify/memory/constitution.md CLAUDE.md ..."
-n=$(grep -rn "$pattern" $ROOTS $LIVE 2>/dev/null | grep -vc "^$")
-```
-
-In zsh una variabile scalare **non subisce word splitting**: `$ROOTS` arrivava a
-grep come UN SOLO percorso, la concatenazione letterale di tutti quelli
-elencati. Quel percorso non esiste, grep emetteva un warning, il warning finiva
-in `2>/dev/null`, l'output era vuoto e il conteggio dava zero. **Undici zeri, e
-nessuno di essi era una misura.**
-
-Rieseguita correttamente — array `roots=(...)` piu' un **sanity check che
-verifica che ogni percorso esista prima di cercare** — sette affermazioni
-risultano davvero pulite e **una no**: «due sedi su cinque» sopravviveva a
-`spec.md:282`, cioe' esattamente il rilievo R4-4 che il verbale dichiarava
-chiuso. Sette conclusioni giuste per caso, una sbagliata.
-
-**LA QUARTA REGOLA DI PROCESSO**, che nasce da qui:
-
-> **Una verifica deve dimostrare di poter fallire prima di essere creduta.**
-> Concretamente: la verifica controlla che i propri bersagli esistano, e non
-> silenzia gli errori. `2>/dev/null` su un controllo nasconde il fallimento del
-> controllo, non del controllato.
-
-E' la stessa classe dei sedici criteri che non potevano fallire contati nel gate
-di fase 6 — questo e' il diciassettesimo — con l'aggravante di essere lo
-strumento scritto per impedire quella classe. Un conteggio a zero da un comando
-che non ha letto nulla e' indistinguibile da un conteggio a zero da un comando
-che ha letto tutto: la differenza la fa il sanity check, e senza quello la
-procedura era teatro.
-
-## Revisione 6 — separazione del normativo dal verbale
-
-Il round 3 aveva osservato che ogni requisito porta dentro la storia di cosa
-sbagliava la revisione precedente, e che in FR-003 la frase normativa era una
-riga su dieci; il round 4 ha misurato che il rapporto peggiorava. La revisione 6
-separa: **la sezione Requirements porta solo il normativo**, il perche' sta in
-«Decisioni di design», la cronaca sta qui. La spec scende da 414 a 383 righe
-mentre i requisiti restano quattordici, e i riferimenti a revisioni precedenti
-dentro il normativo passano da 19 a 13, tutti fuori dalla sezione dei requisiti.
-
-La ragione non e' estetica: un requisito che racconta la propria storia offre al
-round successivo una superficie che non e' il requisito, e ogni contraddizione
-fra la storia e il testo diventa un rilievo. Tre dei sette rilievi del round 4
-erano di quella specie.
-
-**Prossimo passo**: round 5 sulla revisione 6, con la rettifica sopra come primo
-oggetto d'esame.
+Round 6 sulla revisione 7. Se converge: `/speckit-plan`, `/speckit-tasks`,
+implementazione.

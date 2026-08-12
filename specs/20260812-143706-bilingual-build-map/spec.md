@@ -2,7 +2,7 @@
 
 **Branch**: `20260812-143706-bilingual-build-map`
 **Creata**: 2026-08-12
-**Revisione**: 5, dopo il round 4 del gate pesante. Serie: round 1 → 13 rilievi (4 bloccanti); round 2 → 16 (5); round 3 → 9 (1); round 4 → 7 (3)
+**Revisione**: 7 — la serie dei round sta nel registro, `checklists/requirements.md`, unica sede
 **Stato**: bozza. L'emendamento alla costituzione **e' stato ratificato dall'utente il 2026-08-12** ed e' in vigore come versione 1.1.0.
 
 ## Il problema, e perché non è "tradurre una pagina"
@@ -357,7 +357,7 @@ checksum distingue una traduzione da un bump pigro. Garantisce che l'omissione
 sia un atto deliberato e visibile nel diff invece di una dimenticanza. La classe
 di guasto da chiudere è la dimenticanza.
 
-**Che cosa resta scoperto, in tutto?** I numeri scritti a lettere non sono
+**Che cosa resta scoperto?** L'elenco normativo è in FR-008, unica sede; qui il senso. I numeri scritti a lettere non sono
 confrontati; una traduzione sbagliata ma presente passa; la lingua effettiva del
 contenuto non è un predicato calcolabile. I tre limiti vivranno nel docstring
 della guardia, come fa quella sulle citazioni.
