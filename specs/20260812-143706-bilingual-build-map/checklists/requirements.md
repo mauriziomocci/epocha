@@ -2,7 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-08-12
-**Revisione**: 5, dopo il round 4 del gate pesante di fase 2
+**Revisione**: 6, dopo il round 4 e la rettifica del verbale stesso del gate pesante di fase 2
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -217,4 +217,62 @@ esattamente il motivo per cui la procedura va **eseguita** e non dichiarata: un
 conteggio a zero senza ispezione del residuo e' un altro criterio che non puo'
 fallire.
 
-**Prossimo passo**: round 5 sulla revisione 5.
+
+
+
+## RETTIFICA: gli undici zeri di sopra erano falsi
+
+Va scritto qui, sopra ogni altra cosa, perche' e' il difetto piu' istruttivo di
+tutto il gate e l'ho commesso io nel verbale che celebrava la procedura.
+
+Il blocco di grep pubblicato sopra come «residuo verificabile» **non verificava
+nulla**. Il wrapper era:
+
+```
+ROOTS="specs/... .specify/memory/constitution.md CLAUDE.md ..."
+n=$(grep -rn "$pattern" $ROOTS $LIVE 2>/dev/null | grep -vc "^$")
+```
+
+In zsh una variabile scalare **non subisce word splitting**: `$ROOTS` arrivava a
+grep come UN SOLO percorso, la concatenazione letterale di tutti quelli
+elencati. Quel percorso non esiste, grep emetteva un warning, il warning finiva
+in `2>/dev/null`, l'output era vuoto e il conteggio dava zero. **Undici zeri, e
+nessuno di essi era una misura.**
+
+Rieseguita correttamente — array `roots=(...)` piu' un **sanity check che
+verifica che ogni percorso esista prima di cercare** — sette affermazioni
+risultano davvero pulite e **una no**: «due sedi su cinque» sopravviveva a
+`spec.md:282`, cioe' esattamente il rilievo R4-4 che il verbale dichiarava
+chiuso. Sette conclusioni giuste per caso, una sbagliata.
+
+**LA QUARTA REGOLA DI PROCESSO**, che nasce da qui:
+
+> **Una verifica deve dimostrare di poter fallire prima di essere creduta.**
+> Concretamente: la verifica controlla che i propri bersagli esistano, e non
+> silenzia gli errori. `2>/dev/null` su un controllo nasconde il fallimento del
+> controllo, non del controllato.
+
+E' la stessa classe dei sedici criteri che non potevano fallire contati nel gate
+di fase 6 — questo e' il diciassettesimo — con l'aggravante di essere lo
+strumento scritto per impedire quella classe. Un conteggio a zero da un comando
+che non ha letto nulla e' indistinguibile da un conteggio a zero da un comando
+che ha letto tutto: la differenza la fa il sanity check, e senza quello la
+procedura era teatro.
+
+## Revisione 6 — separazione del normativo dal verbale
+
+Il round 3 aveva osservato che ogni requisito porta dentro la storia di cosa
+sbagliava la revisione precedente, e che in FR-003 la frase normativa era una
+riga su dieci; il round 4 ha misurato che il rapporto peggiorava. La revisione 6
+separa: **la sezione Requirements porta solo il normativo**, il perche' sta in
+«Decisioni di design», la cronaca sta qui. La spec scende da 414 a 383 righe
+mentre i requisiti restano quattordici, e i riferimenti a revisioni precedenti
+dentro il normativo passano da 19 a 13, tutti fuori dalla sezione dei requisiti.
+
+La ragione non e' estetica: un requisito che racconta la propria storia offre al
+round successivo una superficie che non e' il requisito, e ogni contraddizione
+fra la storia e il testo diventa un rilievo. Tre dei sette rilievi del round 4
+erano di quella specie.
+
+**Prossimo passo**: round 5 sulla revisione 6, con la rettifica sopra come primo
+oggetto d'esame.

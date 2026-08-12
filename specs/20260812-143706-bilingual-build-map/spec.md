@@ -205,83 +205,52 @@ senza fare nulla.
 
 ## Requirements *(mandatory)*
 
-- **FR-001**: contenuto in italiano e inglese in **un solo file**,
+> Questa sezione porta **solo il normativo**. Il perché di ogni scelta sta in
+> «Decisioni di design»; la cronaca di cosa sbagliava ogni revisione sta nel
+> verbale, `checklists/requirements.md`. La separazione è la correzione del
+> difetto che i round 3 e 4 hanno colto quattro volte: un requisito che racconta
+> la propria storia offre alla revisione successiva una superficie che non è il
+> requisito, e ogni contraddizione fra la storia e il testo diventa un rilievo.
+
+- **FR-001**: il contenuto sta in italiano e in inglese in **un solo file**,
   `docs/build-map/epocha-build-map.html`, pubblicato sull'artifact URL esistente.
   Nessun secondo file, nessun secondo URL.
-- **FR-002**: la lingua predefinita è l'italiano, ed è **lo stato a riposo del
-  documento**, non il risultato di uno script. Con JavaScript non disponibile il
-  lettore deve vedere l'italiano, non le due lingue impilate.
-- **FR-003**: è traducibile **tutto il testo visibile della pagina**, e non lo
-  sono soltanto gli identificatori tecnici elencati sotto. La revisione 2
-  enumerava cinque categorie e lasciava fuori dell'altro testo visibile —
-  misurati oltre tremila caratteri — 3 252 fra note, deck, legenda, etichette di blocco,
-  intestazioni di colonna e il pannello delle regole — e fra quel testo c'era la
-  riga che enuncia la regola della mappa stessa, «It is mandatory to update it —
-  it is not a snapshot», che il lettore italiano avrebbe letto in inglese senza
-  che alcun test fallisse. L'enumerazione per categorie è la forma sbagliata:
-  ogni categoria dimenticata è un buco silenzioso, mentre l'esenzione per elenco
-  chiuso rende visibile ciò che si sottrae.
-- **FR-003a**: sono esenti gli identificatori tecnici — riferimenti di capitolo,
-  percorsi di file, SHA, numeri di fase, nomi di modulo, **nomi di branch**
-  (`20260806-112409-demography-design-defects` compare nel file) e **citazioni
-  autore-anno** (`Sjaastad 1962`, `Harris & Todaro 1970`), che il Principio I
-  vieta di alterare — e l'esenzione è
-  **dichiarata per singolo elemento**, non dedotta dal suo aspetto. Un tag ibrido
-  come `wired · engine.py:394` porta insieme uno stato e un percorso, e nessuna
-  euristica lo classifica correttamente. Il caso che lo dimostra è `not wired`,
-  che è uno stato — quello che la regola CRITICAL impone di verificare grepando
-  il tick engine — e che la revisione 2 lasciava fuori sia da FR-003 sia dal
-  confronto sui token di FR-007.
+- **FR-002**: la lingua predefinita è l'italiano ed è **lo stato a riposo del
+  documento**, non il risultato di uno script. Senza JavaScript il lettore vede
+  l'italiano, non le due lingue impilate.
+- **FR-003**: è traducibile **tutto il testo visibile della pagina**, tranne le
+  esenzioni di FR-003a. L'esenzione è per **elenco chiuso**, mai per
+  enumerazione di ciò che è incluso.
+- **FR-003a**: sono esenti riferimenti di capitolo, percorsi di file, SHA,
+  numeri di fase, nomi di modulo, nomi di branch e citazioni autore-anno.
+  L'esenzione è **dichiarata per singolo elemento**, mai dedotta dall'aspetto.
 - **FR-004**: un comando visibile alterna le lingue senza ricaricare; la scelta
   persiste dove la persistenza è disponibile.
-- **FR-005**: la pagina resta **self-contained**. Verificato che oggi lo sia:
-  nessun `src=` o `href=` verso risorse esterne.
+- **FR-005**: la pagina resta **self-contained**: nessuna risorsa esterna,
+  nessuna chiamata di rete.
 - **FR-006**: ogni blocco traducibile porta una **chiave stabile** presente in
   entrambe le lingue. La guardia fallisce se una chiave esiste in una lingua sola.
 - **FR-007**: la guardia fallisce se le due lingue divergono sul **token di
   stato** o sui **numeri**.
-- **FR-007a**: il confronto fra numeri avviene dopo **normalizzazione della
-  notazione**: `16.6%` e `16,6%` sono lo stesso numero, `2 844` e `2,844` pure.
-  Non è una clausola costruita: il file porta decimali veri — `48.8`, `95.8`,
-  `220.5`, `12.43`, `0.5403`, `0.7122` — e un conteggio suite a quattro cifre.
+- **FR-007a**: i numeri si confrontano dopo **normalizzazione della notazione**:
+  `16.6%` e `16,6%` sono lo stesso numero, `2 844` e `2,844` pure.
 - **FR-007b**: ogni blocco registra l'**impronta di entrambi i testi**, normativo
-  e mirror. La guardia fallisce se un testo è cambiato e la sua impronta no. La
-  simmetria non aggiunge un componente, applica due volte lo stesso, e serve
-  perché l'inglese è la lingua riflessa di chiunque editi questo repository —
-  `CLAUDE.md` impone l'inglese per codice, commit, test, README e memorie — quindi
-  una modifica al solo mirror è almeno tanto probabile quanto una al normativo.
+  e mirror. La guardia fallisce se un testo è cambiato e la sua impronta no.
 - **FR-008**: la guardia **dichiara nel proprio docstring il limite** di ciò che
-  non prende, come fa quella sulle citazioni. Alla stesura di questa spec il
-  limite noto è: i numeri scritti a lettere non sono confrontati, e una modifica
-  al mirror che non tocchi il normativo non è rilevata.
-- **FR-009**: dopo la modifica, `test_citation_hygiene.py` resta a **zero
-  offender** e la build map resta fra i file che la sua camminata raggiunge.
-  Baseline verificata: **20 test verdi**. Il tempo di parete non entra nel
-  requisito — tre esecuzioni nel container danno 12,28 s, 8,85 s e 7,24 s, una
-  dispersione del 69,6% sul minimo, e una quarta esecuzione a 14,47 s la porta
-  al 99,9% — per la stessa ragione per cui SC-005 ha
-  cancellato il tetto del 2%: un criterio su un tempo di parete non può fallire
-  in modo affidabile.
-- **FR-009a**: la guardia è **un test eseguito dalla suite**, altrimenti FR-006,
-  FR-007 e FR-007b non hanno un momento in cui fallire. Dove collocarla è materia
-  del piano, non della spec, ma la spec vincola che non sia uno script che
-  qualcuno ricorda di lanciare: l'unico precedente, `test_citation_hygiene.py`,
-  vive dentro `demography` per ragioni storiche e cammina su tutto il repository,
-  e quel precedente non va imitato senza pensarci.
-- **FR-010**: la regola della build map è estesa alle due lingue **in tutte le
-  sedi che la portano**, non solo in `CLAUDE.md`: la costituzione, la memoria
-  `feedback_build_map_source_of_truth.md` con il suo backup, la roadmap
-  `project_roadmap_post_mvp.md` con il suo backup, che porta la regola in forma
-  imperativa, e i due README che la descrivono senza dire che
-  è bilingue né quale testo è normativo; l'indice `MEMORY.md` con il suo backup,
-  che porta la regola in prima riga; e **la mappa stessa**, la cui riga «It is
-  mandatory to update it — it is not a snapshot» enuncia la regola dentro
-  l'artefatto che la regola governa. Il progetto tratta già altrove le copie
-  multiple come un insieme che cambia insieme, e la memoria rimasta 94 giorni
-  stale è il precedente che ha generato l'intera regola. Il testo originale di
-  questo requisito nominava due sedi su cinque,
-  **e la costituzione è emendata** come sopra. Una regola nuova senza il suo
-  meccanismo sarebbe la diciassettesima proprietà dichiarata e non sorvegliata.
+  non prende. Limiti noti alla stesura: i numeri scritti a lettere non sono
+  confrontati; una traduzione presente ma sbagliata passa; ricalcolare l'impronta
+  senza tradurre compra il verde.
+- **FR-009**: `test_citation_hygiene.py` resta a **zero offender** e la build map
+  resta fra i file che la sua camminata raggiunge. Baseline: 20 test verdi.
+  Nessun tempo di parete entra nel requisito.
+- **FR-009a**: la guardia è **un test eseguito dalla suite**, non uno script che
+  qualcuno ricorda di lanciare.
+- **FR-010**: la regola della build map è estesa alle due lingue **in ogni sede
+  che la porta**. Sono otto: `CLAUDE.md`, la costituzione,
+  `feedback_build_map_source_of_truth.md`, `project_roadmap_post_mvp.md`,
+  l'indice `MEMORY.md` — le ultime tre con il rispettivo backup —, `README.md`,
+  `README.it.md`, e **la mappa stessa**, la cui riga «It is mandatory to update
+  it — it is not a snapshot» enuncia la regola dentro l'artefatto che governa.
 
 ## Success Criteria *(mandatory)*
 
