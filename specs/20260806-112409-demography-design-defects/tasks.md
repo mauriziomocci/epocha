@@ -66,4 +66,4 @@ Nove round senza un criterio scritto, e la ragione per cui va scritto **adesso**
 
 La seconda classe resta bloccante **apposta**, ed e' cio' che impedisce a questo criterio di auto-assolversi: declassare i test sarebbe buttare via la lezione che questo work item ha pagato quattordici volte. Un test che non puo' fallire e' il meccanismo che sorveglia il codice, non commento sul codice.
 
-- [ ] **5.4** Merge e ri-pin del whitepaper al commit di merge. **Richiede ratifica esplicita dell'utente**: il piano la colloca qui e nessun gate la sostituisce.
+- [x] **5.4** Merge e ri-pin del whitepaper al commit di merge — ratificato dall'utente e mergiato in `develop` con `--no-ff` al commit `fb893f5`. Entrambi i whitepaper ri-pinnati a quel commit; il merge ha reso false due frasi che dichiaravano il pin ancora fermo allo stato pre-emendamento, corrette in loco con la nota del perche', non sostituite in silenzio. Memory backup sincronizzato, build map aggiornata e ripubblicata.
