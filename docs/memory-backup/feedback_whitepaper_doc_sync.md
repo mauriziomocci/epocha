@@ -27,7 +27,6 @@ Ogni PR che modifica codice di un modulo descritto nel cap. 4 del whitepaper bil
 | `epocha/apps/agents/movement.py` | §4.6 (EN) | §4.6 (IT) |
 | `epocha/apps/agents/factions.py` | §4.7 (EN) | §4.7 (IT) |
 | `epocha/apps/economy/production.py`, `market.py`, `distribution.py`, `monetary.py`, `initialization.py`, `engine.py` | §4.8 (EN) | §4.8 (IT) |
-| `epocha/apps/demography/template_loader.py`, `truncated_moments.py`, `templates/*.json` | §6.2 (EN) | §6.2 (IT) |
 
 Quando un modulo del cap. 8 viene promosso a cap. 4 dopo re-audit CONVERGED, aggiungerlo a questa tabella. Residuo: solo il Knowledge Graph (§8.1).
 
