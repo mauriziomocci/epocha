@@ -2,8 +2,8 @@
 
 **Branch**: `20260812-143706-bilingual-build-map`
 **Creata**: 2026-08-12
-**Revisione**: 2, dopo il round 1 del gate pesante di fase 2 (NOT CONVERGED, 13 rilievi di cui 4 bloccanti)
-**Stato**: bozza. **Un punto resta aperto e richiede una decisione dell'utente**: l'emendamento alla costituzione, sotto.
+**Revisione**: 3, dopo il round 2 del gate pesante (round 1: 13 rilievi, 4 bloccanti; round 2: 16, 5 bloccanti)
+**Stato**: bozza. L'emendamento alla costituzione **e' stato ratificato dall'utente il 2026-08-12** ed e' in vigore come versione 1.1.0.
 
 ## Il problema, e perché non è "tradurre una pagina"
 
@@ -40,31 +40,32 @@ spec, non a quella del codice. A questo si aggiunge una preferenza dell'utente
 dichiarata come tale, che è una ragione sufficiente e non ha bisogno di essere
 travestita da inferenza.
 
-## Governance: l'emendamento necessario **[DECISIONE UTENTE, BLOCCANTE]**
+## Governance: l'emendamento, ratificato
 
-`.specify/memory/constitution.md:96` dice: «Italian for spec files; English for
-everything else (code, commits, plans, docstrings, README, whitepaper EN,
-CLAUDE.md). **The whitepaper Italian mirror is the only exception where
-translated technical prose is the deliverable.**»
+Prima dell'emendamento `.specify/memory/constitution.md` diceva che il mirror
+italiano del whitepaper era **l'unica** eccezione alla regola per cui tutto cio'
+che non e' una spec sta in inglese, e questa feature ne creava una seconda. Il
+round 1 lo ha rilevato come bloccante di governance, che chi redige la spec non
+puo' chiudere.
 
-La build map non è uno spec file, non è il whitepaper, non è codice: ricade in
-"everything else". Questa feature crea quindi una **seconda** eccezione a una
-frase che dice «the only exception». La costituzione è autorità superiore a
-`CLAUDE.md` e il suo Governance esige, per un emendamento: approvazione
-esplicita, voce nella memoria di riferimento, version bump e migration guidance.
-**Nessuno dei quattro può essere deciso da chi scrive la spec.**
+**Ratificato dall'utente il 2026-08-12**, costituzione alla versione **1.1.0**,
+con i quattro adempimenti che il suo Governance esige: approvazione esplicita,
+voce in `feedback_canonical_workflow.md`, version bump con data, migration
+guidance. La build map sta ora dal lato italiano, per la stessa ragione per cui
+ci stanno le spec.
 
-L'emendamento proposto, minimo e coerente col principio già presente:
+Il round 2 ha poi trovato che l'emendamento **contraddiceva se stesso**: vietava
+l'allineamento affidato alla sola prosa e nella riga dopo citava come meccanismo
+la doc-sync rule dei whitepaper, che e' una checklist di PR — zero hook attivi
+nel repository, e `feedback_whitepaper_doc_sync.md:49` dice espressamente di non
+costruirne. Corretto: la costituzione ora **dichiara l'asimmetria** invece di
+nasconderla, e dice che promuovere il doc-sync a meccanismo e' un work item
+separato, non una frase.
 
-> Italian for spec files **and for the build map**, which is the artifact the
-> user must read and act on at every checkpoint and therefore belongs to the
-> same class as the specs; English for everything else. Two deliverables carry
-> translated technical prose: the whitepaper Italian mirror, whose normative
-> text is the English one, and the build map, whose normative text is the
-> Italian one.
-
-Finché questo non è ratificato, la spec non è approvabile. È il primo rilievo
-del round 1 ed è di governance, non di merito.
+Le citazioni `file:riga` di questa sezione nella revisione 2 puntavano a
+`constitution.md:96` per un testo che quella riga, dopo la ratifica, non porta
+piu': un verbale di gate che poggiava su una citazione verificabilmente falsa.
+E' il motivo per cui questa sezione e' riscritta al passato.
 
 ## Decisioni di design che il round 1 ha imposto
 
@@ -95,10 +96,22 @@ Questa è la risposta al rilievo più grave del round 1, e senza di essa la feat
 non manterrebbe la sua promessa centrale. Chiave, stato e numeri non intercettano
 **il caso più frequente di divergenza a un checkpoint: la prosa riscritta in una
 lingua sola.** Quel caso ha entrambe le chiavi, lo stesso stato e gli stessi
-numeri, e passerebbe ogni controllo — su un paragrafo che è 24 750 caratteri di
-prosa pura. Con l'impronta, modificare il testo normativo senza aggiornare il
-mirror rende l'impronta obsoleta e la guardia rossa. È il meccanismo che rende la
-regola inderogabile davvero inderogabile, invece di dichiararla.
+numeri, e passerebbe ogni controllo — su un paragrafo il cui HTML interno è 24 750 caratteri, di cui
+23 988 di testo una volta tolta la marcatura. Con l'impronta, modificare il testo normativo senza aggiornare il
+mirror rende l'impronta obsoleta e la guardia rossa.
+
+**Il limite di questo meccanismo, dichiarato invece che taciuto, ed e' il rilievo
+principale del round 2.** Nessuna impronta distingue una traduzione da un bump
+pigro: chi ha fretta puo' ricalcolare l'impronta e incollarla, e comprare il
+verde con l'edit di un token. Non e' un difetto dell'implementazione, e' un
+limite teorico di ogni checksum — un'impronta prova che qualcuno ha *toccato*
+qualcosa, non che l'abbia tradotto. Quindi la parola «inderogabile» e' ritirata
+da qui: cio' che il meccanismo garantisce e' che l'omissione diventi **un atto
+deliberato e visibile nel diff** invece di una dimenticanza silenziosa, e la
+classe di guasto che questa feature deve chiudere e' la dimenticanza, non il
+sabotaggio. Per rendere l'aggiramento leggibile in revisione, si registrano le
+impronte di **entrambi** i testi: chi bumpa solo quella del normativo lascia una
+traccia che un lettore del diff vede.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -126,14 +139,20 @@ senza fare nulla.
 1. Attivato l'inglese, ogni blocco mostra la variante inglese e nessuna
    l'italiana.
 2. La scelta persiste fra le visite **dove la persistenza è disponibile**.
-   Dentro l'artifact potrebbe non esserlo — lo script già presente avvolge il
-   proprio accesso in `try/catch` proprio per questo — e in quel caso si torna
+   Dentro l'artifact potrebbe non esserlo — lo script già presente
+   avvolge in `try/catch` il proprio accesso all'URL e a `postMessage`, cioè
+   proprio le vie che un iframe può negare — la revisione 2 attribuiva quel
+   `try/catch` a un accesso allo storage che nel file non c'è — e in quel caso si torna
    all'italiano, che è il comportamento voluto. La prima stesura affermava la
    persistenza come incondizionata e la contraddiceva nelle assunzioni.
-3. **[VERIFICA MANUALE, dichiarata]** i punti 1 e 2 richiedono un browser, e il
-   progetto non ha driver: `requirements/` non contiene né Playwright né
-   Selenium, solo `beautifulsoup4`, che parsa l'HTML ma non carica una pagina.
-   Sono verifiche manuali e vanno chiamate così.
+3. **Automatizzabile, e va automatizzato**: FR-002 definisce il default come *lo
+   stato a riposo del documento*, che è statico e quindi verificabile parsando
+   l'HTML con `beautifulsoup4>=4.12`, già in `requirements/base.txt:27`. La
+   revisione 2 mandava al banco manuale anche questo. Resta davvero manuale solo
+   il **comportamento del comando di alternanza** e la **persistenza**, che
+   richiedono un browser che il progetto non ha. Un criterio spedito al manuale
+   quando è automatizzabile sembra coperto e non lo è, che è la forma dei sedici
+   già contati.
 
 ### User Story 3 — Il meccanismo impedisce la divergenza (P1)
 
@@ -150,10 +169,12 @@ senza fare nulla.
 
 ### Edge Cases
 
-- **Il paragrafo maggiore**, 24 750 caratteri (**caratteri**, non byte: sono
-  24 889 byte, e la prima stesura sbagliava l'unità — il numero giusto sotto
-  l'unità sbagliata è il modo esatto in cui un dato falso sopravvive a una
-  rilettura), va spezzato per lingua senza spezzarne il contenuto.
+- **Il paragrafo maggiore**: 24 750 caratteri di HTML interno, 24 889 byte,
+  23 988 caratteri di solo testo. La prima stesura diceva «byte» dove erano
+  caratteri e la seconda chiamava «prosa pura» una grandezza che includeva 762
+  caratteri di marcatura. Il numero giusto sotto la grandezza sbagliata è il modo
+  esatto in cui un dato falso sopravvive a una rilettura. Va spezzato per lingua
+  senza spezzarne il contenuto.
 - **Gli identificatori tecnici non si traducono** e non sono blocchi chiavati:
   riferimenti di capitolo, percorsi di file, SHA, numeri di fase, nomi di modulo.
   Non essendo chiavati, nessun requisito pretende una loro traduzione, e la
@@ -161,9 +182,13 @@ senza fare nulla.
   vincolava nulla.
 - **Un blocco identico nelle due lingue** ha comunque le due chiavi e la propria
   impronta: nessun caso speciale.
-- **I numeri scritti a lettere.** Misurate 163 occorrenze nel testo visibile —
-  `one` 37 volte, `two` 25, `five` 17, `three` 17, `eight` 16 — concentrate nella
-  here-band, cioè nel testo che cambia a ogni checkpoint. Il confronto numerico
+- **I numeri scritti a lettere.** Fra 163 e 179 occorrenze nel testo visibile
+  **a seconda del metodo di conteggio** — confine di parola case-sensitive 163,
+  case-insensitive 179, delimitazione su spazi e trattini 170 — concentrate nella
+  here-band, cioè nel testo che cambia a ogni checkpoint. La revisione 2 dava un
+  totale preso da un metodo e una ripartizione presa da un altro, che è lo stesso
+  cambio di unità a metà frase che questa spec rimprovera altrove: qui il metodo
+  è dichiarato e l'intervallo pubblicato al posto di una cifra secca. Il confronto numerico
   non li copre, e va dichiarato nel limite sotto invece di essere scoperto dopo.
 - **La guardia sulle citazioni scientifiche.** Misurato: la build map produce 53
   regioni, di cui **una sola** nomina la fonte, lunga 2 844 caratteri e con zero
@@ -184,8 +209,24 @@ senza fare nulla.
 - **FR-002**: la lingua predefinita è l'italiano, ed è **lo stato a riposo del
   documento**, non il risultato di uno script. Con JavaScript non disponibile il
   lettore deve vedere l'italiano, non le due lingue impilate.
-- **FR-003**: sono traducibili titoli, descrizioni, etichette di stato, testo
-  della here-band e paragrafi narrativi. Non lo sono gli identificatori tecnici.
+- **FR-003**: è traducibile **tutto il testo visibile della pagina**, e non lo
+  sono soltanto gli identificatori tecnici elencati sotto. La revisione 2
+  enumerava cinque categorie e lasciava fuori dell'altro testo visibile —
+  misurate quasi tremila caratteri fra note, deck, legenda, etichette di blocco,
+  intestazioni di colonna e il pannello delle regole — e fra quel testo c'era la
+  riga che enuncia la regola della mappa stessa, «It is mandatory to update it —
+  it is not a snapshot», che il lettore italiano avrebbe letto in inglese senza
+  che alcun test fallisse. L'enumerazione per categorie è la forma sbagliata:
+  ogni categoria dimenticata è un buco silenzioso, mentre l'esenzione per elenco
+  chiuso rende visibile ciò che si sottrae.
+- **FR-003a**: sono esenti gli identificatori tecnici — riferimenti di capitolo,
+  percorsi di file, SHA, numeri di fase, nomi di modulo — e l'esenzione è
+  **dichiarata per singolo elemento**, non dedotta dal suo aspetto. Un tag ibrido
+  come `wired · engine.py:394` porta insieme uno stato e un percorso, e nessuna
+  euristica lo classifica correttamente. Il caso che lo dimostra è `not wired`,
+  che è uno stato — quello che la regola CRITICAL impone di verificare grepando
+  il tick engine — e che la revisione 2 lasciava fuori sia da FR-003 sia dal
+  confronto sui token di FR-007.
 - **FR-004**: un comando visibile alterna le lingue senza ricaricare; la scelta
   persiste dove la persistenza è disponibile.
 - **FR-005**: la pagina resta **self-contained**. Verificato che oggi lo sia:
@@ -198,16 +239,37 @@ senza fare nulla.
   notazione**: `16.6%` e `16,6%` sono lo stesso numero, `2 844` e `2,844` pure.
   Non è una clausola costruita: il file porta decimali veri — `48.8`, `95.8`,
   `220.5`, `12.43`, `0.5403`, `0.7122` — e un conteggio suite a quattro cifre.
-- **FR-007b**: ogni blocco mirror porta l'**impronta** del blocco normativo da
-  cui deriva. La guardia fallisce se il normativo è cambiato e l'impronta no.
+- **FR-007b**: ogni blocco registra l'**impronta di entrambi i testi**, normativo
+  e mirror. La guardia fallisce se un testo è cambiato e la sua impronta no. La
+  simmetria non aggiunge un componente, applica due volte lo stesso, e serve
+  perché l'inglese è la lingua riflessa di chiunque editi questo repository —
+  `CLAUDE.md` impone l'inglese per codice, commit, test, README e memorie — quindi
+  una modifica al solo mirror è almeno tanto probabile quanto una al normativo.
 - **FR-008**: la guardia **dichiara nel proprio docstring il limite** di ciò che
   non prende, come fa quella sulle citazioni. Alla stesura di questa spec il
   limite noto è: i numeri scritti a lettere non sono confrontati, e una modifica
   al mirror che non tocchi il normativo non è rilevata.
 - **FR-009**: dopo la modifica, `test_citation_hygiene.py` resta a **zero
   offender** e la build map resta fra i file che la sua camminata raggiunge.
-  Baseline verificata: 20 test verdi in 9,80 s.
-- **FR-010**: la regola della build map in `CLAUDE.md` è estesa alle due lingue,
+  Baseline verificata: **20 test verdi**. Il tempo di parete non entra nel
+  requisito — tre esecuzioni nel container danno 12,28 s, 8,85 s e 7,24 s, una
+  dispersione del 41% sul minimo — per la stessa ragione per cui SC-005 ha
+  cancellato il tetto del 2%: un criterio su un tempo di parete non può fallire
+  in modo affidabile.
+- **FR-009a**: la guardia è **un test eseguito dalla suite**, altrimenti FR-006,
+  FR-007 e FR-007b non hanno un momento in cui fallire. Dove collocarla è materia
+  del piano, non della spec, ma la spec vincola che non sia uno script che
+  qualcuno ricorda di lanciare: l'unico precedente, `test_citation_hygiene.py`,
+  vive dentro `demography` per ragioni storiche e cammina su tutto il repository,
+  e quel precedente non va imitato senza pensarci.
+- **FR-010**: la regola della build map è estesa alle due lingue **in tutte le
+  sedi che la portano**, non solo in `CLAUDE.md`: la costituzione, la memoria
+  `feedback_build_map_source_of_truth.md` con il suo backup, la roadmap
+  `project_roadmap_post_mvp.md`, e i due README che la descrivono senza dire che
+  è bilingue né quale testo è normativo. Il progetto tratta già altrove le copie
+  multiple come un insieme che cambia insieme, e la memoria rimasta 94 giorni
+  stale è il precedente che ha generato l'intera regola. Il testo originale di
+  questo requisito nominava due sedi su cinque,
   **e la costituzione è emendata** come sopra. Una regola nuova senza il suo
   meccanismo sarebbe la diciassettesima proprietà dichiarata e non sorvegliata.
 
@@ -278,3 +340,53 @@ pubblicata, quindi non era riproducibile.)*
   misurati. È per questo che FR-007 li mette sotto guardia invece di affidarli
   alla rilettura, e per questo il limite di FR-008 dice a voce alta quali numeri
   restano fuori.
+
+
+## FAQ
+
+La regola CRITICAL «Every Spec Includes a FAQ Section» la rende obbligatoria, e
+la revisione 2 non ce l'aveva — rilievo bloccante del round 2, con la casella
+«All mandatory sections completed» spuntata sopra la sua assenza.
+
+**Perché un file solo e non due?** Due file sono due artifact URL, cioè il fork
+della fonte di verità che la regola della build map vieta per nome, e la
+sincronia sarebbe una promessa in prosa. Con un file solo c'è un checkpoint, un
+URL, e una guardia che può pretendere entrambe le lingue.
+
+**Perché l'italiano normativo, quando il whitepaper ha l'inglese?** Perché sono
+due classi diverse. Il whitepaper punta a una pubblicazione in inglese; la build
+map è l'artefatto che l'utente deve leggere e approvare a ogni checkpoint, cioè
+la stessa classe delle spec, che il progetto ha già deciso stiano in italiano.
+
+**Perché non un framework di i18n?** Sarebbe un'astrazione con una sola
+implementazione per due lingue che non aumenteranno. L'onere della prova sta su
+chi aggiunge.
+
+**L'impronta garantisce che la traduzione ci sia?** No, e va detto: nessun
+checksum distingue una traduzione da un bump pigro. Garantisce che l'omissione
+sia un atto deliberato e visibile nel diff invece di una dimenticanza. La classe
+di guasto da chiudere è la dimenticanza.
+
+**Che cosa resta scoperto, in tutto?** I numeri scritti a lettere non sono
+confrontati; una traduzione sbagliata ma presente passa; la lingua effettiva del
+contenuto non è un predicato calcolabile. I tre limiti vivranno nel docstring
+della guardia, come fa quella sulle citazioni.
+
+**Che cosa costa?** Ogni checkpoint della build map costerà il doppio in
+scrittura più l'aggiornamento delle impronte, per sempre. È il prezzo di rendere
+la regola inderogabile un meccanismo invece di un'intenzione, e va soppesato
+prima di approvare.
+
+**Perché non serve la mappa da Django, così da avere una sola sorgente?**
+Valutato e respinto il 2026-07-17: metterebbe il board dietro un login e
+farebbe dipendere la documentazione di progetto dalla UI di simulazione, con la
+dipendenza nella direzione sbagliata.
+
+**Rischio di sicurezza?** Nullo in senso stretto: la pagina resta statica,
+self-contained e senza input. Il rischio reale è di integrità — una mappa che
+afferma il falso in una delle due lingue viene creduta, ed è esattamente ciò che
+la guardia esiste per impedire.
+
+**È riproducibile?** Le misure di riferimento portano il commit a cui si
+riferiscono e il metodo di conteggio quando ne esiste più d'uno; sono fotografie
+e non soglie, e la spec dice di rimisurarle invece di ricopiarle.

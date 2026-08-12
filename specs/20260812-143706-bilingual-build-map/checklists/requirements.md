@@ -2,15 +2,20 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-08-12
-**Revisione**: 2, dopo il round 1 del gate pesante di fase 2
+**Revisione**: 3, dopo il round 2 del gate pesante di fase 2
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
 
-- [x] No implementation details (languages, frameworks, APIs)
+- [~] **No implementation details** — parzialmente, e deliberatamente. FR-007 e
+      D-2 nominano i token `s-done`/`s-prog`/`s-todo`, che sono classi CSS del
+      file, e FR-007b prescrive un meccanismo. Senza di essi i requisiti non
+      sarebbero decidibili: sono le chiusure dei due bloccanti del round 1. La
+      spunta piena era falsa e nascondeva la scelta invece di dichiararla.
 - [x] Focused on user value and business needs
 - [x] Written for non-technical stakeholders
-- [x] All mandatory sections completed
+- [x] All mandatory sections completed — **inclusa la FAQ**, che la revisione 2
+      non aveva mentre questa casella era spuntata. Rilievo bloccante del round 2.
 
 ## Requirement Completeness
 
@@ -21,35 +26,37 @@
 - [x] All acceptance scenarios are defined
 - [x] Edge cases are identified
 - [x] Scope is clearly bounded
-- [ ] **Dependencies and assumptions identified** — NON spuntata, e la ragione e'
-      la sola che tenga: la feature dipende da un **emendamento alla
-      costituzione** che nessuno ha ancora ratificato. Vedi sotto.
+- [x] **Dependencies and assumptions identified** — l'emendamento alla
+      costituzione e' **ratificato** (1.1.0, 2026-08-12) e la dipendenza e'
+      sciolta.
 
 ## Feature Readiness
 
 - [x] All functional requirements have clear acceptance criteria
 - [x] User scenarios cover primary flows
-- [ ] **Feature meets measurable outcomes defined in Success Criteria** — cinque
-      dei criteri sono **verifiche manuali dichiarate** (lingua del contenuto,
-      comportamento del selettore, persistenza, apertura da file locale): non
-      sono automatizzabili senza un driver browser che il progetto non ha, e
-      dichiararli tali e' obbligatorio dopo aver contato sedici criteri che
-      passavano senza verificare nulla.
-- [x] No implementation details leak into specification
+- [x] **Feature meets measurable outcomes defined in Success Criteria** — con
+      **due** criteri dichiarati manuali, non cinque: il round 2 ha mostrato che
+      il default e la presenza delle varianti sono statici e quindi
+      automatizzabili con `beautifulsoup4`. Restano manuali il comportamento del
+      comando di alternanza e la persistenza, che richiedono un browser che il
+      progetto non ha. Dichiararli tali resta obbligatorio dopo aver contato
+      sedici criteri che passavano senza verificare nulla.
+- [~] **No implementation details leak** — vedi sopra: qui il meccanismo
+      appartiene alla spec perche' e' cio' che rende i requisiti verificabili.
 
 ## Stato del gate di fase 2
 
 **Round 1: NOT CONVERGED**, 13 rilievi, 4 bloccanti. Tutti e 13 chiusi nella
-revisione 2 della spec **tranne F-1**, che non e' chiudibile da chi scrive.
+revisione 2 della spec; F-1 e' stato chiuso dalla ratifica dell'utente.
 
 I quattro bloccanti, e cosa e' cambiato:
 
-- **F-1 governance — APERTO, richiede l'utente.** `constitution.md:96` dice che
-  il mirror italiano del whitepaper e' «the only exception» alla regola per cui
-  tutto cio' che non e' spec sta in inglese. Questa feature ne crea una seconda.
-  L'emendamento e' scritto nella spec; ratificarlo richiede approvazione
-  esplicita, voce di memoria, version bump e migration guidance, e nessuno dei
-  quattro spetta a chi redige.
+- **F-1 governance — CHIUSO.** La costituzione diceva che il mirror italiano del
+  whitepaper era «the only exception»; questa feature ne creava una seconda.
+  **Ratificato dall'utente il 2026-08-12**, costituzione a 1.1.0 con tutti e
+  quattro gli adempimenti. Il round 2 ha poi trovato che l'emendamento
+  contraddiceva se stesso (R2-2) e che questo verbale continuava a dichiararlo
+  aperto (R2-1): entrambi chiusi nella revisione 3.
 - **F-2 chiuso**: FR-003 e FR-007 si contraddicevano sulle etichette di stato —
   una pill tradotta correttamente era insieme dovuta e vietata. Lo stato ora si
   confronta sul token di classe che il file gia' porta (`s-done`/`s-prog`/`s-todo`),
@@ -69,12 +76,48 @@ su entrambe le meta' e il rischio vero e' la co-locazione; il tetto del 2% non
 era un tetto e come criterio non poteva fallire (0,09 ms contro 9,71 s, tre
 ordini di grandezza); byte e caratteri erano scambiati; due conteggi di
 caratteri e parole non erano riproducibili e sono rimossi; due cifre
-autoinvalidanti residue sono state riscritte in forma relazionale; sette criteri
-sono ora dichiarati manuali; la lingua normativa e' dichiarata (italiano, con
+autoinvalidanti residue sono state riscritte in forma relazionale; i criteri manuali sono ora **due**, non cinque ne' sette:
+il round 2 ha mostrato che il default e la presenza delle varianti sono statici
+e quindi automatizzabili con `beautifulsoup4`, e restano manuali solo
+l'alternanza e la persistenza, che richiedono un browser; la lingua normativa e' dichiarata (italiano, con
 l'inglese mirror); i due casi d'ambiente — JavaScript assente e persistenza non
 disponibile nell'artifact — sono requisiti espliciti; e l'argomento del «perche'
 farlo» e' stato riscritto, perche' quello della prima stesura inventava una
 causalita' che i numeri della spec stessa contraddicevano.
 
-**Prossimo passo**: ratifica dell'emendamento costituzionale, poi round 2
-dell'audit sulla revisione 2.
+Con la ratifica, tutti e 13 i rilievi del round 1 risultano chiusi.
+
+
+## Round 2 — NOT CONVERGED, 16 rilievi, 5 bloccanti
+
+Tutti chiusi nella revisione 3. I cinque bloccanti:
+
+- **R2-1**: il verbale del gate dichiarava aperto l'emendamento che la
+  costituzione dello stesso branch dichiarava ratificato, e citava
+  `constitution.md:96` per un testo che quella riga non porta piu'. Difetto
+  creato dal commit dell'emendamento senza rilavorare la spec. Chiuso.
+- **R2-2**: l'emendamento **contraddiceva se stesso** — vietava l'allineamento
+  affidato alla sola prosa e citava come meccanismo la doc-sync rule, che e' una
+  checklist di PR con zero hook attivi. Corretto nella costituzione, che ora
+  dichiara l'asimmetria.
+- **R2-3**: FR-007b si comprava con l'edit di un token, ricalcolando l'impronta
+  senza tradurre. Chiuso **dichiarando il limite** invece di promettere cio' che
+  nessun checksum puo' dare, ritirando la parola «inderogabile» da D-4 e
+  registrando le impronte di entrambi i testi perche' l'aggiramento resti
+  leggibile nel diff.
+- **R2-4**: FR-003 enumerava cinque categorie e lasciava fuori dell'altro testo
+  visibile, **fra cui la riga che enuncia la regola della mappa**. Invertito:
+  traducibile e' tutto il testo visibile, con esenzione per elenco chiuso e
+  dichiarata per singolo elemento.
+- **R2-5**: mancava la FAQ, obbligatoria per regola CRITICAL, mentre la casella
+  «All mandatory sections completed» era spuntata. Aggiunta.
+
+Undici non bloccanti chiusi: la citazione di memoria che non nominava la build
+map, l'intervallo dei numeri a lettere con il metodo dichiarato, i caratteri
+di marcatura contati come prosa, il `try/catch` attribuito a uno storage
+inesistente, il conteggio dei criteri manuali dato in due modi, le due spunte
+false, le tre sedi mancanti di FR-010, l'asimmetria dell'impronta, i due criteri
+automatizzabili spediti al manuale, la collocazione della guardia e il tempo di
+parete dentro un requisito.
+
+**Prossimo passo**: round 3 sulla revisione 3.

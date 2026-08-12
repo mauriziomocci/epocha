@@ -93,11 +93,13 @@ Spec-Driven Layout (Spec Kit adoption since 2026-05-16):
 
 Model selection per phase (inherited): Opus for phases 1-4 and 6-7 (scientific judgment, audits, design), Sonnet for phase 5 implementation, Haiku never. Escalation to Opus is mandatory whenever Sonnet faces a strategic decision outside the specified execution.
 
-Italian for spec files **and for the build map** (project rule, see `feedback_italian_specs.md` memory); English for everything else (code, commits, plans, docstrings, README, whitepaper EN, CLAUDE.md). The build map joins the specs rather than the code because it is the artifact the user must read and act on at every checkpoint, which is the same reason the specs are in Italian.
+Italian for spec files (see `feedback_italian_specs.md`) **and for the build map** (added by amendment 1.1.0, recorded in `feedback_canonical_workflow.md`); English for everything else (code, commits, plans, docstrings, README, whitepaper EN, CLAUDE.md). The build map joins the specs rather than the code because it is the artifact the user must read and act on at every checkpoint, which is the same reason the specs are in Italian.
 
 Two deliverables carry translated technical prose, and each declares which text is normative: the **whitepaper**, whose Italian mirror follows the normative English; and the **build map**, whose normative text is the Italian one, with English as the mirror. A bilingual deliverable without a declared normative text cannot answer "verify against reality first" — it does not say against which text — so declaring it is part of the deliverable, not an afterthought.
 
-Neither bilingual deliverable may rely on prose alone to stay aligned. The build map's two languages are held together by a structural guard in the suite; the whitepapers by the doc-sync rule and the frozen-at-commit pin. A property asserted in prose and not enforced by a mechanism gets violated silently — measured sixteen times on this project during the phase-6 gate of the demography design-defects work item.
+A bilingual deliverable must state how its languages are kept aligned, and whether that is a mechanism or a manual practice. The build map's two languages are held together by a structural guard in the suite. **The whitepapers are not**: the doc-sync rule is a PR review checklist, the project has no active git hooks, and `feedback_whitepaper_doc_sync.md` says building one is deliberately deferred while the developer is single. The frozen-at-commit pin records a fact; it does not fail.
+
+That asymmetry is stated rather than papered over, because the first version of this clause claimed both deliverables were mechanically held and was caught in the same gate that wrote it. A property asserted in prose and not enforced by a mechanism gets violated silently — measured sixteen times during the phase-6 gate of the demography design-defects work item — and a constitution that misdescribes its own enforcement is the worst place for that class to live. Promoting the whitepaper doc-sync to a mechanism is a separate work item, not a sentence.
 
 ## Governance
 
