@@ -30,8 +30,17 @@ grown from 167 lines to 543, and the last layer added a `PROXIMITY_CHARS`
 bound that suppressed a false positive WHICH DOES NOT EXIST -- removing the
 bound leaves the repository at zero offenders -- while opening a real blind
 spot at 812 characters, two false positives on numbered and nested
-bibliographies, and two branches with no witness. It was deleted, and the
-file is back under 300 lines.
+bibliographies, and two branches with no witness.
+
+THE SIZE, counted rather than asserted, because round 9 caught this file
+publishing an unverified figure about ITSELF in four artifacts at once. The
+series, all in total lines: 167 at birth, 543 at round 8's peak, 453 after
+the cut, 480 now. Round 8's cut was 16.6%, not "to a third" as the commit
+that made it says, and "back under 300" was true only of code lines -- 305
+to 255 -- while the two numbers it followed were total lines. Switching
+units mid-sentence is how a false series survives four reviews. Round 9
+spent 25 lines to give three live branches a witness, which is why this
+number goes up and is stated instead of being quietly dropped.
 """
 
 from __future__ import annotations
@@ -114,13 +123,15 @@ SANCTIONED_REFERENCE = re.compile(
 # neighbouring entry from being swept in, which matters because the
 # whitepapers' reference lists have no blank line between entries and Solon
 # (1999) legitimately cites a chapter 29 two entries away.
-# Bullets AND numbered items: half the journals number their bibliographies,
-# and dropping the numbered form let a numbered entry sweep in its
-# neighbour's legitimate chapter. The continuation line beginning with a year
-# that motivated dropping it is already handled by the indentation rule
-# below, which was the measurement round 8 made: restoring the marker leaves
-# every test green.
-LIST_ITEM = re.compile(r"^(\s*)(?:[-*+]|\d+\.)\s")
+# Bullets only. The numbered form was restored at round 8 to protect a
+# numbered bibliography from sweeping in its neighbour's legitimate chapter,
+# and round 9 measured that no such bibliography exists here: with and
+# without it the repository yields the same 53 regions naming the source
+# across the same 20 files and the same zero offenders, and no test fails
+# when it goes. It was an extension for a constructed case, which is exactly
+# what the process rule above forbids. Restore it when a numbered
+# bibliography appears -- with the file and line that carries it.
+LIST_ITEM = re.compile(r"^(\s*)[-*+]\s")
 
 
 # Text is normalised before matching. `&nbsp;` in the build map -- an HTML
@@ -337,11 +348,19 @@ def test_the_walk_reaches_the_files_that_actually_carry_the_citation():
     ],
 )
 def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, payload, tmp_path):
-    """END TO END: write the offence to disk, run the walk, expect it caught.
+    """Write the offence to disk, read it back, expect BOTH guards to fire.
 
-    This is the test the previous version lacked. Its injected-violation check
-    applied the regexes to a string and never exercised `_text_files`, the
-    window, or the offender assembly -- which is where all three holes were.
+    Each payload carries a forbidden title AND a chapter outside the range, so
+    the two are asserted SEPARATELY. Summing them first is what made this test
+    unable to fail: with the union, deleting the Italian titles, deleting
+    `components of variance`, or dropping `capitolo` from the chapter pattern
+    each left all eighteen tests green, because the other branch of the same
+    payload still fired. Three live branches, one criterion, no witness.
+
+    The probes no longer walk the repository -- `files=[probe]` scopes both
+    helpers -- so what this exercises is region assembly and offender
+    assembly, not `_text_files`. The walk itself is covered by
+    `test_the_walk_reaches_the_files_that_actually_carry_the_citation`.
     """
     probe = _probe_path(tmp_path, relative)
     probe.write_text(payload, encoding="utf-8")
@@ -351,10 +370,12 @@ def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, paylo
         # always given the same value, which is the smell, except here the
         # unused value is the fix: nine probes walking the whole repository
         # twice each cost 55s, sixteen per cent of the suite.
-        caught = _title_offenders([probe]) + _chapter_offenders([probe])
-        assert caught, f"the guard did not catch the violation injected into {relative}"
+        titles = _title_offenders([probe])
+        chapters = _chapter_offenders([probe])
     finally:
         probe.unlink(missing_ok=True)
+    assert titles, f"the title guard missed the violation injected into {relative}"
+    assert chapters, f"the chapter guard missed the violation injected into {relative}"
 
 
 @pytest.mark.parametrize(
@@ -374,9 +395,15 @@ def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, paylo
             True,
         ),
         (
+            # Capitalised the way the offence was actually written: the index
+            # entry it came from is a chapter title, so every real occurrence
+            # -- `2026-04-18-demography-design-it.md:1893` and
+            # `inheritance.py:6` at commit 5a2713e -- carried initial capitals.
+            # Lower-casing before the comparison is therefore load-bearing, and
+            # until this payload was capitalised nothing failed when it went.
             "title broken across two lines by wrapping",
-            "- Falconer, D. S., and Mackay (1996). The section on resemblance\n"
-            "  between relatives gives the covariance algebra.\n",
+            "- Falconer, D. S., and Mackay (1996). The index gives 9\n"
+            "  *Resemblance between Relatives* for the covariance algebra.\n",
             True,
         ),
         (
