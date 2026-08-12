@@ -138,7 +138,7 @@ class TestTheTruncatedSolverIsConsistentWithTheIndependentOne:
             previous_r = state.realized_parent_correlation
             previous_sd = state.stationary_sd
 
-    @pytest.mark.parametrize("degenerate", [1.0, -1.0, 1.5])
+    @pytest.mark.parametrize("degenerate", [1.0, -1.0])
     def test_the_public_joint_rejects_a_degenerate_correlation(self, degenerate):
         """`copula_joint` became public last round and shipped its domain
         guard without a witness -- deleting all five lines of it left every
@@ -147,6 +147,11 @@ class TestTheTruncatedSolverIsConsistentWithTheIndependentOne:
         At exactly +/-1 the conditional spread is zero, so the construction
         returns an array of NaN with a RuntimeWarning instead of failing, and
         the caller gets a silently meaningless joint.
+
+        Only the two boundary values, deliberately. A third case at 1.5 was
+        dropped because it passes with the guard REMOVED -- `sqrt(1 - 1.5**2)`
+        raises on its own, so that parametrisation verified a different line
+        for a different reason while appearing to witness this one.
         """
         from epocha.apps.demography.truncated_moments import (
             _initial_distribution,

@@ -49,7 +49,8 @@ CONVERGED nell'aprile 2026. Il codice viene DOPO l'emendamento e dopo il suo gat
         dispersione dichiarata. Restano da chiudere: la citazione verbatim di
         Falconer per il coefficiente h²/2 a genitore singolo. La citazione di
         capitolo è chiusa: intervallo 8-10, numeri verificati sull'indice, titoli
-        omessi deliberatamente dopo tre round che ne hanno colto uno sbagliato.
+        omessi deliberatamente dopo quattro round che ne hanno colto uno
+        sbagliato, e una guardia strutturale che ora lo impone.
      b) ORIZZONTE DI PIANIFICAZIONE della migrazione, che rende dimensionalmente
         coerente il guadagno atteso. Todaro (1969) è la fonte più vicina: il
         modello da riparare è il suo e porta già un orizzonte scontato. Sjaastad

@@ -54,10 +54,11 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 SKIP_DIRS = {
     ".git",
-    # Worktrees are checkouts of this same repository under a different
-    # commit. Scanning them makes the guard report another branch's text as
-    # if it were this one's, which is noise, not coverage.
-    ".claude",
+    # NOT the whole of `.claude`: `.claude/skills/` is tracked in git and
+    # could carry the citation tomorrow. Only the worktrees are skipped, and
+    # only because they are checkouts of this same repository under other
+    # commits -- reporting another branch's text as this one's is noise.
+    "worktrees",
     "__pycache__",
     "node_modules",
     ".ruff_cache",
@@ -68,7 +69,25 @@ SKIP_DIRS = {
     ".venv",
     "venv",
 }
-TEXT_SUFFIXES = {".py", ".md", ".json", ".html", ".txt", ".rst", ".yml", ".yaml"}
+# Widened after round 6: the project is aiming at a paper, so the most likely
+# future home of this bibliography entry is a .bib or .tex file.
+TEXT_SUFFIXES = {
+    ".py",
+    ".md",
+    ".mdx",
+    ".json",
+    ".html",
+    ".txt",
+    ".rst",
+    ".yml",
+    ".yaml",
+    ".tex",
+    ".bib",
+    ".toml",
+    ".cfg",
+    ".ini",
+    ".ipynb",
+}
 
 SOURCE = re.compile(r"Falconer", re.IGNORECASE)
 
@@ -83,17 +102,32 @@ FORBIDDEN_TITLES = (
 # Any chapter reference at all. Whether a given one is acceptable is decided
 # by SANCTIONED_REFERENCE below, applied to THAT match -- never to the window.
 ANY_CHAPTER = re.compile(
-    r"\b(?:chapters?|chs?\.|capp?\.|capitolo|capitoli)\s*\d+(?:\s*(?:[-–]|to|a)\s*\d+)?",
+    r"\b(?:chapters?|chs?\.|capp?\.|capitolo|capitoli)\s*\d+(?:\s*(?:[-–—]|to|a)\s*\d+)?",
     re.IGNORECASE,
 )
 SANCTIONED_REFERENCE = re.compile(
-    r"\b(?:chapters?|chs?\.|capp?\.|capitoli)\s*8\s*(?:[-–]|to|a)\s*10\b", re.IGNORECASE
+    r"\b(?:chapters?|chs?\.|capp?\.|capitoli)\s*8\s*(?:[-–—]|to|a)\s*10\b", re.IGNORECASE
 )
 
-# Lines after the mention that still belong to the same citation. Six, because
-# the wrapped bibliography entries in both whitepapers put the chapter four
-# lines below the author name and the round-4 defect sat six below.
-WINDOW_LINES = 7
+# A CITATION REGION, not a window of N lines below the mention. Round 6 broke
+# the window three ways -- an offence eight lines below, an offence ABOVE the
+# mention, and a citation split so the name and the chapter never shared a
+# window -- and each was a symptom of the same thing: the bound was tuned to
+# the last case seen rather than derived from how citations are written.
+#
+# A region is a contiguous run of non-blank lines, further split wherever a
+# list item starts. The paragraph is what a citation actually occupies, in a
+# docstring and in prose alike; the list split is what keeps a bibliography's
+# neighbouring entry from being swept in, which matters because the
+# whitepapers' reference lists have no blank line between entries and Solon
+# (1999) legitimately cites a chapter 29 two entries away.
+LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+\.)\s")
+
+# Text is normalised before matching. `&nbsp;` in the build map -- an HTML
+# file this project rewrites by hand at every checkpoint -- defeated the
+# whitespace class, and a title broken across two lines by wrapping never
+# matched the flat string it is compared against.
+HTML_ENTITIES = {"&nbsp;": " ", "&amp;": "&", "&#160;": " ", "&ndash;": "-", "&mdash;": "-"}
 
 # Files whose whole purpose is to talk ABOUT the defect. Only this one: a
 # broad allowlist would be the hole all over again.
@@ -119,17 +153,47 @@ def _text_files() -> list[Path]:
     return files
 
 
+def _normalise(text: str) -> str:
+    for entity, replacement in HTML_ENTITIES.items():
+        text = text.replace(entity, replacement)
+    return " ".join(text.split())
+
+
+def _regions(lines: list[str]):
+    """(first line number, text) for each citation region of a file.
+
+    A region ends at a blank line or at the start of the next list item, and
+    its text is normalised and flattened, so a title broken across two lines
+    by wrapping matches and `&nbsp;` does not hide a chapter number.
+    """
+    start = 0
+    current: list[str] = []
+    for index, line in enumerate(lines):
+        if not line.strip():
+            if current:
+                yield start + 1, _normalise(" ".join(current))
+                current = []
+            continue
+        if current and LIST_ITEM.match(line):
+            yield start + 1, _normalise(" ".join(current))
+            current = []
+        if not current:
+            start = index
+        current.append(line)
+    if current:
+        yield start + 1, _normalise(" ".join(current))
+
+
 def _windows(files: list[Path] | None = None):
-    """(relative path, line number, window text) per mention of the source."""
+    """(relative path, line number, region text) per region naming the source."""
     for path in files if files is not None else _text_files():
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except (UnicodeDecodeError, OSError):
             continue
-        for index, line in enumerate(lines):
-            if SOURCE.search(line):
-                window = " ".join(lines[index : index + WINDOW_LINES])
-                yield path.relative_to(REPO_ROOT), index + 1, window
+        for number, region in _regions(lines):
+            if SOURCE.search(region):
+                yield path.relative_to(REPO_ROOT), number, region
 
 
 def _title_offenders(files: list[Path] | None = None):
@@ -198,14 +262,22 @@ def test_the_walk_reaches_the_files_that_actually_carry_the_citation():
     reached = {str(path) for path, _, _ in _windows()}
     required = {
         "epocha/apps/demography/inheritance.py",
+        "epocha/apps/demography/tests/test_inheritance.py",
         "docs/whitepaper/epocha-whitepaper.md",
         "docs/whitepaper/epocha-whitepaper.it.md",
         "docs/superpowers/specs/2026-04-18-demography-design-it.md",
+        "docs/superpowers/specs/2026-04-18-demography-design.md",
         "docs/build-map/epocha-build-map.html",
     }
     missing = required - reached
     assert not missing, f"the walk no longer reaches {sorted(missing)}"
-    assert len(reached) >= 8, f"only {len(reached)} files mention the source; expected many more"
+    # The floor is set just under the measured 20, not at an arbitrary small
+    # number. The previous canary demanded five where the repository had
+    # fifty-one mentions, so dropping the three roots holding forty-three of
+    # them stayed green; the version after it demanded eight, which `specs/`
+    # alone could absorb. A floor that a whole directory can be removed
+    # under is not a floor.
+    assert len(reached) >= 18, f"only {len(reached)} files mention the source; the walk has shrunk"
 
 
 @pytest.mark.parametrize(
@@ -256,9 +328,107 @@ def test_the_guard_catches_a_violation_injected_into_a_real_file(relative, paylo
     finally:
         probe.unlink()
 
-    # And the repository is clean again once the probe is gone.
-    assert not _title_offenders()
-    assert not _chapter_offenders()
+
+@pytest.mark.parametrize(
+    ("label", "payload", "expect_caught"),
+    [
+        (
+            "eight lines below the mention, same paragraph",
+            "- Falconer, D. S., and Mackay, T. F. C. (1996). Introduction to\n"
+            + "".join(f"  Filler line {i}.\n" for i in range(8))
+            + "  See chapter 3 for the pedigree method.\n",
+            True,
+        ),
+        (
+            "ABOVE the mention",
+            "- The section on chapter 9 covers the covariance algebra.\n"
+            "  Falconer, D. S., and Mackay, T. F. C. (1996), chapters 8-10.\n",
+            True,
+        ),
+        (
+            "title broken across two lines by wrapping",
+            "- Falconer, D. S., and Mackay (1996). The section on resemblance\n"
+            "  between relatives gives the covariance algebra.\n",
+            True,
+        ),
+        (
+            "HTML entity hiding the space",
+            "<p>Falconer &amp; Mackay 1996, chapter&nbsp;8.</p>\n",
+            True,
+        ),
+        (
+            "em dash in the sanctioned range is NOT a violation",
+            "- Falconer, D. S., and Mackay (1996), chapters 8\u201410.\n",
+            False,
+        ),
+        (
+            "a neighbouring bibliography entry's own chapter is not swept in",
+            "- Falconer, D. S., and Mackay (1996), chapters 8-10.\n"
+            "- Solon, G. (1999). Handbook of Labor Economics, vol. 3A, ch. 29.\n",
+            False,
+        ),
+    ],
+)
+def test_the_shapes_round_six_used_to_defeat_the_guard(label, payload, expect_caught):
+    """Six evasions, five of which worked against the window version.
+
+    The window was seven lines BELOW a mention, so an offence further down,
+    an offence above, or a citation whose title wrapped all escaped; `&nbsp;`
+    defeated the whitespace class in the one HTML file the walk had just been
+    widened to reach; and the sanctioned range written with an em dash was
+    reported as a violation, which is the kind of false positive that gets a
+    guard switched off. The last case is the price of the fix: regions must
+    split at list items or a neighbour's legitimate chapter is swept in.
+    """
+    probe = REPO_ROOT / "docs/whitepaper/_evasion_probe.md"
+    assert not probe.exists()
+    probe.write_text(payload, encoding="utf-8")
+    try:
+        caught = [
+            entry
+            for entry in _title_offenders() + _chapter_offenders()
+            if entry[0].endswith("_evasion_probe.md")
+        ]
+    finally:
+        probe.unlink()
+    if expect_caught:
+        assert caught, f"the guard missed: {label}"
+    else:
+        assert not caught, f"false positive on: {label} -> {caught!r}"
+
+
+def test_the_declared_limit_of_the_region_rule():
+    """What the guard does NOT cover, asserted rather than left implied.
+
+    A region is a paragraph. A citation whose name and chapter sit in
+    DIFFERENT paragraphs is outside it, and no honest wording of the rule can
+    pretend otherwise -- which is why the amendment says "region" and not
+    "any line in the repository". Widening to whole files was measured and
+    rejected: it sweeps in every other work's chapter cited nearby, starting
+    with Solon (1999) chapter 29 two entries away in both bibliographies.
+    """
+    probe = REPO_ROOT / "docs/whitepaper/_split_probe.md"
+    assert not probe.exists()
+    probe.write_text(
+        "- Falconer, D. S., and Mackay (1996), chapters 8-10.\n"
+        "\n"
+        "A paragraph in between.\n"
+        "\n"
+        "That source's chapter 3 covers the pedigree method.\n",
+        encoding="utf-8",
+    )
+    try:
+        caught = [
+            entry
+            for entry in _title_offenders() + _chapter_offenders()
+            if entry[0].endswith("_split_probe.md")
+        ]
+    finally:
+        probe.unlink()
+    assert not caught, (
+        "the region rule now spans paragraphs; if that is intentional, the "
+        "amendment's wording of the guarantee has to change with it"
+    )
 
 
 def test_a_sanctioned_reference_beside_a_wrong_one_does_not_excuse_it():
