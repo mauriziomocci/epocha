@@ -4,13 +4,13 @@ Ordine e numerazione seguono `plan.md`. Ogni voce chiusa porta il commit.
 
 ## Fase 1 — Struttura
 
-- [ ] **1.1** Script di trasformazione: legge il file, avvolge ogni nodo di testo traducibile in una coppia `<span data-k data-lang>`, chiave derivata dalla posizione strutturale. Non tocca gli esenti di FR-003a.
-- [ ] **1.2** Selettore: CSS che mostra `it` a riposo e `en` sotto `[data-lang-sel="en"]`, bottone, persistenza in `try/catch`.
-- [ ] **1.3** Verifica: la pagina si apre in italiano senza JS; con JS commuta; nessuna risorsa esterna.
+- [x] **1.1** Script di trasformazione: legge il file, avvolge ogni nodo di testo traducibile in una coppia `<span data-k data-lang>`, chiave derivata dalla posizione strutturale. Non tocca gli esenti di FR-003a.
+- [x] **1.2** Selettore: CSS che mostra `it` a riposo e `en` sotto `[data-lang-sel="en"]`, bottone, persistenza in `try/catch`.
+- [x] **1.3** Verifica: la pagina si apre in italiano senza JS; con JS commuta; nessuna risorsa esterna.
 
 ## Fase 2 — Traduzione
 
-- [ ] **2.1** Titoli, descrizioni, pill, needs dei quindici blocchi.
+- [x] **2.1** Titoli, descrizioni, pill, needs dei quindici blocchi.
 - [ ] **2.2** Masthead, here-band, legenda, etichette di blocco, intestazioni di colonna, note.
 - [ ] **2.3** Il pannello delle regole a destra.
 - [ ] **2.4** I tre paragrafi narrativi, il maggiore da ~24 000 caratteri.
