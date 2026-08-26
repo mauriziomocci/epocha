@@ -66,8 +66,8 @@ per *vittoria*, mentre `.count-row .lab` a (0,2,0) batteva `[data-lang="en"]` a
 
 La traduzione ha anche esposto due difetti che la precedevano: la pagina non
 dichiarava il charset (in inglese non si notava, mancavano gli accenti), e
-tradurre ha portato «capitolo 8» nella stessa regione che nomina Falconer &
-Mackay — la co-locazione che la spec aveva previsto come edge case e che la
+tradurre ha portato un riferimento di capitolo nella stessa regione che nomina
+la fonte di genetica quantitativa — la co-locazione che la spec aveva previsto come edge case e che la
 guardia sulle citazioni ha colto.
 
 Vedi [[feedback_build_map_source_of_truth]] per la regola, e

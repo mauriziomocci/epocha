@@ -22,21 +22,30 @@ nasce, non muore e non si sposta.
 
 ## Scope
 
-Il Plan 4 chiude quello scarto. Tre parti, in quest'ordine:
+**Plan 4 possiede l'orchestratore di nascita e quello di morte.** Non è «chiamare
+cinque moduli»: tre moduli su cinque non hanno un punto d'ingresso per tick.
+`mortality.py` espone quattro funzioni pure; `fertility.py` dichiara che «i
+chiamanti sono responsabili di persistere i cambiamenti di stato»;
+`inheritance.py` si autodefinisce «THE PLAN 4 DEATH-PATH ENTRY POINT
+(orchestrator step 2/3)», cioè si aspetta che i passi 1 e 3 li scriva questo
+work item. Nessun codice di produzione emette oggi un evento di nascita o di
+morte: il grep su `EventType.DEATH|EventType.BIRTH` fuori dai test dà zero,
+contro le due occorrenze del controllo positivo su `EventType.MIGRATION`.
 
-1. **Inizializzazione**: una popolazione di partenza che soddisfi le precondizioni
-   dei moduli — età, sesso, coppie, classe sociale, istruzione — invece della
-   popolazione piatta che il generatore LLM produce oggi.
-2. **Cablaggio**: i cinque moduli chiamati dal tick loop, in un ordine dichiarato
-   e giustificato.
-3. **Validazione storica**: la popolazione simulata confrontata con dati
-   demografici reali, che è ciò che distingue un simulatore scientifico da un
-   gioco.
+Quattro parti:
 
-**Fuori scope**, e dichiarato: la validazione contro i benchmark pubblicati
-(Human Mortality Database, Wrigley-Schofield, carestia irlandese, Hajnal) resta
-il work item separato che la memoria `project_validation_experiments_pending.md`
-già traccia. Qui si costruisce la macchina che rende quegli esperimenti
+1. **I due orchestratori**, che sono il lavoro vero: chi crea l'agente neonato e
+   con quale nome, chi marca il morto, chi emette i due eventi.
+2. **Inizializzazione** di una popolazione che soddisfi le precondizioni reali dei
+   moduli.
+3. **Cablaggio** nel tick loop, in un ordine dichiarato come dato.
+4. **Le grandezze demografiche per tick**, cioè lo `PopulationSnapshot` che il
+   Plan 1 ha modellato e che nessun codice scrive: è la macchina senza cui la
+   validazione storica non è eseguibile.
+
+**Fuori scope**: l'esecuzione dei benchmark (HMD, Wrigley-Schofield, carestia
+irlandese, Hajnal), che resta il work item tracciato da
+`project_validation_experiments_pending.md`. Qui si costruisce ciò che li rende
 eseguibili, non gli esperimenti.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -50,7 +59,10 @@ comparire negli eventi.
 **Test di accettazione**:
 1. Su una simulazione di N tick con un template d'era dichiarato, il registro
    eventi contiene almeno una nascita e almeno una morte, e la popolazione varia.
-2. Ogni evento demografico è tracciabile al modulo che l'ha prodotto.
+2. Ogni evento demografico porta in payload **l'indice del passo** nell'ordine
+   dichiarato da FR-003. «Tracciabile al modulo» non era un criterio: il tipo di
+   evento partiziona già per modulo nello schema, quindi qualunque
+   implementazione lo soddisfaceva senza fare nulla.
 3. Una simulazione **senza** demografia configurata gira esattamente come prima,
    senza errori e senza eventi demografici: il cablaggio non rompe le
    simulazioni economiche.
@@ -85,8 +97,11 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 
 ### Edge Cases
 
-- **Simulazione senza template d'era**: il cablaggio deve degradare in silenzio,
-  come già fa `apply_agent_action`, e non abortire il tick.
+- **Template d'era nominato ma inesistente**: il cablaggio degrada e non aborte
+  il tick, come già fa `apply_agent_action` — che però degrada solo su
+  `FileNotFoundError`, cioè sul file mancante, **non** sulla chiave assente, dove
+  applica il default. Sono due casi diversi e la prima stesura ne citava uno per
+  l'altro.
 - **Popolazione a zero**: quando l'ultimo agente muore, il tick successivo non
   deve sollevare eccezioni.
 - **Costo per tick**: cinque moduli su N agenti possono introdurre N+1 query. Il
@@ -97,47 +112,114 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 
 ## Requirements *(mandatory)*
 
-- **FR-001**: il tick loop chiama i cinque moduli demografici quando la
-  simulazione dichiara un template d'era, e non li chiama quando non lo dichiara.
-- **FR-002**: l'ordine dei passi demografici dentro il tick è **dichiarato come
-  dato**, non come sequenza di istruzioni, così che sia leggibile e verificabile
-  senza rileggere il corpo della funzione.
-- **FR-003**: la mortalità precede la fertilità nello stesso tick.
-- **FR-004**: la successione di un agente segue la sua morte nello stesso tick.
-- **FR-005**: la migrazione usa le statistiche di zona del tick corrente.
-- **FR-006**: il contatore di tick consecutivi sotto la soglia di sussistenza è
-  **persistito** sull'agente, incrementato e azzerato dal tick loop.
-- **FR-007**: `process_emergency_flight` legge il contatore persistito.
-- **FR-008**: ogni chiamata demografica riceve un RNG seminato, mai il `random`
-  globale.
-- **FR-009**: una simulazione senza demografia configurata resta invariata: stesso
+**Gli orchestratori**
+
+- **FR-001**: il **percorso di nascita** è un orchestratore che crea l'`Agent`
+  neonato, ne valorizza `birth_tick`, `parent_agent` e `other_parent_agent`,
+  chiama `apply_inheritance_at_birth`, e emette un evento di nascita.
+- **FR-001a**: il **nome del neonato** è una decisione di requisito, non
+  implementativa: viene da una lista per template d'era, non dall'LLM. Un nome
+  generato dall'LLM renderebbe la nascita non riproducibile dal seme, che è
+  quanto §4.8 del whitepaper dichiara come limite già esistente e che questo work
+  item non deve estendere.
+- **FR-002**: il **percorso di morte** è un orchestratore che valuta la mortalità,
+  marca `is_alive`, `death_tick` e `death_cause`, chiama
+  `process_inheritance_batch` e emette un evento di morte.
+
+**L'ordine**
+
+- **FR-003**: l'ordine dei passi è **dichiarato come dato**, non come sequenza di
+  istruzioni, ed è ispezionabile da un test.
+- **FR-004**: la mortalità precede la fertilità nello stesso tick.
+- **FR-005**: **la formazione delle coppie precede la fertilità.** Le coppie si
+  formano al tick T dagli intenti di T-1, e la probabilità di nascita è zero
+  senza coppia attiva in tre template su cinque, incluso il default: se il passo
+  coppia seguisse la fertilità, ogni coppia formata a T non potrebbe concepire
+  prima di T+1, un ritardo sistematico su tutta la natalità.
+- **FR-005a**: la **risoluzione delle separazioni** è collocata nell'ordine in
+  modo dichiarato, perché decide se una coppia che si separa a T concepisce
+  comunque a T.
+- **FR-006**: la successione di un agente segue la sua morte nello stesso tick.
+- **FR-007**: la migrazione usa le statistiche di zona del tick corrente.
+- **FR-007a**: `dissolve_on_death` **non** entra nell'ordine dichiarato:
+  `process_inheritance_batch` lo chiama già per ultimo, deliberatamente.
+
+**Il predicato di attivazione**
+
+- **FR-008**: la demografia è attiva quando la simulazione lo **dichiara
+  esplicitamente**, con una chiave dedicata. Non si può usare la presenza del
+  template d'era: sette punti del codice di produzione applicano già
+  `config.get("demography_template", "pre_industrial_christian")`, quindi oggi
+  una simulazione che non dichiara nulla si comporta come una che dichiara il
+  default, e il predicato che serve non esiste.
+- **FR-009**: una simulazione con la demografia non attiva resta invariata: stesso
   numero di query, nessun evento nuovo, nessun errore.
-- **FR-010**: il costo per tick del blocco demografico è **misurato e dichiarato**
-  in numero di query e in tempo, su una popolazione di riferimento nominata.
-- **FR-011**: l'inizializzazione produce una popolazione le cui precondizioni
-  soddisfano i cinque moduli: età distribuita, sesso assegnato, classe sociale e
-  istruzione presenti.
-- **FR-012**: il whitepaper §4.1 in entrambe le lingue documenta il cablaggio e
-  l'ordine dichiarato, nello stesso commit del codice.
+
+**Determinismo**
+
+- **FR-010**: ogni fase demografica deriva **un solo** stream RNG per
+  `(tick, fase)` e lo condivide fra gli agenti in un ordine di iterazione
+  deterministico. Derivarne uno per agente soddisfarebbe la lettera di «RNG
+  seminato» e darebbe a ogni agente lo stesso sorteggio uniforme, facendoli
+  morire in blocco per soglia d'età invece che indipendentemente. È la regola che
+  `migration.py` già applica.
+
+**Lo stato che manca**
+
+- **FR-011**: il contatore di tick consecutivi sotto la soglia di sussistenza è
+  **persistito** sull'agente, e il predicato che lo incrementa è **lo stesso** che
+  `process_emergency_flight` usa come trigger — `agent.wealth` contro
+  `compute_subsistence_threshold` — altrimenti contatore e innesco divergono in
+  silenzio.
+- **FR-012**: `process_emergency_flight` legge il contatore persistito.
+- **FR-013**: l'inizializzazione valorizza **`birth_tick`**, che è l'unica sorgente
+  di invecchiamento del progetto: `Agent.age` non viene mai assegnato a runtime,
+  e senza `birth_tick` la mortalità e la fertilità restano congelate per sempre.
+- **FR-014**: l'inizializzazione crea **coppie iniziali**. Nessun codice le crea
+  oggi, e senza di esse il template di default rende impossibile qualsiasi
+  nascita nei primi tick.
+- **FR-015**: il tick scrive uno `PopulationSnapshot` per tick, con la piramide
+  per età, il rapporto fra i sessi, i tassi grezzi di natalità e mortalità, la
+  fecondità totale istantanea e le coppie attive.
+
+**Costo e documentazione**
+
+- **FR-016**: il blocco demografico **non esegue query per agente**. Verificabile
+  eseguendo lo stesso tick con N e con 2N agenti e pretendendo che il conteggio
+  non cresca linearmente.
+- **FR-017**: il whitepaper §4.1 in entrambe le lingue documenta gli orchestratori
+  e l'ordine dichiarato, nello stesso commit del codice. La build map è aggiornata
+  in entrambe le lingue allo stesso checkpoint.
 
 ## Success Criteria *(mandatory)*
 
-- **SC-001**: su una simulazione di riferimento la popolazione cambia nel tempo,
-  con nascite e morti registrate.
-- **SC-002**: l'ordine dei passi è verificabile leggendo un dato, e ogni proprietà
-  d'ordine è provata per mutazione.
-- **SC-003**: il contatore di fame si incrementa e si azzera come prescritto,
-  provato per mutazione.
-- **SC-004**: una simulazione economica pura non cambia comportamento: stesso
-  conteggio di query, nessun evento demografico.
-- **SC-005**: il costo per tick è dichiarato con un numero misurato.
-- **SC-006**: suite intera verde, `test_citation_hygiene.py` e
+- **SC-001**: su una simulazione di riferimento nascono e muoiono agenti, e la
+  popolazione varia.
+- **SC-002**: ogni proprietà d'ordine di FR-004, FR-005, FR-005a, FR-006 e FR-007
+  è provata **per mutazione**: si scambiano due passi e il test diventa rosso.
+- **SC-003**: il contatore di fame si incrementa e si azzera come prescritto, con
+  lo stesso predicato del trigger, provato per mutazione.
+- **SC-004**: una simulazione con la demografia non attiva esegue **lo stesso
+  numero di query** di prima del cablaggio e non produce eventi demografici.
+- **SC-005**: raddoppiando la popolazione, il conteggio di query del blocco
+  demografico **non raddoppia**.
+- **SC-006**: due agenti che nascono nello stesso tick non ricevono
+  sistematicamente gli stessi attributi estratti a sorte.
+- **SC-007**: ogni tick lascia uno `PopulationSnapshot` leggibile.
+- **SC-008**: suite intera verde, `test_citation_hygiene.py` e
   `test_build_map_bilingual.py` compresi.
 
 ## Assumptions
 
-- I cinque moduli sono corretti come auditati: questo work item li **chiama**, non
-  li rivede. Un difetto trovato nei moduli va escalato, non corretto qui.
+- I cinque moduli sono corretti come auditati **con un'eccezione già nota e
+  dentro lo scope**: `apply_inheritance_at_birth` deriva il proprio RNG da
+  `(simulation, tick, "inheritance")` e consuma un numero di estrazioni che non
+  dipende dai genitori, quindi **due neonati nello stesso tick ricevono sesso e
+  orientamento identici** e gli stessi residui sui caratteri. È aritmetica sul
+  numero di estrazioni, non un'ipotesi. Il difetto è invisibile finché non esiste
+  un orchestratore di nascita e diventa certo il giorno in cui esiste, cioè qui:
+  correggerlo è parte di questo work item, e SC-006 lo testimonia. Ogni ALTRO
+  difetto trovato nei moduli va escalato, non corretto qui.
 - La popolazione di riferimento per le misure di costo è quella dell'MVP.
 - La validazione contro benchmark storici è un work item successivo.
 
@@ -147,6 +229,20 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 - Non si esegue la validazione contro HMD, Wrigley-Schofield, Hajnal.
 - Non si tocca l'economia, se non per leggere i salari di zona che la migrazione
   già consuma.
+
+## La migrazione volontaria: dove vive
+
+`build_migration_outlook` **non** è chiamata dal tick loop: il suo docstring dice
+che sarà invocata «una volta per agente per tick quando il Plan 4 cabla la
+migrazione nel ciclo decisionale», e quel ciclo è `process_agent_turn`, un task
+Celery dentro il chord, non il tick loop.
+
+**La lettura scelta è la seconda**: la migrazione volontaria Harris-Todaro entra
+nel ciclo decisionale, non nel tick loop, perché è un input alla decisione
+dell'agente e non una mutazione di stato per tick. Il tick loop cabla la
+migrazione **forzata**, che è una mutazione. Dichiararlo è necessario perché le
+due letture differiscono per una user story intera e per il costo per tick, e la
+prima stesura le lasciava indistinguibili.
 
 ## Rischi dichiarati
 
