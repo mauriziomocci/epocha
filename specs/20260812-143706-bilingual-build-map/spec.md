@@ -242,13 +242,17 @@ senza fare nulla.
   `16.6%` e `16,6%` sono lo stesso numero, `2 844` e `2,844` pure.
 - **FR-007b**: ogni blocco registra l'**impronta di entrambi i testi**, normativo
   e mirror. La guardia fallisce se un testo è cambiato e la sua impronta no.
-- **FR-008**: la guardia **dichiara nel proprio docstring i limiti** di ciò che
-  non prende. Sono **quattro** ed è questa l'unica sede che li enumera: (a) i
+- **FR-008**: la guardia **dichiara nel proprio docstring i limiti** di cio' che
+  non prende. Sono **cinque** ed e' questa l'unica sede che li enumera: (a) i
   numeri scritti a lettere non sono confrontati; (b) una traduzione presente ma
   sbagliata passa; (c) ricalcolare l'impronta senza tradurre compra il verde;
-  (d) la lingua effettiva del contenuto non è un predicato calcolabile — la
-  guardia verifica presenza e freschezza delle varianti, non che siano scritte
-  nella lingua giusta.
+  (d) la lingua effettiva del contenuto non e' un predicato calcolabile — la
+  guardia verifica presenza, freschezza e non-identita' delle varianti, non che
+  siano scritte nella lingua giusta; (e) solo gli INTERI si confrontano, perche'
+  la notazione decimale dipende dalla lingua.
+  Il `<title>` non e' un limite ma un'eccezione di forma: un documento ha un
+  titolo solo e non puo' portare gemelli commutabili, quindi prende la lingua
+  normativa.
 - **FR-009**: `test_citation_hygiene.py` resta a **zero offender** e la build map
   resta fra i file che la sua camminata raggiunge. Baseline: 20 test verdi.
   Nessun tempo di parete entra nel requisito.

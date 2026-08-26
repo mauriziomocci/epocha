@@ -343,3 +343,5 @@ Note sulle dipendenze:
 - Psicologia collettiva (10) puo' procedere in parallelo a Rotte (11).
 - Eredita' (12) richiede demografia (2) e cultura (6) ma non
   necessariamente militare (4) o diplomazia (5).
+
+**La build map e' bilingue dal 2026-08-26**: italiano normativo, inglese mirror, un file solo con selettore, e una guardia strutturale (`epocha/apps/dashboard/tests/test_build_map_bilingual.py`) che fallisce se le due lingue divergono. Si aggiornano insieme, nello stesso commit.

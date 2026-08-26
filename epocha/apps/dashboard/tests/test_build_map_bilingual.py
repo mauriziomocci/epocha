@@ -16,26 +16,18 @@ enforces the spec at `specs/20260812-143706-bilingual-build-map/spec.md`:
   FR-007a  numbers compare after notation is normalised (16.6% == 16,6%)
   FR-007b  each text carries a fingerprint; a stale one fails
 
-THE FOUR DECLARED LIMITS, which FR-008 requires be stated here and which are
-enumerated in FR-008 and nowhere else, so that the two enumerations cannot
-diverge the way five earlier counts in this work item did:
+THE DECLARED LIMITS live in FR-008 of the spec and are enumerated THERE and
+nowhere else. This docstring used to repeat them, promising in the same breath
+that "the two enumerations cannot diverge" -- and they had already diverged: it
+listed five where FR-008 said four, dropped the one about content language, and
+added two FR-008 did not carry. A closed list in two places diverges. That is
+the fifth process rule of this project, and the sentence claiming immunity from
+it was the violation.
 
-  (a) numbers written as words are not compared -- "three" against "tre"
-      would need a bilingual numeral vocabulary, and the page carries between
-      163 and 179 of them depending on the counting method;
-  (b) a translation that is present but WRONG passes -- no mechanical check
-      reads meaning;
-  (c) recomputing a fingerprint without translating buys green. A checksum
-      proves someone TOUCHED a text, never that they translated it. What the
-      mechanism guarantees is that an omission becomes a deliberate,
-      diff-visible act instead of a silent one, and the failure this feature
-      exists to close is forgetfulness, not sabotage;
-  (d) the document `<title>` carries the normative language alone. A document
-      has exactly one title, so it cannot hold switchable twins;
-  (e) only INTEGERS are compared. A decimal's notation depends on the language,
-      and three attempts at a bilingual normaliser each fixed one shape and
-      broke another -- the loop the first process rule forbids. Integers carry
-      the figures that diverge in practice: counts of findings, rounds, tasks.
+What the guard does NOT catch, in one line each, as a pointer rather than an
+enumeration: numbers written as words, a translation present but wrong, a
+fingerprint recomputed without translating, the actual language of the content,
+and decimals. Read FR-008 for the authoritative text.
 """
 
 from __future__ import annotations
@@ -45,7 +37,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 
 MAP = Path(__file__).resolve().parents[4] / "docs/build-map/epocha-build-map.html"
 
@@ -151,19 +143,60 @@ def test_no_visible_text_escapes_the_keying(soup):
     """
     unkeyed = []
     for el in soup.select(".wrap")[0].find_all(True):
-        if el.find(True) or el.get("data-k"):
-            continue
-        if el.find_parent(attrs={"data-k": True}):
+        if el.get("data-k") or el.find_parent(attrs={"data-k": True}):
             continue
         if el.name in ("script", "style", "button"):
             continue
         classes = set(el.get("class") or [])
         if classes & EXEMPT_CLASSES:
             continue
-        text = el.get_text(strip=True)
-        if text:
-            unkeyed.append(f"<{el.name} class={sorted(classes)}> {text[:60]!r}")
+        # Its OWN text, not its descendants': an element with children can still
+        # carry bare text beside them. That is how the legend escaped -- each
+        # <li> holds an empty exempt <span class="swatch"> plus untranslated
+        # text, and a predicate that skipped any element with a child never
+        # looked at it.
+        own = "".join(
+            s
+            for s in el.find_all(string=True, recursive=False)
+            if not isinstance(s, Comment)  # a comment is not visible text
+        ).strip()
+        if own:
+            unkeyed.append(f"<{el.name} class={sorted(classes)}> {own[:60]!r}")
     assert not unkeyed, "testo visibile non chiavato e non esente:\n  " + "\n  ".join(unkeyed)
+
+
+# Blocks that are legitimately identical in both languages. A closed list, and
+# short on purpose: every entry is a place the guard cannot help, so each one
+# must be worth its exemption.
+IDENTICAL_BY_DESIGN = {"rule.paper.k", "rule.rng.k"}
+
+
+def test_no_block_is_left_untranslated(pairs):
+    """The predicate whose absence let the largest block on the board ship in English.
+
+    Key, status, integers and fingerprints were all satisfied by a pair whose
+    Italian slot held 2316 characters of verbatim English -- the description of
+    phase 2, the frontier the map itself declares. Every other test passed,
+    because none of them asked the one question that matters: are the two texts
+    actually different?
+
+    The limits declared in the module docstring say a translation that is
+    present but wrong slips through. That stays true. This test closes the
+    narrower and far commoner case: a translation that was never made at all.
+    """
+    untranslated = [
+        key
+        for key, langs in pairs.items()
+        if key not in IDENTICAL_BY_DESIGN
+        and len(langs) == 2
+        and langs["it"].get_text().strip() == langs["en"].get_text().strip()
+    ]
+    assert not untranslated, (
+        "blocchi identici nelle due lingue, cioe' mai tradotti: "
+        f"{sorted(untranslated)}\n"
+        "Se un blocco e' legittimamente identico, va messo in IDENTICAL_BY_DESIGN "
+        "con la ragione, non lasciato passare in silenzio."
+    )
 
 
 def test_status_tokens_agree_between_languages(pairs):
@@ -236,12 +269,17 @@ def test_italian_is_the_resting_state(soup):
     that shows both languages to anyone with JS disabled.
     """
     css = soup.select_one("style").get_text()
-    assert '[data-lang="en"] { display: none; }' in css, (
-        "il default italiano non e' nello stato a riposo del documento"
-    )
-    assert '[data-lang-sel="en"] [data-lang="it"] { display: none; }' in css, (
-        "manca la regola che nasconde l'italiano quando si sceglie l'inglese"
-    )
+    # Asserted with `!important`, and that is the point of this test rather than
+    # a detail of it. The first version checked only that the two rules EXISTED,
+    # and a rule that exists can still lose: `.count-row .lab` scores (0,2,0)
+    # against `[data-lang="en"]` at (0,1,0), so three labels rendered in BOTH
+    # languages at rest while this test stayed green.
+    for rule in (
+        '[data-lang="en"] { display: none !important; }',
+        '[data-lang-sel="en"] [data-lang="en"] { display: revert !important; }',
+        '[data-lang-sel="en"] [data-lang="it"] { display: none !important; }',
+    ):
+        assert rule in css, f"regola mancante o senza !important: {rule}"
 
 
 def test_the_page_stays_self_contained(soup):
