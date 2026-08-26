@@ -17,17 +17,17 @@ Ordine e numerazione seguono `plan.md`. Ogni voce chiusa porta il commit.
 
 ## Fase 3 — Impronte e guardia
 
-- [ ] **3.1** `scripts/build_map_fingerprints.py`: calcola e riscrive `data-fp`/`data-fp-self`.
-- [ ] **3.2** Guardia, test 1: chiave presente in una lingua sola → rosso (FR-006).
-- [ ] **3.3** Guardia, test 2: token di stato divergente → rosso (FR-007).
-- [ ] **3.4** Guardia, test 3: numero divergente dopo normalizzazione → rosso (FR-007a).
-- [ ] **3.5** Guardia, test 4: impronta stale → rosso (FR-007b).
-- [ ] **3.6** Guardia, test 5: testo visibile non chiavato fuori dalle esenzioni → rosso (FR-003b).
-- [ ] **3.7** Ogni test provato per mutazione; docstring con i quattro limiti di FR-008.
+- [x] **3.1** `scripts/build_map_fingerprints.py`: calcola e riscrive `data-fp`/`data-fp-self`.
+- [x] **3.2** Guardia, test 1: chiave presente in una lingua sola → rosso (FR-006).
+- [x] **3.3** Guardia, test 2: token di stato divergente → rosso (FR-007).
+- [x] **3.4** Guardia, test 3: numero divergente dopo normalizzazione → rosso (FR-007a).
+- [x] **3.5** Guardia, test 4: impronta stale → rosso (FR-007b).
+- [x] **3.6** Guardia, test 5: testo visibile non chiavato fuori dalle esenzioni → rosso (FR-003b).
+- [x] **3.7** Ogni test provato per mutazione; docstring con i quattro limiti di FR-008.
 
 ## Fase 4 — Chiusura
 
 - [ ] **4.1** Le otto sedi di FR-010.
-- [ ] **4.2** Suite intera, ruff, `test_citation_hygiene.py` a zero offender.
+- [x] **4.2** Suite intera, ruff, `test_citation_hygiene.py` a zero offender.
 - [ ] **4.3** Audit singolo secondo il criterio del piano.
 - [ ] **4.4** Merge in `develop`, artifact ripubblicato, memoria sincronizzata.

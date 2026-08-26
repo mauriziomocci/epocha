@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -36,9 +35,23 @@ MAP = Path(__file__).resolve().parents[1] / "docs/build-map/epocha-build-map.htm
 # author-year citations) are NOT keyed -- FR-003a -- and they survive inside
 # the kept inner markup of each twin, identical in both languages.
 TRANSLATABLE = (
-    "title", "desc", "pill", "needs", "col-h", "block-label", "note", "warn",
-    "eyebrow", "dek", "here-tag", "rule-k", "rule-v", "lab", "found-name",
-    "legend-item", "mast-meta-label",
+    "title",
+    "desc",
+    "pill",
+    "needs",
+    "col-h",
+    "block-label",
+    "note",
+    "warn",
+    "eyebrow",
+    "dek",
+    "here-tag",
+    "rule-k",
+    "rule-v",
+    "lab",
+    "found-name",
+    "legend-item",
+    "mast-meta-label",
 )
 # `num` is a phase number, `tag` is overwhelmingly technical: both exempt.
 
