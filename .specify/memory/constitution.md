@@ -97,7 +97,7 @@ Italian for spec files (see `feedback_italian_specs.md`) **and for the build map
 
 Two deliverables carry translated technical prose, and each declares which text is normative: the **whitepaper**, whose Italian mirror follows the normative English; and the **build map**, whose normative text is the Italian one, with English as the mirror. A bilingual deliverable without a declared normative text cannot answer "verify against reality first" — it does not say against which text — so declaring it is part of the deliverable, not an afterthought.
 
-A bilingual deliverable must state how its languages are kept aligned, and whether that is a mechanism or a manual practice. The build map's two languages are watched by a structural guard in the suite —
+A bilingual deliverable must state how its languages are kept aligned, and whether that is a mechanism or a manual practice. The build map's two languages are watched by a structural guard in the suite (`epocha/apps/dashboard/tests/test_build_map_bilingual.py`, live since 2026-08-26) —
 watched, not held together: no checksum distinguishes a translation from a lazy
 bump, so the guard makes an omission a deliberate, diff-visible act rather than a
 silent one. **The whitepapers are not**: the doc-sync rule is a PR review checklist, the project has no active git hooks, and `feedback_whitepaper_doc_sync.md` says building one is deliberately deferred while the developer is single. The frozen-at-commit pin records a fact; it does not fail.

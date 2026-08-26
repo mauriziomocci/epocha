@@ -27,6 +27,8 @@ galattica nell'arco di secoli di tempo simulato.
 - **Convenzioni di progetto**: [`CLAUDE.md`](CLAUDE.md) — workflow, checklist di code review, regole di rigore scientifico.
 - **Letture consigliate**: [`docs/letture-consigliate.md`](docs/letture-consigliate.md) — bibliografia curata per contributori.
 
+La lavagna è **bilingue dal 2026-08-26**: l'italiano è il testo normativo, l'inglese il mirror, entrambi nello stesso file con un selettore di lingua, e una guardia strutturale (`epocha/apps/dashboard/tests/test_build_map_bilingual.py`) fallisce quando le due divergono. Le due lingue si aggiornano insieme, nello stesso commit.
+
 ## Avvio rapido
 
 ### Prerequisiti

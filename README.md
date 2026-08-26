@@ -27,6 +27,8 @@ of simulated time.
 - **Project conventions**: [`CLAUDE.md`](CLAUDE.md) — workflow, code review checklist, scientific rigor rules.
 - **Recommended reading**: [`docs/letture-consigliate.md`](docs/letture-consigliate.md) — curated bibliography for contributors.
 
+The board is **bilingual since 2026-08-26**: Italian is the normative text, English the mirror, both in the same file with a language selector, and a structural guard (`epocha/apps/dashboard/tests/test_build_map_bilingual.py`) fails when the two diverge. The two languages are updated together, in the same commit.
+
 ## Quickstart
 
 ### Prerequisites

@@ -27,7 +27,7 @@ Ordine e numerazione seguono `plan.md`. Ogni voce chiusa porta il commit.
 
 ## Fase 4 — Chiusura
 
-- [ ] **4.1** Le otto sedi di FR-010.
+- [x] **4.1** Le otto sedi di FR-010.
 - [x] **4.2** Suite intera, ruff, `test_citation_hygiene.py` a zero offender.
 - [ ] **4.3** Audit singolo secondo il criterio del piano.
 - [ ] **4.4** Merge in `develop`, artifact ripubblicato, memoria sincronizzata.
