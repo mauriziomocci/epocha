@@ -11,9 +11,9 @@ Ordine e numerazione seguono `plan.md`. Ogni voce chiusa porta il commit.
 ## Fase 2 — Traduzione
 
 - [x] **2.1** Titoli, descrizioni, pill, needs dei quindici blocchi.
-- [ ] **2.2** Masthead, here-band, legenda, etichette di blocco, intestazioni di colonna, note.
-- [ ] **2.3** Il pannello delle regole a destra.
-- [ ] **2.4** I tre paragrafi narrativi, il maggiore da ~24 000 caratteri.
+- [x] **2.2** Masthead, here-band, legenda, etichette di blocco, intestazioni di colonna, note.
+- [x] **2.3** Il pannello delle regole a destra.
+- [x] **2.4** I tre paragrafi narrativi, il maggiore da ~24 000 caratteri.
 
 ## Fase 3 — Impronte e guardia
 
