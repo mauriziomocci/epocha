@@ -67,7 +67,7 @@ Epocha is a scientific simulation. Every model, algorithm, formula, parameter, a
 
 **https://claude.ai/code/artifact/c81c0d24-313c-474b-8440-c22275e1cb15**
 
-It is **not a snapshot**. Keeping it current is mandatory, not optional, and not deferrable to "later". A build map that lags the code is worse than no build map, because it is trusted while being wrong.
+It is **not a snapshot**. **The map is bilingual since 2026-08-26**: Italian normative, English mirror, one file with a selector, and a structural guard (`epocha/apps/dashboard/tests/test_build_map_bilingual.py`) that fails when the languages diverge. They are updated TOGETHER, in the same commit. Keeping it current is mandatory, not optional, and not deferrable to "later". A build map that lags the code is worse than no build map, because it is trusted while being wrong.
 
 **Update it whenever any of these happen — in the SAME session, and NOT deferred to "before closing":**
 

@@ -123,6 +123,22 @@ Economy Spec 1, Spec 2 Parts 1-3 e il lavoro corrente di Demografia sono
 stati svolti con un flusso molto simile ma implicito. Questa codificazione
 formalizza la pratica esistente come regola rigorosa e impedisce la deriva.
 
+## Emendamenti alla costituzione
+
+Il Governance della costituzione esige che ogni emendamento lasci una riga qui.
+
+- **1.1.0, 2026-08-12** — la regola sulle lingue passa la build map dal lato
+  inglese a quello italiano, per la stessa ragione per cui le spec sono in
+  italiano: e' l'artefatto che l'utente deve leggere e approvare a ogni
+  checkpoint. La costituzione ora nomina entrambi i deliverable bilingui con il
+  loro testo normativo — whitepaper con l'inglese normativo, build map con
+  l'italiano — e pretende che ciascuno **dichiari come** le sue lingue restano allineate — con
+  un meccanismo o con una pratica manuale — invece di lasciarlo implicito. NON
+  pretende un meccanismo per entrambi: i whitepaper sono tenuti da una checklist
+  di revisione, e dirlo e' precisamente il punto.
+  Ratificato dall'utente; sollevato dal round 1 del gate di fase 2 del work item
+  `20260812-143706-bilingual-build-map`.
+
 ## Quando rivedere questa regola
 
 Solo su richiesta esplicita dell'utente. Il flusso non si modifica
