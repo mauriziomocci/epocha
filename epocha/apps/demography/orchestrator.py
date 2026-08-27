@@ -263,6 +263,7 @@ def run_fertility_step(
 
     if dead_mothers:
         Agent.objects.bulk_update(dead_mothers, ["is_alive", "death_tick", "death_cause"])
+        _settle_deaths(context, dead_mothers, step_index=step_index, step_name="fertility")
 
     if not newborns:
         return
@@ -391,6 +392,53 @@ def run_mortality_step(
     )
 
 
+def _settle_deaths(
+    context: DemographyTickContext,
+    deceased: list,
+    *,
+    step_index: int,
+    step_name: str,
+) -> None:
+    """Emit the death events and settle the estates of a set of deaths.
+
+    Used by any step that kills AFTER the succession step has run -- today
+    only the fertility step, when a mother dies in childbirth. Succession is
+    the fourth step and filters `death_tick=current tick`, so a death
+    produced by the seventh arrives when it has already passed, and on the
+    next tick that filter no longer matches: the estate would never be
+    distributed, the couple never dissolved -- leaving a widower bound to a
+    dead partner and unable to re-pair -- and no DEATH event would exist, so
+    the death would never reach the tick's crude death rate.
+
+    Deaths produced BEFORE succession are settled by succession itself, and
+    the two paths cannot overlap: the succession step only takes deaths whose
+    event carries a step index lower than its own.
+    """
+    from epocha.apps.demography.inheritance import process_inheritance_batch
+    from epocha.apps.demography.models import DemographyEvent
+
+    if not deceased:
+        return
+
+    DemographyEvent.objects.bulk_create(
+        [
+            DemographyEvent(
+                simulation=context.simulation,
+                tick=context.tick,
+                event_type=DemographyEvent.EventType.DEATH,
+                primary_agent=agent,
+                payload={
+                    "step_index": step_index,
+                    "step_name": step_name,
+                    "death_cause": agent.death_cause,
+                },
+            )
+            for agent in deceased
+        ]
+    )
+    process_inheritance_batch(context.simulation, context.tick, deceased)
+
+
 def run_succession_step(context: DemographyTickContext) -> None:
     """Settle the estates of the agents who died in this tick.
 
@@ -399,16 +447,38 @@ def run_succession_step(context: DemographyTickContext) -> None:
     the caller that hands it this tick's dead. The batch is a no-op on an
     empty list, but the read is skipped anyway so a tick without deaths costs
     nothing beyond it.
+
+    Only deaths produced EARLIER in this tick are settled here, and the
+    filter is the declared order itself: a death event carries the index of
+    the step that emitted it, and this step takes only those below its own.
+    A step that kills after succession -- fertility does, when a mother dies
+    in childbirth -- settles its own dead, and this bound is what keeps the
+    two paths from ever settling the same estate twice, whatever the order
+    is later changed to.
     """
     from epocha.apps.agents.models import Agent
     from epocha.apps.demography.inheritance import process_inheritance_batch
+    from epocha.apps.demography.models import DemographyEvent
+
+    own_index = _step_index("succession")
+    settled_elsewhere = {
+        event["primary_agent_id"]
+        for event in DemographyEvent.objects.filter(
+            simulation=context.simulation,
+            tick=context.tick,
+            event_type=DemographyEvent.EventType.DEATH,
+        ).values("primary_agent_id", "payload")
+        if (event["payload"] or {}).get("step_index", 0) > own_index
+    }
 
     deceased = list(
         Agent.objects.filter(
             simulation=context.simulation,
             is_alive=False,
             death_tick=context.tick,
-        ).order_by("id")
+        )
+        .exclude(id__in=settled_elsewhere)
+        .order_by("id")
     )
     if not deceased:
         return

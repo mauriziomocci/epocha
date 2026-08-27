@@ -21,7 +21,7 @@ from epocha.apps.demography.models import DemographyEvent
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
-from epocha.apps.world.models import World, Zone
+from epocha.apps.world.models import Government, World, Zone
 
 
 @pytest.fixture
@@ -37,6 +37,9 @@ def sim_with_zone(db):
         config={"demography_enabled": True},
     )
     world = World.objects.create(simulation=sim, stability_index=0.7)
+    # A death in childbirth now settles the mother's estate, and the estate
+    # tax is credited to the government treasury.
+    Government.objects.create(simulation=sim)
     zone = Zone.objects.create(
         world=world,
         name="BirthZone",
@@ -256,6 +259,43 @@ class TestFertilityStep:
         assert mother.is_alive is False
         assert mother.death_tick == context.tick
         assert mother.death_cause == Agent.DeathCause.CHILDBIRTH
+
+    def test_a_mother_who_dies_in_childbirth_is_settled_like_any_other_death(
+        self, sim_with_zone
+    ):
+        """A death is a death, whichever step produced it.
+
+        Fertility is the seventh step and succession the fourth, so a mother
+        who dies in childbirth arrives after the succession step has already
+        run and, on the next tick, its `death_tick=current` filter no longer
+        matches her. Without an explicit settlement here her estate is never
+        distributed, her couple is never dissolved -- leaving a widower bound
+        to a dead partner and unable to re-pair -- and no DEATH event is
+        emitted, so she never appears in the crude death rate.
+        """
+        sim, zone = sim_with_zone
+        mother = _agent(sim, zone, "Madre", age=25, wealth=500.0)
+        father = _agent(sim, zone, "Padre", gender=Agent.Gender.MALE, age=27)
+        heir = _agent(sim, zone, "Erede", age=4, wealth=0.0, parent_agent=mother)
+        couple = form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
+        context = _context(sim)
+
+        orchestrator.run_fertility_step(
+            context,
+            rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_DIES, NEWBORN_SURVIVES]),
+        )
+
+        mother.refresh_from_db()
+        heir.refresh_from_db()
+        couple.refresh_from_db()
+        assert mother.is_alive is False
+        assert DemographyEvent.objects.filter(
+            simulation=sim,
+            event_type=DemographyEvent.EventType.DEATH,
+            primary_agent=mother,
+        ).exists(), "no DEATH event for a mother who died in childbirth"
+        assert heir.wealth > 0.0, "her estate was never settled"
+        assert couple.dissolved_at_tick == context.tick, "her couple was never dissolved"
 
     def test_a_newborn_that_does_not_survive_is_not_created(self, sim_with_zone):
         """The mother dies and the neonate does not make it: the tick must

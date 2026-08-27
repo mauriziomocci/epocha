@@ -77,6 +77,23 @@ def _agent(sim, zone, name, age=40, **kwargs):
     return Agent.objects.create(simulation=sim, name=name, zone=zone, **defaults)
 
 
+def _couples(sim, zone, count, label):
+    """`count` fertile couples: the population the block actually costs.
+
+    A fixture of men alone is worthless here. The fertility step filters
+    female agents, so an all-male population never enters its per-candidate
+    loop, and the measurement then reports the cost of a step that did not
+    run -- which is precisely how the first version of this file passed while
+    the block issued seven queries per fertile woman.
+    """
+    from epocha.apps.demography.couple import form_couple
+
+    for i in range(count):
+        man = _agent(sim, zone, f"{label}Uomo{i}", age=32, gender=Agent.Gender.MALE)
+        woman = _agent(sim, zone, f"{label}Donna{i}", age=28, gender=Agent.Gender.FEMALE)
+        form_couple(man, woman, formed_at_tick=sim.current_tick - 1)
+
+
 def _count_queries(sim, tick):
     with CaptureQueriesContext(connection) as captured:
         run_demography_tick(sim, tick)
@@ -87,19 +104,21 @@ def _count_queries(sim, tick):
 def test_doubling_the_living_population_does_not_change_the_count():
     """SC-005 part A: the equality that forbids per-agent queries.
 
-    Both runs have the same vital events -- none, because the mortality and
-    fertility draws are seeded and these populations are young adults well
-    inside their survival plateau -- and the same single zone. The only
-    difference is how many agents are alive, so any per-agent query shows up
-    as a difference in the count.
+    Both runs carry the same fertile structure -- couples of the same ages,
+    one zone -- and differ only in how many of them there are, so any query
+    the block issues per living agent shows up as a difference in the count.
+
+    The population is female-bearing and partnered on purpose. An all-male
+    fixture never enters the fertility step's per-candidate loop, so it
+    measures a step that did not run: that is how the first version of this
+    test stayed green while the block issued seven queries per fertile woman,
+    and it is the fifth criterion-that-cannot-fail this work item has caught.
     """
     small, zone_small = _simulation("small")
-    for i in range(5):
-        _agent(small, zone_small, f"Piccolo{i}", age=30)
+    _couples(small, zone_small, 5, "P")
 
     large, zone_large = _simulation("large")
-    for i in range(10):
-        _agent(large, zone_large, f"Grande{i}", age=30)
+    _couples(large, zone_large, 10, "G")
 
     count_small = _count_queries(small, small.current_tick + 1)
     count_large = _count_queries(large, large.current_tick + 1)
@@ -120,8 +139,7 @@ def test_the_count_is_the_pinned_constant_at_zero_vital_events():
     which part A covers.
     """
     sim, zone = _simulation("fixed")
-    for i in range(5):
-        _agent(sim, zone, f"Agente{i}", age=30)
+    _couples(sim, zone, 5, "F")
 
     assert _count_queries(sim, sim.current_tick + 1) == FIXED_TERM
 
