@@ -45,7 +45,37 @@ def initialize_demography(simulation: Any) -> None:
         return
 
     backfill_birth_ticks(simulation)
-    form_initial_couples(simulation)
+
+    # The template gates couple formation only -- backfilling ages above
+    # depends on nothing but the agents themselves, so it has already run.
+    # The two failure modes are caught BY NAME, mirroring the per-tick
+    # orchestrator: the generator calls this unguarded, and before this
+    # guard an invalid `demography_template` raised out of couple formation
+    # and aborted the whole world generation.
+    from epocha.apps.demography.template_loader import load_template
+
+    config = getattr(simulation, "config", None) or {}
+    template_name = config.get("demography_template", "pre_industrial_christian")
+    try:
+        template = load_template(template_name)
+    except FileNotFoundError:
+        logger.warning(
+            "demography initialization: couples skipped for simulation %s: "
+            "template %r not found",
+            simulation.id,
+            template_name,
+        )
+        return
+    except ValueError:
+        logger.warning(
+            "demography initialization: couples skipped for simulation %s: "
+            "template %r is invalid",
+            simulation.id,
+            template_name,
+        )
+        return
+
+    form_initial_couples(simulation, template=template)
 
 
 def backfill_birth_ticks(simulation: Any) -> None:
@@ -85,7 +115,7 @@ def backfill_birth_ticks(simulation: Any) -> None:
     )
 
 
-def form_initial_couples(simulation: Any) -> None:
+def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
     """Pair the founding population's eligible adults.
 
     Reuses the couple module end to end -- `homogamy_score` for preferences,
@@ -97,6 +127,13 @@ def form_initial_couples(simulation: Any) -> None:
     Eligibility comes from the era template's own minimum marriage ages, not
     from a threshold invented here, and agents already in an active couple are
     skipped so a repeated call cannot double-pair anyone.
+
+    Args:
+        simulation: the simulation whose founding population is paired.
+        template: the already-loaded era template, when the caller validated
+            it -- `initialize_demography` does, so a load failure is handled
+            once and by name. Omitted, it is loaded here, which is what the
+            tests exercising this function in isolation use.
     """
     from epocha.apps.agents.models import Agent
     from epocha.apps.demography.couple import (
@@ -107,8 +144,9 @@ def form_initial_couples(simulation: Any) -> None:
     from epocha.apps.demography.models import Couple
     from epocha.apps.demography.template_loader import load_template
 
-    config = getattr(simulation, "config", None) or {}
-    template = load_template(config.get("demography_template", "pre_industrial_christian"))
+    if template is None:
+        config = getattr(simulation, "config", None) or {}
+        template = load_template(config.get("demography_template", "pre_industrial_christian"))
     couple_config = template["couple"]
     weights = couple_config["homogamy_weights"]
     min_age_male = couple_config["min_marriage_age_male"]

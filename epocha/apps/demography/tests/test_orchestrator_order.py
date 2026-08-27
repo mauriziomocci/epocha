@@ -20,6 +20,7 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from epocha.apps.demography import orchestrator
+from epocha.apps.demography.template_loader import load_template
 from epocha.apps.simulation.models import Simulation
 
 User = get_user_model()
@@ -40,6 +41,64 @@ def simulation(db):
     )
 
 
+@pytest.fixture
+def simulation_with_vital_events(db):
+    """A population giving every randomness-consuming step real work.
+
+    A fertile couple for the fertility step -- with `age` and `birth_tick`
+    deliberately in disagreement, so nothing here can pass by reading the
+    frozen column -- a zone for migration, and living agents for mortality.
+    """
+    from django.contrib.gis.geos import Point, Polygon
+
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.couple import form_couple
+    from epocha.apps.world.models import Government, World, Zone
+
+    user = User.objects.create_user(
+        email="phases@epocha.dev", username="phasesuser", password="pass1234"
+    )
+    sim = Simulation.objects.create(
+        name="PhasesTest",
+        seed=2026,
+        owner=user,
+        current_tick=100,
+        config={"demography_enabled": True},
+    )
+    world = World.objects.create(simulation=sim, stability_index=0.7)
+    Government.objects.create(simulation=sim)
+    zone = Zone.objects.create(
+        world=world,
+        name="PhasesZone",
+        zone_type="residential",
+        boundary=Polygon.from_bbox((0, 0, 100, 100)),
+        center=Point(50, 50),
+    )
+    tick = sim.current_tick + 1
+
+    def _agent(name, real_age, gender):
+        return Agent.objects.create(
+            simulation=sim,
+            name=name,
+            zone=zone,
+            role="farmer",
+            location=Point(50, 50),
+            health=1.0,
+            wealth=500.0,
+            age=99,  # frozen column, deliberately wrong
+            birth_tick=int(sim.current_tick - real_age * 365.0),
+            education_level=0.4,
+            social_class="working",
+            gender=gender,
+            personality={},
+        )
+
+    man = _agent("PhUomo", 32, Agent.Gender.MALE)
+    woman = _agent("PhDonna", 28, Agent.Gender.FEMALE)
+    form_couple(man, woman, formed_at_tick=sim.current_tick - 1)
+    return sim, tick
+
+
 class TestDeclaredOrder:
     def test_steps_are_data_not_a_call_sequence(self):
         """FR-003: the order is inspectable without reading a function body."""
@@ -57,13 +116,62 @@ class TestDeclaredOrder:
         assert len(names) == len(set(names))
 
     def test_every_rng_phase_is_one_the_seeded_helper_admits(self):
-        """A step that consumes randomness declares a phase the RNG helper
-        knows; a step that consumes none declares nothing."""
+        """A step that consumes randomness declares phases the RNG helper
+        knows; a step that consumes none declares an empty tuple."""
         from epocha.apps.demography.rng import ALLOWED_PHASES
 
         for step in orchestrator.DEMOGRAPHY_STEPS:
-            if step.rng_phase is not None:
-                assert step.rng_phase in ALLOWED_PHASES
+            assert isinstance(step.rng_phases, tuple)
+            for phase in step.rng_phases:
+                assert phase in ALLOWED_PHASES
+
+    def test_the_declared_phases_are_the_derived_ones(
+        self, simulation_with_vital_events, monkeypatch
+    ):
+        """The declaration is held to the code, step by step.
+
+        `rng_phases` had no production consumer and was wrong for two steps
+        of eight -- separations and succession declared streams while
+        consuming no randomness -- and the single-string shape could not even
+        represent fertility, which derives two ("fertility" for the draws and
+        "inheritance" for the newborns' attribute stream). Metadata nobody
+        reads and nothing checks is exactly the kind of prose-only property
+        this project keeps paying for, so the check is mechanical: every
+        stream a step derives while running is recorded, and the recording
+        must equal the declaration.
+
+        The fixture gives every randomness-consuming step real work -- a
+        fertile couple for fertility, a living population for mortality, a
+        zone for migration -- because a step derives some streams only once
+        it has something to do, and a step measured while idle proves only
+        that idleness is cheap.
+        """
+        import epocha.apps.demography.rng as rng_module
+
+        sim, tick = simulation_with_vital_events
+        context = orchestrator.DemographyTickContext(
+            simulation=sim,
+            tick=tick,
+            template=load_template("pre_industrial_christian"),
+        )
+
+        real_get_seeded_rng = rng_module.get_seeded_rng
+        derived: list[str] = []
+
+        def _recording(simulation, tick, phase):
+            derived.append(phase)
+            return real_get_seeded_rng(simulation, tick, phase=phase)
+
+        monkeypatch.setattr(rng_module, "get_seeded_rng", _recording)
+        monkeypatch.setattr(orchestrator, "get_seeded_rng", _recording)
+
+        for step in orchestrator.DEMOGRAPHY_STEPS:
+            derived.clear()
+            step.run(context)
+            assert tuple(dict.fromkeys(derived)) == step.rng_phases, (
+                f"step {step.name!r} declares {step.rng_phases} and derived "
+                f"{tuple(derived)}"
+            )
 
 
 class TestActivationPredicate:

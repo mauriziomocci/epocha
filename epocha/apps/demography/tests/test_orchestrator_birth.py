@@ -217,6 +217,47 @@ NEWBORN_SURVIVES = 0.0
 
 
 class TestFertilityStep:
+    def test_two_births_in_one_step_run_draw_from_one_threaded_stream(self, sim_with_zone):
+        """SC-006 at the seam the module-level proof cannot reach.
+
+        `test_inheritance_birth_rng` proves that sixteen calls threading ONE
+        stream produce distinct newborns -- by threading the stream itself.
+        Nothing there constrains this step, which is where the original
+        defect lived: re-deriving `stream_for(..., "inheritance")` per
+        newborn restarts the same sequence per birth and hands every newborn
+        of the tick identical draws, and the entire suite stayed green under
+        exactly that mutation. So the step is run here with two forced
+        births, and the newborns' continuous trait draws must differ --
+        gauss residuals off one stream at different offsets cannot collide,
+        while restarted streams cannot do anything else.
+        """
+        from epocha.apps.demography.tests.test_inheritance import SCALAR_HERITABLE_TRAITS
+
+        sim, zone = sim_with_zone
+        for i in range(2):
+            mother = _agent(sim, zone, f"MadreGemella{i}", age=25)
+            father = _agent(sim, zone, f"PadreGemello{i}", gender=Agent.Gender.MALE, age=27)
+            form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
+        context = _context(sim)
+
+        orchestrator.run_fertility_step(
+            context,
+            rng=_ScriptedRandom(
+                [BIRTH_HAPPENS, MOTHER_SURVIVES, BIRTH_HAPPENS, MOTHER_SURVIVES]
+            ),
+        )
+
+        newborns = list(
+            Agent.objects.filter(simulation=sim, birth_tick=context.tick).order_by("id")
+        )
+        assert len(newborns) == 2, "the scripted stream did not force both births"
+        first = tuple(getattr(newborns[0], name) for name in SCALAR_HERITABLE_TRAITS)
+        second = tuple(getattr(newborns[1], name) for name in SCALAR_HERITABLE_TRAITS)
+        assert first != second, (
+            "two newborns of one tick carry identical trait residuals: the "
+            "inheritance stream is being restarted per birth"
+        )
+
     def test_a_birth_emits_an_event_carrying_the_step_index(self, sim_with_zone):
         """US1 acceptance 2: the payload carries the position in the declared
         order. The event type already partitions by module in the schema, so

@@ -237,3 +237,40 @@ class TestActivationPredicate:
         agent.refresh_from_db()
         assert agent.birth_tick is None
         assert not Couple.objects.filter(simulation=sim).exists()
+
+
+class TestBrokenTemplate:
+    """A template that cannot load must not abort world generation.
+
+    The generator calls `initialize_demography` unguarded, so before this
+    guard an invalid `demography_template` name raised out of couple
+    formation and took the whole world-generation call down with it. The
+    per-tick orchestrator already skips the tick with a warning naming the
+    template; initialization now behaves the same way, and still backfills
+    `birth_tick` -- ageing does not depend on the template, and repairing it
+    costs nothing even when couples cannot form.
+    """
+
+    def test_a_missing_template_does_not_abort_and_still_backfills(
+        self, sim_with_zone, caplog
+    ):
+        sim, zone = sim_with_zone
+        sim.config["demography_template"] = "no_such_era"
+        sim.save(update_fields=["config"])
+        man = _agent(sim, zone, "Uomo", age=30)
+        woman = _agent(sim, zone, "Donna", age=28, gender=Agent.Gender.FEMALE)
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="epocha.apps.demography.initialization"):
+            initialization.initialize_demography(sim)
+
+        man.refresh_from_db()
+        woman.refresh_from_db()
+        assert man.birth_tick is not None
+        assert woman.birth_tick is not None
+        assert Couple.objects.filter(simulation=sim).count() == 0
+        assert any("no_such_era" in record.message for record in caplog.records), (
+            "a skipped initialization must say which template failed, "
+            "or a sterile founding population has no explanation in any log"
+        )

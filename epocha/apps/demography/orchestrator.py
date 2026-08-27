@@ -63,9 +63,14 @@ class DemographyStep:
     Attributes:
         index: position in the declared order, 1-based and contiguous.
         name: stable identifier of the step, unique within the order.
-        rng_phase: the seeded-RNG phase this step draws from, or None when
-            the step consumes no randomness. Must be a phase the seeded-RNG
-            helper admits.
+        rng_phases: the seeded-RNG phases this step derives while running,
+            in derivation order; empty when the step consumes no randomness.
+            Each must be a phase the seeded-RNG helper admits, and a test
+            holds the declaration to the code by recording what each step
+            actually derives -- this field had no production consumer, was
+            wrong for two steps, and as a single string could not even
+            represent fertility, which derives two streams ("fertility" for
+            its own draws, "inheritance" for the newborns' attributes).
         run: the callable driving the step, taking the tick context.
         why_here: the requirement that fixes this step's position. Recorded
             with the data so a reader permuting the order sees what breaks.
@@ -73,7 +78,7 @@ class DemographyStep:
 
     index: int
     name: str
-    rng_phase: str | None
+    rng_phases: tuple[str, ...]
     run: Callable[[DemographyTickContext], None]
     why_here: str
 
@@ -757,7 +762,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
     DemographyStep(
         index=1,
         name="separations",
-        rng_phase="couple",
+        rng_phases=(),
         run=run_separations_step,
         why_here=(
             "Intents expressed at T-1 take effect at the start of T, before the"
@@ -768,7 +773,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
     DemographyStep(
         index=2,
         name="couple_formation",
-        rng_phase="couple",
+        rng_phases=("couple",),
         run=run_couple_formation_step,
         why_here=(
             "Couples form at T from intents at T-1, and birth probability is"
@@ -782,14 +787,14 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
     DemographyStep(
         index=3,
         name="mortality",
-        rng_phase="mortality",
+        rng_phases=("mortality",),
         run=run_mortality_step,
         why_here="Whoever dies at T must not conceive at T.",
     ),
     DemographyStep(
         index=4,
         name="succession",
-        rng_phase="inheritance",
+        rng_phases=(),
         run=run_succession_step,
         why_here=(
             "An estate settles after the death that caused it, in the same"
@@ -800,7 +805,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
     DemographyStep(
         index=5,
         name="starvation_counter",
-        rng_phase=None,
+        rng_phases=(),
         run=run_starvation_counter_step,
         why_here=(
             "The counter increments on the same predicate the flight trigger"
@@ -812,7 +817,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
     DemographyStep(
         index=6,
         name="forced_migration",
-        rng_phase="migration",
+        rng_phases=("migration",),
         run=run_forced_migration_step,
         why_here=(
             "Emergency flight reads post-death population and post-succession"
@@ -824,7 +829,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
     DemographyStep(
         index=7,
         name="fertility",
-        rng_phase="fertility",
+        rng_phases=("fertility", "inheritance"),
         run=run_fertility_step,
         why_here=(
             "After couple formation and after mortality. A newborn does not"
@@ -834,7 +839,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
     DemographyStep(
         index=8,
         name="population_snapshot",
-        rng_phase=None,
+        rng_phases=(),
         run=_run_population_snapshot_step,
         why_here=(
             "The snapshot describes the tick, so it is written once every"
