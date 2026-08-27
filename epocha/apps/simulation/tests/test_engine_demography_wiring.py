@@ -114,6 +114,16 @@ def test_demography_runs_before_the_agent_chord(monkeypatch):
     )
     assert survivor.id in header_agent_ids
 
+    # The block must receive the tick being processed, not the not-yet-
+    # advanced `current_tick`. An off-by-one here dates every death, birth
+    # and `birth_tick` one tick early for the whole run, and nothing above
+    # can see it: liveness and chord membership are tick-blind.
+    assert victim.death_tick == 51
+    death_event = DemographyEvent.objects.get(
+        simulation=sim, event_type=DemographyEvent.EventType.DEATH
+    )
+    assert death_event.tick == 51
+
 
 class _ScriptedRandom:
     """Dictated draws, so exactly one agent dies. Exhausted, it returns 1.0,

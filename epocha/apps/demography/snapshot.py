@@ -100,7 +100,12 @@ def write_population_snapshot(context: Any) -> None:
             "tfr_instant": _tfr_instant(births, living, ages, ticks_per_year),
             "net_migration_by_zone": _net_migration(migrations),
             "couples_active": couples_active,
-            "avg_household_size": _avg_household_size(living, simulation),
+            "avg_household_size": _avg_household_size(
+                living,
+                ages,
+                simulation,
+                adulthood_age=float(context.template["migration"]["adulthood_age"]),
+            ),
         },
     )
 
@@ -200,15 +205,25 @@ def _net_migration(migrations: list[dict]) -> dict[str, int]:
     return net
 
 
-def _avg_household_size(living: list, simulation: Any) -> float:
+def _avg_household_size(
+    living: list,
+    ages: list[float],
+    simulation: Any,
+    adulthood_age: float,
+) -> float:
     """Living agents divided by households.
 
     A household is a couple with the minors in its care, or a single adult.
     The model has no household entity, so it is derived: partners share one,
-    a child belongs to its mother's, and everyone else is their own. Stating
-    the derivation matters because "household" is the unit historical
-    sources report, and a different derivation would produce a different
-    series that looks equally plausible.
+    a MINOR child -- younger than the era template's `migration.adulthood_age`,
+    the same threshold household migration coordination uses -- belongs to
+    its living parent's, and everyone else is their own. The age test is
+    load-bearing: without it a sixty-year-old files under his
+    eighty-five-year-old father's roof, and the series overstates household
+    size by exactly the adult children of living parents. Stating the
+    derivation matters because "household" is the unit historical sources
+    report, and a different derivation would produce a different series that
+    looks equally plausible.
     """
     from epocha.apps.demography.models import Couple
 
@@ -224,8 +239,9 @@ def _avg_household_size(living: list, simulation: Any) -> float:
         partner_of[b_id] = a_id
 
     households: set[tuple[int, ...]] = set()
-    for agent in living:
-        anchor = agent.parent_agent_id if agent.parent_agent_id in living_ids else agent.id
+    for agent, age in zip(living, ages, strict=True):
+        is_anchored_minor = agent.parent_agent_id in living_ids and age < adulthood_age
+        anchor = agent.parent_agent_id if is_anchored_minor else agent.id
         partner = partner_of.get(anchor)
         key = tuple(sorted((anchor, partner))) if partner else (anchor,)
         households.add(key)

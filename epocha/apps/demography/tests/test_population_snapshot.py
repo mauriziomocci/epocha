@@ -234,6 +234,96 @@ class TestSnapshotFields:
         assert row.avg_household_size != 0.0
 
 
+    def test_tfr_denominator_counts_every_woman_of_the_mothers_age(self, sim_with_zones):
+        """The two ways this rate silently lies, closed with one fixture.
+
+        Two women share the mother's integer age and only one gives birth, so
+        the age-specific rate is 1/2 -- an implementation that drops the
+        denominator reads 1/1 and doubles the TFR. And the newborn girl is
+        the only female at age zero, so an implementation that attributes the
+        birth to the newborn instead of the mother also reads 1/1: with a
+        single woman per age, as in the shared fixture, both mutations were
+        exact wash-outs, which is how they survived a mutation pass.
+        """
+        sim, home, _ = sim_with_zones
+        tick = sim.current_tick + 1
+        mother = _agent(sim, home, "Madre", age=30, gender=Agent.Gender.FEMALE)
+        _agent(sim, home, "Coetanea", age=30, gender=Agent.Gender.FEMALE)
+        newborn = _agent(sim, home, "Neonata", age=0, gender=Agent.Gender.FEMALE)
+        newborn.birth_tick = tick
+        newborn.save(update_fields=["birth_tick"])
+        DemographyEvent.objects.create(
+            simulation=sim,
+            tick=tick,
+            event_type=DemographyEvent.EventType.BIRTH,
+            primary_agent=newborn,
+            secondary_agent=mother,
+            payload={},
+        )
+
+        snapshot.write_population_snapshot(_context(sim, tick))
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        assert row.tfr_instant == pytest.approx(TICKS_PER_YEAR / 2, rel=1e-6)
+
+    def test_a_dissolved_couple_is_not_active_and_does_not_fuse_households(
+        self, sim_with_zones
+    ):
+        """The predicate the shared fixture never exercises: it forms one
+        couple and never dissolves any, so dropping the dissolution filter
+        changes nothing there. Here a dissolved pair must count zero and its
+        two ex-partners must be two households, not one.
+        """
+        sim, home, _ = sim_with_zones
+        tick = sim.current_tick + 1
+        ex_a = _agent(sim, home, "ExUno", age=40)
+        ex_b = _agent(sim, home, "ExDue", age=38, gender=Agent.Gender.FEMALE)
+        couple = form_couple(ex_a, ex_b, formed_at_tick=sim.current_tick - 10)
+        couple.dissolved_at_tick = sim.current_tick - 1
+        couple.dissolution_reason = Couple.DissolutionReason.SEPARATE
+        couple.save(update_fields=["dissolved_at_tick", "dissolution_reason"])
+
+        snapshot.write_population_snapshot(_context(sim, tick))
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        assert row.couples_active == 0
+        assert row.avg_household_size == pytest.approx(1.0, abs=0.001)
+
+    def test_an_adult_child_of_a_living_parent_is_their_own_household(
+        self, sim_with_zones
+    ):
+        """The docstring's own claim -- a household is a couple with the
+        MINORS in its care -- against the sixty-year-old the derivation used
+        to file under his eighty-five-year-old father's roof. Two adults,
+        one a child of the other, are two households.
+        """
+        sim, home, _ = sim_with_zones
+        tick = sim.current_tick + 1
+        father = _agent(sim, home, "Padre", age=85)
+        _agent(sim, home, "Figlio", age=60, parent_agent=father)
+
+        snapshot.write_population_snapshot(_context(sim, tick))
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        assert row.avg_household_size == pytest.approx(1.0, abs=0.001)
+
+    def test_a_minor_child_of_a_living_parent_shares_their_household(
+        self, sim_with_zones
+    ):
+        """The other half of the same claim, so the fix cannot overshoot: a
+        ten-year-old with a living mother is hers, and the pair is one
+        household of two.
+        """
+        sim, home, _ = sim_with_zones
+        tick = sim.current_tick + 1
+        mother = _agent(sim, home, "MadreDiMinore", age=35, gender=Agent.Gender.FEMALE)
+        _agent(sim, home, "Minore", age=10, parent_agent=mother)
+
+        snapshot.write_population_snapshot(_context(sim, tick))
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        assert row.avg_household_size == pytest.approx(2.0, abs=0.001)
+
     def test_ages_come_from_birth_tick_and_not_the_frozen_column(self, sim_with_zones):
         """The third time this trap appears in this work item, so it is worth
         naming: a fixture whose `age` column agrees with its `birth_tick`
@@ -282,4 +372,7 @@ class TestSnapshotLifecycle:
 
         row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
         assert row.total_alive == 0
+        # Fields whose computed empty-population value differs from the model
+        # default, so a writer that skips computation on empty cannot pass.
+        assert row.sex_ratio == 0.0  # zero males over zero females; default is 1.0
         assert Couple.objects.count() == 0
