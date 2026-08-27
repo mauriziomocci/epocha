@@ -41,7 +41,7 @@ in codice ma in attesa dell'audit scientifico avversariale
 algoritmo nei capitoli auditati è citato a una fonte primaria; le tabelle
 di calibrazione sono presentate per template di era e consolidate
 nell'Appendice A; la metodologia di validazione specifica dataset, metriche
-e soglie di accettazione contro cui il Plan 4 eseguirà la campagna
+e soglie di accettazione contro cui un work item separato eseguirà la campagna
 empirica. L'infrastruttura di riproducibilità copre la parte
 non-LLM del sistema — template di era, stream RNG seedati per fase per i
 servizi demografici ed economici, riferimenti frozen-at-commit e un
@@ -682,6 +682,55 @@ Django e ORM che supportano l'API.
 
 Il modulo demografia copre i cinque meccanismi del corso di vita per i quali Epocha esegue attualmente un modello scientifico auditato: mortalità, fertilità, formazione delle coppie, ereditarietà e migrazione. La specifica autoritativa è `docs/superpowers/specs/2026-04-18-demography-design.md`, i cui quattro round di revisione adversariale sono convergiti il 2026-04-18; le scelte di design e la mappatura esplicita di ogni parametro a una fonte primaria vivono lì, mentre questo capitolo riformula le formule, le tabelle di calibrazione e gli algoritmi per-tick in forma di pubblicazione. L'implementazione vive sotto `epocha/apps/demography/`, dove i cinque sottosistemi sono separati in `mortality.py`, `fertility.py`, `couple.py`, `inheritance.py` e `migration.py`, con preoccupazioni condivise fattorizzate in `template_loader.py` (caricamento e validazione JSON delle ere), `rng.py` (stream seedati per fase discussi nel Capitolo 3.4), `context.py` (helper di integrazione verso l'economia) e `models.py` (lo stato demografico persistito). L'intento progettuale è che all'interno di ogni tick i sottosistemi vengano eseguiti nell'ordine mortalità → fertilità → formazione delle coppie, con l'ereditarietà che si liquida sull'evento di morte e la migrazione che gira come step proprio, ciascuno attingendo dal proprio stream RNG seedato — questa orchestrazione è obiettivo dell'integrazione del Plan 4; vedere la nota di stato sotto. La mortalità materna al parto è l'unico accoppiamento inter-sottosistema ed è risolta congiuntamente tra mortalità e fertilità prima che entrambi registrino il loro esito, come dettagliato in §4.1.2. I primi tre sottosistemi sono stati specificati e auditati insieme nei Plan 1 e 2 della demografia; ereditarietà e migrazione sono state costruite sotto il Plan 3 e hanno portato un proprio audit adversariale di codice di fase 6 in quattro round, convergito il 2026-08-05 sul codice come delimitato, lasciando però esplicitamente aperti otto difetti di livello progettuale — dichiarati nei paragrafi Semplificazioni di §4.1.4 e §4.1.5 anziché rinviati a una revisione successiva di questo capitolo. A partire dal commit fissato nel front matter, tutti e cinque i sottosistemi sono implementati e unit-testati in isolamento; la loro orchestrazione nel ciclo di tick della simulazione live in `epocha/apps/simulation/engine.py` è tracciata come deliverable del Plan 4 (Inizializzazione, integrazione del motore e validazione storica) e non è ancora attiva nel codice di produzione.
 
+#### 4.1.0 Orchestrazione per tick e ordine dichiarato dei passi
+
+I cinque meccanismi che seguono non sono servizi indipendenti che un chiamante
+possa invocare in una sequenza qualsiasi: mutano la stessa popolazione dentro
+lo stesso tick, e l'ordine in cui girano cambia il risultato. Chi muore al
+tick T non deve concepire a T; un asse ereditario si liquida dopo la morte che
+lo ha causato; una coppia formata a T da un intento espresso a T-1 deve poter
+concepire a T, dato che tre dei cinque template per epoca restituiscono una
+probabilità di nascita esattamente nulla per una madre non in coppia attiva.
+Un ordine sbagliato non produce un errore: produce una curva di popolazione
+che cresce o cala in modo credibile e che nessun test superficiale distingue
+da una corretta.
+
+L'ordine è quindi espresso come **dato** e non come sequenza di chiamate --
+`DEMOGRAPHY_STEPS` in `epocha/apps/demography/orchestrator.py`, una tupla le
+cui voci portano la posizione del passo, la fase RNG seminata da cui attinge,
+il suo driver e il requisito che ne fissa il posto. Esprimerlo come dato è
+ciò che permette a un test di permutarlo e pretendere che una proprietà
+d'ordine si rompa, che è l'unica evidenza capace di separare l'ordine
+dichiarato da uno sbagliato ma plausibile.
+
+Gli otto passi, in ordine: separazioni, formazione delle coppie, mortalità,
+successione degli assi, contatore di fame, migrazione forzata, fertilità e
+snapshot di popolazione. `dissolve_on_death` è deliberatamente assente, perché
+`process_inheritance_batch` lo chiama già per ultimo.
+
+Due dei cinque moduli non espongono alcun punto d'ingresso per tick proprio --
+la mortalità è un insieme di funzioni pure, e la fertilità documenta che «i
+chiamanti sono responsabili di persistere i cambiamenti di stato» -- quindi
+gli orchestratori di nascita e morte, che creano l'`Agent` neonato, marcano il
+defunto ed emettono gli eventi, appartengono a questo strato e non ai moduli.
+
+Il blocco gira in modo sincrono dentro `run_simulation_loop`, dopo il tick
+dell'economia e **prima** del chord delle decisioni per agente. Gli agenti che
+decidono al tick T vedono quindi la popolazione che il tick T ha davvero, e un
+agente che muore nel blocco è assente dal chord di quello stesso tick. Gira
+solo quando la simulazione dichiara `demography_enabled`; la presenza del
+template per epoca non può fare da predicato, dato che sette punti del codice
+di produzione applicano già un default quando la chiave manca, quindi una
+simulazione che non dichiara nulla si comporta già come una che dichiara il
+default.
+
+Ogni fase che consuma casualità deriva esattamente uno stream per
+`(tick, fase)` e lo passa attraverso un ordine di iterazione deterministico.
+Derivarne uno per agente soddisferebbe la lettera di «RNG seminato» dando a
+ogni agente della fase lo stesso sorteggio uniforme, dato che la chiave di
+derivazione è solo `(simulation, tick, phase)`: morirebbero in blocco a una
+soglia d'età invece che indipendentemente.
+
 ### 4.1.1 Modello di mortalità (Heligman-Pollard)
 
 > Stato: implementato a partire dal commit `1cdcfa4fe23138727c16a2e92234e4eb962d9ae7`, audit della spec CONVERGENTE 2026-04-18 round 4.
@@ -1054,7 +1103,7 @@ Il percorso di morte è `process_inheritance_batch(simulation, tick, deceased_ag
 
 *I parametri di rumore d'era sono dichiarati anziché ripiegati.* `DEFAULT_ERA_MEAN = 0.5` e `DEFAULT_ERA_SD = 0.15` erano documentati come sostituto provvisorio degli `era_mean_T` / `era_sd_T` per carattere che il design richiede, e nessun template dichiarava una sezione `era_noise`, quindi quei due numeri governavano ogni tratto, ogni era e ogni nascita. Tutti e cinque i template ora dichiarano la sezione, agli stessi valori che i prior portavano, quindi i numeri sono invariati e sono espliciti; le costanti sopravvivono solo come guardia che logga il nome del carattere se mai scattasse. Una conseguenza resta e non è un difetto di questa passata: `Agent.mental_health` e `Agent.fertility` portano entrambi un default di campo di 0,8 pur regredendo verso 0,5, quindi i neonati partono intorno a 0,62 e la popolazione deriva verso 0,5 nel corso delle generazioni.
 
-Oltre ai difetti rinviati, quattro proprietà dell'implementazione toccano affermazioni di riproducibilità fatte altrove in questo documento e sono registrate qui anziché lasciate alla scoperta del lettore. Primo, `get_seeded_rng()` (`rng.py:42`) mescola nel materiale del seme la *chiave primaria di database* della simulazione accanto a `simulation.seed`, quindi rieseguire un seme pubblicato su un database vergine produce stream casuali diversi; la separazione degli stream per fase del Capitolo 3.4 regge, la portabilità del seme tra database no. Secondo, la rappresentazione *per stirpes* è assente dalla scala degli eredi: `_resolve_children_heirs()` trova solo i figli viventi, e la traversata della famiglia estesa sale *verso* i nonni e ridiscende ai cugini, mai in giù attraverso un figlio premorto, quindi i nipoti non possono ereditare quando il loro genitore è morto prima. Terzo, tutti e cinque i template dichiarano l'identica scala `heir_priority` a cinque voci `["spouse", "children", "siblings", "extended_family", "government"]`, quindi la differenziazione per-era della successione è portata interamente dal campo `rule` della Tabella 4.11. Quarto, il modulo non è cablato nel ciclo di tick: `epocha/apps/simulation/engine.py` è intoccato da questo lavoro, e l'integrazione è un deliverable del Plan 4, esattamente come §4.1.1, §4.1.2 e §4.1.3 già registrano per mortalità, fertilità e formazione delle coppie.
+Oltre ai difetti rinviati, quattro proprietà dell'implementazione toccano affermazioni di riproducibilità fatte altrove in questo documento e sono registrate qui anziché lasciate alla scoperta del lettore. Primo, `get_seeded_rng()` (`rng.py:42`) mescola nel materiale del seme la *chiave primaria di database* della simulazione accanto a `simulation.seed`, quindi rieseguire un seme pubblicato su un database vergine produce stream casuali diversi; la separazione degli stream per fase del Capitolo 3.4 regge, la portabilità del seme tra database no. Secondo, la rappresentazione *per stirpes* è assente dalla scala degli eredi: `_resolve_children_heirs()` trova solo i figli viventi, e la traversata della famiglia estesa sale *verso* i nonni e ridiscende ai cugini, mai in giù attraverso un figlio premorto, quindi i nipoti non possono ereditare quando il loro genitore è morto prima. Terzo, tutti e cinque i template dichiarano l'identica scala `heir_priority` a cinque voci `["spouse", "children", "siblings", "extended_family", "government"]`, quindi la differenziazione per-era della successione è portata interamente dal campo `rule` della Tabella 4.11. Quarto, il modulo non era cablato nel ciclo di tick quando questo capitolo è stato scritto -- `epocha/apps/simulation/engine.py` era intoccato da quel lavoro -- e il Plan 4 di demografia ha poi fornito l'integrazione, esattamente come §4.1.1, §4.1.2 e §4.1.3 già registrano per mortalità, fertilità e formazione delle coppie.
 
 Altre tre semplificazioni sono perimetro di design deliberato anziché difetti. `_split_two_to_one()` tratta un erede non-binary come non-maschio, con una singola unità come una figlia, e `_eldest_male_then_female()` ordina gli eredi non-binary insieme a quelli femmina; la giurisprudenza islamica classica e la common law pre-moderna non riconoscevano alcuno status non-binary, e il modulo registra la scelta esplicitamente anziché applicare un default silenzioso. Il cascade residuario di `shari'a` ripiega sui fratelli sotto lo stesso rapporto 2:1, facendo le veci della più completa gerarchia classica `'asaba` che questo MVP non modella. E `primogeniture` estende la regola di discendenza lineare di Blackstone alla linea collaterale — fratello maggiore, poi sorella maggiore — anziché lasciare l'asse arenato quando il defunto non lascia né figli né coniuge ma lascia fratelli.
 
@@ -1150,13 +1199,13 @@ Tabella 4.12 — Parametri di migrazione: campi di template per-era e costanti d
 
 *La stabilità di zona è dichiarata per quello che è.* `Government.stability` è uno scalare unico per simulazione, e `build_migration_outlook()` lo riportava identico dentro l'entry di ogni zona raggiungibile, senza etichetta. Ora è riportato **una volta sola**, a livello di outlook, nominato come valore di simulazione. Costruire un segnale per zona vero è stato considerato e respinto come lavoro diverso: significa definire che cosa renda instabile una zona, con la sua fonte, e propagarlo. Il difetto rimosso è preciso e non è l'assenza di un segnale — una costante ripetuta per zona induce un modello linguistico a credere di confrontare le zone su una dimensione su cui sono identiche. **Limite dichiarato:** la decisione migratoria non può discriminare le zone sulla stabilità.
 
-Infine, e come per ogni altro sottosistema di §4.1, né `evaluate_emergency_flight()` né `process_emergency_flight()` né alcun'altra funzione di questo modulo è invocata da `epocha/apps/simulation/engine.py` o `tasks.py` a partire dal commit fissato. Il cablaggio è un deliverable del Plan 4, e finché il Plan 4 non costruisce anche la memorizzazione per `consecutive_ticks_under_subsistence`, `process_emergency_flight()` chiamata con la mappatura vuota di default è un no-op ben definito che produce zero eventi.
+Infine, e come per ogni altro sottosistema di §4.1, questo modulo è ora invocato dal ciclo di tick live: il Plan 4 di demografia chiama `process_emergency_flight()` come passo di migrazione forzata del blocco demografico per tick in `epocha/apps/simulation/tasks.py`. Lo stesso piano ha costruisce anche la memorizzazione per `consecutive_ticks_under_subsistence`, `process_emergency_flight()` chiamata con la mappatura vuota di default è un no-op ben definito che produce zero eventi.
 
 ## 4.2 Economia — Integrazione comportamentale
 
 > Stato: implementato a partire dal commit `1cdcfa4fe23138727c16a2e92234e4eb962d9ae7`, audit della spec CONVERGENTE 2026-04-15.
 
-Il Capitolo 4.2 documenta lo strato comportamentale che si appoggia sul substrato economico di §3.6. Il substrato di §3.6 è la parte del modello che non dipende dalla psicologia dell'agente: possiede la tecnologia di produzione, gli aggregati monetari, il clearing Walrasiano dei mercati a tick singolo e la distribuzione per-tick dell'output in salari, rendite e tasse. Tre famiglie di comportamento — aspettative di prezzo backward-looking, dinamiche intertemporali di credito e bilancio bancario, e mercato immobiliare ancorato a Gordon — sono state specificate nel design economy-behavioral-integration del 2026-04-15 e auditate fino a convergenza sotto quel documento. Ogni famiglia è implementata in un singolo modulo Python sotto `epocha/apps/economy/`: `expectations.py` per il motore di aspettative adattive di Nerlove (1958) descritto in §4.2.1, `credit.py` e `banking.py` per la macchina credito-e-banca a riserva frazionaria di Diamond-Dybvig (1983) descritta in §4.2.2, e `property_market.py` per il mercato immobiliare con valutazione Gordon e settlement a tick `T+1` descritto in §4.2.3. I tre moduli sono cablati nel tick economico canonico orchestrato da `epocha/apps/economy/engine.py:process_economy_tick_new()`, che è esso stesso dispatched dal ciclo di tick della simulazione in `epocha/apps/simulation/engine.py:394` ogniqualvolta la simulazione ha il nuovo data layer economico inizializzato; di conseguenza, a differenza dei moduli di demografia di §4.1.x, l'economia comportamentale descritta in questo capitolo è genuinamente live nella pipeline per-tick a partire dal commit fissato, e gli header `Stato` portati da §4.2.1–§4.2.3 registrano solo la data di convergenza dell'audit della spec piuttosto che un caveat di integrazione pendente.
+Il Capitolo 4.2 documenta lo strato comportamentale che si appoggia sul substrato economico di §3.6. Il substrato di §3.6 è la parte del modello che non dipende dalla psicologia dell'agente: possiede la tecnologia di produzione, gli aggregati monetari, il clearing Walrasiano dei mercati a tick singolo e la distribuzione per-tick dell'output in salari, rendite e tasse. Tre famiglie di comportamento — aspettative di prezzo backward-looking, dinamiche intertemporali di credito e bilancio bancario, e mercato immobiliare ancorato a Gordon — sono state specificate nel design economy-behavioral-integration del 2026-04-15 e auditate fino a convergenza sotto quel documento. Ogni famiglia è implementata in un singolo modulo Python sotto `epocha/apps/economy/`: `expectations.py` per il motore di aspettative adattive di Nerlove (1958) descritto in §4.2.1, `credit.py` e `banking.py` per la macchina credito-e-banca a riserva frazionaria di Diamond-Dybvig (1983) descritta in §4.2.2, e `property_market.py` per il mercato immobiliare con valutazione Gordon e settlement a tick `T+1` descritto in §4.2.3. I tre moduli sono cablati nel tick economico canonico orchestrato da `epocha/apps/economy/engine.py:process_economy_tick_new()`, che è esso stesso dispatched dal ciclo di tick della simulazione in `epocha/apps/simulation/engine.py:394` ogniqualvolta la simulazione ha il nuovo data layer economico inizializzato; di conseguenza, come i moduli di demografia di §4.1.x da quando il Plan 4 li ha cablati, l'economia comportamentale descritta in questo capitolo è live nella pipeline per-tick a partire dal commit fissato, e gli header `Stato` portati da §4.2.1–§4.2.3 registrano solo la data di convergenza dell'audit della spec piuttosto che un caveat di integrazione pendente.
 
 ### 4.2.1 Aspettative adattive (Cagan 1956)
 
@@ -2484,7 +2533,7 @@ pytest epocha/apps/economy/ -v                          # solo economia
 pytest epocha/apps/demography/tests/test_mortality.py   # un singolo modulo
 ```
 
-La suite di validazione vera e propria — la campagna che consuma i dataset di §7.1, esegue le metriche di §7.2 e decide contro le soglie di §7.3 — non è ancora implementata. Il Plan 4 introdurrà una directory `validation/` alla radice del repository con uno script Python per modulo auditato (`validation/validate_mortality.py`, `validation/validate_fertility.py`, `validation/validate_couple.py` e così via); ciascuno script caricherà il proprio dataset, eseguirà il fit o farà avanzare la simulazione, calcolerà le metriche e produrrà un report pass/fail contro la soglia. Gli script saranno invocabili individualmente per il debug e collettivamente tramite un target Makefile in modo che la campagna completa di validazione si riduca a un singolo comando su un checkout pulito. I nomi esatti degli script e il target Makefile sono rimandati alla fase di design del Plan 4 e non sono impegnati nel presente capitolo.
+La suite di validazione vera e propria — la campagna che consuma i dataset di §7.1, esegue le metriche di §7.2 e decide contro le soglie di §7.3 — non è ancora implementata. Il work item di validazione introdurrà una directory `validation/` alla radice del repository con uno script Python per modulo auditato (`validation/validate_mortality.py`, `validation/validate_fertility.py`, `validation/validate_couple.py` e così via); ciascuno script caricherà il proprio dataset, eseguirà il fit o farà avanzare la simulazione, calcolerà le metriche e produrrà un report pass/fail contro la soglia. Gli script saranno invocabili individualmente per il debug e collettivamente tramite un target Makefile in modo che la campagna completa di validazione si riduca a un singolo comando su un checkout pulito. I nomi esatti degli script e il target Makefile sono rimandati alla fase di design di quel work item e non sono impegnati nel presente capitolo.
 
 ## 7.5 Stato
 
@@ -2510,7 +2559,7 @@ La roadmap è ordinata per priorità piuttosto che per cronologia: l'audit sull'
 
 - **PRIORITÀ ALTA — audit avversariale del Knowledge Graph.** Il Knowledge Graph è l'unico modulo rimasto in §8 pendente del suo primo passaggio di audit scientifico. Sei cluster sono già convergenti e promossi: la reputazione sul round 2 (2026-05-12) al §4.3, il cluster di propagazione del passaparola (information flow, distortion, belief filter, più affinity) sul round 2 (2026-05-16) al §4.4, il cluster delle istituzioni politiche (government, government_types, institutions, stratification, election) sul round 2 (2026-05-16) al §4.5, il movimento sul round 2 (2026-05-16) al §4.6, le fazioni sul round 2 (2026-05-16) al §4.7, e il layer base dell'economia sul round 12 del suo primo audit (2026-07-16) al §4.8. L'audit del Knowledge Graph è l'item gating prima che possa essere promosso da §8 allo stato §4, prima che i suoi parametri possano essere aggiunti alle tabelle di parametri di §6, e prima che possa entrare nella campagna di validazione di §7.
 - **Work item residuo del Plan 3 di demografia (difetti di design rinviati).** Il Plan 3 in sé è costruito: ereditarietà e migrazione sono implementate, unit-testate e documentate in §4.1.4 e §4.1.5, e il loro audit adversariale di codice di fase 6 è convergito il 2026-08-05 sul codice come delimitato. Il work item che quell'audit ha rinviato — dieci difetti di livello progettuale, ciascuno bisognoso di un proprio gate di requisiti anziché di una patch al codice — ha poi corretto il kernel di trasmissione, i parametri di rumore per era, le innovazioni di istruzione e classe, la dichiarazione sull'accoppiamento assortativo, la quota coniugale shari'a, la conservazione esatta dell'imposta e i coefficienti dell'istruzione. Ha poi corretto anche il blocco della migrazione: il valore attuale del guadagno atteso, l'orizzonte di sussistenza e la stabilità di zona. Resta la sola chiusura: la passata finale sui whitepaper e l'audit avversariale sul codice. Le voci corrette sono marcate CORRETTO nell'inventario di §11, insieme a ciò che hanno sostituito.
-- **Demografia Plan 4 (Inizializzazione, integrazione Engine, validazione storica).** Il Plan 4 collega i moduli di demografia di §4.1 — attualmente implementati e unit-testati in isolamento — al ciclo di tick live di `epocha/apps/simulation/engine.py`, fornisce la procedura di inizializzazione che seed-a una popolazione di partenza dal template per epoca, ed esegue la campagna di validazione storica di §7 contro i target Wrigley-Schofield (1981) e Human Mortality Database. Questo è il deliverable centrale che chiude la disclosure di gap di implementazione portata da §4.1 e risolve il caveat validation-pending portato da §7.5.
+- **Demografia Plan 4 (Inizializzazione e integrazione Engine) — atterrato.** Il Plan 4 ha cablato i moduli di demografia di §4.1 nel ciclo di tick live, come blocco sincrono in `epocha/apps/simulation/tasks.py` che gira dopo l'economia e prima del chord per agente, con i suoi otto passi dichiarati come dato e ogni proprietà d'ordine provata permutando quella dichiarazione. Ha fornito l'inizializzazione che dà alla popolazione fondatrice il `birth_tick` da cui dipende l'invecchiamento e le coppie che tre template per epoca richiedono perché una nascita sia possibile, ha creato la memorizzazione di cui l'innesco della fuga d'emergenza aveva bisogno, ha corretto la derivazione RNG di nascita che dava a due neonati dello stesso tick sesso e orientamento identici, e ha aggiunto lo scrittore del `PopulationSnapshot` per tick. Chiude la disclosure di gap di implementazione portata da §4.1. **La campagna di validazione storica NON ne fa parte** e resta pendente come work item proprio: il piano ha separato deliberatamente la costruzione della macchina dall'esecuzione degli esperimenti, così che uno scostamento dai target Wrigley-Schofield (1981) o Human Mortality Database sia attribuibile al modello e non al cablaggio. Il caveat validation-pending di §7.5 resta quindi in piedi.
 - **Mercati finanziari dell'economia (Spec 3 da scrivere).** L'integrazione comportamentale di §4.2 copre aspettative adattive, credito e sistema bancario, e mercato immobiliare; la prossima spec di economia estende a mercati obbligazionari ed azionari, contagio dei prezzi degli asset attraverso più banche, e il canale di prestito interbancario rimandato sotto le semplificazioni di §4.2.2. La spec non è ancora redatta; l'item di lavoro è registrato nella memoria di roadmap di lungo formato.
 - **Esecuzione degli esperimenti di validazione.** La campagna specificata nel Capitolo 7 — acquisizione dei dataset, implementazione degli script, calcolo delle metriche e valutazione delle soglie — è il deliverable centrale tracciato in `docs/memory-backup/project_validation_experiments_pending.md`. L'esecuzione è legata al Plan 4 della roadmap di demografia sopra (che fornisce l'integrazione del ciclo di tick live richiesta dalla validazione) e all'audit del modulo §8 rimanente (il Knowledge Graph).
 - **Evoluzione del Knowledge Graph (aggiornamenti live dalla simulazione).** Il cluster Knowledge Graph di §8.1 attualmente materializza il grafo dal log della simulazione in passaggi batch; l'item di lavoro di evoluzione sostituisce il passaggio batch con un aggiornamento live che estrae incrementalmente entità e relazioni da ciascun tick e le fonde nel grafo esistente senza una ri-estrazione completa. La modifica mantiene il grafo aggiornato entro un ritardo limitato dal tick live piuttosto che a granularità fine-corsa, che è il prerequisito per il contesto LLM ancorato al grafo nello step di decisione per tick di §3.2.
@@ -2542,20 +2591,20 @@ Il seguente catalogo raggruppa le limitazioni aperte per modulo. Ogni voce è de
 - Nessun effetto di coorte: ogni agente è esposto al template per epoca attivo al tick di simulazione piuttosto che al regime di mortalità in vigore alla nascita dell'agente.
 - Etichette grezze di causa di morte (`early_life_mortality`, `external_cause`, `natural_senescence`) riflettono le tre componenti HP piuttosto che un'eziologia medica.
 - Nessun modello di coda esplicito oltre l'estremo biologico: il cap di `0.999` sulla probabilità annua di mortalità è una guard numerica per la conversione geometrica al tick, non un sostanziale plateau di mortalità tarda.
-- La valutazione per tick è esercitata dalla suite di unit test ma non è ancora invocata dal ciclo di tick live in `epocha/apps/simulation/engine.py`; l'integrazione è il deliverable centrale del Plan 4 di demografia.
+- La valutazione per tick è esercitata dalla suite di unit test ed è ora invocata dal ciclo di tick live: l'integrazione è atterrata con il Plan 4 di demografia.
 
 **Fertilità (§4.1.2).**
 - La Hadwiger ASFR è valutata deterministicamente all'età dell'agente senza alcuna eterogeneità inter-individuale nella fecondità biologica, in contrasto con l'estensione di apprendimento bayesiano che lascerebbe a ciascun agente apprendere il proprio parametro `T` dagli intervalli inter-nascita realizzati.
 - Gemelli e nascite multiple di ordine superiore non sono modellate: ogni evento di nascita riuscito crea esattamente un neonato.
 - I coefficienti di modulazione Becker della Tabella 4.4 sono omogenei tra tutti e cinque i template di demografia, tracciati come debito di audit B2-07 e assegnati alla calibrazione del Plan 4.
-- Integrazione tick-loop rimandata al Plan 4 di demografia.
+- Cablata nel tick loop dal Plan 4 di demografia: il blocco gira in modo sincrono dentro `run_simulation_loop`, dopo l'economia e prima del chord per agente, in un ordine dichiarato come dato.
 
 **Formazione delle coppie (§4.1.3).**
 - Solo coppie monogame sono rappresentabili; configurazioni poligine e poliandriche sono rimandate (audit fix MISS-8).
 - Schema a due generi per le primitive di matching: sebbene il layer agente porti `male`, `female`, `non_binary`, lo score di omogamia e l'algoritmo di stable matching non consumano i campi di genere o orientamento sessuale al commit pinnato.
 - Nessun cooldown per le seconde nozze: il campo `mourning_ticks` per template è caricato ma non ancora consumato dal check di idoneità, quindi un agente vedovo può in linea di principio ri-accoppiarsi al tick successivo alla morte del partner.
 - Gale-Shapley è applicato solo all'inizializzazione, non come fallback runtime quando una grande coorte non accoppiata si accumula.
-- Integrazione tick-loop rimandata al Plan 4 di demografia.
+- Cablata nel tick loop dal Plan 4 di demografia: il blocco gira in modo sincrono dentro `run_simulation_loop`, dopo l'economia e prima del chord per agente, in un ordine dichiarato come dato.
 
 **Ereditarietà (§4.1.4).** Le prime sei voci ERANO difetti di livello
 progettuale che l'audit convergente del codice di fase 6 non ha coperto.
@@ -2596,7 +2645,7 @@ quelli pubblicati dopo.
 - La rappresentazione *per stirpes* è assente dalla scala degli eredi: i nipoti non possono ereditare quando il loro genitore è premorto al defunto.
 - Delle cinque regole di successione implementate, i template spediti ne esercitano solo tre; `matrilineal` e `nationalized` non sono dichiarate da alcun template.
 - Gli eredi non-binary sono trattati come non-maschi sotto `shari'a` e ordinati con gli eredi femmina sotto `primogeniture`; il cascade residuario di `shari'a` fa le veci della più completa gerarchia classica `'asaba`. Entrambi sono perimetro di design documentato, non difetti.
-- Integrazione tick-loop rimandata al Plan 4 di demografia.
+- Cablata nel tick loop dal Plan 4 di demografia: il blocco gira in modo sincrono dentro `run_simulation_loop`, dopo l'economia e prima del chord per agente, in un ordine dichiarato come dato.
 
 **Migrazione (§4.1.5).** Le prime tre voci ERANO difetti di livello progettuale rinviati insieme a quelli di §4.1.4; il work item rinviato le ha corrette tutte e tre. Restano, marcate, perché i risultati pubblicati prima e dopo la correzione non sono comparabili.
 - CORRETTO. La soglia del trigger di fuga era descritta come un `N` globale che il design definiva "il numero di tick che l'agente può sopravvivere coi risparmi attuali" — il che riduce la condizione a `ricchezza < ricchezza`, confondendo una grandezza con una soglia su di essa. L'orizzonte di sopravvivenza è ora un rapporto derivato senza soglia globale; la fuga d'emergenza dichiara 1 e affida la durata al proprio `flight_trigger_ticks` per era, la fertilità lo consuma in continuo. Nessuno dei due consumatori ha cambiato comportamento: l'incoerenza era nel documento.
@@ -2608,7 +2657,7 @@ quelli pubblicati dopo.
 - Un nucleo familiare che migra arriva istantaneamente mentre l'agente decisore può essere ancora in viaggio per diversi tick, dato che i membri del nucleo aggirano lo spostamento parziale multi-tick di §4.6.
 - Il salario del settore informale del modello canonico di Harris-Todaro è posto a zero: un agente che non trova lavoro formale a destinazione è modellato come se lì non guadagnasse nulla.
 - Il denominatore della fuga di massa è una ricostruzione, non una misura: gli agenti morti nella zona durante la finestra lo sottostimano, quelli arrivati durante la finestra lo sovrastimano.
-- Integrazione tick-loop rimandata al Plan 4 di demografia, che possiede anche la memorizzazione per `consecutive_ticks_under_subsistence`; finché non esiste, la fuga d'emergenza non può scattare in una run live.
+- Cablata nel tick loop dal Plan 4 di demografia: il blocco gira in modo sincrono dentro `run_simulation_loop`, dopo l'economia e prima del chord per agente, in un ordine dichiarato come dato, che ha anche creato la memorizzazione per `consecutive_ticks_under_subsistence`; finché non esiste, la fuga d'emergenza non può scattare in una run live.
 
 **Aspettative adattive (§4.2.1).**
 - Singola variabile per bene: solo il livello di prezzo è previsto, senza alcuna previsione congiunta cross-bene, alcuna previsione separata del tasso di inflazione, e alcuna previsione del secondo momento.
@@ -3432,7 +3481,7 @@ i dataset target (§7.1), le metriche di confronto (§7.2) e le soglie di
 accettazione (§7.3); la campagna sperimentale che li consuma è
 tracciata sotto
 `docs/memory-backup/project_validation_experiments_pending.md` ed è
-legata al Plan 4 di demografia. Il deliverable del Plan 4 introdurrà una
+legata al work item di validazione, il cui deliverable introdurrà una
 directory `validation/` alla radice del repository con uno script Python
 per ciascun modulo auditato e un target Makefile che esegue l'intera
 campagna sotto un singolo comando su un checkout pulito.
