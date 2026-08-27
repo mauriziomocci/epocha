@@ -641,14 +641,15 @@ def _world_of(simulation: Any) -> Any | None:
     return World.objects.filter(simulation=simulation).first()
 
 
-def _not_yet_wired(context: DemographyTickContext) -> None:
-    """Placeholder driver: the order exists before the steps that fill it.
+def _run_population_snapshot_step(context: DemographyTickContext) -> None:
+    """Write the tick's aggregate demographic state.
 
-    Replaced step by step as each driver lands. Deliberately a no-op rather
-    than a raise: the order has to be inspectable and permutable by tests
-    before every driver exists.
+    Thin adapter so the snapshot module stays free of the step protocol: the
+    aggregation is demography, the step signature is orchestration.
     """
-    return None
+    from epocha.apps.demography.snapshot import write_population_snapshot
+
+    write_population_snapshot(context)
 
 
 # The declared per-tick order. Each entry records the requirement that fixes
@@ -736,7 +737,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         index=8,
         name="population_snapshot",
         rng_phase=None,
-        run=_not_yet_wired,
+        run=_run_population_snapshot_step,
         why_here=(
             "The snapshot describes the tick, so it is written once every"
             " mutation of that tick has happened."

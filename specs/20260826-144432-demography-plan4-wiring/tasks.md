@@ -88,9 +88,9 @@ docker compose -f docker-compose.local.yml exec -T web pytest -q
 
 ## Phase 7 — PopulationSnapshot
 
-- [ ] T030 Create `epocha/apps/demography/snapshot.py` writing all ten data fields of `PopulationSnapshot` with set-based aggregates, no per-agent query. Test: `epocha/apps/demography/tests/test_population_snapshot.py`
-- [ ] T031 Assert SC-007 field by field against a hand-built fixture that carries at least one birth, one death, one zone move, a sex ratio different from one, and at least one active couple — so that no expected value coincides with a model default. Test: `epocha/apps/demography/tests/test_population_snapshot.py`
-- [ ] T032 Add the snapshot as the last step of `DEMOGRAPHY_STEPS` and assert every tick leaves exactly one snapshot row. Test: `epocha/apps/demography/tests/test_population_snapshot.py`
+- [x] T030 Create `epocha/apps/demography/snapshot.py` writing all ten data fields of `PopulationSnapshot` with set-based aggregates, no per-agent query. Test: `epocha/apps/demography/tests/test_population_snapshot.py`
+- [x] T031 Assert SC-007 field by field against a hand-built fixture that carries at least one birth, one death, one zone move, a sex ratio different from one, and at least one active couple — so that no expected value coincides with a model default. Test: `epocha/apps/demography/tests/test_population_snapshot.py`
+- [x] T032 Add the snapshot as the last step of `DEMOGRAPHY_STEPS` and assert every tick leaves exactly one snapshot row. Test: `epocha/apps/demography/tests/test_population_snapshot.py`
 
 ## Phase 8 — Cost budget
 
