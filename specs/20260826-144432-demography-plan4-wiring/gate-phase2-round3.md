@@ -73,4 +73,31 @@ SC, Non-goals e FAQ.
 
 ## Verdetto
 
-*(da compilare a round concluso)*
+**NOT CONVERGED** (round concluso 2026-08-27, auditor avversariale su Opus,
+ambito rispettato). Undici voci su quattordici RESOLVED. Restano aperte la voce
+1, la metà SC-007 della voce 11 e la voce 12, più tre bloccanti nuovi e un
+minore, tutti verificati a campione dal supervisore contro il sorgente:
+
+- **B1 (INCONSISTENT, bloccante)**: FR-016/SC-005 «conteggio costante/identico»
+  contro i Non-goals e contro il costo contrattuale dei moduli — `resolve_heirs`
+  fino a 7 query per morto (`inheritance.py:1660-1668`), una risoluzione e una
+  scrittura per intento (`couple.py:376-381`). La revisione 3 ha sostituito un
+  criterio che non poteva fallire con uno che non può passare; e a fixture
+  inerte resterebbe comunque verde su un'implementazione N+1.
+- **B2 (UNJUSTIFIED, bloccante)**: FR-010a prescrive di rifiutare uno stato che
+  lo schema rende impossibile — `Simulation.seed` è `BigIntegerField` NOT NULL
+  (`simulation/models.py:35`) e i tre siti di creazione lo valorizzano
+  (`simulation/views.py:48`, `dashboard/views.py:154`, `knowledge/api.py:164`);
+  il tick loop gira solo su simulazioni persistite, quindi `id` non è mai None.
+  Requisito verde per default, e con lui cade la frase «consegna A-5».
+- **B3 (INCORRECT, bloccante)**: FR-017 colloca in §4.1 e §6.2 frasi che vivono
+  in §11 (whitepaper righe 2611, 2626, 2674, 2725), e l'inventario è incompleto
+  (Abstract:42, §4.1.5:1116, §7.5:2422, §9:2444,2446, §10:2484,2508, §12:2864,
+  App. B:3626).
+- **B4 (bloccante)**: SC-007 su fixture statica — quattro campi su dieci hanno
+  valore atteso uguale al default del modello.
+- **B5 (minore)**: `fit_hadwiger` è in §6.3, non §6.2 (riga 2359).
+- Non bloccanti con motivazione: N-14 (eccezione Non-goal dice «firma» dove
+  FR-012 tocca il corpo), N-15 (collocazione del passo contatore non
+  nell'ordine), N-16 (US2 senza test per FR-005/FR-005a), N-17 (collocazione
+  del blocco rispetto al chord demandata al piano di fase 3).

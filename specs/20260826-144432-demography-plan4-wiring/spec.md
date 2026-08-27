@@ -89,7 +89,9 @@ che ha dopo le successioni di questo tick, non su quello di prima.
 3. La successione di un agente morto al tick T avviene al tick T, dopo la morte.
 4. Un agente che eredita al tick T non è valutato per la fuga d'emergenza al
    tick T sul patrimonio precedente all'eredità.
-5. Ogni proprietà d'ordine sopra è provata **per mutazione**: si scambiano due
+5. Una coppia formata al tick T può concepire a T; una coppia che si separa a T
+   non concepisce a T.
+6. Ogni proprietà d'ordine sopra è provata **per mutazione**: si scambiano due
    passi e il test diventa rosso.
 
 ### US3 — Il contatore di fame esiste (P1)
@@ -121,9 +123,13 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 - **Costo per tick**: cinque moduli su N agenti possono introdurre N+1 query. Il
   budget va misurato e dichiarato, non scoperto in produzione.
 - **Determinismo**: i moduli demografici usano `get_seeded_rng`; il tick loop
-  deve passare il seme, e con la demografia attiva il seme esplicito è
-  obbligatorio (FR-010a), altrimenti la demografia eredita il fallback a zero
-  dell'helper RNG che il whitepaper traccia come debito A-5.
+  deve passare il seme. Il fallback a zero dell'helper RNG — il debito A-5 del
+  whitepaper — non è un rischio di questo percorso: `Simulation.seed` è NOT
+  NULL nello schema (`simulation/models.py:35`), i tre siti di creazione lo
+  valorizzano, e il tick loop gira solo su simulazioni persistite, quindi la
+  condizione «seme e id entrambi assenti» è strutturalmente impossibile qui. Il
+  debito resta tracciato per gli oggetti `Simulation` non salvati costruiti in
+  codice.
 
 ## Requirements *(mandatory)*
 
@@ -189,21 +195,16 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
   seminato» e darebbe a ogni agente lo stesso sorteggio uniforme, facendoli
   morire in blocco per soglia d'età invece che indipendentemente. È la regola che
   `migration.py` già applica.
-- **FR-010a**: con la demografia attiva, **il seme esplicito è obbligatorio**:
-  attivare la chiave di FR-008 su una simulazione senza `seed` valorizzato è
-  rifiutato alla validazione della configurazione, non degradato. Senza questo
-  requisito la demografia cablata erediterebbe il fallback a zero dell'helper
-  RNG quando seme e id mancano — il debito che il whitepaper traccia come A-5 e
-  assegna a Plan 4 — e due simulazioni non salvate estrarrebbero gli stessi
-  stream.
-
 **Lo stato che manca**
 
 - **FR-011**: il contatore di tick consecutivi sotto la soglia di sussistenza è
   **persistito** sull'agente, e il predicato che lo incrementa è **lo stesso** che
   `process_emergency_flight` usa come trigger — `agent.wealth` contro
   `compute_subsistence_threshold` — altrimenti contatore e innesco divergono in
-  silenzio.
+  silenzio. Il passo che aggiorna il contatore è collocato nell'ordine
+  dichiarato **dopo la successione e prima della migrazione forzata**, così
+  l'incremento legge lo stesso patrimonio post-successione che il trigger di
+  fuga legge nello stesso tick.
 - **FR-012**: `process_emergency_flight` legge il contatore persistito.
 - **FR-013**: l'inizializzazione valorizza **`birth_tick`** per ogni agente, in
   modo coerente con l'età generata, e al suo termine **nessun agente vivo ha
@@ -226,16 +227,29 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 
 **Costo e documentazione**
 
-- **FR-016**: il blocco demografico **non esegue query per agente**: il suo
-  conteggio di query per tick è costante rispetto alla popolazione.
+- **FR-016**: il blocco demografico **non esegue query per agente vivo**. Il
+  costo per evento vitale è invece ammesso, perché è contrattuale nei moduli
+  che i Non-goals vietano di riscrivere — `resolve_heirs` costa fino a 7 query
+  per morto per dichiarazione del proprio docstring (`inheritance.py:1660-1668`),
+  la risoluzione di un intento di coppia una lettura e una scrittura
+  (`couple.py:376-381`). Il budget per tick è quindi una **funzione affine
+  dichiarata degli eventi vitali** — `a + b·morti + c·intenti + d·fughe` — con i
+  coefficienti misurati e scritti nel test, non un valore costante che il codice
+  cablato non può dare.
 - **FR-017**: nello stesso commit del codice, in entrambe le lingue: il
   whitepaper §4.1 documenta gli orchestratori e l'ordine dichiarato; **ogni
-  passo del whitepaper che il merge rende falso viene aggiornato** — in
-  particolare le frasi «tick-loop integration deferred to demography Plan 4»
-  nelle chiusure dei sottocapitoli di §4.1 e in §6.2, e la definizione
-  tripartita «Initialisation, Engine integration, and Historical validation» di
-  §9, che dopo questo work item non descrive più un work item unico. La build
-  map è aggiornata in entrambe le lingue allo stesso checkpoint.
+  passo del whitepaper che il merge rende falso viene aggiornato**.
+  L'inventario, verificato contro il sorgente del whitepaper inglese: le
+  quattro occorrenze di «tick-loop integration deferred to demography Plan 4»
+  in **§11 Known Limitations**, e le frasi equivalenti in Abstract, §4.1.5,
+  §7.5, §9 — inclusa la definizione tripartita «Initialisation, Engine
+  integration, and Historical validation», che dopo questo work item non
+  descrive più un work item unico — §10, §12 e Appendice B, con i loro
+  omologhi italiani. La verifica di chiusura non è l'inventario ma un grep:
+  al merge, `deferred to demography Plan 4` e `deferred to Plan 4` su entrambi
+  i whitepaper non restituiscono alcuna occorrenza che il merge stesso rende
+  falsa. La build map è aggiornata in entrambe le lingue allo stesso
+  checkpoint.
 
 ## Success Criteria *(mandatory)*
 
@@ -244,20 +258,34 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 - **SC-002**: ogni proprietà d'ordine di FR-004, FR-005, FR-005a, FR-006 e FR-007
   è provata **per mutazione**: si scambiano due passi e il test diventa rosso.
 - **SC-003**: il contatore di fame si incrementa e si azzera come prescritto, con
-  lo stesso predicato del trigger, provato per mutazione.
+  lo stesso predicato del trigger, provato per mutazione — inclusa la
+  collocazione di FR-011: spostare il passo contatore prima della successione fa
+  fallire un test su una fixture in cui l'erede risale sopra soglia grazie
+  all'eredità del tick.
 - **SC-004**: una simulazione con la demografia non attiva esegue **lo stesso
   numero di query** di prima del cablaggio e non produce eventi demografici.
-- **SC-005**: il conteggio di query del blocco demografico è **identico** con N e
-  con 2N agenti — lo stesso valore assoluto, scritto nel test, non una crescita
-  «meno che lineare»: con `q` query per agente e `c` fisse, `2qN + c` è sempre
-  minore di `2(qN + c)`, quindi qualunque criterio di sola non-proporzionalità
-  passerebbe anche su un'implementazione N+1.
+- **SC-005**: due parti, entrambe con i valori attesi scritti nel test. **A
+  eventi vitali pari** — stesso numero di morti, intenti e fughe nel tick
+  misurato, e il tick ne contiene almeno uno per tipo, non zero — raddoppiare
+  gli **agenti vivi** lascia il conteggio di query del blocco demografico
+  **identico**: un'implementazione con query per agente vivo diventa rossa al
+  raddoppio, e il criterio resta raggiungibile perché il costo per evento è
+  fuori dal confronto. **A popolazione fissa**, far variare gli eventi verifica
+  i coefficienti dichiarati da FR-016: il conteggio misurato coincide con
+  `a + b·morti + c·intenti + d·fughe`. La forma «raddoppiando la popolazione il
+  conteggio non raddoppia» è vietata: con `q` query per agente e `c` fisse,
+  `2qN + c` è sempre minore di `2(qN + c)`, quindi passerebbe anche su
+  un'implementazione N+1; e la fixture inerte è vietata dal vincolo di almeno
+  un evento per tipo, senza il quale il raddoppio dei vivi non distingue nulla.
 - **SC-006**: due agenti che nascono nello stesso tick non ricevono
   sistematicamente gli stessi attributi estratti a sorte.
 - **SC-007**: ogni tick lascia uno `PopulationSnapshot` in cui **ciascun campo di
   FR-015 è asserito contro il valore atteso** calcolato da una popolazione di
-  fixture costruita a mano — non un'asserzione di esistenza, che passerebbe su
-  una riga di soli default.
+  fixture costruita a mano, e **il tick misurato contiene almeno una nascita,
+  una morte e uno spostamento di zona**: senza eventi vitali i valori attesi di
+  `crude_birth_rate`, `crude_death_rate`, `tfr_instant` e
+  `net_migration_by_zone` coincidono con i default del modello (0.0 e vuoto), e
+  un'implementazione che non li calcola passerebbe comunque.
 - **SC-008**: suite intera verde, `test_citation_hygiene.py` e
   `test_build_map_bilingual.py` compresi.
 
@@ -279,8 +307,9 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 
 - Non si riscrive alcun modulo demografico, e non se ne modifica il corpo: le
   sole eccezioni sono quelle che i requisiti nominano per nome
-  (`apply_inheritance_at_birth` per SC-006, la firma di
-  `process_emergency_flight` per FR-012).
+  (`apply_inheritance_at_birth` per SC-006; `process_emergency_flight` per
+  FR-012, dove cambiano la firma e la sola lettura del contatore, non la
+  logica di fuga).
 - Non si esegue la validazione contro HMD, Wrigley-Schofield, Hajnal.
 - Non si cabla la migrazione volontaria nel ciclo decisionale (sezione dedicata).
 - Non si esegue alcuna calibrazione (sezione dedicata).
@@ -319,18 +348,23 @@ item. Per non lasciare promesse pendenti implicite, l'elenco è esplicito. Quest
 work item **non** consegna:
 
 - la **calibrazione dei coefficienti Becker** per era (debito B2-07, Table 4.4);
-- il **fitting Hadwiger** per la fertilità (`fit_hadwiger`, §6.2);
+- il **fitting Hadwiger** per la fertilità (`fit_hadwiger`, §6.3);
 - le **calibrazioni dell'economia** (parametri Cagan di Table 4.7, parametri
   credito e banche di Table 4.9, dataset e soglie di §7);
 - la **validazione storica** (capitolo 7), tracciata da
   `project_validation_experiments_pending.md`;
 - il **cablaggio della migrazione volontaria** nel ciclo decisionale (sezione
-  precedente).
+  precedente);
+- la chiusura del debito **A-5**: nel percorso che questo work item cabla la
+  condizione non può presentarsi — `Simulation.seed` è NOT NULL nello schema, i
+  tre siti di creazione lo valorizzano, il tick loop gira su simulazioni
+  persistite — quindi non c'è nulla da chiudere qui, e un requisito che vieti
+  uno stato strutturalmente impossibile sarebbe verde per costruzione. Il
+  debito resta tracciato per gli oggetti `Simulation` non salvati costruiti in
+  codice.
 
-Consegna invece, oltre al cablaggio: la chiusura del debito **A-5** limitatamente
-alle simulazioni con demografia attiva (FR-010a). Tutto il resto resta tracciato
-dove già è tracciato; FR-017 impone che al merge il whitepaper non contenga più
-frasi che il merge stesso rende false.
+Tutto il resto resta tracciato dove già è tracciato; FR-017 impone che al merge
+il whitepaper non contenga più frasi che il merge stesso rende false.
 
 ## Rischi dichiarati
 
@@ -347,8 +381,8 @@ frasi che il merge stesso rende false.
 - **Il terzo è il determinismo.** I moduli sono pronti per un RNG seminato ma il
   tick loop vive in un'app dove il `random` globale non è mai seminato. Cablare
   senza passare il seme estenderebbe alla demografia un difetto che la build map
-  registra fra i rischi trasversali; FR-010 e FR-010a delimitano il perimetro che
-  questo work item chiude.
+  registra fra i rischi trasversali; FR-010 delimita il perimetro che questo
+  work item chiude.
 
 ## FAQ
 
@@ -371,12 +405,21 @@ cambia niente — non può essere il predicato, perché sette punti del codice
 applicano già il default in sua assenza — e FR-009 rende l'invarianza un
 requisito verificato, non una speranza.
 
-**Perché il seme diventa obbligatorio con la demografia attiva?** Perché senza
-seme esplicito l'helper RNG degrada a zero quando anche l'id manca, e il
-determinismo che FR-010 costruisce poggerebbe su un fallback che il whitepaper
-già traccia come debito (A-5). Rendere obbligatorio il seme solo con la
-demografia attiva chiude il debito dove questo work item lo incontra, senza
-cambiare il contratto delle simulazioni esistenti.
+**Perché il debito A-5 non si chiude qui?** Perché nel percorso che questo work
+item cabla non esiste: lo schema dichiara il seme NOT NULL, ogni sito di
+creazione lo valorizza, e il tick loop gira solo su simulazioni persistite,
+quindi il fallback a zero dell'helper RNG non è raggiungibile dal cablaggio. Un
+requisito che vietasse quello stato sarebbe verde per costruzione — la classe
+di criterio che questo gate ha inseguito per tre round — e il debito resta
+tracciato dove può presentarsi davvero, cioè negli oggetti non salvati
+costruiti in codice.
+
+**Dove gira il blocco demografico rispetto al chord delle decisioni?** La
+collocazione — prima dei task per agente, dopo di essi, o in chiusura di tick —
+è una scelta del piano architetturale di fase 3, non un requisito di questa
+spec: i vincoli d'ordine di FR-003..FR-007 sono interni al blocco e valgono in
+qualunque collocazione. Il piano la dichiara e la motiva, insieme a quale stato
+del tick i task per agente vedono.
 
 **Una coppia che si separa al tick T può concepire a T?** No. L'intento di
 separazione è di T-1, e la regola di FR-005a è una sola per tutti gli intenti di
