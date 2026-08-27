@@ -302,30 +302,281 @@ class TestDeclaredOrderIsTheRightOne:
         every mutation of that tick has happened."""
         assert orchestrator.DEMOGRAPHY_STEPS[-1].name == "population_snapshot"
 
-    @pytest.mark.parametrize(
-        ("before", "after", "property_broken"),
-        [
-            ("mortality", "fertility", "a dead agent could conceive in the same tick"),
-            ("couple_formation", "fertility", "a couple formed at T could not conceive at T"),
-            ("separations", "couple_formation", "a separation would be read after a formation"),
-            ("succession", "forced_migration", "flight would read pre-inheritance wealth"),
-            ("starvation_counter", "forced_migration", "the counter would lag the trigger"),
-        ],
-    )
-    def test_each_permutation_breaks_a_declared_property(self, before, after, property_broken):
-        """The mutation itself, applied to the data rather than to the code.
+    # The first version of the SC-002 proof built a permuted tuple and then
+    # asserted on the tuple -- the assertion read the test's own input, no
+    # edit to production code could turn it red, and the five plain index
+    # assertions above already pinned everything it pinned. The executed
+    # proofs live in `TestPermutedOrdersBreakObservably` below: the permuted
+    # order RUNS, and the named property visibly breaks.
 
-        Moving a step past the one that depends on it must make the order
-        stop satisfying the property the requirement names -- if it does not,
-        the property was never really pinned by the order and the ordering
-        test above would pass on any arrangement.
+
+class TestPermutedOrdersBreakObservably:
+    """SC-002 as the spec words it: swap two steps and watch a property break.
+
+    Each test runs the SAME fixture twice, once under the declared order and
+    once under a permuted one, through `run_demography_tick` itself -- not
+    through a helper that inspects tuples. The declared run must satisfy the
+    property and the permuted run must visibly violate it; a pair of runs
+    that agree would mean the order is not load-bearing and the requirement
+    pinning it is theatre.
+    """
+
+    def _world(self, label):
+        from django.contrib.gis.geos import Point, Polygon
+
+        from epocha.apps.agents.models import Agent
+        from epocha.apps.demography.couple import form_couple
+        from epocha.apps.world.models import Government, World, Zone
+
+        user = User.objects.create_user(
+            email=f"perm{label}@epocha.dev", username=f"permuser{label}", password="pass1234"
+        )
+        sim = Simulation.objects.create(
+            name=f"PermTest{label}",
+            seed=2026,
+            owner=user,
+            current_tick=200,
+            config={"demography_enabled": True},
+        )
+        world = World.objects.create(simulation=sim, stability_index=0.7)
+        Government.objects.create(simulation=sim)
+        zone = Zone.objects.create(
+            world=world,
+            name=f"PermZone{label}",
+            zone_type="residential",
+            boundary=Polygon.from_bbox((0, 0, 100, 100)),
+            center=Point(50, 50),
+        )
+
+        def _agent(name, real_age, gender, wealth=500.0):
+            return Agent.objects.create(
+                simulation=sim,
+                name=name,
+                zone=zone,
+                role="farmer",
+                location=Point(50, 50),
+                health=1.0,
+                wealth=wealth,
+                age=99,  # frozen column, deliberately wrong (the recurring trap)
+                birth_tick=int(sim.current_tick - real_age * 365.0),
+                education_level=0.4,
+                social_class="working",
+                gender=gender,
+                personality={},
+            )
+
+        from epocha.apps.agents.models import Agent as AgentModel
+
+        mother = _agent("PermMadre", 28, AgentModel.Gender.FEMALE)
+        father = _agent("PermPadre", 32, AgentModel.Gender.MALE)
+        form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
+        return sim, mother, father
+
+    class _AllDie:
+        """Every mortality draw kills; fertility draws force one birth."""
+
+        def random(self):
+            return 0.0
+
+        def gauss(self, mu, sigma):
+            return mu
+
+        def randrange(self, n):
+            return 0
+
+    class _ForcedBirth:
+        """First draw forces the birth, second lets the mother survive it."""
+
+        def __init__(self):
+            self._draws = [0.0, 0.9]
+
+        def random(self):
+            return self._draws.pop(0) if self._draws else 1.0
+
+        def gauss(self, mu, sigma):
+            return mu
+
+        def randrange(self, n):
+            return 0
+
+    def _run(self, sim, steps, monkeypatch, *, deadly_mortality, forced_birth):
+        real_stream_for = orchestrator.stream_for
+
+        def _scripted(simulation, tick, phase):
+            if deadly_mortality and phase == "mortality":
+                return self._AllDie()
+            if forced_birth and phase == "fertility":
+                return self._ForcedBirth()
+            return real_stream_for(simulation, tick, phase)
+
+        monkeypatch.setattr(orchestrator, "stream_for", _scripted)
+        monkeypatch.setattr(orchestrator, "DEMOGRAPHY_STEPS", steps)
+        try:
+            orchestrator.run_demography_tick(sim, sim.current_tick + 1)
+        finally:
+            monkeypatch.undo()
+
+    def test_a_dead_mother_conceives_when_fertility_precedes_mortality(self, db, monkeypatch):
+        """FR-004 executed. Declared order: the mother dies at step 3 and the
+        forced birth finds no living candidate. Mortality moved after
+        fertility: the same draws produce a newborn whose mother is dead in
+        the same tick -- the exact corpse-conception the requirement forbids.
         """
-        permuted = _reordered(before=before, after=after)
-        names = [s.name for s in permuted]
+        from epocha.apps.agents.models import Agent
 
-        assert names.index(before) > names.index(after), property_broken
-        original = [s.name for s in orchestrator.DEMOGRAPHY_STEPS]
-        assert original.index(before) < original.index(after)
+        declared_sim, _, _ = self._world("DeclaredFr004")
+        self._run(
+            declared_sim,
+            orchestrator.DEMOGRAPHY_STEPS,
+            monkeypatch,
+            deadly_mortality=True,
+            forced_birth=True,
+        )
+        assert not Agent.objects.filter(
+            simulation=declared_sim, birth_tick=declared_sim.current_tick + 1
+        ).exists(), "the declared order let a dead mother conceive"
+
+        permuted_sim, _, _ = self._world("PermutedFr004")
+        self._run(
+            permuted_sim,
+            _reordered(before="mortality", after="fertility"),
+            monkeypatch,
+            deadly_mortality=True,
+            forced_birth=True,
+        )
+        newborns = Agent.objects.filter(
+            simulation=permuted_sim, birth_tick=permuted_sim.current_tick + 1
+        )
+        assert newborns.exists(), (
+            "the permuted order produced no birth: the fixture is not "
+            "exercising the property and this proof is theatre"
+        )
+        mother = newborns.first().parent_agent
+        mother.refresh_from_db()
+        assert mother.is_alive is False, (
+            "the permuted order's newborn has a living mother: the observable "
+            "no longer distinguishes the two orders"
+        )
+
+    def _world_with_heir(self, label):
+        """An elder with an estate and a living adult child: the heir ladder
+        lands on the child, so a settled tick moves wealth and an unsettled
+        one visibly does not. The elder is created first, so the scripted
+        mortality stream's single killing draw lands on it by id order."""
+        from django.contrib.gis.geos import Point, Polygon
+
+        from epocha.apps.agents.models import Agent
+        from epocha.apps.world.models import Government, World, Zone
+
+        user = User.objects.create_user(
+            email=f"perm{label}@epocha.dev", username=f"permuser{label}", password="pass1234"
+        )
+        sim = Simulation.objects.create(
+            name=f"PermTest{label}",
+            seed=2026,
+            owner=user,
+            current_tick=200,
+            config={"demography_enabled": True},
+        )
+        world = World.objects.create(simulation=sim, stability_index=0.7)
+        Government.objects.create(simulation=sim)
+        zone = Zone.objects.create(
+            world=world,
+            name=f"PermZone{label}",
+            zone_type="residential",
+            boundary=Polygon.from_bbox((0, 0, 100, 100)),
+            center=Point(50, 50),
+        )
+
+        def _agent(name, real_age, wealth, **kwargs):
+            return Agent.objects.create(
+                simulation=sim,
+                name=name,
+                zone=zone,
+                role="farmer",
+                location=Point(50, 50),
+                health=1.0,
+                wealth=wealth,
+                age=99,  # frozen column, deliberately wrong (the recurring trap)
+                birth_tick=int(sim.current_tick - real_age * 365.0),
+                education_level=0.4,
+                social_class="working",
+                gender=Agent.Gender.MALE,
+                personality={},
+                **kwargs,
+            )
+
+        elder = _agent("PermAvo", 82, 800.0)
+        heir = _agent("PermErede", 45, 50.0, parent_agent=elder)
+        return sim, elder, heir
+
+    class _FirstAgentDies:
+        """The first mortality draw kills, everything after lets live; the
+        cause draws are absorbed by fixed gauss/randrange values."""
+
+        def __init__(self):
+            self._draws = [0.0]
+
+        def random(self):
+            return self._draws.pop(0) if self._draws else 1.0
+
+        def gauss(self, mu, sigma):
+            return mu
+
+        def randrange(self, n):
+            return 0
+
+    def test_a_death_goes_unsettled_when_succession_precedes_mortality(self, db, monkeypatch):
+        """FR-006 executed. The DEATH event is emitted by the mortality step
+        itself, so it cannot separate the two orders; what separates them is
+        the settlement. Declared order: the elder dies at step 3 and step 4
+        moves the estate to the heir -- an INHERITANCE_TRANSFER event exists
+        and the heir's wealth grows. Mortality moved after succession: the
+        settlement query runs before anyone has died, so the tick ends with
+        a dead elder, an unmoved estate and no transfer -- the second-class
+        death the childbirth fix of this branch already met once.
+        """
+        from epocha.apps.demography.models import DemographyEvent
+
+        real_stream_for = orchestrator.stream_for
+
+        def _scripted(simulation, tick, phase):
+            if phase == "mortality":
+                return self._FirstAgentDies()
+            return real_stream_for(simulation, tick, phase)
+
+        def _run(sim, steps):
+            monkeypatch.setattr(orchestrator, "stream_for", _scripted)
+            monkeypatch.setattr(orchestrator, "DEMOGRAPHY_STEPS", steps)
+            try:
+                orchestrator.run_demography_tick(sim, sim.current_tick + 1)
+            finally:
+                monkeypatch.undo()
+
+        declared_sim, declared_elder, declared_heir = self._world_with_heir("DeclaredFr006")
+        _run(declared_sim, orchestrator.DEMOGRAPHY_STEPS)
+        declared_elder.refresh_from_db()
+        declared_heir.refresh_from_db()
+        assert declared_elder.is_alive is False, "nobody died: the fixture proves nothing"
+        assert DemographyEvent.objects.filter(
+            simulation=declared_sim,
+            event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER,
+        ).exists(), "the declared order left the estate unsettled"
+        assert declared_heir.wealth > 50.0, "the heir received nothing under the declared order"
+
+        permuted_sim, permuted_elder, permuted_heir = self._world_with_heir("PermutedFr006")
+        _run(permuted_sim, _reordered(before="mortality", after="succession"))
+        permuted_elder.refresh_from_db()
+        permuted_heir.refresh_from_db()
+        assert permuted_elder.is_alive is False
+        assert not DemographyEvent.objects.filter(
+            simulation=permuted_sim,
+            event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER,
+        ).exists(), (
+            "succession running before mortality still settled the tick's "
+            "dead: the settlement is no longer reading the declared order"
+        )
+        assert permuted_heir.wealth == 50.0
 
 
 class TestBlockEntryPoint:

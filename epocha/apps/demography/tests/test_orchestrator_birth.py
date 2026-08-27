@@ -258,6 +258,37 @@ class TestFertilityStep:
             "inheritance stream is being restarted per birth"
         )
 
+    def test_the_candidate_query_alone_excludes_the_dead_and_the_male(self, sim_with_zone):
+        """The two filters nothing else backs up, pinned without the couple
+        gate masking them.
+
+        Under the default era the couple requirement suppresses almost any
+        candidate the query lets through -- a dead woman's couple was
+        dissolved by succession, an unpartnered man was never in one -- so
+        dropping `is_alive=True` or `gender=FEMALE` from the candidate query
+        survived the entire suite. `modern_democracy` has
+        `require_couple_for_birth: false`: here the query IS the gate, and a
+        forced-birth stream turns any leak straight into a newborn.
+        """
+        sim, zone = sim_with_zone
+        _agent(sim, zone, "Morta", age=25, is_alive=False, death_tick=sim.current_tick - 1)
+        _agent(sim, zone, "UomoSolo", gender=Agent.Gender.MALE, age=25)
+        context = _context(sim, template_name="modern_democracy")
+
+        orchestrator.run_fertility_step(
+            context,
+            rng=_ScriptedRandom(
+                [BIRTH_HAPPENS, MOTHER_SURVIVES, BIRTH_HAPPENS, MOTHER_SURVIVES]
+            ),
+        )
+
+        assert not Agent.objects.filter(
+            simulation=sim, birth_tick=context.tick
+        ).exists(), (
+            "a dead woman or a man produced a birth: the candidate query "
+            "stopped filtering on is_alive or gender"
+        )
+
     def test_a_birth_emits_an_event_carrying_the_step_index(self, sim_with_zone):
         """US1 acceptance 2: the payload carries the position in the declared
         order. The event type already partitions by module in the schema, so
