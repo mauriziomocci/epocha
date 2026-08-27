@@ -33,9 +33,9 @@ docker compose -f docker-compose.local.yml exec -T web pytest -q
 
 ## Phase 1 — Setup
 
-- [ ] T001 Run the full suite and record the baseline count in the task's commit message; a red baseline is handled by the fix-vs-STOP rule before any other task starts. Command: `docker compose -f docker-compose.local.yml exec -T web pytest -q`
-- [ ] T002 [P] Add the `names` section to the era-template schema in `epocha/apps/demography/template_loader.py`, with the test that a template carrying an unknown sibling key is still rejected. Mutation proof: delete the new schema entry, the acceptance test goes red; delete the unknown-key rejection, the rejection test goes red. Test: `epocha/apps/demography/tests/test_template_loader.py`
-- [ ] T003 [P] Add the `names` section (male, female given-name pools) to all five templates in `epocha/apps/demography/templates/*.json`, with a test asserting every template loads and every pool is non-empty. Test: `epocha/apps/demography/tests/test_template_loader.py`
+- [x] T001 Run the full suite and record the baseline count in the task's commit message; a red baseline is handled by the fix-vs-STOP rule before any other task starts. Command: `docker compose -f docker-compose.local.yml exec -T web pytest -q` — **baseline 1582 passed, ruff clean, measured 2026-08-27 before the first task.**
+- [x] T002 [P] Add the `names` section to the era-template schema in `epocha/apps/demography/template_loader.py`, with the test that a template carrying an unknown sibling key is still rejected. Mutation proof: delete the new schema entry, the acceptance test goes red; delete the unknown-key rejection, the rejection test goes red. Test: `epocha/apps/demography/tests/test_template_loader.py`
+- [x] T003 [P] Add the `names` section (male, female given-name pools) to all five templates in `epocha/apps/demography/templates/*.json`, with a test asserting every template loads and every pool is non-empty. Test: `epocha/apps/demography/tests/test_template_loader.py`
 
 ## Phase 2 — Foundational (blocks every user story)
 

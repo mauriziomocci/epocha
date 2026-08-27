@@ -2,6 +2,11 @@
 
 **Branch**: `20260826-144432-demography-plan4-wiring`
 **Creata**: 2026-08-26
+**Gate di fase 2**: CONVERGED al round 5, 2026-08-27 (`gate-phase2-round5.md`)
+**APPROVATA**: 2026-08-27, ratifica esplicita dell'utente in sessione —
+«ratifico la spec del Plan 4, procedi con l'implementazione». È l'evidenza
+citabile che il gate pesante di fase 2 richiede e che nessuna skill può
+sostituire.
 
 ## Il problema
 

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from epocha.apps.demography import template_loader
+
+# Resolved once, from the module's own location: the tests below monkeypatch
+# `template_loader.TEMPLATES_DIR` to a tmp_path, so reading that attribute to
+# find the shipped templates would resolve to the patched directory.
+_SHIPPED_TEMPLATES = Path(template_loader.__file__).parent / "templates"
 
 
 def test_all_default_templates_load():
@@ -52,22 +58,79 @@ def test_invalid_fertility_agency_raises(tmp_path, monkeypatch):
         template_loader.load_template("bad_agency")
 
 
+def test_names_section_is_accepted(tmp_path, monkeypatch):
+    """The `names` section is part of the contract (spec FR-001a).
+
+    A newborn's name comes from a per-era pool rather than from the LLM,
+    because an LLM-generated name would make birth non-reproducible from
+    the seed. The pool has to live in the template, so the loader's closed
+    schema has to admit it.
+    """
+    monkeypatch.setattr(template_loader, "TEMPLATES_DIR", tmp_path)
+    tpl = _minimal_template()
+    (tmp_path / "with_names.json").write_text(json.dumps(tpl))
+
+    loaded = template_loader.load_template("with_names")
+
+    assert loaded["names"]["male"]
+    assert loaded["names"]["female"]
+
+
+def test_names_section_is_mandatory(tmp_path, monkeypatch):
+    """Omitting the pool must fail at load time, not at the first birth."""
+    monkeypatch.setattr(template_loader, "TEMPLATES_DIR", tmp_path)
+    tpl = _minimal_template()
+    del tpl["names"]
+    (tmp_path / "no_names.json").write_text(json.dumps(tpl))
+
+    with pytest.raises(ValueError):
+        template_loader.load_template("no_names")
+
+
+def test_names_pool_must_be_a_list(tmp_path, monkeypatch):
+    monkeypatch.setattr(template_loader, "TEMPLATES_DIR", tmp_path)
+    tpl = _minimal_template()
+    tpl["names"]["male"] = "Giovanni"
+    (tmp_path / "scalar_pool.json").write_text(json.dumps(tpl))
+
+    with pytest.raises(ValueError):
+        template_loader.load_template("scalar_pool")
+
+
+def test_unknown_key_beside_names_is_still_rejected(tmp_path, monkeypatch):
+    """Extending the contract must not weaken the guard it extends.
+
+    The loader rejects every unknown key at any nesting level. Adding a
+    section is an extension of the contract; it must leave that rejection
+    exactly as strict, inside the new section as everywhere else.
+    """
+    monkeypatch.setattr(template_loader, "TEMPLATES_DIR", tmp_path)
+    tpl = _minimal_template()
+    tpl["names"]["neuter"] = ["Robin"]
+    (tmp_path / "unknown_in_names.json").write_text(json.dumps(tpl))
+
+    with pytest.raises(ValueError):
+        template_loader.load_template("unknown_in_names")
+
+    tpl = _minimal_template()
+    tpl["invented_section"] = {"anything": 1}
+    (tmp_path / "unknown_top.json").write_text(json.dumps(tpl))
+
+    with pytest.raises(ValueError):
+        template_loader.load_template("unknown_top")
+
+
 def _minimal_template() -> dict:
-    return {
-        "acceleration": 1.0,
-        "max_population": 10,
-        "fertility_agency": "biological",
-        "mortality": {
-            "heligman_pollard": {k: 0.01 for k in "ABCDEFGH"},
-            "maternal_mortality_rate_per_birth": 0.01,
-            "neonatal_survival_when_mother_dies": 0.3,
-        },
-        "fertility": {},
-        "age_pyramid": [],
-        "sex_ratio_at_birth": 1.05,
-        "couple": {},
-        "trait_inheritance": {},
-        "social_inheritance": {},
-        "economic_inheritance": {},
-        "migration": {},
-    }
+    """Return a template that the loader actually accepts.
+
+    Reads a shipped era template from disk instead of hand-listing keys.
+    The hand-written version this replaced was missing whole mandatory
+    sections (`fertility.hadwiger` among them), so every test that asserted
+    `pytest.raises(ValueError)` on a deliberately broken copy was passing on
+    the missing sections rather than on the defect it meant to exercise --
+    a criterion that could not fail. Building the fixture from a real
+    template keeps the negative tests honest and keeps the scientific values
+    in one place.
+    """
+    source = _SHIPPED_TEMPLATES / "pre_industrial_christian.json"
+    return json.loads(source.read_text())
