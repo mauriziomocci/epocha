@@ -246,7 +246,13 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
   corretta uscirebbe rossa. Il termine fisso `a` dipende inoltre dal numero di
   **zone**, non dalla popolazione: `compute_subsistence_threshold` esegue due
   query per zona (`demography/context.py`), quindi il numero di zone è tenuto
-  fermo in ogni misura di costo, e dichiararlo è parte del budget.
+  fermo in ogni misura di costo, e dichiararlo è parte del budget. **Le nascite
+  non hanno un termine proprio** perché costano un numero di query indipendente
+  dal loro numero: i neonati e i loro eventi si scrivono in blocco, e
+  `apply_inheritance_at_birth` per proprio contratto non salva nulla — muta
+  l'oggetto figlio e basta. Il costo delle nascite sta quindi dentro `a`, ed è
+  un vincolo sull'implementazione, non un'omissione: una query per nascita fa
+  fallire la misura di costo.
 - **FR-017**: nello stesso commit del codice, in entrambe le lingue: il
   whitepaper §4.1 documenta gli orchestratori e l'ordine dichiarato, e **ogni
   affermazione che il merge rende falsa viene aggiornata**. L'inventario è
@@ -255,17 +261,18 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 
   | Sezione | Affermazione che il merge rende falsa |
   |---|---|
-  | Abstract | la demografia figura fra i sottosistemi non integrati nel tick |
-  | §4.1.1–§4.1.3 | chiusure che rinviano l'integrazione al Plan 4 |
+  | Abstract | la campagna empirica di validazione attribuita al Plan 4 |
+  | §4.1.1–§4.1.3 | chiusure che rinviano l'integrazione al Plan 4, inclusa in §4.1.3 la modifica di una riga riservata al Plan 4 per il lutto |
   | §4.1.4 | «il modulo non è cablato nel tick loop; `engine.py` è intatto e l'integrazione è un deliverable del Plan 4» |
-  | §4.1.5 | nessuna funzione del modulo è invocata dal ciclo di tick live |
+  | §4.1.5 | nessuna funzione del modulo è invocata dal ciclo di tick live, **e** «il Plan 4 possiede la creazione di quello storage; finché non lo fa, la fuga d'emergenza non può scattare in un'esecuzione viva», che FR-011 e FR-012 rendono falsa nello stesso commit |
   | §4.2 | «a differenza dei moduli di demografia di §4.1.x, l'economia comportamentale è davvero viva nella pipeline per tick» — il confronto si capovolge |
+  | §7.4 | la directory `validation/` promessa come deliverable del Plan 4 |
   | §7.5 | la validazione è vincolata a un Plan 4 che comprende anche l'esecuzione della campagna |
   | §9 | la definizione tripartita «Initialisation, Engine integration, and Historical validation», che dopo questo work item non descrive più un work item unico |
   | §10 | l'integrazione nel tick loop come deliverable centrale ancora da fare |
-  | §11 | le quattro voci «tick-loop integration deferred to demography Plan 4», rese in italiano «Integrazione tick-loop rimandata al Plan 4 di demografia» |
+  | §11 | le quattro voci «tick-loop integration deferred to demography Plan 4», rese in italiano «Integrazione tick-loop rimandata al Plan 4 di demografia», **più** l'affermazione che l'integrazione è il deliverable centrale del Plan 4 |
   | §12 | la demografia elencata fra il lavoro non ancora integrato |
-  | Appendice B | il rinvio dell'integrazione al Plan 4 nelle note operative |
+  | Appendice B | il vincolo della campagna di validazione al Plan 4 e la directory `validation/` promessa come deliverable |
 
   **Restano vere e non si toccano** le occorrenze di «Plan 4» che rinviano
   **calibrazioni**: i coefficienti Becker, i parametri di Cagan, credito e
@@ -315,11 +322,12 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
   FR-015 è asserito contro il valore atteso** calcolato da una popolazione di
   fixture costruita a mano, e **il tick misurato contiene almeno una nascita,
   una morte e uno spostamento di zona, con un rapporto fra i sessi diverso da
-  uno**: senza eventi vitali i valori attesi di `crude_birth_rate`,
-  `crude_death_rate`, `tfr_instant` e `net_migration_by_zone` coincidono con i
-  default del modello (0.0 e vuoto), e su una popolazione bilanciata ci
-  coincide anche `sex_ratio`, il cui default è 1.0 — cinque campi su dieci
-  passerebbero senza che nessuno li calcoli.
+  uno e almeno una coppia attiva**: senza eventi vitali i valori attesi di
+  `crude_birth_rate`, `crude_death_rate`, `tfr_instant` e
+  `net_migration_by_zone` coincidono con i default del modello (0.0 e vuoto),
+  su una popolazione bilanciata ci coincide `sex_ratio`, il cui default è 1.0,
+  e senza coppie ci coincide `couples_active`, il cui default è 0 — **sei campi
+  su dieci** passerebbero senza che nessuno li calcoli.
 - **SC-008**: suite intera verde, `test_citation_hygiene.py` e
   `test_build_map_bilingual.py` compresi.
 
@@ -390,7 +398,7 @@ work item **non** consegna:
 - il **cablaggio della migrazione volontaria** nel ciclo decisionale (sezione
   precedente);
 - la chiusura del debito **A-5**: nel percorso che questo work item cabla la
-  condizione non può presentarsi — `Simulation.seed` è NOT NULL nello schema, i
+  condizione non può presentarsi — `Simulation.seed` è NOT NULL nello schema,
   nessun sito di creazione può ometterlo, il tick loop gira su simulazioni
   persistite — quindi non c'è nulla da chiudere qui, e un requisito che vieti
   uno stato strutturalmente impossibile sarebbe verde per costruzione. Il

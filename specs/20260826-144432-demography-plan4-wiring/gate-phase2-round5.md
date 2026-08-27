@@ -58,4 +58,38 @@ propagano nel codice.
 
 ## Verdetto
 
-*(da compilare a round concluso)*
+**CONVERGED** (round concluso 2026-08-27, auditor avversariale su Opus, giudicato
+contro la regola di arresto scritta sopra e non contro il risultato).
+
+Tutte e cinque le voci RESOLVED con evidenza. Il round non ha prodotto **né** un
+requisito falso rispetto al sorgente **né** un criterio che non può fallire o non
+può passare, che sono le due sole classi bloccanti: le tre asserzioni nuove sul
+codice reggono parola per parola — il contratto di costo variabile di
+`resolve_heirs`, le due query per zona di `compute_subsistence_threshold`, il
+default `1.0` di `sex_ratio` — il vincolo NOT NULL sul seme regge nello schema e
+nel serializer, e i due success criterion riscritti superano entrambi i lati del
+doppio test.
+
+**Coda non ostativa, corretta nello stesso commit** (nessuna riapre il gate):
+la riga Abstract dell'inventario descriveva un'affermazione inesistente e ora
+nomina la campagna empirica; la riga Appendice B nomina il vincolo della
+campagna e la directory `validation/` invece di un rinvio d'integrazione che lì
+non c'è; FR-016a dichiara che le nascite costano un numero di query indipendente
+dal loro numero e stanno dentro il termine fisso; SC-007 passa a sei campi su
+dieci e impone almeno una coppia attiva, perché `couples_active` ha `default=0`;
+l'inventario completa §4.1.5 e §11 e aggiunge §7.4 e la clausola di §4.1.3; il
+refuso a spec.md:394 è corretto.
+
+**Il pattern, registrato perché è il valore del gate.** Dal round 2 al round 4 le
+classi trovate sono state due, entrambe propaganti: criteri che non potevano
+fallire e requisiti falsi rispetto al codice. Il round 5 non ne ha trovato
+nessuna delle due: quello che resta è un inventario documentale con due etichette
+sbagliate, due sotto-conteggi e un refuso — difetti di puntamento in una tabella
+la cui funzione è indirizzare chi revisiona, e che indirizzava comunque alla
+sezione giusta. È esattamente la classe che la regola di arresto degradava a coda
+prima che il round girasse.
+
+**Il gate tecnico di fase 2 è chiuso; il gate pesante no.** Il CLAUDE.md del
+progetto richiede la validazione umana esplicita della spec e non ammette
+eccezioni per quel gate. La spec è pronta per il piano di fase 3, ma
+l'implementazione non parte finché l'utente non ratifica.
