@@ -1,4 +1,4 @@
-# Feature Specification: Demografia Plan 4 — inizializzazione, cablaggio, validazione
+# Feature Specification: Demografia Plan 4 — inizializzazione, cablaggio, snapshot di popolazione
 
 **Branch**: `20260826-144432-demography-plan4-wiring`
 **Creata**: 2026-08-26
@@ -23,14 +23,17 @@ nasce, non muore e non si sposta.
 ## Scope
 
 **Plan 4 possiede l'orchestratore di nascita e quello di morte.** Non è «chiamare
-cinque moduli»: tre moduli su cinque non hanno un punto d'ingresso per tick.
-`mortality.py` espone quattro funzioni pure; `fertility.py` dichiara che «i
-chiamanti sono responsabili di persistere i cambiamenti di stato»;
-`inheritance.py` si autodefinisce «THE PLAN 4 DEATH-PATH ENTRY POINT
-(orchestrator step 2/3)», cioè si aspetta che i passi 1 e 3 li scriva questo
-work item. Nessun codice di produzione emette oggi un evento di nascita o di
-morte: il grep su `EventType.DEATH|EventType.BIRTH` fuori dai test dà zero,
-contro le due occorrenze del controllo positivo su `EventType.MIGRATION`.
+cinque moduli»: due moduli su cinque non hanno alcun punto d'ingresso per tick, e
+il terzo ne ha uno che si dichiara passo intermedio di un orchestratore che non
+esiste. `mortality.py` espone quattro funzioni pure; `fertility.py` dichiara che
+«i chiamanti sono responsabili di persistere i cambiamenti di stato»;
+`inheritance.py` ha l'entry point per tick del percorso di morte —
+`process_inheritance_batch`, «called once per tick» — ma si autodefinisce «THE
+PLAN 4 DEATH-PATH ENTRY POINT (orchestrator step 2/3)», cioè si aspetta che i
+passi 1 e 3 li scriva questo work item. Nessun codice di produzione emette oggi
+un evento di nascita o di morte: il grep su `EventType.DEATH|EventType.BIRTH`
+fuori dai test dà zero, contro le due occorrenze del controllo positivo su
+`EventType.MIGRATION`.
 
 Quattro parti:
 
@@ -45,25 +48,30 @@ Quattro parti:
 
 **Fuori scope**: l'esecuzione dei benchmark (HMD, Wrigley-Schofield, carestia
 irlandese, Hajnal), che resta il work item tracciato da
-`project_validation_experiments_pending.md`. Qui si costruisce ciò che li rende
-eseguibili, non gli esperimenti.
+`project_validation_experiments_pending.md`; il cablaggio della migrazione
+volontaria nel ciclo decisionale (vedi la sezione dedicata); le calibrazioni che
+il whitepaper affida all'etichetta «Plan 4» (vedi la sezione dedicata). Qui si
+costruisce ciò che rende eseguibile la validazione, non gli esperimenti.
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### US1 — La popolazione vive (P1)
 
-Un operatore avvia una simulazione con la demografia attiva e, al passare dei
-tick, vede nascite, morti, formazioni di coppia, successioni e migrazioni
-comparire negli eventi.
+Un operatore avvia una simulazione con la demografia attivata dalla chiave
+dedicata di FR-008 e, al passare dei tick, vede nascite, morti, formazioni di
+coppia, successioni e migrazioni comparire negli eventi.
 
 **Test di accettazione**:
-1. Su una simulazione di N tick con un template d'era dichiarato, il registro
-   eventi contiene almeno una nascita e almeno una morte, e la popolazione varia.
-2. Ogni evento demografico porta in payload **l'indice del passo** nell'ordine
-   dichiarato da FR-003. «Tracciabile al modulo» non era un criterio: il tipo di
-   evento partiziona già per modulo nello schema, quindi qualunque
-   implementazione lo soddisfaceva senza fare nulla.
-3. Una simulazione **senza** demografia configurata gira esattamente come prima,
+1. Su una simulazione di N tick con la demografia attivata dalla chiave dedicata,
+   il registro eventi contiene almeno una nascita e almeno una morte, e la
+   popolazione varia.
+2. Ogni evento demografico **emesso dagli orchestratori di questo work item**
+   porta in payload l'indice del passo nell'ordine dichiarato da FR-003. Gli
+   eventi che i moduli auditati emettono al proprio interno
+   (`migration.py:1000,1770,1803`, `inheritance.py:3575`) non portano l'indice:
+   aggiungerlo richiederebbe di modificarli, contro il Non-goal, e restano
+   tracciati dal tipo di evento, che nello schema partiziona già per modulo.
+3. Una simulazione **senza** demografia attivata gira esattamente come prima,
    senza errori e senza eventi demografici: il cablaggio non rompe le
    simulazioni economiche.
 
@@ -71,15 +79,17 @@ comparire negli eventi.
 
 I cinque moduli non sono commutativi. Chi muore in questo tick non deve poter
 concepire nello stesso tick; l'asse ereditario di chi muore si liquida dopo che
-la morte è registrata; chi migra lo fa sulla base dei salari di zona di questo
-tick, non del precedente.
+la morte è registrata; chi valuta la fuga d'emergenza la valuta sul patrimonio
+che ha dopo le successioni di questo tick, non su quello di prima.
 
 **Test di accettazione**:
 1. L'ordine è **scritto** nel codice come sequenza esplicita, non implicito
    nell'ordine delle chiamate.
 2. Un agente che muore al tick T non genera nascite al tick T.
 3. La successione di un agente morto al tick T avviene al tick T, dopo la morte.
-4. Ogni proprietà d'ordine sopra è provata **per mutazione**: si scambiano due
+4. Un agente che eredita al tick T non è valutato per la fuga d'emergenza al
+   tick T sul patrimonio precedente all'eredità.
+5. Ogni proprietà d'ordine sopra è provata **per mutazione**: si scambiano due
    passi e il test diventa rosso.
 
 ### US3 — Il contatore di fame esiste (P1)
@@ -97,18 +107,23 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 
 ### Edge Cases
 
-- **Template d'era nominato ma inesistente**: il cablaggio degrada e non aborte
-  il tick, come già fa `apply_agent_action` — che però degrada solo su
-  `FileNotFoundError`, cioè sul file mancante, **non** sulla chiave assente, dove
-  applica il default. Sono due casi diversi e la prima stesura ne citava uno per
-  l'altro.
+- **Template d'era nominato ma inesistente o malformato**: il cablaggio degrada e
+  non aborta il tick. I casi sono tre e vanno distinti, perché il sito esistente
+  (`apply_agent_action`) li tratta in tre modi diversi: chiave assente in config
+  → default applicato a monte (`engine.py:335-337`); file mancante →
+  `except FileNotFoundError` con log e skip (`engine.py:350-360`); template
+  presente ma non valido → `ValueError` di `load_template`, che oggi finisce
+  nell'`except Exception` cieco di `engine.py:361-362`. Il cablaggio nuovo
+  degrada **esplicitamente per ciascun caso** — `FileNotFoundError` e
+  `ValueError`, con log — e non introduce handler ciechi che ingoiano il resto.
 - **Popolazione a zero**: quando l'ultimo agente muore, il tick successivo non
   deve sollevare eccezioni.
 - **Costo per tick**: cinque moduli su N agenti possono introdurre N+1 query. Il
   budget va misurato e dichiarato, non scoperto in produzione.
 - **Determinismo**: i moduli demografici usano `get_seeded_rng`; il tick loop
-  deve passare il seme, altrimenti la demografia eredita il difetto dell'RNG
-  globale non seminato che i rischi trasversali della build map già registrano.
+  deve passare il seme, e con la demografia attiva il seme esplicito è
+  obbligatorio (FR-010a), altrimenti la demografia eredita il fallback a zero
+  dell'helper RNG che il whitepaper traccia come debito A-5.
 
 ## Requirements *(mandatory)*
 
@@ -119,8 +134,8 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
   chiama `apply_inheritance_at_birth`, e emette un evento di nascita.
 - **FR-001a**: il **nome del neonato** è una decisione di requisito, non
   implementativa: viene da una lista per template d'era, non dall'LLM. Un nome
-  generato dall'LLM renderebbe la nascita non riproducibile dal seme, che è
-  quanto §4.8 del whitepaper dichiara come limite già esistente e che questo work
+  generato dall'LLM renderebbe la nascita non riproducibile dal seme, che è il
+  limite che il whitepaper dichiara per le sole decisioni LLM e che questo work
   item non deve estendere.
 - **FR-002**: il **percorso di morte** è un orchestratore che valuta la mortalità,
   marca `is_alive`, `death_tick` e `death_cause`, chiama
@@ -136,19 +151,30 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
   senza coppia attiva in tre template su cinque, incluso il default: se il passo
   coppia seguisse la fertilità, ogni coppia formata a T non potrebbe concepire
   prima di T+1, un ritardo sistematico su tutta la natalità.
-- **FR-005a**: la **risoluzione delle separazioni** è collocata nell'ordine in
-  modo dichiarato, perché decide se una coppia che si separa a T concepisce
-  comunque a T.
+- **FR-005a**: **le separazioni si risolvono prima delle formazioni, ed entrambe
+  prima della fertilità**: una coppia che si separa a T non concepisce a T. La
+  regola è una sola per tutti gli intenti di coppia: un intento espresso a T-1 ha
+  effetto all'inizio di T, prima della finestra di concepimento del tick — la
+  stessa semantica di FR-005, applicata simmetricamente. Risolvere le separazioni
+  prima delle formazioni rende inoltre lo stato di coppia coerente nel momento in
+  cui la formazione lo legge.
 - **FR-006**: la successione di un agente segue la sua morte nello stesso tick.
-- **FR-007**: la migrazione usa le statistiche di zona del tick corrente.
+- **FR-007**: la **migrazione forzata segue mortalità e successione** nello
+  stesso tick: la valutazione di fuga d'emergenza legge il patrimonio
+  post-successione e la popolazione post-morti. Le statistiche di zona del tick
+  corrente non sono invece una proprietà d'ordine: `process_emergency_flight` le
+  costruisce al proprio interno col tick corrente (`migration.py:1574-1586`),
+  quindi sono garantite per costruzione in qualunque posizione del passo.
 - **FR-007a**: `dissolve_on_death` **non** entra nell'ordine dichiarato:
   `process_inheritance_batch` lo chiama già per ultimo, deliberatamente.
 
 **Il predicato di attivazione**
 
 - **FR-008**: la demografia è attiva quando la simulazione lo **dichiara
-  esplicitamente**, con una chiave dedicata. Non si può usare la presenza del
-  template d'era: sette punti del codice di produzione applicano già
+  esplicitamente**, con una chiave dedicata, e quello è **l'unico predicato di
+  attivazione** in tutto il work item: ogni scenario, test e criterio di questa
+  spec che dice «demografia attiva» intende quella chiave. Non si può usare la
+  presenza del template d'era: sette punti del codice di produzione applicano già
   `config.get("demography_template", "pre_industrial_christian")`, quindi oggi
   una simulazione che non dichiara nulla si comporta come una che dichiara il
   default, e il predicato che serve non esiste.
@@ -163,6 +189,13 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
   seminato» e darebbe a ogni agente lo stesso sorteggio uniforme, facendoli
   morire in blocco per soglia d'età invece che indipendentemente. È la regola che
   `migration.py` già applica.
+- **FR-010a**: con la demografia attiva, **il seme esplicito è obbligatorio**:
+  attivare la chiave di FR-008 su una simulazione senza `seed` valorizzato è
+  rifiutato alla validazione della configurazione, non degradato. Senza questo
+  requisito la demografia cablata erediterebbe il fallback a zero dell'helper
+  RNG quando seme e id mancano — il debito che il whitepaper traccia come A-5 e
+  assegna a Plan 4 — e due simulazioni non salvate estrarrebbero gli stessi
+  stream.
 
 **Lo stato che manca**
 
@@ -172,24 +205,37 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
   `compute_subsistence_threshold` — altrimenti contatore e innesco divergono in
   silenzio.
 - **FR-012**: `process_emergency_flight` legge il contatore persistito.
-- **FR-013**: l'inizializzazione valorizza **`birth_tick`**, che è l'unica sorgente
-  di invecchiamento del progetto: `Agent.age` non viene mai assegnato a runtime,
-  e senza `birth_tick` la mortalità e la fertilità restano congelate per sempre.
+- **FR-013**: l'inizializzazione valorizza **`birth_tick`** per ogni agente, in
+  modo coerente con l'età generata, e al suo termine **nessun agente vivo ha
+  `birth_tick` NULL**. La ragione: `birth_tick` è l'unica sorgente di
+  invecchiamento del progetto. `Agent.age` è scritto una volta alla generazione
+  (`world/generator.py:179` e `:398`, dall'output LLM) e non avanza mai; la
+  fertilità lo legge come fallback solo quando `birth_tick` è NULL
+  (`fertility.py:255-256`). Con `birth_tick` sempre valorizzato l'età deriva da
+  un'unica sorgente che avanza, e il fallback congelato non è mai il percorso
+  attivo.
 - **FR-014**: l'inizializzazione crea **coppie iniziali**. Nessun codice le crea
   oggi, e senza di esse il template di default rende impossibile qualsiasi
   nascita nei primi tick.
-- **FR-015**: il tick scrive uno `PopulationSnapshot` per tick, con la piramide
-  per età, il rapporto fra i sessi, i tassi grezzi di natalità e mortalità, la
-  fecondità totale istantanea e le coppie attive.
+- **FR-015**: il tick scrive uno `PopulationSnapshot` per tick con **tutti i
+  campi dati del modello** (`demography/models.py:155-176`): `total_alive`,
+  `age_pyramid`, `sex_ratio`, `avg_age`, `crude_birth_rate`, `crude_death_rate`,
+  `tfr_instant`, `net_migration_by_zone`, `couples_active`,
+  `avg_household_size`. Un campo lasciato al default del modello è un campo non
+  calcolato, e lo snapshot esiste per la validazione: parziale non serve.
 
 **Costo e documentazione**
 
-- **FR-016**: il blocco demografico **non esegue query per agente**. Verificabile
-  eseguendo lo stesso tick con N e con 2N agenti e pretendendo che il conteggio
-  non cresca linearmente.
-- **FR-017**: il whitepaper §4.1 in entrambe le lingue documenta gli orchestratori
-  e l'ordine dichiarato, nello stesso commit del codice. La build map è aggiornata
-  in entrambe le lingue allo stesso checkpoint.
+- **FR-016**: il blocco demografico **non esegue query per agente**: il suo
+  conteggio di query per tick è costante rispetto alla popolazione.
+- **FR-017**: nello stesso commit del codice, in entrambe le lingue: il
+  whitepaper §4.1 documenta gli orchestratori e l'ordine dichiarato; **ogni
+  passo del whitepaper che il merge rende falso viene aggiornato** — in
+  particolare le frasi «tick-loop integration deferred to demography Plan 4»
+  nelle chiusure dei sottocapitoli di §4.1 e in §6.2, e la definizione
+  tripartita «Initialisation, Engine integration, and Historical validation» di
+  §9, che dopo questo work item non descrive più un work item unico. La build
+  map è aggiornata in entrambe le lingue allo stesso checkpoint.
 
 ## Success Criteria *(mandatory)*
 
@@ -201,11 +247,17 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
   lo stesso predicato del trigger, provato per mutazione.
 - **SC-004**: una simulazione con la demografia non attiva esegue **lo stesso
   numero di query** di prima del cablaggio e non produce eventi demografici.
-- **SC-005**: raddoppiando la popolazione, il conteggio di query del blocco
-  demografico **non raddoppia**.
+- **SC-005**: il conteggio di query del blocco demografico è **identico** con N e
+  con 2N agenti — lo stesso valore assoluto, scritto nel test, non una crescita
+  «meno che lineare»: con `q` query per agente e `c` fisse, `2qN + c` è sempre
+  minore di `2(qN + c)`, quindi qualunque criterio di sola non-proporzionalità
+  passerebbe anche su un'implementazione N+1.
 - **SC-006**: due agenti che nascono nello stesso tick non ricevono
   sistematicamente gli stessi attributi estratti a sorte.
-- **SC-007**: ogni tick lascia uno `PopulationSnapshot` leggibile.
+- **SC-007**: ogni tick lascia uno `PopulationSnapshot` in cui **ciascun campo di
+  FR-015 è asserito contro il valore atteso** calcolato da una popolazione di
+  fixture costruita a mano — non un'asserzione di esistenza, che passerebbe su
+  una riga di soli default.
 - **SC-008**: suite intera verde, `test_citation_hygiene.py` e
   `test_build_map_bilingual.py` compresi.
 
@@ -225,39 +277,78 @@ scattare in un'esecuzione viva, e il modulo è codice morto.
 
 ## Non-goals
 
-- Non si riscrive alcun modulo demografico.
+- Non si riscrive alcun modulo demografico, e non se ne modifica il corpo: le
+  sole eccezioni sono quelle che i requisiti nominano per nome
+  (`apply_inheritance_at_birth` per SC-006, la firma di
+  `process_emergency_flight` per FR-012).
 - Non si esegue la validazione contro HMD, Wrigley-Schofield, Hajnal.
+- Non si cabla la migrazione volontaria nel ciclo decisionale (sezione dedicata).
+- Non si esegue alcuna calibrazione (sezione dedicata).
 - Non si tocca l'economia, se non per leggere i salari di zona che la migrazione
   già consuma.
 
-## La migrazione volontaria: dove vive
+## La migrazione volontaria: dove vive, e perché non qui
 
 `build_migration_outlook` **non** è chiamata dal tick loop: il suo docstring dice
 che sarà invocata «una volta per agente per tick quando il Plan 4 cabla la
 migrazione nel ciclo decisionale», e quel ciclo è `process_agent_turn`, un task
 Celery dentro il chord, non il tick loop.
 
-**La lettura scelta è la seconda**: la migrazione volontaria Harris-Todaro entra
-nel ciclo decisionale, non nel tick loop, perché è un input alla decisione
-dell'agente e non una mutazione di stato per tick. Il tick loop cabla la
-migrazione **forzata**, che è una mutazione. Dichiararlo è necessario perché le
-due letture differiscono per una user story intera e per il costo per tick, e la
-prima stesura le lasciava indistinguibili.
+**La collocazione è confermata**: la migrazione volontaria Harris-Todaro è un
+input alla decisione dell'agente, non una mutazione di stato per tick, e vive nel
+ciclo decisionale. **Il suo cablaggio però non è in questo work item.** La
+ragione è tecnica e misurabile: `build_migration_outlook` esegue zero query
+proprie solo perché riceve `zone_stats` già costruito — è il contratto che il suo
+docstring dichiara load-bearing — e il ciclo decisionale è un insieme di task
+paralleli senza memoria condivisa. Cablarla lì richiede di decidere chi
+costruisce `zone_stats` una volta per tick e come lo condivide col chord, che è
+una scelta d'architettura con un costo suo, da specificare e misurare nel proprio
+work item. Farla entrare qui di soppiatto significherebbe o ricostruire
+`zone_stats` N volte — l'N+1 che FR-016 vieta — o improvvisare quel meccanismo
+fuori da ogni criterio di costo.
+
+Il tick loop cabla la migrazione **forzata**, che è una mutazione di stato per
+tick e ha già il suo entry point (`process_emergency_flight`). Al merge, FR-017
+copre l'aggiornamento delle frasi del whitepaper che attribuiscono il cablaggio
+decisionale a «Plan 4» senza qualificarlo.
+
+## Ciò che il whitepaper chiama «Plan 4» e questo work item non consegna
+
+Il whitepaper usa «Plan 4» come etichetta per un insieme più largo di questo work
+item. Per non lasciare promesse pendenti implicite, l'elenco è esplicito. Questo
+work item **non** consegna:
+
+- la **calibrazione dei coefficienti Becker** per era (debito B2-07, Table 4.4);
+- il **fitting Hadwiger** per la fertilità (`fit_hadwiger`, §6.2);
+- le **calibrazioni dell'economia** (parametri Cagan di Table 4.7, parametri
+  credito e banche di Table 4.9, dataset e soglie di §7);
+- la **validazione storica** (capitolo 7), tracciata da
+  `project_validation_experiments_pending.md`;
+- il **cablaggio della migrazione volontaria** nel ciclo decisionale (sezione
+  precedente).
+
+Consegna invece, oltre al cablaggio: la chiusura del debito **A-5** limitatamente
+alle simulazioni con demografia attiva (FR-010a). Tutto il resto resta tracciato
+dove già è tracciato; FR-017 impone che al merge il whitepaper non contenga più
+frasi che il merge stesso rende false.
 
 ## Rischi dichiarati
 
 - **Il rischio maggiore è l'ordine.** Cinque moduli che mutano lo stesso stato in
   un tick hanno un ordine giusto e molti sbagliati, e uno sbagliato produce
   risultati plausibili — una popolazione che cresce o cala in modo credibile — che
-  nessun test superficiale distingue. È per questo che FR-002 chiede l'ordine
+  nessun test superficiale distingue. È per questo che FR-003 chiede l'ordine
   come dato e SC-002 lo prova per mutazione.
-- **Il secondo è il costo.** `process_inheritance_batch` e
-  `build_migration_outlook` sono le due funzioni più pesanti del sottosistema; il
-  budget va misurato prima di dichiarare il lavoro finito, non dopo.
+- **Il secondo è il costo.** `process_inheritance_batch` è la funzione più
+  pesante fra quelle cablate qui; il budget va misurato prima di dichiarare il
+  lavoro finito, non dopo. `build_migration_outlook`, l'altra funzione pesante
+  del sottosistema, resta fuori da questo cablaggio proprio perché il suo costo
+  va progettato, non subìto.
 - **Il terzo è il determinismo.** I moduli sono pronti per un RNG seminato ma il
   tick loop vive in un'app dove il `random` globale non è mai seminato. Cablare
   senza passare il seme estenderebbe alla demografia un difetto che la build map
-  registra fra i rischi trasversali.
+  registra fra i rischi trasversali; FR-010 e FR-010a delimitano il perimetro che
+  questo work item chiude.
 
 ## FAQ
 
@@ -274,8 +365,25 @@ sbaglio spostando una riga. Come dato è ispezionabile da un test.
 distribuito su task Celery e lo stato in memoria non sopravvive al processo. La
 regola del progetto dice stato nel database, mai in variabili globali.
 
-**Che cosa succede alle simulazioni esistenti?** Nulla, se non dichiarano un
-template d'era. FR-009 lo rende un requisito verificato, non una speranza.
+**Che cosa succede alle simulazioni esistenti?** Nulla, finché non attivano la
+chiave dedicata di FR-008. La sola presenza o assenza del template d'era non
+cambia niente — non può essere il predicato, perché sette punti del codice
+applicano già il default in sua assenza — e FR-009 rende l'invarianza un
+requisito verificato, non una speranza.
+
+**Perché il seme diventa obbligatorio con la demografia attiva?** Perché senza
+seme esplicito l'helper RNG degrada a zero quando anche l'id manca, e il
+determinismo che FR-010 costruisce poggerebbe su un fallback che il whitepaper
+già traccia come debito (A-5). Rendere obbligatorio il seme solo con la
+demografia attiva chiude il debito dove questo work item lo incontra, senza
+cambiare il contratto delle simulazioni esistenti.
+
+**Una coppia che si separa al tick T può concepire a T?** No. L'intento di
+separazione è di T-1, e la regola di FR-005a è una sola per tutti gli intenti di
+coppia: effetto all'inizio di T, prima della finestra di concepimento. La scelta
+opposta — separare dopo la fertilità — darebbe un tick di concepimento a una
+coppia già decisa a sciogliersi, e soprattutto renderebbe l'effetto degli intenti
+dipendente dal loro segno, due semantiche al prezzo di una.
 
 **Come si saprà che l'ordine scelto è quello giusto?** Non lo si saprà da questo
 work item: si saprà dalla validazione storica, che è il work item successivo.
