@@ -1477,7 +1477,16 @@ class TestApplySocialInheritanceClarkRegression:
         father = _make_agent(sim, zone, "Father", social_class="elite", education_level=0.9)
         child = _make_agent(sim, zone, "Child")
 
-        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        # A fixed stream, not one derived from the simulation. `get_seeded_rng`
+        # mixes `simulation.id` into the seed, and that id is the database
+        # sequence: it moves whenever another test file creates more rows
+        # before this one. This assertion is on a SAMPLED outcome, so a
+        # different stream can legitimately land outside the interval and
+        # turn the test red for a reason that has nothing to do with the
+        # code under test -- which is exactly what happened when this branch
+        # added new fixtures. Pinning the stream keeps the property being
+        # asserted and removes the dependency on suite ordering.
+        rng = random.Random(20260827)
         apply_social_inheritance(child, mother, father, template, zone_class_mean=4.0, rng=rng)
 
         assert child.social_class in _TEST_VALID_SAMPLED_CLASS_LABELS
