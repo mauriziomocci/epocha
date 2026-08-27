@@ -82,9 +82,9 @@ docker compose -f docker-compose.local.yml exec -T web pytest -q
 
 ## Phase 6 — Initialization
 
-- [ ] T027 Create `epocha/apps/demography/initialization.py` with the `birth_tick` backfill consistent with each agent's generated age, and the post-condition that no living agent is left with `birth_tick` NULL (FR-013). Test: `epocha/apps/demography/tests/test_initialization.py`
-- [ ] T028 Add initial-couple formation to `epocha/apps/demography/initialization.py`, reusing `stable_matching` and `form_couple` — reuse statement required — so the default template does not make birth impossible in the first ticks (FR-014). Test: `epocha/apps/demography/tests/test_initialization.py`
-- [ ] T029 Call the initialization from the world-generation path, **under the same activation predicate as the block** (T006): a simulation that never enables demography is left untouched, or FR-009's invariance breaks at generation time. Assert both post-conditions end to end, and assert the untouched case. Test: `epocha/apps/demography/tests/test_initialization.py`
+- [x] T027 Create `epocha/apps/demography/initialization.py` with the `birth_tick` backfill consistent with each agent's generated age, and the post-condition that no living agent is left with `birth_tick` NULL (FR-013). Test: `epocha/apps/demography/tests/test_initialization.py`
+- [x] T028 Add initial-couple formation to `epocha/apps/demography/initialization.py`, reusing `stable_matching` and `form_couple` — reuse statement required — so the default template does not make birth impossible in the first ticks (FR-014). Test: `epocha/apps/demography/tests/test_initialization.py`
+- [x] T029 Call the initialization from the world-generation path, **under the same activation predicate as the block** (T006): a simulation that never enables demography is left untouched, or FR-009's invariance breaks at generation time. Assert both post-conditions end to end, and assert the untouched case. Test: `epocha/apps/demography/tests/test_initialization.py`
 
 ## Phase 7 — PopulationSnapshot
 
