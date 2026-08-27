@@ -61,4 +61,38 @@ introdotto una contraddizione nuova fra FR, SC, Non-goals e FAQ.
 
 ## Verdetto
 
-*(da compilare a round concluso)*
+**NOT CONVERGED** (round concluso 2026-08-27, auditor avversariale su Opus).
+Sette voci su nove RESOLVED. Restano aperte la voce 1 e la voce 3, più quattro
+bloccanti nuovi e due non bloccanti, tutti riverificati dal supervisore contro
+il sorgente:
+
+- **Voce 1 / N-20**: la parte A di SC-005 è sanata; la parte B chiede
+  un'uguaglianza esatta con un `b` che il docstring di `resolve_heirs` dichiara
+  **variabile** con la struttura familiare del defunto (zero query per il
+  coniuge senza coppia attiva, zero per la famiglia estesa senza genitore
+  registrato), quindi un'implementazione corretta esce rossa. In più il termine
+  fisso dipende dal numero di zone: `compute_subsistence_threshold` esegue due
+  query per zona (`demography/context.py:24-27`).
+- **Voce 3 / N-18 / N-19**: la verifica di chiusura di FR-017 poggia su un
+  grep. Sul whitepaper italiano i due pattern inglesi danno **zero**
+  occorrenze, quindi metà verifica è verde per costruzione; sull'inglese danno
+  dodici righe, di cui cinque dell'inventario e sette rinvii di calibrazione
+  che il merge lascia **veri**. Cieco su sette degli otto siti che la revisione
+  4 aveva appena aggiunto.
+- **N-21**: l'inventario manca §4.1.4 e soprattutto §4.2, che afferma «a
+  differenza dei moduli di demografia di §4.1.x, l'economia comportamentale è
+  davvero viva nella pipeline per tick» — un confronto che il merge capovolge,
+  in un capitolo che FR-017 non nominava.
+- **N-22, non bloccante**: `sex_ratio` ha `default=1.0`, quindi su una fixture
+  bilanciata è la quinta trappola di SC-007.
+- **N-23, non bloccante**: l'enumerazione «tre siti di creazione» è incompleta
+  — `SimulationViewSet.perform_create` è una quarta via — benché la conclusione
+  regga, perché il vincolo è nello schema.
+
+La revisione 5 chiude tutti e sei: budget come limite superiore con coefficienti
+di caso peggiore e numero di zone fisso (FR-016a, SC-005 in due parti con il
+limite raggiunto almeno una volta); inventario tabellare per sezione e
+affermazione, con §4.1.4 e §4.2 aggiunti, il grep declassato a innesco di
+revisione (FR-017a) e le occorrenze di calibrazione dichiarate da non toccare;
+`sex_ratio` diverso da uno nella fixture di SC-007; l'enumerazione dei siti
+sostituita dal vincolo di schema.
