@@ -45,7 +45,6 @@ from epocha.apps.demography.clark_calibration import (
     CLARK_PERSISTENCE,
     solve_clark_innovation,
 )
-from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.world.stratification import _CLASS_RANK
 
 logger = logging.getLogger(__name__)
@@ -1246,7 +1245,7 @@ def _compute_zone_class_mean(zone: Any) -> float:
 
 
 def apply_inheritance_at_birth(
-    child: Any, mother: Any, father: Any, simulation: Any, tick: int
+    child: Any, mother: Any, father: Any, simulation: Any, tick: int, rng: Any
 ) -> None:
     """Birth-pipeline entry point: apply every inheritance mechanism to a newborn.
 
@@ -1268,15 +1267,34 @@ def apply_inheritance_at_birth(
        per-era class rules) and education_level regression toward the era
        mean.
 
-    RNG stream: all three steps share a SINGLE `random.Random` instance,
-    drawn once via `demography.rng.get_seeded_rng(simulation, tick,
-    phase="inheritance")`, so together they consume one continuous,
+    RNG stream: all three steps share the SINGLE `random.Random` instance
+    the CALLER supplies, so together they consume one continuous,
     deterministic sequence rather than three independently-seeded ones.
     Changing the call order above would change which draw lands on which
     step and silently break bit-for-bit reproducibility across identically
     (simulation, tick)-seeded calls -- the same reproducibility contract
     `apply_trait_inheritance` and `resolve_birth_attributes` each document
     individually for their own internal draws.
+
+    WHY THE CALLER OWNS THE STREAM (Plan 4, SC-006): this function used to
+    derive it here, from `get_seeded_rng(simulation, tick,
+    phase="inheritance")`. That key does not depend on the newborn, and the
+    number of draws this function consumes does not depend on the parents
+    either -- `len(heritability)` gauss draws fixed by the template, one per
+    trait on every branch, then exactly two `rng.random()` calls in
+    `resolve_birth_attributes`. Every birth in a tick therefore restarted
+    the same sequence at the same offset, and two newborns in one tick came
+    out with IDENTICAL sex and orientation and identical trait residuals.
+    That is arithmetic on the draw count, not a hypothesis; it stayed
+    invisible only while nothing in production created a newborn.
+
+    The stream is now derived once per tick by the birth orchestrator and
+    threaded through the tick's newborns in a deterministic iteration
+    order, which is the rule `migration.py` already applies to its own
+    per-agent loop (Plan 4 FR-010). The parameter is REQUIRED rather than
+    defaulted: a default falling back to an internally derived stream would
+    leave the defect alive for every caller that omits it, and would give
+    the subsystem two ways to do one thing.
 
     Template resolution: `simulation.config.get("demography_template",
     "pre_industrial_christian")` then `template_loader.load_template(...)`,
@@ -1322,11 +1340,15 @@ def apply_inheritance_at_birth(
         father: the father Agent instance, or None if unresolved -- the
             single-parent fallback already supported by every downstream
             mechanism this function calls.
-        simulation: the Simulation instance; supplies `.config` (read for
-            the `demography_template` key) and is passed through to
-            `get_seeded_rng`.
-        tick: the current simulation tick, passed through to
-            `get_seeded_rng`.
+        simulation: the Simulation instance; supplies `.config`, read for
+            the `demography_template` key.
+        tick: the current simulation tick. Recorded on the child and used
+            by the mechanisms this function delegates to; the RNG stream is
+            no longer derived from it here.
+        rng: the tick's `inheritance`-phase stream, derived ONCE by the
+            caller and shared across every newborn of that tick in a
+            deterministic iteration order. Required, see "WHY THE CALLER
+            OWNS THE STREAM" above.
 
     Raises:
         FileNotFoundError, ValueError: propagated unchanged from
@@ -1340,8 +1362,6 @@ def apply_inheritance_at_birth(
     template = load_template(template_name)
 
     zone_class_mean = _compute_zone_class_mean(mother.zone)
-
-    rng = get_seeded_rng(simulation, tick, phase="inheritance")
 
     apply_trait_inheritance(child, mother, father, template, rng)
 
