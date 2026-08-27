@@ -416,6 +416,61 @@ def run_succession_step(context: DemographyTickContext) -> None:
     process_inheritance_batch(context.simulation, context.tick, deceased)
 
 
+def run_separations_step(context: DemographyTickContext) -> None:
+    """Dissolve the couples whose partners asked to separate at T-1.
+
+    First in the declared order, and that is the whole point: an intent
+    expressed at T-1 takes effect at the START of T, before the conception
+    window, so a couple that separates at T does not conceive at T. The same
+    rule governs formations one step later, applied symmetrically -- two
+    semantics for the price of one would make the effect of an intent depend
+    on its sign.
+    """
+    from epocha.apps.demography.couple import resolve_separate_intents
+
+    resolve_separate_intents(context.simulation, context.tick)
+
+
+def run_couple_formation_step(
+    context: DemographyTickContext,
+    rng: random.Random | None = None,
+) -> None:
+    """Form the couples whose partners asked to pair-bond at T-1.
+
+    Before fertility, necessarily: birth probability is zero without an
+    active couple in three templates of five, including the default, so a
+    couple formed at T could not conceive before T+1 if this ran after --
+    a systematic one-tick delay across all natality, producing a perfectly
+    credible population curve that no shallow test tells apart from the
+    correct one.
+    """
+    from epocha.apps.demography.couple import resolve_pair_bond_intents
+
+    if rng is None:
+        rng = stream_for(context.simulation, context.tick, phase="couple")
+
+    resolve_pair_bond_intents(context.simulation, context.tick, rng)
+
+
+def run_forced_migration_step(context: DemographyTickContext) -> None:
+    """Drive emergency flight, trapped crisis and mass flight for this tick.
+
+    After mortality and succession, so the trigger reads the post-death
+    population and the post-succession wealth. The current tick's zone
+    statistics are NOT an ordering property: `process_emergency_flight`
+    builds them itself from the current tick, so they hold wherever this
+    step sits.
+
+    Voluntary Harris-Todaro migration is deliberately absent: it is an input
+    to an agent's decision rather than a per-tick mutation, it belongs to the
+    decision loop, and wiring it there needs a way to share `zone_stats`
+    across parallel tasks that is a design of its own.
+    """
+    from epocha.apps.demography.migration import process_emergency_flight
+
+    process_emergency_flight(context.simulation, context.tick)
+
+
 def run_starvation_counter_step(context: DemographyTickContext) -> None:
     """Advance or reset every living agent's consecutive-starvation counter.
 
@@ -501,6 +556,62 @@ def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: 
     )
 
 
+def run_demography_tick(simulation: Any, tick: int) -> None:
+    """Run the whole demography block for one tick, or nothing at all.
+
+    The single entry point the tick loop calls. It returns before issuing any
+    query when the simulation has not opted in, which is what makes the
+    invariance requirement measurable: a simulation without demography runs
+    the same number of queries it ran before this subsystem was wired.
+
+    Steps run in the order `DEMOGRAPHY_STEPS` declares, by iterating that
+    tuple rather than by calling them one after another in code. The
+    difference is not cosmetic: it is what lets a test permute the order and
+    watch an ordering property break, which is the only way to tell a correct
+    order from a wrong one that produces an equally plausible population.
+
+    Template resolution failures degrade rather than abort the tick, and each
+    failure mode is caught by name: a missing template file and a template
+    that fails schema validation are different mistakes and are logged as
+    such. No blind `except Exception` is introduced here -- the existing one
+    in the engine's `avoid_conception` handler swallows exactly the malformed
+    template case, and copying it would hide the same class again.
+    """
+    import logging
+
+    from epocha.apps.demography.template_loader import load_template
+
+    logger = logging.getLogger(__name__)
+
+    if not is_demography_enabled(simulation):
+        return
+
+    config = getattr(simulation, "config", None) or {}
+    template_name = config.get("demography_template", "pre_industrial_christian")
+    try:
+        template = load_template(template_name)
+    except FileNotFoundError:
+        logger.warning(
+            "demography skipped for simulation %s at tick %s: template %r not found",
+            simulation.id,
+            tick,
+            template_name,
+        )
+        return
+    except ValueError:
+        logger.warning(
+            "demography skipped for simulation %s at tick %s: template %r is invalid",
+            simulation.id,
+            tick,
+            template_name,
+        )
+        return
+
+    context = DemographyTickContext(simulation=simulation, tick=tick, template=template)
+    for step in DEMOGRAPHY_STEPS:
+        step.run(context)
+
+
 def _step_index(name: str) -> int:
     """Return the declared position of a step, by name.
 
@@ -548,7 +659,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         index=1,
         name="separations",
         rng_phase="couple",
-        run=_not_yet_wired,
+        run=run_separations_step,
         why_here=(
             "Intents expressed at T-1 take effect at the start of T, before the"
             " conception window: a couple that separates at T does not conceive"
@@ -559,7 +670,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         index=2,
         name="couple_formation",
         rng_phase="couple",
-        run=_not_yet_wired,
+        run=run_couple_formation_step,
         why_here=(
             "Couples form at T from intents at T-1, and birth probability is"
             " zero without an active couple in three templates of five,"
@@ -573,14 +684,14 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         index=3,
         name="mortality",
         rng_phase="mortality",
-        run=_not_yet_wired,
+        run=run_mortality_step,
         why_here="Whoever dies at T must not conceive at T.",
     ),
     DemographyStep(
         index=4,
         name="succession",
         rng_phase="inheritance",
-        run=_not_yet_wired,
+        run=run_succession_step,
         why_here=(
             "An estate settles after the death that caused it, in the same"
             " tick. `dissolve_on_death` is deliberately absent from this order:"
@@ -591,7 +702,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         index=5,
         name="starvation_counter",
         rng_phase=None,
-        run=_not_yet_wired,
+        run=run_starvation_counter_step,
         why_here=(
             "The counter increments on the same predicate the flight trigger"
             " reads -- wealth against the zone subsistence threshold -- so it"
@@ -603,7 +714,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         index=6,
         name="forced_migration",
         rng_phase="migration",
-        run=_not_yet_wired,
+        run=run_forced_migration_step,
         why_here=(
             "Emergency flight reads post-death population and post-succession"
             " wealth. The current tick's zone statistics are not an ordering"
@@ -615,7 +726,7 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         index=7,
         name="fertility",
         rng_phase="fertility",
-        run=_not_yet_wired,
+        run=run_fertility_step,
         why_here=(
             "After couple formation and after mortality. A newborn does not"
             " take part in this tick's other steps."
