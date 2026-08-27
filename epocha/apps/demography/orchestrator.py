@@ -210,8 +210,7 @@ def run_fertility_step(
         rng = stream_for(context.simulation, context.tick, phase="fertility")
 
     step_index = _step_index("fertility")
-    world = _world_of(context.simulation)
-    tick_duration_hours = getattr(world, "tick_duration_hours", 24.0) if world else 24.0
+    tick_duration_hours = _tick_duration_hours(context.simulation)
     acceleration = float(context.template.get("acceleration", 1.0))
 
     candidates = list(
@@ -286,6 +285,140 @@ def run_fertility_step(
             for newborn, mother in zip(newborns, mothers_of_newborns, strict=True)
         ]
     )
+
+
+def age_in_years(agent: Any, tick: int, tick_duration_hours: float, acceleration: float) -> float:
+    """The agent's age, derived from `birth_tick`.
+
+    `birth_tick` is the canonical source and the only one that advances:
+    `Agent.age` is written once at world generation and never updated, so
+    reading it would freeze every hazard and every eligibility window for
+    the whole run. The fallback to that column exists only for agents whose
+    `birth_tick` is NULL, a state the initialization is required to leave
+    behind.
+    """
+    if agent.birth_tick is None:
+        return float(agent.age or 0)
+    ticks_per_year = 8760.0 / max(1e-9, tick_duration_hours)
+    return (tick - agent.birth_tick) / max(1e-9, ticks_per_year) * acceleration
+
+
+def mortality_probability_for(
+    agent: Any,
+    context: DemographyTickContext,
+    tick_duration_hours: float,
+) -> float:
+    """This tick's death probability for one agent (Heligman-Pollard)."""
+    from epocha.apps.demography.mortality import tick_mortality_probability
+
+    acceleration = float(context.template.get("acceleration", 1.0))
+    return tick_mortality_probability(
+        age_in_years(agent, context.tick, tick_duration_hours, acceleration),
+        context.template["mortality"]["heligman_pollard"],
+        tick_duration_hours,
+        acceleration,
+    )
+
+
+def run_mortality_step(
+    context: DemographyTickContext,
+    rng: random.Random | None = None,
+) -> None:
+    """Decide who dies this tick, mark them, and emit the death events.
+
+    This is step 1 of the death path. `mortality.py` exposes four pure
+    functions and no per-tick entry point, so evaluating the schedule over
+    the living population, persisting the outcome and recording it are all
+    new work.
+
+    Marking happens HERE and not in the succession step, deliberately:
+    `process_inheritance_batch` documents `is_alive=False` as a load-bearing
+    precondition it never verifies, because that is what makes intra-tick
+    chaining through a dead intermediate structurally impossible rather than
+    merely suppressed.
+
+    Query shape: one read of the living population, one `bulk_update` for the
+    dead, one `bulk_create` for the events.
+    """
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.models import DemographyEvent
+    from epocha.apps.demography.mortality import sample_death_cause
+
+    if rng is None:
+        rng = stream_for(context.simulation, context.tick, phase="mortality")
+
+    step_index = _step_index("mortality")
+    tick_duration_hours = _tick_duration_hours(context.simulation)
+    acceleration = float(context.template.get("acceleration", 1.0))
+    params = context.template["mortality"]["heligman_pollard"]
+
+    living = list(
+        Agent.objects.filter(simulation=context.simulation, is_alive=True).order_by("id")
+    )
+    if not living:
+        return
+
+    dead: list[Any] = []
+    for agent in living:
+        age = age_in_years(agent, context.tick, tick_duration_hours, acceleration)
+        probability = mortality_probability_for(agent, context, tick_duration_hours)
+        if rng.random() >= probability:
+            continue
+        agent.is_alive = False
+        agent.death_tick = context.tick
+        agent.death_cause = sample_death_cause(age, params, rng)
+        dead.append(agent)
+
+    if not dead:
+        return
+
+    Agent.objects.bulk_update(dead, ["is_alive", "death_tick", "death_cause"])
+    DemographyEvent.objects.bulk_create(
+        [
+            DemographyEvent(
+                simulation=context.simulation,
+                tick=context.tick,
+                event_type=DemographyEvent.EventType.DEATH,
+                primary_agent=agent,
+                payload={
+                    "step_index": step_index,
+                    "step_name": "mortality",
+                    "death_cause": agent.death_cause,
+                },
+            )
+            for agent in dead
+        ]
+    )
+
+
+def run_succession_step(context: DemographyTickContext) -> None:
+    """Settle the estates of the agents who died in this tick.
+
+    Step 2 of the death path is `process_inheritance_batch`, which already
+    exists and already calls `dissolve_on_death` last; what was missing is
+    the caller that hands it this tick's dead. The batch is a no-op on an
+    empty list, but the read is skipped anyway so a tick without deaths costs
+    nothing beyond it.
+    """
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.inheritance import process_inheritance_batch
+
+    deceased = list(
+        Agent.objects.filter(
+            simulation=context.simulation,
+            is_alive=False,
+            death_tick=context.tick,
+        ).order_by("id")
+    )
+    if not deceased:
+        return
+
+    process_inheritance_batch(context.simulation, context.tick, deceased)
+
+
+def _tick_duration_hours(simulation: Any) -> float:
+    world = _world_of(simulation)
+    return float(getattr(world, "tick_duration_hours", 24.0) or 24.0) if world else 24.0
 
 
 def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: float) -> Q:

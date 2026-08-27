@@ -56,9 +56,9 @@ docker compose -f docker-compose.local.yml exec -T web pytest -q
 
 ### Death path
 
-- [ ] T013 [US1] Implement the death orchestrator in `epocha/apps/demography/orchestrator.py`: evaluate `tick_mortality_probability` over the living population with one stream, mark `is_alive`, `death_tick`, `death_cause` from `sample_death_cause`, in bulk. Test: `epocha/apps/demography/tests/test_orchestrator_death.py`
-- [ ] T014 [US1] Emit the `DEATH` event with the step index in `payload`, in one `bulk_create`, and call `process_inheritance_batch` with the tick's freshly-deceased list, satisfying its documented precondition that `is_alive=False` is already set by the caller. Test: `epocha/apps/demography/tests/test_orchestrator_death.py`
-- [ ] T015 [US1] Add the zero-population guard: with no living agent the block completes without exception and writes no event. Test: `epocha/apps/demography/tests/test_orchestrator_order.py`
+- [x] T013 [US1] Implement the death orchestrator in `epocha/apps/demography/orchestrator.py`: evaluate `tick_mortality_probability` over the living population with one stream, mark `is_alive`, `death_tick`, `death_cause` from `sample_death_cause`, in bulk. Test: `epocha/apps/demography/tests/test_orchestrator_death.py`
+- [x] T014 [US1] Emit the `DEATH` event with the step index in `payload`, in one `bulk_create`, and call `process_inheritance_batch` with the tick's freshly-deceased list, satisfying its documented precondition that `is_alive=False` is already set by the caller. Test: `epocha/apps/demography/tests/test_orchestrator_death.py`
+- [x] T015 [US1] Add the zero-population guard: with no living agent the block completes without exception and writes no event. Test: `epocha/apps/demography/tests/test_orchestrator_order.py`
 
 ## Phase 4 — US2 The tick order is declared and respected (P1)
 
