@@ -131,7 +131,7 @@ def test_doubling_the_living_population_does_not_change_the_count():
 
 @pytest.mark.django_db
 def test_the_count_is_the_pinned_constant_at_zero_vital_events():
-    """The fixed term, written down.
+    """The fixed term of a tick that has fertile candidates, written down.
 
     A bound with no measured value is a bound nobody can regress against, so
     the number is asserted rather than described. It is expected to move when
@@ -141,7 +141,39 @@ def test_the_count_is_the_pinned_constant_at_zero_vital_events():
     sim, zone = _simulation("fixed")
     _couples(sim, zone, 5, "F")
 
-    assert _count_queries(sim, sim.current_tick + 1) == FIXED_TERM
+    assert _count_queries(sim, sim.current_tick + 1) == FIXED_TERM_WITH_CANDIDATES
+
+
+@pytest.mark.django_db
+def test_a_population_with_no_fertile_candidate_pays_none_of_the_fertility_preloads():
+    """The other fixed term, and the reason there are two of them.
+
+    The fertility step preloads what its candidates need -- the living
+    population count, the active-couple membership, and the Becker inputs of
+    each zone it meets -- and preloads none of it when the filtered candidate
+    list comes back empty. So a tick with fertile women costs strictly more
+    than a tick without, at the same population and the same zone count.
+
+    Both numbers are pinned rather than one, because a single constant
+    covering two populations this different is a constant that describes
+    neither: it was one, and the deaths fixture below -- which has no fertile
+    women at all -- was being measured against a term that included seven
+    queries it never issues.
+
+    The gap is a *conditional fixed* cost, not a per-agent one. FR-016 is
+    about the second, and part A is what proves it: the same seven queries
+    are paid once whether the zone holds one fertile woman or ten.
+    """
+    sim, zone = _simulation("nocandidates")
+    for i in range(5):
+        _agent(sim, zone, f"Vecchio{i}", age=70)
+
+    observed = _count_queries(sim, sim.current_tick + 1)
+    assert observed == FIXED_TERM_NO_CANDIDATES
+    assert observed < FIXED_TERM_WITH_CANDIDATES, (
+        "the two fixed terms have converged: either the preloads moved out of "
+        "the candidate branch, or this fixture grew a fertile woman"
+    )
 
 
 class _Deadly:
@@ -192,10 +224,10 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
     deaths = Agent.objects.filter(simulation=sim, is_alive=False, death_tick=tick).count()
 
     assert deaths == population, "the fixture did not produce the expected deaths"
-    bound = FIXED_TERM + PER_DEATH * deaths
+    bound = FIXED_TERM_NO_CANDIDATES + PER_DEATH * deaths
     assert observed <= bound, (
         f"{observed} queries for {deaths} deaths exceeds the declared bound "
-        f"{FIXED_TERM} + {PER_DEATH} x {deaths} = {bound}"
+        f"{FIXED_TERM_NO_CANDIDATES} + {PER_DEATH} x {deaths} = {bound}"
     )
     # The bound has to be reached, not merely respected: a generous bound is
     # satisfied by any implementation and proves nothing. Measured at 12
@@ -207,13 +239,24 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
     )
 
 
-# Measured, not guessed. Both numbers are pinned so a regression is visible;
-# they describe the block as it stands and are expected to be updated
-# deliberately when it changes.
+# Measured, not guessed. Every number here is pinned so a regression is
+# visible; they describe the block as it stands and are expected to be
+# updated deliberately when it changes -- and only against a fresh
+# measurement, never raised to make a red test green.
 #
-# FIXED_TERM is the whole cost of a tick with no vital event, at one zone.
-# PER_DEATH is the worst case the inheritance module documents for a single
-# death (seven queries for the heir ladder) plus the settlement writes its
-# batch performs around them.
-FIXED_TERM = 34
+# There are two fixed terms because there are two shapes of tick, and one
+# constant covering both described neither. A tick whose filtered candidate
+# list is empty skips the fertility step's preloads entirely; a tick with at
+# least one fertile candidate pays them once, whatever the population and
+# whatever the number of candidates. Measured at one zone in both cases,
+# since the fixed term scales with the zone count (FR-016a).
+FIXED_TERM_NO_CANDIDATES = 35
+FIXED_TERM_WITH_CANDIDATES = 42
+
+# The worst case the inheritance module documents for a single death (seven
+# queries for the heir ladder) plus the settlement writes its batch performs
+# around them. Measured slope is 10 per death with a further 4 paid once when
+# the tick has any death at all; declaring 12 as an upper-bound coefficient
+# absorbs that one-off, which is why the bound is reached at two deaths and
+# reached again at four rather than drifting loose.
 PER_DEATH = 12

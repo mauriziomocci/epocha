@@ -89,21 +89,84 @@ def _zone_mean_wage(zone, simulation, lookback_ticks: int = 5) -> float:
     return float(agg["avg_wage"] or 0.0)
 
 
-def becker_modulation(agent, coeffs: Mapping[str, float]) -> float:
+def build_zone_fertility_context(
+    simulation,
+    zone,
+    outlook_terms: tuple[float, float] | None = None,
+) -> dict:
+    """The Becker inputs that are the same for every candidate in a zone.
+
+    `becker_modulation` reads three quantities that do not vary between two
+    women of the same zone in the same tick: the subsistence threshold, the
+    female employment fraction, and the two aggregate-outlook terms. Computed
+    inside the modulation they cost five queries per candidate -- the N+1 the
+    phase-6 gate measured, and what FR-016 forbids. Built once per zone by
+    the caller iterating a population, the two zonal quantities cost four
+    queries per *zone*, and the zone count is a fixed term of the per-tick
+    budget (FR-016a).
+
+    The outlook terms are the odd pair here: they describe the *simulation*,
+    not the zone, so a caller that meets several zones should load them once
+    with `load_outlook_terms` and pass them in. Left to this function they
+    are re-read for every zone -- not a per-agent cost, so not an FR-016
+    violation, but two queries per zone spent re-answering an identical
+    question.
+
+    The bundle is only valid for the tick it was built in, and only while
+    nothing writes to the population it describes. The fertility step's
+    candidate loop satisfies both: it persists newborns, dead mothers and
+    events after the loop ends, never inside it, so every candidate sees the
+    same database state the bundle was read from.
+
+    Returns:
+        The mapping `becker_modulation` accepts as `zone_context`.
+    """
+    from epocha.apps.demography.context import (
+        compute_subsistence_threshold,
+        load_outlook_terms,
+    )
+
+    if outlook_terms is None:
+        outlook_terms = load_outlook_terms(simulation)
+
+    return {
+        "subsistence": compute_subsistence_threshold(simulation, zone),
+        "zone_flp": _female_role_employment_fraction(zone, simulation),
+        "outlook_terms": outlook_terms,
+    }
+
+
+def becker_modulation(
+    agent,
+    coeffs: Mapping[str, float],
+    *,
+    zone_context: dict | None = None,
+) -> float:
     """Scale baseline ASFR by Becker (1991) economic signals.
 
     Design inspired by Becker (1991) and Jones & Tertilt (2008). All
     coefficients are provisional seed values; calibration deferred to
     Plan 4 using synthetic shock tests.
 
+    Args:
+        agent: the candidate mother. Her `wealth` and `education_level` are
+            the only per-agent terms; `mood` reaches the outlook through
+            `compute_aggregate_outlook`.
+        coeffs: the era template's Becker coefficients.
+        zone_context: the bundle `build_zone_fertility_context` returns, when
+            the caller already built it for this agent's zone and tick.
+            Callers evaluating a whole population MUST pass it: built here
+            instead, it costs five queries per candidate, which is the
+            per-living-agent cost FR-016 forbids.
+
     Returns a scaling factor in [0.05, 3.0].
     """
-    from epocha.apps.demography.context import (
-        compute_aggregate_outlook,
-        compute_subsistence_threshold,
-    )
+    from epocha.apps.demography.context import compute_aggregate_outlook
 
-    subsistence = compute_subsistence_threshold(agent.simulation, agent.zone)
+    if zone_context is None:
+        zone_context = build_zone_fertility_context(agent.simulation, agent.zone)
+
+    subsistence = zone_context["subsistence"]
     # SURVIVAL HORIZON (amendment A8): `wealth / subsistence_threshold` is a
     # pure number saying how many ticks of subsistence an agent's savings
     # cover. It is a DERIVED QUANTITY and there is no global `N` threshold on
@@ -120,8 +183,8 @@ def becker_modulation(agent, coeffs: Mapping[str, float]) -> float:
     # instead of negative infinity. Documented as such rather than left to
     # read like a calibrated parameter.
     wealth_signal = math.log(max(agent.wealth / max(subsistence, 1e-6), 0.1))
-    zone_flp = _female_role_employment_fraction(agent.zone, agent.simulation)
-    outlook = compute_aggregate_outlook(agent)
+    zone_flp = zone_context["zone_flp"]
+    outlook = compute_aggregate_outlook(agent, outlook_terms=zone_context["outlook_terms"])
 
     raw = (
         float(coeffs["beta_0"])
@@ -180,6 +243,9 @@ def tick_birth_probability(
     tick_duration_hours: float,
     demography_acceleration: float = 1.0,
     current_tick: int | None = None,
+    *,
+    zone_context: dict | None = None,
+    active_couple_agent_ids: frozenset[int] | None = None,
 ) -> float:
     """Compute the per-tick birth probability for a female agent.
 
@@ -196,6 +262,22 @@ def tick_birth_probability(
 
     Scales the annual rate to a single tick using the linear
     approximation for small annual rates (typical for fertility).
+
+    Query cost. Resolving one candidate costs zero queries when the caller
+    supplies everything that does not vary between candidates: `current_tick`,
+    `zone_context`, `active_couple_agent_ids`, and a `mother` whose
+    `fertility_state` was already selected. Omit any of them and the missing
+    value is fetched here, per candidate -- correct for an ad-hoc call,
+    and the per-living-agent cost FR-016 forbids for a caller iterating a
+    population. `run_fertility_step` supplies all four.
+
+    Args:
+        zone_context: the bundle `build_zone_fertility_context` returns for
+            this mother's zone and tick, passed straight to
+            `becker_modulation`.
+        active_couple_agent_ids: the set `active_couple_agent_ids` returns,
+            replacing the per-agent `is_in_active_couple` lookup. Only read
+            when the era requires a couple for birth.
     """
     from epocha.apps.demography.couple import is_in_active_couple
     from epocha.apps.demography.models import AgentFertilityState  # noqa: F401
@@ -208,8 +290,14 @@ def tick_birth_probability(
 
     fertility_cfg = params_era["fertility"]
     require_couple = bool(fertility_cfg.get("require_couple_for_birth", True))
-    if require_couple and not is_in_active_couple(mother):
-        return 0.0
+    if require_couple:
+        in_couple = (
+            mother.id in active_couple_agent_ids
+            if active_couple_agent_ids is not None
+            else is_in_active_couple(mother)
+        )
+        if not in_couple:
+            return 0.0
     if is_avoid_conception_active_this_tick(mother, current_tick=current_tick):
         return 0.0
 
@@ -225,7 +313,9 @@ def tick_birth_probability(
     )
     if annual_asfr <= 0.0:
         return 0.0
-    becker_factor = becker_modulation(mother, fertility_cfg["becker_coefficients"])
+    becker_factor = becker_modulation(
+        mother, fertility_cfg["becker_coefficients"], zone_context=zone_context
+    )
     effective = annual_asfr * becker_factor
     effective = malthusian_soft_ceiling(
         effective,

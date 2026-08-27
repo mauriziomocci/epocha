@@ -187,10 +187,25 @@ def run_fertility_step(
     (`resolve_childbirth_event`), and it states that "callers are
     responsible for persisting the state changes". This is that caller.
 
-    Query shape: one read of the candidate mothers, one `bulk_create` for the
+    Query shape: one read of the candidate mothers, one read of the living
+    population count, one read of the active-couple membership, two reads of
+    the simulation-wide outlook terms, up to four reads per distinct
+    candidate zone for the zonal Becker inputs, one `bulk_create` for the
     newborns, one `bulk_create` for the events, one `bulk_update` for the
     mothers who died in childbirth. Nothing scales with the living
     population beyond the single read.
+
+    Resolving one candidate must cost zero queries, and everything above
+    exists to make that true: `tick_birth_probability` fetches whatever it
+    is not given, which turns each of those reads into a per-candidate one.
+    The phase-6 gate measured seven such queries per living fertile woman --
+    70 at five couples, 105 at ten -- an N+1 against FR-016. Three of the
+    four preloads answer that; the fourth is `select_related`
+    ("fertility_state"), the reverse one-to-one `avoid_conception` reads.
+
+    Building the zone bundle once for the whole loop is sound because the
+    loop writes nothing: newborns, dead mothers and events are all persisted
+    after it ends, so no candidate sees a population the bundle predates.
 
     Args:
         context: the tick context.
@@ -200,7 +215,10 @@ def run_fertility_step(
             this function's internals.
     """
     from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.context import load_outlook_terms
+    from epocha.apps.demography.couple import active_couple_agent_ids
     from epocha.apps.demography.fertility import (
+        build_zone_fertility_context,
         resolve_childbirth_event,
         tick_birth_probability,
     )
@@ -220,7 +238,7 @@ def run_fertility_step(
             is_alive=True,
             gender=Agent.Gender.FEMALE,
         )
-        .select_related("zone", "simulation")
+        .select_related("zone", "simulation", "fertility_state")
         .order_by("id")
     )
     if not candidates:
@@ -229,6 +247,10 @@ def run_fertility_step(
     current_population = Agent.objects.filter(
         simulation=context.simulation, is_alive=True
     ).count()
+    couple_members = active_couple_agent_ids(context.simulation)
+    # Simulation-wide, so read once here rather than once per zone below.
+    outlook_terms = load_outlook_terms(context.simulation)
+    zone_contexts: dict[Any, dict] = {}
 
     inheritance_rng = stream_for(context.simulation, context.tick, phase="inheritance")
     newborns: list[Any] = []
@@ -236,6 +258,10 @@ def run_fertility_step(
     dead_mothers: list[Any] = []
 
     for mother in candidates:
+        if mother.zone_id not in zone_contexts:
+            zone_contexts[mother.zone_id] = build_zone_fertility_context(
+                context.simulation, mother.zone, outlook_terms
+            )
         probability = tick_birth_probability(
             mother,
             context.template,
@@ -243,6 +269,8 @@ def run_fertility_step(
             tick_duration_hours,
             acceleration,
             current_tick=context.tick,
+            zone_context=zone_contexts[mother.zone_id],
+            active_couple_agent_ids=couple_members,
         )
         if rng.random() >= probability:
             continue

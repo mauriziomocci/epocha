@@ -54,6 +54,30 @@ def is_in_active_couple(agent) -> bool:
     ).exists()
 
 
+def active_couple_agent_ids(simulation) -> frozenset[int]:
+    """Every agent id that is currently one half of an undissolved couple.
+
+    `is_in_active_couple` answers the same question one agent at a time. A
+    caller iterating a whole population -- the fertility step is the one that
+    does -- would pay a query per living candidate for it, which is the
+    per-living-agent cost FR-016 forbids, so the whole membership is read
+    once here instead and tested in memory.
+
+    Partner FKs are nullable (`SET_NULL` preserves the genealogical record
+    when an agent row goes away), so nulls are dropped rather than carried
+    into the set.
+
+    Cost: exactly one query, whatever the population.
+    """
+    from epocha.apps.demography.models import Couple
+
+    pairs = Couple.objects.filter(
+        simulation=simulation,
+        dissolved_at_tick__isnull=True,
+    ).values_list("agent_a_id", "agent_b_id")
+    return frozenset(agent_id for pair in pairs for agent_id in pair if agent_id is not None)
+
+
 def active_couple_for(agent):
     """Return the agent's active Couple (or None)."""
     from epocha.apps.demography.models import Couple
