@@ -73,9 +73,12 @@ docker compose -f docker-compose.local.yml exec -T web pytest -q
 
 ## Phase 5 — US3 The starvation counter exists (P1)
 
-- [ ] T024 [US3] Change `process_emergency_flight` in `epocha/apps/demography/migration.py` to read the persisted counter instead of receiving the mapping from the caller (FR-012), keeping the flight logic untouched. Update the docstring, which currently states that Plan 4 owns building the mapping. **Doc-sync, same commit**: whitepaper §4.1.5 in both languages states that the counter has no storage and that flight cannot fire in a live run — both sentences become false here. Test: `epocha/apps/demography/tests/test_starvation_counter.py`
-- [ ] T025 [US3] Implement the counter step in `epocha/apps/demography/orchestrator.py`: one bulk read and one `bulk_update`, incrementing when `agent.wealth` is below `compute_subsistence_threshold` and resetting to zero otherwise — the same predicate the flight trigger uses (FR-011). Test: `epocha/apps/demography/tests/test_starvation_counter.py`
-- [ ] T026 [US3] Mutation proof for SC-003: a counter that never resets fails a test, and moving the counter step before succession fails a test on a fixture where the heir rises above the threshold thanks to the tick's inheritance. Test: `epocha/apps/demography/tests/test_starvation_counter.py`
+> Executed before Phase 4: the wiring has to hook this step too, so the
+> step has to exist first. No task was skipped, only reordered.
+
+- [x] T024 [US3] Change `process_emergency_flight` in `epocha/apps/demography/migration.py` to read the persisted counter instead of receiving the mapping from the caller (FR-012), keeping the flight logic untouched. Update the docstring, which currently states that Plan 4 owns building the mapping. **Doc-sync, same commit**: whitepaper §4.1.5 in both languages states that the counter has no storage and that flight cannot fire in a live run — both sentences become false here. Test: `epocha/apps/demography/tests/test_starvation_counter.py`
+- [x] T025 [US3] Implement the counter step in `epocha/apps/demography/orchestrator.py`: one bulk read and one `bulk_update`, incrementing when `agent.wealth` is below `compute_subsistence_threshold` and resetting to zero otherwise — the same predicate the flight trigger uses (FR-011). Test: `epocha/apps/demography/tests/test_starvation_counter.py`
+- [x] T026 [US3] Mutation proof for SC-003: a counter that never resets fails a test, and moving the counter step before succession fails a test on a fixture where the heir rises above the threshold thanks to the tick's inheritance. Test: `epocha/apps/demography/tests/test_starvation_counter.py`
 
 ## Phase 6 — Initialization
 

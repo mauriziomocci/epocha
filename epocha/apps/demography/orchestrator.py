@@ -416,6 +416,59 @@ def run_succession_step(context: DemographyTickContext) -> None:
     process_inheritance_batch(context.simulation, context.tick, deceased)
 
 
+def run_starvation_counter_step(context: DemographyTickContext) -> None:
+    """Advance or reset every living agent's consecutive-starvation counter.
+
+    The counter is what makes emergency flight reachable in a live run: the
+    trigger compares it against the era template's `flight_trigger_ticks`,
+    and until this column existed it took the count as an argument nobody
+    could supply.
+
+    The predicate is deliberately the SAME one the trigger uses -- the
+    agent's wealth against `compute_subsistence_threshold` for their zone --
+    because a counter maintained on one line and consumed against another
+    diverges in silence, and the flight then fires on a count no reader can
+    trace back to a state.
+
+    Position in the declared order matters and is recorded there: this runs
+    AFTER succession, so an heir who rose above the line thanks to this
+    tick's inheritance is counted as recovered rather than as still starving.
+
+    Query shape: one read of the living agents, one threshold query per zone
+    -- zones, not agents -- and one `bulk_update`.
+    """
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.context import compute_subsistence_threshold
+
+    living = list(
+        Agent.objects.filter(simulation=context.simulation, is_alive=True)
+        .select_related("zone")
+        .order_by("id")
+    )
+    if not living:
+        return
+
+    thresholds: dict[Any, float] = {}
+    changed: list[Any] = []
+    for agent in living:
+        zone_id = agent.zone_id
+        if zone_id not in thresholds:
+            thresholds[zone_id] = (
+                compute_subsistence_threshold(context.simulation, agent.zone)
+                if agent.zone is not None
+                else 0.0
+            )
+
+        under_subsistence = agent.wealth < thresholds[zone_id]
+        updated = agent.consecutive_ticks_under_subsistence + 1 if under_subsistence else 0
+        if updated != agent.consecutive_ticks_under_subsistence:
+            agent.consecutive_ticks_under_subsistence = updated
+            changed.append(agent)
+
+    if changed:
+        Agent.objects.bulk_update(changed, ["consecutive_ticks_under_subsistence"])
+
+
 def _tick_duration_hours(simulation: Any) -> float:
     world = _world_of(simulation)
     return float(getattr(world, "tick_duration_hours", 24.0) or 24.0) if world else 24.0

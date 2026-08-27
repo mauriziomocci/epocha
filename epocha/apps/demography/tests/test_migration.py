@@ -179,6 +179,19 @@ def _make_other_zone(world, name="OtherZone"):
     )
 
 
+def _set_starvation_counters(ticks_by_agent_id: dict) -> None:
+    """Persist the consecutive-starvation counts the flight trigger reads.
+
+    Since Plan 4 the count lives on `Agent.consecutive_ticks_under_subsistence`
+    and `process_emergency_flight` reads it from the row, instead of taking a
+    mapping from its caller -- which is what made the path unreachable in a
+    live run, since nothing could build that mapping. The tests set the same
+    state through the same column.
+    """
+    for agent_id, ticks in ticks_by_agent_id.items():
+        Agent.objects.filter(pk=agent_id).update(consecutive_ticks_under_subsistence=ticks)
+
+
 def _make_zone_at(world, x, y, name):
     """A `Zone` whose `center` sits at the exact grid coordinates `(x,
     y)` -- for `compute_distance_cost` tests, where the center-to-center
@@ -1794,9 +1807,8 @@ class TestProcessEmergencyFlightFlees:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         agent.refresh_from_db()
         assert agent.zone_id == other_zone.id
@@ -1818,9 +1830,8 @@ class TestProcessEmergencyFlightFlees:
         form_couple(agent, partner, formed_at_tick=1)
         minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10, wealth=0.0)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         partner.refresh_from_db()
         minor_child.refresh_from_db()
@@ -1853,9 +1864,8 @@ class TestProcessEmergencyFlightFlees:
         partner = _make_agent(sim, zone, "Partner", wealth=100.0)
         form_couple(agent, partner, formed_at_tick=1)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         agent.refresh_from_db()
         partner.refresh_from_db()
@@ -1880,9 +1890,8 @@ class TestProcessEmergencyFlightFlees:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         memory = Memory.objects.get(agent=agent, origin_agent=agent)
         assert memory.emotional_weight == pytest.approx(EMERGENCY_FLIGHT_MEMORY_WEIGHT)
@@ -1903,9 +1912,8 @@ class TestProcessEmergencyFlightFlees:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         assert not DecisionLog.objects.filter(agent=agent).exists()
 
@@ -1923,9 +1931,8 @@ class TestProcessEmergencyFlightFlees:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         event = DemographyEvent.objects.get(
             simulation=sim, event_type=DemographyEvent.EventType.MIGRATION, primary_agent=agent
@@ -1948,9 +1955,8 @@ class TestProcessEmergencyFlightTrapped:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_trapped_agent_setup(sim, zone)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         event = DemographyEvent.objects.get(
             simulation=sim,
@@ -2003,9 +2009,8 @@ class TestProcessEmergencyFlightTrapped:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_trapped_agent_setup(sim, zone)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         assert DemographyEvent.objects.filter(
             simulation=sim,
@@ -2062,9 +2067,8 @@ class TestProcessEmergencyFlightTrapped:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_trapped_agent_setup(sim, zone)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         assert DemographyEvent.objects.filter(
             simulation=sim,
@@ -2085,9 +2089,8 @@ class TestProcessEmergencyFlightTrapped:
         witness_one = _make_agent(sim, zone, "WitnessOne", wealth=100.0)
         witness_two = _make_agent(sim, zone, "WitnessTwo", wealth=100.0)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         for witness in (witness_one, witness_two):
             memory = Memory.objects.get(agent=witness, origin_agent=agent)
@@ -2130,9 +2133,8 @@ class TestProcessEmergencyFlightTrapped:
         witnesses = [_make_agent(sim, zone, f"Witness{i}", wealth=100.0) for i in range(2)]
 
         counters = {agent.id: 30 for agent in trapped}
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id=counters
-        )
+        _set_starvation_counters(counters)
+        process_emergency_flight(sim, tick=50)
 
         # TRAPPED_CRISIS events remain one per trapped agent -- M-3 is
         # about the WITNESS MEMORY fan-out, not the event count.
@@ -2186,9 +2188,8 @@ class TestProcessEmergencyFlightTrapped:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_trapped_agent_setup(sim, zone)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         memory = Memory.objects.get(agent=agent, source_type=Memory.SourceType.PUBLIC)
         assert memory.origin_agent_id == agent.id
@@ -2201,9 +2202,8 @@ class TestProcessEmergencyFlightTrapped:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_trapped_agent_setup(sim, zone)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 30}
-        )
+        _set_starvation_counters({agent.id: 30})
+        process_emergency_flight(sim, tick=50)
 
         agent.refresh_from_db()
         assert agent.zone_id == zone.id
@@ -2219,9 +2219,8 @@ class TestProcessEmergencyFlightTrapped:
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_trapped_agent_setup(sim, zone)
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={agent.id: 5}
-        )
+        _set_starvation_counters({agent.id: 5})
+        process_emergency_flight(sim, tick=50)
 
         assert not DemographyEvent.objects.filter(simulation=sim).exists()
         assert not Memory.objects.filter(origin_agent=agent).exists()
@@ -2260,9 +2259,8 @@ class TestProcessEmergencyFlightTrapped:
         trapped = [_make_agent(sim, zone, f"Trapped{i}", wealth=4.0) for i in range(6)]
         counters = {agent.id: 30 for agent in trapped}
 
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id=counters
-        )
+        _set_starvation_counters(counters)
+        process_emergency_flight(sim, tick=50)
 
         assert (
             DemographyEvent.objects.filter(
@@ -2310,9 +2308,8 @@ class TestProcessEmergencyFlightMassFlight:
             _make_agent(sim, zone, f"Stays{i}", wealth=100.0)
 
         counters = {agent.id: 30 for agent in fleeing}
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id=counters
-        )
+        _set_starvation_counters(counters)
+        process_emergency_flight(sim, tick=50)
 
         event = DemographyEvent.objects.get(
             simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
@@ -2340,9 +2337,8 @@ class TestProcessEmergencyFlightMassFlight:
             _make_agent(sim, zone, f"Stays{i}", wealth=100.0)
 
         counters = {agent.id: 30 for agent in fleeing}
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id=counters
-        )
+        _set_starvation_counters(counters)
+        process_emergency_flight(sim, tick=50)
 
         assert not DemographyEvent.objects.filter(
             simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
@@ -2374,9 +2370,8 @@ class TestProcessEmergencyFlightMassFlight:
             _make_agent(sim, zone, f"Stays{i}", wealth=100.0)
 
         counters = {agent.id: 30 for agent in fleeing}
-        process_emergency_flight(
-            sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id=counters
-        )
+        _set_starvation_counters(counters)
+        process_emergency_flight(sim, tick=50)
 
         assert not DemographyEvent.objects.filter(
             simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
@@ -2427,10 +2422,10 @@ class TestProcessEmergencyFlightMassFlight:
         for i in range(4):
             _make_agent(sim, zone, f"Stays{i}", wealth=100.0)
 
+        _set_starvation_counters({new_fleeing.id: 30})
         process_emergency_flight(
             sim,
             tick=50,
-            consecutive_ticks_under_subsistence_by_agent_id={new_fleeing.id: 30},
         )
 
         # (1 historical + 1 new) / 5 baseline = 40% > 30%.
@@ -2491,7 +2486,7 @@ class TestProcessEmergencyFlightMassFlight:
                 },
             )
 
-        process_emergency_flight(sim, tick=tick, consecutive_ticks_under_subsistence_by_agent_id={})
+        process_emergency_flight(sim, tick=tick)
 
         assert not DemographyEvent.objects.filter(
             simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
@@ -2560,10 +2555,10 @@ class TestProcessEmergencyFlightMassFlight:
             # (I-8 is a separate, already-fixed defect; this test does
             # not want to depend on its exact boundary behavior).
             _make_wage(sim, currency, worker, tick=tick, amount=250.0)
+            _set_starvation_counters({candidate.id: 30})
             process_emergency_flight(
                 sim,
                 tick=tick,
-                consecutive_ticks_under_subsistence_by_agent_id={candidate.id: 30},
             )
 
         for candidate in candidates:
@@ -2608,18 +2603,16 @@ class TestProcessEmergencyFlightMassFlight:
         # + population aggregate(1) + historical-flight window(1) +
         # agent fetch(1) = 1+1+1+11+1+1+1 = 17.
         with django_assert_num_queries(17) as captured_small:
-            process_emergency_flight(
-                sim, tick=50, consecutive_ticks_under_subsistence_by_agent_id={}
-            )
+            _set_starvation_counters({})
+            process_emergency_flight(sim, tick=50)
         small_population_queries = len(captured_small.captured_queries)
 
         for i in range(45):
             _make_agent(sim, zone, f"MoreWellFed{i}", wealth=100.0)
 
         with django_assert_num_queries(small_population_queries):
-            process_emergency_flight(
-                sim, tick=51, consecutive_ticks_under_subsistence_by_agent_id={}
-            )
+            _set_starvation_counters({})
+            process_emergency_flight(sim, tick=51)
 
     @pytest.mark.django_db
     def test_empty_counters_mapping_is_a_well_defined_no_op(self, sim_with_zone):
@@ -2678,10 +2671,10 @@ class TestProcessEmergencyFlightMassFlight:
         parent = _make_agent(sim, zone, "Parent", wealth=4.0)
         minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=parent, age=10, wealth=4.0)
 
+        _set_starvation_counters({parent.id: 30, minor_child.id: 30})
         process_emergency_flight(
             sim,
             tick=50,
-            consecutive_ticks_under_subsistence_by_agent_id={parent.id: 30, minor_child.id: 30},
         )
 
         minor_child.refresh_from_db()
@@ -2940,10 +2933,11 @@ def _test_database_url() -> str:
 # `manage.py shell` already calls `django.setup()` before running this,
 # so no explicit setup is needed here. Inputs come through environment
 # variables (not `-c` script arguments, which `manage.py shell` does not
-# expose) -- `EPOCHA_TEST_COUNTERS` is JSON because
-# `consecutive_ticks_under_subsistence_by_agent_id` is a dict, the one
-# argument that cannot round-trip through a single env var string
-# otherwise.
+# expose) -- `EPOCHA_TEST_COUNTERS` is JSON because the starvation counts
+# are a mapping, the one input that cannot round-trip through a single env
+# var string otherwise. Since Plan 4 the counts are written onto the agent
+# rows before the call rather than passed in, so the subprocess persists
+# them first and then runs the flight with the two-argument signature.
 _SUBPROCESS_FLIGHT_RUNNER_SCRIPT = """
 import json
 import os
@@ -2951,10 +2945,14 @@ import os
 from epocha.apps.demography.migration import process_emergency_flight
 from epocha.apps.simulation.models import Simulation
 
+from epocha.apps.agents.models import Agent
+
 sim = Simulation.objects.get(id=int(os.environ["EPOCHA_TEST_SIM_ID"]))
 tick = int(os.environ["EPOCHA_TEST_TICK"])
 counters = {int(k): v for k, v in json.loads(os.environ["EPOCHA_TEST_COUNTERS"]).items()}
-process_emergency_flight(sim, tick=tick, consecutive_ticks_under_subsistence_by_agent_id=counters)
+for agent_id, ticks in counters.items():
+    Agent.objects.filter(pk=agent_id).update(consecutive_ticks_under_subsistence=ticks)
+process_emergency_flight(sim, tick=tick)
 """
 
 
@@ -3056,12 +3054,10 @@ class TestFlightPathDeterminismSC003:
 
         assert sim_a.id != sim_b.id  # self-check: genuinely different simulations
 
-        process_emergency_flight(
-            sim_a, tick=tick_a, consecutive_ticks_under_subsistence_by_agent_id=counters_a
-        )
-        process_emergency_flight(
-            sim_b, tick=tick_b, consecutive_ticks_under_subsistence_by_agent_id=counters_b
-        )
+        _set_starvation_counters(counters_a)
+        process_emergency_flight(sim_a, tick=tick_a)
+        _set_starvation_counters(counters_b)
+        process_emergency_flight(sim_b, tick=tick_b)
 
         outcome_a = _run_outcome_by_name(sim_a)
         outcome_b = _run_outcome_by_name(sim_b)

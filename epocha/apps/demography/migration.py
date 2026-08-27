@@ -1260,36 +1260,27 @@ def _resolve_flight_decision(
 def process_emergency_flight(
     simulation: Simulation,
     tick: int,
-    consecutive_ticks_under_subsistence_by_agent_id: dict[int, int] | None = None,
 ) -> None:
     """Drive `evaluate_emergency_flight` over every living, zoned agent
     in `simulation`: execute forced flight via `coordinate_family_
     migration`, emit `TRAPPED_CRISIS` with its MISS-3 co-zone memory
     propagation, and emit `MASS_FLIGHT` above the 30% threshold.
 
-    PRECONDITION-COUNTER PARAMETER (user-approved, 2026-07-20, same
-    resolution as `evaluate_emergency_flight`'s own SIGNATURE CHANGE,
-    applied here because the problem resurfaces identically): T039's
-    task text gives the signature `process_emergency_flight(simulation,
-    tick)`, with no counter, no template, no zone_stats -- but this
-    function must drive `evaluate_emergency_flight`, which REQUIRES
-    `consecutive_ticks_under_subsistence` as an explicit argument (the
-    same user-approved change already implemented in T036/T037, for the
-    same reason: the counter exists nowhere in the schema). Resolved the
-    SAME way and no other:
-    `consecutive_ticks_under_subsistence_by_agent_id`, a mapping keyed by
-    `Agent.id`, defaults to `None` (treated as `{}`). An agent ABSENT
-    from the mapping is treated as ZERO consecutive ticks under
-    subsistence -- below any real template's `flight_trigger_ticks` (the
-    minimum across all five era templates is 5, sci_fi) -- and therefore
-    CANNOT flee or become trapped. With an empty mapping (the default),
-    this function is a WELL-DEFINED NO-OP: every agent evaluates to
-    "does not meet preconditions", producing zero events. PLAN 4 OWNS
-    building this mapping from whatever storage it creates for the
-    counter (not decided here, not this plan's job) and feeding it every
-    tick; until Plan 4 does that, emergency flight cannot fire in a live
-    run, consistent with demography not being wired into the tick loop
-    yet (`simulation/engine.py` untouched by this entire plan).
+    THE COUNTER IS READ FROM THE AGENT (Plan 4, FR-012). Until Plan 4 the
+    count of consecutive ticks under subsistence existed nowhere in the
+    schema, so this function took it as a mapping keyed by `Agent.id`,
+    supplied by the caller and defaulting to empty. That default made the
+    whole function a well-defined no-op -- every agent evaluated to "does
+    not meet preconditions" -- and since no live caller could build the
+    mapping, emergency flight was unreachable outside unit tests.
+
+    `Agent.consecutive_ticks_under_subsistence` now exists, maintained once
+    per tick by the demography orchestrator's counter step on the SAME
+    predicate this path consumes: wealth against
+    `compute_subsistence_threshold` for the agent's zone. The value is read
+    from each agent row already loaded by the per-agent loop below, so the
+    read costs no query of its own, and a caller can no longer disagree
+    with the store about who is starving.
 
     PER-AGENT STEPS, in order, over every living agent in `simulation`'s
     world, `id` ascending (deterministic, this module's convention):
@@ -1530,9 +1521,6 @@ def process_emergency_flight(
             and `process_inheritance_batch`'s own convention) and is
             written onto every emitted `DemographyEvent.simulation`.
         tick: the current simulation tick.
-        consecutive_ticks_under_subsistence_by_agent_id: see the
-            PRECONDITION-COUNTER PARAMETER section above. Defaults to
-            `None`, treated as `{}`.
 
     Returns:
         None. Persists directly -- this is the orchestrated entry point,
@@ -1550,7 +1538,6 @@ def process_emergency_flight(
     from epocha.apps.demography.template_loader import load_template
     from epocha.apps.world.models import Government, World, Zone
 
-    counters = consecutive_ticks_under_subsistence_by_agent_id or {}
 
     template_name = simulation.config.get("demography_template", "pre_industrial_christian")
     template = load_template(template_name)
@@ -1637,7 +1624,7 @@ def process_emergency_flight(
             if agent.id in already_relocated_agent_ids:
                 continue
 
-            ticks = counters.get(agent.id, 0)
+            ticks = agent.consecutive_ticks_under_subsistence
             meets_preconditions, target_zone = _resolve_flight_decision(
                 agent, simulation, tick, template, zone_stats, ticks
             )
