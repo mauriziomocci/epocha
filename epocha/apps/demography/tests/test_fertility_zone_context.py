@@ -341,6 +341,50 @@ def test_a_half_null_couple_keeps_its_surviving_partner_a_member():
 
 
 @pytest.mark.django_db
+def test_membership_is_tested_by_key_and_never_by_the_truth_of_the_value():
+    """The predicate, not just the mapping that feeds it.
+
+    A half-null couple's survivor is a member whose value is `None`, so
+    `mother.id in partnered_agent_ids` and
+    `bool(partnered_agent_ids.get(mother.id))` disagree about her -- and only
+    about her. Every other fixture in the suite has partners with real ids,
+    which are truthy, so the two predicates agree everywhere else and the
+    weaker one passes. Measured: swapping the membership test for a
+    truthiness test left the whole suite green until this test existed.
+
+    Under an era that requires a couple, she must therefore be allowed to
+    conceive: she IS in an active couple, which is what the requirement asks,
+    and the fact that her partner's row is gone does not un-couple her.
+    """
+    from epocha.apps.demography.fertility import tick_birth_probability
+    from epocha.apps.demography.models import Couple
+
+    sim, zone = _world()
+    survivor = _woman(sim, zone, "Vedova", 28, wealth=1200.0)
+    Couple.objects.create(simulation=sim, agent_a=survivor, agent_b=None, formed_at_tick=TICK - 100)
+
+    template = load_template("pre_industrial_christian")
+    assert template["fertility"]["require_couple_for_birth"] is True
+
+    probability = tick_birth_probability(
+        survivor,
+        template,
+        1,
+        24.0,
+        1.0,
+        current_tick=TICK,
+        zone_context=_zone_context_for(sim, zone),
+        partnered_agent_ids=_active_couple_ids(sim),
+    )
+
+    assert probability > 0.0, (
+        "the surviving half of a half-null couple was refused a birth under an "
+        "era that requires a couple: membership is being read as the truth of "
+        "the partner id rather than as presence of the key"
+    )
+
+
+@pytest.mark.django_db
 def test_the_couple_membership_set_answers_what_the_per_agent_query_answers():
     """One query replacing N has to give the same verdict for each of the N."""
     sim, zone = _world()

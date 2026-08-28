@@ -488,24 +488,47 @@ class TestPreloadedValuesReachTheNewborn:
     def test_each_newborn_gets_its_own_mothers_partner(self, sim_with_zone):
         """Several couples, and the mother on both sides of the pair.
 
-        `Couple` stores two agents without ordering them by sex, and the
-        preloaded map is built from both columns, so a resolution that reads
-        only one column -- or that hands out whichever partner it happens to
-        have -- is wrong for half the population. Three couples, with the
-        mother as `agent_a` in some and `agent_b` in others, separate those
-        cases; a single couple could not.
+        `Couple` stores its two agents in canonical id order, not by sex, so
+        the mother is in `agent_a` for some couples and `agent_b` for others
+        and a mapping built from one column alone is wrong for half the
+        population. Three couples with the mother on both sides separate that
+        case; a single couple could not, and neither could three couples that
+        all put her on the same side.
         """
+        from epocha.apps.demography.models import Couple
+
         sim, zone = sim_with_zone
         expected = {}
         for i in range(3):
-            mother = _agent(sim, zone, f"Madre{i}", age=25)
-            father = _agent(sim, zone, f"Padre{i}", gender=Agent.Gender.MALE, age=27)
-            # Alternate the stored order so neither column alone can answer.
+            # `form_couple` routes both partners through `_ordered_pair`, which
+            # sorts by id to satisfy the model's canonical-ordering constraint,
+            # so the argument order at the call site decides NOTHING. Which
+            # column the mother lands in is decided by which agent is created
+            # first, and creating her first every time -- as the first version
+            # of this test did -- puts her in `agent_a` for all three couples
+            # and makes the alternation inert. Measured: with that fixture,
+            # dropping the `agent_b` side of the mapping left all 22 tests in
+            # this file green.
             if i % 2:
-                form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
+                mother = _agent(sim, zone, f"Madre{i}", age=25)
+                father = _agent(sim, zone, f"Padre{i}", gender=Agent.Gender.MALE, age=27)
             else:
-                form_couple(father, mother, formed_at_tick=sim.current_tick - 1)
+                father = _agent(sim, zone, f"Padre{i}", gender=Agent.Gender.MALE, age=27)
+                mother = _agent(sim, zone, f"Madre{i}", age=25)
+            form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
             expected[mother.id] = father.id
+
+        # The fixture asserts its own shape, because a fixture that silently
+        # stops building the case it claims is the defect this file keeps
+        # paying for.
+        mothers = list(expected)
+        assert Couple.objects.filter(simulation=sim, agent_a_id__in=mothers).exists(), (
+            "no mother was stored in agent_a: the fixture no longer covers that column"
+        )
+        assert Couple.objects.filter(simulation=sim, agent_b_id__in=mothers).exists(), (
+            "no mother was stored in agent_b: the fixture no longer covers that column, "
+            "so a mapping reading agent_a alone would pass"
+        )
         context = _context(sim)
 
         orchestrator.run_fertility_step(
@@ -557,51 +580,82 @@ class TestPreloadedValuesReachTheNewborn:
 
         The mean class rank of the zone is what `apply_social_inheritance`
         consumes, so a fabricated value produces a plausible but wrong social
-        class for every newborn and nothing sees it. Asserted against the
-        audited helper's own answer for the mother's zone, computed
-        independently after the step.
+        class for every newborn and nothing sees it.
+
+        TWO zones, each with a fertile mother, each with a different class
+        composition, and both giving birth in the same tick. One zone cannot
+        witness this: with a single entry in the per-zone cache, a resolution
+        that reads the wrong entry reads the right one anyway. Measured -- a
+        one-zone version of this test survived exactly that mutation.
         """
+        from django.contrib.gis.geos import Point, Polygon
+
         from epocha.apps.demography.inheritance import compute_zone_class_mean
+        from epocha.apps.world.models import World, Zone
 
-        sim, zone = sim_with_zone
-        mother = _agent(sim, zone, "MadreClasse", age=25, social_class="wealthy")
-        form_couple(
-            _agent(
-                sim, zone, "PadreClasse", gender=Agent.Gender.MALE, age=28, social_class="wealthy"
-            ),
-            mother,
-            formed_at_tick=sim.current_tick - 1,
+        sim, rich = sim_with_zone
+        poor = Zone.objects.create(
+            world=World.objects.get(simulation=sim),
+            name="ZonaPovera",
+            zone_type="residential",
+            boundary=Polygon.from_bbox((200, 200, 300, 300)),
+            center=Point(250, 250),
         )
-        for i in range(4):
-            _agent(
-                sim, zone, f"Popolano{i}", gender=Agent.Gender.MALE, age=40, social_class="working"
-            )
-        context = _context(sim)
-        # Taken BEFORE the step, because the newborn joins the zone and moves
-        # the mean: comparing against the post-step value would compare the
-        # preload against a population it could not have seen.
-        expected = compute_zone_class_mean(zone)
 
-        captured = {}
+        mothers = {}
+        for zone, label, klass, filler in (
+            (rich, "Ricca", "wealthy", "working"),
+            (poor, "Povera", "poor", "poor"),
+        ):
+            mother = _agent(sim, zone, f"Madre{label}", age=25, social_class=klass)
+            form_couple(
+                _agent(
+                    sim, zone, f"Padre{label}", gender=Agent.Gender.MALE, age=28, social_class=klass
+                ),
+                mother,
+                formed_at_tick=sim.current_tick - 1,
+            )
+            for i in range(4):
+                _agent(
+                    sim,
+                    zone,
+                    f"Riempitivo{label}{i}",
+                    gender=Agent.Gender.MALE,
+                    age=40,
+                    social_class=filler,
+                )
+            mothers[mother.id] = zone
+
+        context = _context(sim)
+        expected = {z.id: compute_zone_class_mean(z) for z in (rich, poor)}
+        assert expected[rich.id] != expected[poor.id], (
+            "the two zones have the same mean class rank: reading the wrong "
+            "zone would be invisible and this test would prove nothing"
+        )
+
+        seen = []
         real_build = orchestrator.build_newborn
 
         def _capturing(ctx, mother_arg, father, rng, zone_class_mean=None):
-            captured["mean"] = zone_class_mean
+            seen.append((mother_arg.id, zone_class_mean))
             return real_build(ctx, mother_arg, father, rng, zone_class_mean=zone_class_mean)
 
         orchestrator.build_newborn = _capturing
         try:
             orchestrator.run_fertility_step(
-                context, rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_SURVIVES])
+                context,
+                rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_SURVIVES] * 2),
             )
         finally:
             orchestrator.build_newborn = real_build
 
-        assert "mean" in captured, "no birth happened: the fixture proves nothing"
-        assert captured["mean"] == expected
-        # A fixture whose mean coincides with the neutral fallback could not
-        # tell a real computation from a fabricated zero.
-        assert captured["mean"] > 0.0
+        assert len(seen) == 2, f"expected a birth in each zone, got {len(seen)}"
+        for mother_id, mean in seen:
+            assert mean == expected[mothers[mother_id].id], (
+                f"the birth to mother {mother_id} received the mean of another "
+                "zone: the per-zone cache is being read by something other than "
+                "the mother's own zone"
+            )
 
 
 class TestFertilityTransactionalBoundary:

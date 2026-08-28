@@ -264,11 +264,13 @@ l'intera riga quando una delle due FK è nulla, mentre il `frozenset` che
 sostituiva teneva il superstite come membro: per una coppia attiva mezza-nulla
 i due rami dello stesso `if` in `tick_birth_probability` davano verdetti
 opposti sulla stessa agente, mentre la docstring li dichiara intercambiabili.
-Nessun percorso di produzione costruisce oggi quello stato — verificato:
-`dissolve_on_death` annulla la FK e scrive `dissolved_at_tick` nello stesso
-`save`, e nulla in `epocha/` cancella righe `Agent` — quindi il revisore lo ha
-dichiarato non bloccante e io lo correggo comunque, perché è un'invariante
-scritta in prosa e non tenuta da nulla.
+**Questa premessa era sbagliata, e il round 4 l'ha smentita: si legga la
+rettifica sotto il verdetto del round 4.** Diceva: «Nessun percorso di
+produzione costruisce oggi quello stato — verificato: `dissolve_on_death`
+annulla la FK e scrive `dissolved_at_tick` nello stesso `save`, e nulla in
+`epocha/` cancella righe `Agent`». La prima metà regge; la seconda no, perché
+l'enumerazione cercava chiamate `.delete()` nel sorgente e il percorso vero
+non è una chiamata nel sorgente.
 
 ### Che cosa è stato corretto in risposta
 
@@ -345,6 +347,84 @@ ne hanno trovati non è un verdetto, è una resa.
 **Convergenza**: nessuna delle tre classi bloccanti. Cifre e frasi si
 correggono nello stesso commit.
 
-### Verdetto round 4
+### Verdetto round 4: NOT CONVERGED
 
-*(da compilare a round concluso)*
+**Il pattern si è ripetuto una quarta volta, e nel posto peggiore: dentro il
+testimone scritto per chiuderlo.**
+
+**Bloccante, classe 2.** Il testimone che il round 3 ha aggiunto per provare
+che ogni neonato riceve il partner di *sua* madre dichiara, nel proprio
+docstring, di separare le due colonne di `Couple` mettendo la madre in
+`agent_a` in alcune coppie e in `agent_b` in altre. Non lo fa. `form_couple`
+instrada entrambi i partner attraverso `_ordered_pair`, che ordina per id per
+soddisfare il vincolo canonico del modello, quindi **l'ordine degli argomenti
+al call site non decide nulla**: decide chi è stato creato prima, e la madre
+era creata per prima in tutti e tre i cicli. Misurato: togliendo il lato
+`agent_b` dalla mappa — esattamente la regressione che il docstring nomina —
+tutti e 22 i test del file restano verdi. È strutturalmente identico al
+bloccante 2 del round 1, la fixture di soli maschi contro un passo che filtra
+le femmine: **una fixture che dichiara di costruire un caso che il sistema le
+impedisce di costruire.**
+
+**Due testimoni su tre erano più deboli di quanto dichiaravano.** Quello sulla
+media di classe della zona girava su **una zona sola**, quindi «la media di
+*quella* zona» non era separabile da «la media di *una* zona»; misurato, la
+mutazione che legge la voce sbagliata della cache lo lasciava verde. E
+l'ultima asserzione di quel test, `mean > 0.0`, era oscurata dall'uguaglianza
+che la precede e giustificata da un commento che dichiarava il fallback
+neutro pari a zero, mentre è il rango di `working`.
+
+**La chiusura sulla mappa dei partner era metà.** La mappa è corretta e la
+guardia sulla coppia mezza-nulla esiste, ma **nessun test pretendeva che la
+membership si provasse con `in`**: sostituendo `mother.id in
+partnered_agent_ids` con `bool(partnered_agent_ids.get(mother.id))` l'intera
+suite restava verde, perché in ogni fixture i partner hanno id non nulli e
+quindi truthy. L'unica forma che separa i due predicati è la coppia
+mezza-nulla, e nessuna fixture la mandava attraverso `tick_birth_probability`.
+
+**Classe 1: l'annotazione mentiva.** `active_couple_partners` dichiarava
+`-> dict[int, int]` mentre il corpo dichiara `dict[int, int | None]` e il
+docstring dice che il valore può essere `None`. Tre affermazioni sullo stesso
+tipo nella stessa funzione, e quella sbagliata era la prima che un lettore
+vede. Nessun type checker nel progetto la coglieva.
+
+### Rettifica al verdetto del round 3
+
+Il round 3 dichiarava non raggiungibile in produzione la coppia attiva
+mezza-nulla, «verificato: nulla in `epocha/` cancella righe `Agent`». **È
+falso.** `epocha/apps/agents/admin.py` registra `Agent` con il `ModelAdmin` di
+default, quindi l'admin di Django espone «Delete selected agents», che fa
+scattare `on_delete=SET_NULL` su `Couple.agent_a`/`agent_b` senza toccare
+`dissolved_at_tick`: è esattamente una coppia attiva mezza-nulla, ed è il
+motivo per cui `SET_NULL` esiste. L'enumerazione cercava chiamate `.delete()`
+nel sorgente e non le trovava; il percorso admin non è una chiamata nel
+sorgente. La conseguenza è sostanziale: in quello stato la superstite **ora
+concepisce** sotto un'era che richiede la coppia, dove prima era esclusa. Il
+cambio è quello giusto — l'equivalenza con `is_in_active_couple` è
+l'invariante — ma era giustificato da una premessa che non regge, e ora è
+esercitato da un test.
+
+### Che cosa è stato corretto in risposta
+
+- L'alternazione fra le due colonne è reale: il padre è creato per primo nei
+  cicli pari, e **la fixture asserisce la propria forma** — che almeno una
+  madre sia in `agent_a` e almeno una in `agent_b` — perché una fixture che
+  smette in silenzio di costruire il caso che dichiara è il difetto che
+  questo file continua a pagare. Misurato: togliendo l'uno o l'altro lato
+  della mappa il testimone muore, in entrambe le direzioni.
+- Il testimone sulla media di zona gira ora su **due zone che partoriscono
+  entrambe nello stesso tick**, con composizioni di classe diverse e la
+  distinzione asserita in anticipo, e cattura la media per singola nascita.
+  Muore sia contro il valore inventato sia contro la lettura della zona
+  sbagliata.
+- Un testimone nuovo pretende che la membership si provi per chiave: la
+  superstite di una coppia mezza-nulla deve poter concepire sotto un'era che
+  richiede la coppia, perché *è* in una coppia attiva. Muore contro la
+  sostituzione con il test di verità del valore.
+- L'annotazione di ritorno dice ora `dict[int, int | None]`.
+
+### Conseguenza
+
+Round 4 **NOT CONVERGED**: un criterio che non poteva fallire più due
+testimoni più deboli della loro stessa dichiarazione, tutti introdotti dalla
+remediation del round 3. Il round 5 giudica questa remediation.

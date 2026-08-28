@@ -54,7 +54,7 @@ def is_in_active_couple(agent) -> bool:
     ).exists()
 
 
-def active_couple_partners(simulation) -> dict[int, int]:
+def active_couple_partners(simulation) -> dict[int, int | None]:
     """Each partnered agent id mapped to the id of its partner.
 
     `is_in_active_couple` and `active_couple_for` answer this one agent at a

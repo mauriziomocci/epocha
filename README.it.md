@@ -71,7 +71,8 @@ epocha/apps/
   agents/              Personalità, memoria, pipeline decisionale, reputazione, fazioni
   chat/                Conversazioni WebSocket in tempo reale con gli agenti
   dashboard/           UI server-rendered con miglioramento progressivo Alpine.js
-  demography/          Mortalità, fertilità, formazione delle coppie (audited)
+  demography/          Mortalità, fertilità, formazione delle coppie, eredità,
+                       migrazione e l'orchestratore per tick (auditati)
   economy/             Produzione, monetario, mercato, integrazione comportamentale (Behavioral audited)
   knowledge/           Knowledge graph: ingestione, embedding, ontologia, RAG
   llm_adapter/         Astrazione del provider con rate limiting e rotazione chiavi
