@@ -302,6 +302,45 @@ def test_a_candidate_resolved_through_the_context_costs_no_query():
 
 
 @pytest.mark.django_db
+def test_a_half_null_couple_keeps_its_surviving_partner_a_member():
+    """The one shape where the mapping and the per-agent query can disagree.
+
+    `Couple.agent_a` and `agent_b` are nullable, so an undissolved row can
+    carry one live partner and one null. `is_in_active_couple` answers True
+    for the survivor -- the `Q(agent_a=agent) | Q(agent_b=agent)` matches on
+    the column that is set -- and the mapping that replaced it must agree,
+    because `tick_birth_probability` documents the two as interchangeable and
+    picks between them on whether the caller supplied one. The survivor is a
+    member with no partner, which is exactly what the value `None` says.
+
+    No production path builds this row today: `dissolve_on_death` nulls the
+    FK and writes `dissolved_at_tick` in the same save. The guard is here
+    because the equivalence is asserted in a docstring, and an invariant
+    written in prose and not enforced by a test gets violated silently.
+    """
+    from epocha.apps.demography.couple import active_couple_partners, is_in_active_couple
+    from epocha.apps.demography.models import Couple
+
+    sim, zone = _world()
+    survivor = _woman(sim, zone, "Superstite", 30)
+    Couple.objects.create(
+        simulation=sim,
+        agent_a=survivor,
+        agent_b=None,
+        formed_at_tick=TICK - 100,
+    )
+
+    partners = active_couple_partners(sim)
+
+    assert is_in_active_couple(survivor) is True
+    assert survivor.id in partners, (
+        "the surviving half of a half-null couple is a member for "
+        "is_in_active_couple and not for the mapping that replaced it"
+    )
+    assert partners[survivor.id] is None
+
+
+@pytest.mark.django_db
 def test_the_couple_membership_set_answers_what_the_per_agent_query_answers():
     """One query replacing N has to give the same verdict for each of the N."""
     sim, zone = _world()

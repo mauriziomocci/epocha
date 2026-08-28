@@ -207,9 +207,11 @@ def run_fertility_step(
     candidate costs zero queries, and so does one birth.** The step pays,
     once each: one read of the candidate mothers, one of the living
     population count, one of the active-couple membership, two of the
-    simulation-wide outlook terms, one `in_bulk` of the candidates'
-    partners; then up to four reads per distinct candidate zone for the
-    zonal Becker inputs and one more for that zone's mean class rank. It
+    simulation-wide outlook terms, and one `in_bulk` of the candidates'
+    partners -- which costs nothing at all when none of them is partnered,
+    since an empty set of ids issues no query; then up to four reads per
+    distinct candidate zone for the zonal Becker inputs and one more for
+    that zone's mean class rank. It
     writes, once each and only when there is something to write: a savepoint
     pair around them all, a `bulk_update` and a settlement for the mothers
     who died in childbirth, a `bulk_create` for the newborns and a
@@ -293,8 +295,9 @@ def run_fertility_step(
     outlook_terms = load_outlook_terms(context.simulation)
     zone_contexts: dict[Any, dict] = {}
 
-    # The two remaining per-birth reads, hoisted. `_partner_of` cost a couple
-    # lookup plus a foreign-key dereference for every birth, and
+    # The two remaining per-birth reads, hoisted. Resolving the mother's
+    # partner one birth at a time cost a couple lookup plus a foreign-key
+    # dereference each, and
     # `apply_inheritance_at_birth` computes the zone's mean class rank in one
     # query of its own -- three per birth, against an FR-016a that grants
     # births no term at all ("one query per birth makes the cost measurement
@@ -302,7 +305,7 @@ def run_fertility_step(
     # over the candidates' partner ids, the class mean per distinct candidate
     # zone, which is a zone term and not a birth term.
     partner_objects = Agent.objects.in_bulk(
-        {partners[m.id] for m in candidates if m.id in partners}
+        {pid for m in candidates if (pid := partners.get(m.id)) is not None}
     )
     zone_class_means: dict[Any, float] = {}
 
@@ -827,16 +830,6 @@ def _step_index(name: str) -> int:
         if step.name == name:
             return step.index
     raise KeyError(f"unknown demography step {name!r}")
-
-
-def _partner_of(agent: Any) -> Any | None:
-    """The agent's partner in their active couple, or None."""
-    from epocha.apps.demography.couple import active_couple_for
-
-    couple = active_couple_for(agent)
-    if couple is None:
-        return None
-    return couple.agent_b if couple.agent_a_id == agent.id else couple.agent_a
 
 
 def _world_of(simulation: Any) -> Any | None:

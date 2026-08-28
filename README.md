@@ -71,7 +71,8 @@ epocha/apps/
   agents/              Personality, memory, decision pipeline, reputation, factions
   chat/                Real-time WebSocket conversations with agents
   dashboard/           Server-rendered UI with Alpine.js progressive enhancement
-  demography/          Mortality, fertility, couple formation (audited)
+  demography/          Mortality, fertility, couple formation, inheritance,
+                       migration, and the per-tick orchestrator (audited)
   economy/             Production, monetary, market, behavioral integration (Behavioral audited)
   knowledge/           Knowledge graph: ingestion, embedding, ontology, RAG
   llm_adapter/         Provider abstraction with rate limiting and key rotation
@@ -86,7 +87,7 @@ docs/                  Specs, plans, whitepaper, memory backup
 
 | Module | Implemented | Audited |
 |---|---|---|
-| Demography (Plan 1+2): mortality, fertility, couple | yes — models unit-tested, not yet called by the tick loop (Plan 4) | yes (CONVERGED 2026-04-18 round 4) |
+| Demography (Plan 1+2): mortality, fertility, couple | yes — called by the tick loop since Plan 4 | yes (CONVERGED 2026-04-18 round 4) |
 | Economy Behavioral (expectations, credit, property) | yes | yes (CONVERGED 2026-04-15) |
 | Economy base (production, monetary, market, distribution) | yes | yes (CONVERGED 2026-07-16 round 12) |
 | Reputation (Castelfranchi-Conte-Paolucci 1998) | yes | yes (CONVERGED 2026-05-12 round 2) |
@@ -102,7 +103,9 @@ docs/                  Specs, plans, whitepaper, memory backup
 | Movement (Chandler 1966; Braudel 1979) | yes | yes (CONVERGED 2026-05-16 round 2) |
 | Factions (Olson 1965; Festinger 1950; Judge 2002; Baumeister 2001; Hackman 2002) | yes | yes (CONVERGED 2026-05-16 round 2) |
 | Knowledge Graph | yes | scientific audit pending |
-| Demography Plan 3+4 (Inheritance + Migration + Engine integration + Validation execution) | not yet | n/a |
+| Demography Plan 3 (Inheritance + Migration) | yes — merged | yes (CONVERGED 2026-08-05 round 4) |
+| Demography Plan 4 (Initialisation + Engine integration) | yes — on its feature branch, phase-6 gate in progress | code gate in progress |
+| Historical validation campaign (execution) | not yet | n/a |
 | Economy financial markets (Spec 3) | not yet | n/a |
 
 The Knowledge Graph is the only module still awaiting its first scientific audit. The economy base layer converged on round 12 (2026-07-16) and was promoted to whitepaper §4.8, which closed the 2026-04-12 audit re-pass batch on every other module. The live board is the [build map](docs/build-map/epocha-build-map.html); the scientific detail is in whitepaper §9 Roadmap.
@@ -111,7 +114,7 @@ The Knowledge Graph is the only module still awaiting its first scientific audit
 
 Highest priority is the adversarial scientific audit of the Knowledge Graph, the one module left in whitepaper §8 and the gating item before calibration and validation can close. Six clusters have already converged and been promoted to Methods: reputation on round 2 (2026-05-12) as §4.3, the rumor cluster — information flow, distortion, belief filter, affinity — on round 2 (2026-05-16) as §4.4, the political cluster — government, government types, institutions, stratification, election — on round 2 (2026-05-16) as §4.5, movement on round 2 (2026-05-16) as §4.6, factions on round 2 (2026-05-16) as §4.7, and the economy base layer on round 12 of its first audit (2026-07-16) as §4.8.
 
-Next come Demography Plan 3 (inheritance + migration) and Plan 4, which wires the audited §4.1 models into the live tick loop they do not yet enter, seeds the starting population from the era template, and runs the historical validation campaign. Then the economy financial markets (Spec 3, not yet drafted) and the execution of the validation experiments. Full list in whitepaper §9; current status per phase in the [build map](docs/build-map/epocha-build-map.html).
+Demography Plan 3 (inheritance + migration) is merged, and Plan 4 has wired the audited §4.1 models into the live tick loop and seeded the starting population from the era template; its phase-6 code gate is in progress on the feature branch. The historical validation campaign it once bundled is a separate work item and has not been run. Then the economy financial markets (Spec 3, not yet drafted) and the execution of the validation experiments. Full list in whitepaper §9; current status per phase in the [build map](docs/build-map/epocha-build-map.html).
 
 ## Contributing
 

@@ -474,6 +474,136 @@ class TestFertilityStep:
         assert not Agent.objects.filter(parent_agent=mother).exists()
 
 
+class TestPreloadedValuesReachTheNewborn:
+    """The preloads must carry the RIGHT value, not merely the right count.
+
+    The per-birth N+1 was closed by hoisting two reads out of the loop: the
+    mother's partner, and her zone's mean class rank. The guard added with
+    that fix measures the query COUNT, and a query count is blind to which
+    value a preload produced -- measured, handing every newborn of the tick
+    an arbitrary father from the preloaded map left 880 demography tests of
+    880 green. These are the witnesses for the values.
+    """
+
+    def test_each_newborn_gets_its_own_mothers_partner(self, sim_with_zone):
+        """Several couples, and the mother on both sides of the pair.
+
+        `Couple` stores two agents without ordering them by sex, and the
+        preloaded map is built from both columns, so a resolution that reads
+        only one column -- or that hands out whichever partner it happens to
+        have -- is wrong for half the population. Three couples, with the
+        mother as `agent_a` in some and `agent_b` in others, separate those
+        cases; a single couple could not.
+        """
+        sim, zone = sim_with_zone
+        expected = {}
+        for i in range(3):
+            mother = _agent(sim, zone, f"Madre{i}", age=25)
+            father = _agent(sim, zone, f"Padre{i}", gender=Agent.Gender.MALE, age=27)
+            # Alternate the stored order so neither column alone can answer.
+            if i % 2:
+                form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
+            else:
+                form_couple(father, mother, formed_at_tick=sim.current_tick - 1)
+            expected[mother.id] = father.id
+        context = _context(sim)
+
+        orchestrator.run_fertility_step(
+            context,
+            rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_SURVIVES] * 3),
+        )
+
+        newborns = list(Agent.objects.filter(simulation=sim, birth_tick=context.tick))
+        assert len(newborns) == 3, "the scripted stream did not force three births"
+        for newborn in newborns:
+            assert newborn.other_parent_agent_id == expected[newborn.parent_agent_id], (
+                f"{newborn.name} was given agent {newborn.other_parent_agent_id} as a "
+                f"father, but its mother's partner is {expected[newborn.parent_agent_id]}"
+            )
+
+    def test_an_unpartnered_mother_gets_no_father(self, sim_with_zone):
+        """The other side, so the resolution cannot answer by always
+        returning somebody. Under an era that admits unpartnered birth, a
+        mother with no couple must produce a newborn with no second parent.
+        """
+        sim, zone = sim_with_zone
+        alone = _agent(sim, zone, "Sola", age=26)
+        partnered = _agent(sim, zone, "Accoppiata", age=27)
+        form_couple(
+            _agent(sim, zone, "Marito", gender=Agent.Gender.MALE, age=30),
+            partnered,
+            formed_at_tick=sim.current_tick - 1,
+        )
+        context = _context(sim, template_name="modern_democracy")
+
+        orchestrator.run_fertility_step(
+            context,
+            rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_SURVIVES] * 2),
+        )
+
+        by_mother = {
+            a.parent_agent_id: a
+            for a in Agent.objects.filter(simulation=sim, birth_tick=context.tick)
+        }
+        assert alone.id in by_mother, "the unpartnered mother did not give birth"
+        assert by_mother[alone.id].other_parent_agent_id is None, (
+            "a mother with no active couple was given a father: the resolution "
+            "hands out somebody rather than her partner"
+        )
+        assert by_mother[partnered.id].other_parent_agent_id is not None
+
+    def test_the_zone_class_mean_reaching_a_birth_is_that_zones_own(self, sim_with_zone):
+        """The second preload, witnessed by value rather than by count.
+
+        The mean class rank of the zone is what `apply_social_inheritance`
+        consumes, so a fabricated value produces a plausible but wrong social
+        class for every newborn and nothing sees it. Asserted against the
+        audited helper's own answer for the mother's zone, computed
+        independently after the step.
+        """
+        from epocha.apps.demography.inheritance import compute_zone_class_mean
+
+        sim, zone = sim_with_zone
+        mother = _agent(sim, zone, "MadreClasse", age=25, social_class="wealthy")
+        form_couple(
+            _agent(
+                sim, zone, "PadreClasse", gender=Agent.Gender.MALE, age=28, social_class="wealthy"
+            ),
+            mother,
+            formed_at_tick=sim.current_tick - 1,
+        )
+        for i in range(4):
+            _agent(
+                sim, zone, f"Popolano{i}", gender=Agent.Gender.MALE, age=40, social_class="working"
+            )
+        context = _context(sim)
+        # Taken BEFORE the step, because the newborn joins the zone and moves
+        # the mean: comparing against the post-step value would compare the
+        # preload against a population it could not have seen.
+        expected = compute_zone_class_mean(zone)
+
+        captured = {}
+        real_build = orchestrator.build_newborn
+
+        def _capturing(ctx, mother_arg, father, rng, zone_class_mean=None):
+            captured["mean"] = zone_class_mean
+            return real_build(ctx, mother_arg, father, rng, zone_class_mean=zone_class_mean)
+
+        orchestrator.build_newborn = _capturing
+        try:
+            orchestrator.run_fertility_step(
+                context, rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_SURVIVES])
+            )
+        finally:
+            orchestrator.build_newborn = real_build
+
+        assert "mean" in captured, "no birth happened: the fixture proves nothing"
+        assert captured["mean"] == expected
+        # A fixture whose mean coincides with the neutral fallback could not
+        # tell a real computation from a fabricated zero.
+        assert captured["mean"] > 0.0
+
+
 class TestFertilityTransactionalBoundary:
     """The birth step writes up to four times and must not write partially.
 

@@ -354,7 +354,9 @@ FIXED_TERM_WITH_CANDIDATES = 44
 # intercept that is this term on top of FIXED_TERM_NO_CANDIDATES above. The
 # measurements are deliberately not reproduced here as literals: they were,
 # and they went stale the moment that fixed term moved by one for the block's
-# per-tick self-repair read. The two tests below measure them instead.
+# per-tick self-repair read. The bound tests above measure them instead, at
+# two death counts, which is what keeps the slope honest without pinning a
+# literal that no assertion reads.
 #
 # It is a conditional FIXED term, not a per-event one, and it is declared
 # separately rather than folded into the per-death coefficient because

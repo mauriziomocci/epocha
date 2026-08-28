@@ -65,9 +65,10 @@ def active_couple_partners(simulation) -> dict[int, int]:
     read here: membership is `agent_id in mapping`, the partner is the value.
 
     Partner FKs are nullable (`SET_NULL` preserves the genealogical record
-    when an agent row goes away), so a half-null couple contributes nothing:
-    an agent whose partner row is gone is not partnered for any purpose this
-    mapping serves.
+    when an agent row goes away), so a value can be `None`: the surviving
+    half of a half-null couple is a member with no partner to name. Testing
+    membership with `in` is therefore correct and testing it by truthiness of
+    the value is not.
 
     Cost: exactly one query, whatever the population.
     """
@@ -77,12 +78,18 @@ def active_couple_partners(simulation) -> dict[int, int]:
         simulation=simulation,
         dissolved_at_tick__isnull=True,
     ).values_list("agent_a_id", "agent_b_id")
-    partners: dict[int, int] = {}
+    partners: dict[int, int | None] = {}
     for a_id, b_id in pairs:
-        if a_id is None or b_id is None:
-            continue
-        partners[a_id] = b_id
-        partners[b_id] = a_id
+        # Each side is entered on its own, so a half-null row still makes its
+        # surviving partner a MEMBER -- with the value `None`, which says
+        # there is no partner to name. Dropping the whole row instead would
+        # make this function disagree with `is_in_active_couple`, which
+        # matches on whichever column is set, for the one agent the two are
+        # documented to answer identically.
+        if a_id is not None:
+            partners[a_id] = b_id
+        if b_id is not None:
+            partners[b_id] = a_id
     return partners
 
 

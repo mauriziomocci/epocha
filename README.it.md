@@ -86,7 +86,7 @@ docs/                  Spec, piani, whitepaper, backup di memoria
 
 | Modulo | Implementato | Audited |
 |---|---|---|
-| Demografia (Plan 1+2): mortalità, fertilità, coppia | sì — modelli testati in isolamento, non ancora invocati dal tick loop (Plan 4) | sì (CONVERGENTE 2026-04-18 round 4) |
+| Demografia (Plan 1+2): mortalità, fertilità, coppia | sì — invocati dal tick loop dal Plan 4 | sì (CONVERGENTE 2026-04-18 round 4) |
 | Economia Comportamentale (aspettative, credito, proprietà) | sì | sì (CONVERGENTE 2026-04-15) |
 | Economia base (produzione, monetario, mercato, distribuzione) | sì | sì (CONVERGENTE 2026-07-16 round 12) |
 | Reputazione (Castelfranchi-Conte-Paolucci 1998) | sì | sì (CONVERGENTE 2026-05-12 round 2) |
@@ -102,7 +102,9 @@ docs/                  Spec, piani, whitepaper, backup di memoria
 | Movimento (Chandler 1966; Braudel 1979) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
 | Fazioni (Olson 1965; Festinger 1950; Judge 2002; Baumeister 2001; Hackman 2002) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
 | Knowledge Graph | sì | audit scientifico in attesa |
-| Demografia Plan 3+4 (Eredità + Migrazione + Integrazione Engine + Esecuzione validazione) | non ancora | n/a |
+| Demografia Plan 3 (Eredità + Migrazione) | sì — mergiata | sì (CONVERGENTE 2026-08-05 round 4) |
+| Demografia Plan 4 (Inizializzazione + Integrazione Engine) | sì — sul proprio ramo, gate di fase 6 in corso | gate sul codice in corso |
+| Campagna di validazione storica (esecuzione) | non ancora | n/a |
 | Mercati finanziari Economia (Spec 3) | non ancora | n/a |
 
 Il Knowledge Graph è l'unico modulo ancora in attesa del suo primo audit scientifico. Il layer base dell'economia è convergente sul round 12 (2026-07-16) ed è stato promosso a §4.8 del whitepaper, il che ha chiuso il re-pass di audit del batch del 2026-04-12 su tutti gli altri moduli. La lavagna aggiornata è la [build map](docs/build-map/epocha-build-map.html); il dettaglio scientifico sta nel whitepaper §9 Roadmap.
@@ -111,7 +113,7 @@ Il Knowledge Graph è l'unico modulo ancora in attesa del suo primo audit scient
 
 La priorità più alta è l'audit scientifico avversariale del Knowledge Graph, l'unico modulo rimasto nel §8 del whitepaper e l'elemento bloccante prima che calibrazione e validazione possano chiudersi. Sei cluster sono già convergenti e promossi a Metodi: la reputazione sul round 2 (2026-05-12) come §4.3, il cluster del passaparola — information flow, distortion, belief filter, affinity — sul round 2 (2026-05-16) come §4.4, il cluster politico — governo, tipi di governo, istituzioni, stratificazione, elezioni — sul round 2 (2026-05-16) come §4.5, il movimento sul round 2 (2026-05-16) come §4.6, le fazioni sul round 2 (2026-05-16) come §4.7 e il layer base dell'economia sul round 12 del suo primo audit (2026-07-16) come §4.8.
 
-Seguono la Demografia Plan 3 (eredità + migrazione) e la Plan 4, che cabla i modelli auditati di §4.1 dentro il tick loop dal vivo in cui ancora non entrano, semina la popolazione iniziale dal template dell'era ed esegue la campagna di validazione storica. Poi i mercati finanziari dell'economia (Spec 3, non ancora redatta) e l'esecuzione degli esperimenti di validazione. Lista completa nel whitepaper §9; stato corrente per fase nella [build map](docs/build-map/epocha-build-map.html).
+La Demografia Plan 3 (eredità + migrazione) è mergiata, e la Plan 4 ha cablato i modelli auditati di §4.1 dentro il tick loop dal vivo e seminato la popolazione iniziale dal template dell'era; il suo gate di fase 6 sul codice è in corso sul ramo di feature. La campagna di validazione storica che un tempo accorpava è un work item separato e non è stata eseguita. Poi i mercati finanziari dell'economia (Spec 3, non ancora redatta) e l'esecuzione degli esperimenti di validazione. Lista completa nel whitepaper §9; stato corrente per fase nella [build map](docs/build-map/epocha-build-map.html).
 
 ## Contribuire
 

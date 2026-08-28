@@ -231,6 +231,67 @@ rimuove un'asserzione da una guardia di costo e riscrive tre chiusure di
 capitolo in due lingue. Se non produce nulla, il verdetto deve dire quali
 percorsi ha verificato.
 
-### Verdetto round 3
+### Verdetto round 3: NOT CONVERGED
 
-*(da compilare a round concluso)*
+Due revisori, classi disgiunte, ambito ristretto come dichiarato.
+
+**Il criterio aveva ragione su cosa sospettare.** Aveva scritto, prima del
+lancio, che la domanda era se rimuovere un'asserzione avesse lasciato
+scoperto qualcosa. La risposta a quella domanda è no — misurata su due
+varianti del file di test, una con l'asserzione e una senza, contro cinque
+mutazioni: tutte rosse in entrambe, nessuna coppia verde/rosso. Ma la classe
+che il criterio nominava — una riparazione che aggiunge un testimone e ne
+lascia scoperto un altro — c'era lo stesso, un livello più in là.
+
+**Bloccante, classe 2, due rilievi.** La correzione del costo per nascita ha
+sostituito due query per nascita con due precarichi e ha aggiunto **solo un
+testimone di costo**. Il valore che i precarichi producono non era guardato da
+nulla:
+
+- `orchestrator.py`, la risoluzione del padre. Sostituendola con un uomo
+  arbitrario preso dalla mappa precaricata, **ogni neonato del tick riceve il
+  genitore sbagliato e 880 test su 880 restano verdi**. Il conteggio di query
+  non cambia, quindi la guardia nuova non lo vede; l'unico test che asserisce
+  `other_parent_agent_id` chiama `build_newborn` a mano e non attraversa mai
+  quella riga.
+- `orchestrator.py`, la media di classe della zona. Passandone una inventata a
+  ogni nascita — l'input dei rami `clark_regression` e
+  `becker_tomes_elasticity_0.4` dell'ereditarietà sociale — la suite resta
+  verde allo stesso modo.
+
+**Non bloccante, classe 1, un rilievo.** `active_couple_partners` scartava
+l'intera riga quando una delle due FK è nulla, mentre il `frozenset` che
+sostituiva teneva il superstite come membro: per una coppia attiva mezza-nulla
+i due rami dello stesso `if` in `tick_birth_probability` davano verdetti
+opposti sulla stessa agente, mentre la docstring li dichiara intercambiabili.
+Nessun percorso di produzione costruisce oggi quello stato — verificato:
+`dissolve_on_death` annulla la FK e scrive `dissolved_at_tick` nello stesso
+`save`, e nulla in `epocha/` cancella righe `Agent` — quindi il revisore lo ha
+dichiarato non bloccante e io lo correggo comunque, perché è un'invariante
+scritta in prosa e non tenuta da nulla.
+
+### Che cosa è stato corretto in risposta
+
+Tre testimoni **di valore**, ciascuno provato contro la mutazione esatta che
+il revisore aveva misurato sopravvivere:
+
+- ogni neonato riceve il partner di **sua** madre, su tre coppie con la madre
+  alternata fra `agent_a` e `agent_b`, perché una coppia sola non separa una
+  risoluzione che legge una colonna soltanto;
+- una madre non accoppiata, sotto un'era che ammette la nascita fuori dalla
+  coppia, riceve `other_parent_agent_id` nullo — così la risoluzione non può
+  rispondere restituendo sempre qualcuno;
+- la media di classe che arriva a una nascita è quella della zona di quella
+  madre, confrontata con l'helper auditato **prima** del passo, perché il
+  neonato entra nella zona e sposta la media.
+
+La mappa dei partner entra ora ciascun lato per conto proprio, quindi il
+superstite di una coppia mezza-nulla è membro con valore `None`, e la
+membership si prova con `in` e mai per verità del valore. Una guardia lo
+pretende.
+
+### Conseguenza
+
+Il round 3 è **NOT CONVERGED**: due criteri che non potevano fallire, entrambi
+introdotti dalla remediation del round 2. Il round 4 giudica questa
+remediation.
