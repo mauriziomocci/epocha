@@ -252,8 +252,14 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
 # least one fertile candidate pays them once, whatever the population and
 # whatever the number of candidates. Measured at one zone in both cases,
 # since the fixed term scales with the zone count (FR-016a).
-FIXED_TERM_NO_CANDIDATES = 35
-FIXED_TERM_WITH_CANDIDATES = 42
+#
+# Both include the block's one-query self-repair: it reads the living agents
+# that still carry a NULL `birth_tick` and returns on the empty result, which
+# is every tick of an initialized simulation. That query buys the guarantee
+# that the population the steps see can age at all, and it is a fixed cost --
+# it does not grow with the population, which is what FR-016 forbids.
+FIXED_TERM_NO_CANDIDATES = 36
+FIXED_TERM_WITH_CANDIDATES = 43
 
 # What a tick pays once for having any death at all, whatever their number:
 # the mortality step's own writes -- the marking and the event batch -- and

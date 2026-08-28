@@ -60,16 +60,14 @@ def initialize_demography(simulation: Any) -> None:
         template = load_template(template_name)
     except FileNotFoundError:
         logger.warning(
-            "demography initialization: couples skipped for simulation %s: "
-            "template %r not found",
+            "demography initialization: couples skipped for simulation %s: template %r not found",
             simulation.id,
             template_name,
         )
         return
     except ValueError:
         logger.warning(
-            "demography initialization: couples skipped for simulation %s: "
-            "template %r is invalid",
+            "demography initialization: couples skipped for simulation %s: template %r is invalid",
             simulation.id,
             template_name,
         )
@@ -95,7 +93,6 @@ def backfill_birth_ticks(simulation: Any) -> None:
     """
     from epocha.apps.agents.models import Agent
 
-    ticks_per_year = HOURS_PER_YEAR / max(1e-9, _tick_duration_hours(simulation))
     pending = list(
         Agent.objects.filter(
             simulation=simulation, is_alive=True, birth_tick__isnull=True
@@ -103,6 +100,13 @@ def backfill_birth_ticks(simulation: Any) -> None:
     )
     if not pending:
         return
+
+    # Resolved only once there is something to repair. The tick duration is a
+    # query of its own, and the demography block calls this every tick as its
+    # self-repair: on an already-initialized simulation, which is every tick
+    # after the first, there is nothing pending and the read above is the
+    # whole cost.
+    ticks_per_year = HOURS_PER_YEAR / max(1e-9, _tick_duration_hours(simulation))
 
     for agent in pending:
         agent.birth_tick = int(round(simulation.current_tick - (agent.age or 0) * ticks_per_year))

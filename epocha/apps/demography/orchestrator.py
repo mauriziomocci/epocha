@@ -39,6 +39,7 @@ Ordering rationale is recorded on each entry of `DEMOGRAPHY_STEPS`.
 
 from __future__ import annotations
 
+import logging
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -250,10 +251,28 @@ def run_fertility_step(
     if not candidates:
         return
 
-    current_population = Agent.objects.filter(
-        simulation=context.simulation, is_alive=True
-    ).count()
+    current_population = Agent.objects.filter(simulation=context.simulation, is_alive=True).count()
     couple_members = active_couple_agent_ids(context.simulation)
+    era_requires_a_couple = bool(
+        context.template["fertility"].get("require_couple_for_birth", True)
+    )
+    if era_requires_a_couple and not couple_members:
+        # Three of the five eras return a birth probability of exactly zero
+        # for a mother not in an active couple, so a population with no
+        # couple at all cannot conceive until step 2 has resolved enough
+        # pair-bond intents. That is correct behaviour and it used to be
+        # invisible: a world whose founding couples were never formed simply
+        # produced no births, with nothing in any log to explain it. Reported
+        # from the membership set this step has already read, so saying it
+        # costs no query of its own.
+        logging.getLogger(__name__).warning(
+            "demography: simulation %s has %d fertile candidates and no active "
+            "couple, and era %r requires one for any birth -- no birth is "
+            "possible this tick",
+            context.simulation.id,
+            len(candidates),
+            context.simulation.config.get("demography_template", "pre_industrial_christian"),
+        )
     # Simulation-wide, so read once here rather than once per zone below.
     outlook_terms = load_outlook_terms(context.simulation)
     zone_contexts: dict[Any, dict] = {}
@@ -397,9 +416,7 @@ def run_mortality_step(
     acceleration = float(context.template.get("acceleration", 1.0))
     params = context.template["mortality"]["heligman_pollard"]
 
-    living = list(
-        Agent.objects.filter(simulation=context.simulation, is_alive=True).order_by("id")
-    )
+    living = list(Agent.objects.filter(simulation=context.simulation, is_alive=True).order_by("id"))
     if not living:
         return
 
@@ -699,8 +716,6 @@ def run_demography_tick(simulation: Any, tick: int) -> None:
     in the engine's `avoid_conception` handler swallows exactly the malformed
     template case, and copying it would hide the same class again.
     """
-    import logging
-
     from epocha.apps.demography.template_loader import load_template
 
     logger = logging.getLogger(__name__)
@@ -728,6 +743,26 @@ def run_demography_tick(simulation: Any, tick: int) -> None:
             template_name,
         )
         return
+
+    # A world generated before this simulation opted into demography carries
+    # agents with a NULL `birth_tick`, because `initialize_demography` has
+    # exactly one caller and it is the world generator. That is not cosmetic:
+    # `birth_tick` is the only source of ageing and the fertile window is
+    # filtered on it in SQL, so those agents are absent from every candidate
+    # query -- they never conceive, never age, never die of senescence -- and
+    # nothing said so anywhere. The repair is the initialization's own
+    # backfill, which is idempotent and returns after a single read when
+    # there is nothing pending, so a normally-initialized simulation pays one
+    # query per tick for a guarantee that the population the steps see can
+    # actually age.
+    #
+    # Only the backfill is reused here, never `form_initial_couples`: that
+    # one pairs every eligible adult at once, which is founding-population
+    # behaviour, and running it per tick would bypass the pair-bond intents
+    # that step 2 exists to resolve.
+    from epocha.apps.demography.initialization import backfill_birth_ticks
+
+    backfill_birth_ticks(simulation)
 
     context = DemographyTickContext(simulation=simulation, tick=tick, template=template)
     for step in DEMOGRAPHY_STEPS:

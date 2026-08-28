@@ -87,6 +87,25 @@ def test_names_section_is_mandatory(tmp_path, monkeypatch):
         template_loader.load_template("no_names")
 
 
+@pytest.mark.parametrize("missing", ["male", "female"])
+def test_each_names_pool_is_mandatory_on_its_own(missing, tmp_path, monkeypatch):
+    """Deleting the whole section is not the same as deleting one pool.
+
+    The mandatory-section test above removes `names` entirely, so making a
+    single pool optional in the schema left every one of these tests green
+    while a template shipping only male names would load and then raise a
+    `KeyError` at the first female birth -- which is exactly the "fail at
+    load time, not at the first birth" this contract promises.
+    """
+    monkeypatch.setattr(template_loader, "TEMPLATES_DIR", tmp_path)
+    tpl = _minimal_template()
+    del tpl["names"][missing]
+    (tmp_path / f"no_{missing}_names.json").write_text(json.dumps(tpl))
+
+    with pytest.raises(ValueError):
+        template_loader.load_template(f"no_{missing}_names")
+
+
 def test_names_pool_must_be_a_list(tmp_path, monkeypatch):
     monkeypatch.setattr(template_loader, "TEMPLATES_DIR", tmp_path)
     tpl = _minimal_template()

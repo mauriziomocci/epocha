@@ -2261,6 +2261,27 @@ class TestApplyInheritanceAtBirthDeterminism:
         assert child_a.wealth == child_b.wealth == 0.0
         assert child_a.zone == child_b.zone == mother.zone
 
+        # The half that separates replay from the defect it used to certify.
+        # Everything above holds whether the function consumes the stream it
+        # is handed or quietly re-derives its own from
+        # `(simulation, tick, "inheritance")` -- the two are the same
+        # sequence at the same offset. Advancing the stream before the third
+        # call makes them different sequences, so a function reading its
+        # argument produces a different child and one deriving internally
+        # produces the same one. Without this the test is green on the
+        # defect and on the fix alike, which is what it was.
+        child_c = _make_agent(sim, zone, "ChildC")
+        advanced = get_seeded_rng(sim, sim.current_tick, phase="inheritance")
+        advanced.random()
+        apply_inheritance_at_birth(child_c, mother, father, sim, sim.current_tick, advanced)
+        assert any(
+            getattr(child_c, name) != getattr(child_a, name) for name in SCALAR_HERITABLE_TRAITS
+        ), (
+            "a child born off an advanced stream is identical to one born off "
+            "the stream's start: the function is not reading the rng it was "
+            "given"
+        )
+
 
 class TestApplyInheritanceAtBirthEmptyZoneGuard:
     """A zone with zero living agents does not raise, and the zone-mean

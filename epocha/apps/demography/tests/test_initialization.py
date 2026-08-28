@@ -251,9 +251,7 @@ class TestBrokenTemplate:
     costs nothing even when couples cannot form.
     """
 
-    def test_a_missing_template_does_not_abort_and_still_backfills(
-        self, sim_with_zone, caplog
-    ):
+    def test_a_missing_template_does_not_abort_and_still_backfills(self, sim_with_zone, caplog):
         sim, zone = sim_with_zone
         sim.config["demography_template"] = "no_such_era"
         sim.save(update_fields=["config"])
@@ -273,4 +271,201 @@ class TestBrokenTemplate:
         assert any("no_such_era" in record.message for record in caplog.records), (
             "a skipped initialization must say which template failed, "
             "or a sterile founding population has no explanation in any log"
+        )
+
+
+class TestActivationOnAnAlreadyGeneratedWorld:
+    """Turning demography on after the world exists must not produce a
+    silently sterile population.
+
+    `initialize_demography` has exactly one caller, the world generator, so
+    every world generated before the flag was set carries agents with a NULL
+    `birth_tick`. That is not a cosmetic gap: `birth_tick` is the only source
+    of ageing, and the fertile window is filtered in SQL on it, so those
+    agents are excluded from every candidate query -- they never conceive,
+    never age, never die of senescence -- and nothing said so anywhere.
+    """
+
+    def _population(self, sim, zone, count=4):
+        """Agents exactly as the generator leaves them: an `age` column and
+        no `birth_tick` at all."""
+        from epocha.apps.agents.models import Agent
+        from epocha.apps.world.models import Government
+
+        # The forced-migration step reads it; the shared fixture of this
+        # module predates the block and does not create one.
+        Government.objects.get_or_create(simulation=sim)
+
+        made = []
+        for i in range(count):
+            # Female on purpose: the fertility step filters on sex, so an
+            # all-male population returns from the step before it ever reads
+            # the couple membership -- and a fixture that never reaches the
+            # code it is measuring is the trap this work item keeps paying
+            # for.
+            agent = _agent(sim, zone, f"Preesistente{i}", age=28, gender=Agent.Gender.FEMALE)
+            Agent.objects.filter(pk=agent.pk).update(birth_tick=None)
+            agent.refresh_from_db()
+            assert agent.birth_tick is None
+            made.append(agent)
+        return made
+
+    def test_the_block_repairs_a_population_that_was_never_initialized(self, sim_with_zone, caplog):
+        import logging
+
+        from epocha.apps.demography.orchestrator import run_demography_tick
+
+        sim, zone = sim_with_zone
+        agents = self._population(sim, zone)
+
+        # No logger named: the repair is the initialization module's own, so
+        # pinning the orchestrator's logger would assert where the sentence
+        # is emitted rather than that it is emitted at all.
+        with caplog.at_level(logging.INFO):
+            run_demography_tick(sim, sim.current_tick + 1)
+
+        for agent in agents:
+            agent.refresh_from_db()
+            assert agent.birth_tick is not None, (
+                "an agent generated before demography was enabled still has no "
+                "birth_tick: it is invisible to every candidate query and ages "
+                "never"
+            )
+        assert any("birth_tick" in record.message for record in caplog.records), (
+            "the repair happened silently: nothing in the log explains it"
+        )
+
+    def test_the_repair_restores_the_age_the_generator_wrote(self, sim_with_zone):
+        """The repair must not rewrite the population's age structure.
+
+        `birth_tick` is derived from the `age` column at the tick the repair
+        runs, so an agent the world describes as 28 has to still be 28
+        afterwards. Deriving it at tick 0 instead would age the whole
+        founding population by however many ticks the run had reached.
+        """
+        from epocha.apps.demography.orchestrator import run_demography_tick
+
+        sim, zone = sim_with_zone
+        sim.current_tick = 500
+        sim.save(update_fields=["current_tick"])
+        agent = self._population(sim, zone, count=1)[0]
+
+        tick = sim.current_tick + 1
+        run_demography_tick(sim, tick)
+
+        agent.refresh_from_db()
+        # Asserted on birth_tick and not through `age_in_years`, which falls
+        # back to the frozen column when birth_tick is NULL and therefore
+        # answers 28 whether or not the repair ran at all. The first version
+        # of this test did exactly that and passed before the fix existed.
+        assert agent.birth_tick is not None
+        assert (tick - agent.birth_tick) / (8760.0 / 24.0) == pytest.approx(28.0, abs=0.01)
+
+    def test_a_repaired_population_can_actually_conceive(self, sim_with_zone):
+        """The observable the repair exists for, not the column it writes.
+
+        Under an era that does not require a couple, a forced fertility
+        stream must produce a birth from a population that had no
+        `birth_tick`. Without the repair the candidate query returns nothing
+        and the same stream produces nothing at all.
+        """
+        from epocha.apps.agents.models import Agent
+        from epocha.apps.demography import orchestrator
+
+        sim, zone = sim_with_zone
+        from epocha.apps.world.models import Government
+
+        Government.objects.get_or_create(simulation=sim)
+        sim.config["demography_template"] = "modern_democracy"
+        sim.save(update_fields=["config"])
+        for i in range(3):
+            woman = _agent(sim, zone, f"Donna{i}", age=27, gender=Agent.Gender.FEMALE)
+            Agent.objects.filter(pk=woman.pk).update(birth_tick=None)
+
+        tick = sim.current_tick + 1
+        real_stream_for = orchestrator.stream_for
+
+        class _ForcedBirth:
+            def __init__(self):
+                self._draws = [0.0, 0.9]
+
+            def random(self):
+                return self._draws.pop(0) if self._draws else 1.0
+
+            def gauss(self, mu, sigma):
+                return mu
+
+            def randrange(self, n):
+                return 0
+
+        def _scripted(simulation, t, phase):
+            return _ForcedBirth() if phase == "fertility" else real_stream_for(simulation, t, phase)
+
+        orchestrator.stream_for = _scripted
+        try:
+            orchestrator.run_demography_tick(sim, tick)
+        finally:
+            orchestrator.stream_for = real_stream_for
+
+        assert Agent.objects.filter(simulation=sim, birth_tick=tick).exists(), (
+            "a population repaired by the block still produced no birth under a "
+            "forced stream: the repair writes a column nothing consumes"
+        )
+
+    def test_an_era_that_needs_no_couple_is_not_warned_about_couples(self, sim_with_zone, caplog):
+        """The other side of the predicate, without which the warning fires
+        on eras where having no couple is simply normal.
+
+        `modern_democracy` returns a positive birth probability for an
+        unpartnered mother, so a population with no couple is not sterile
+        there and saying it is would be noise -- and noise in a log is how a
+        real warning stops being read.
+        """
+        import logging
+
+        from epocha.apps.demography.orchestrator import run_demography_tick
+        from epocha.apps.world.models import Government
+
+        sim, zone = sim_with_zone
+        Government.objects.get_or_create(simulation=sim)
+        sim.config["demography_template"] = "modern_democracy"
+        sim.save(update_fields=["config"])
+        self._population(sim, zone)
+
+        with caplog.at_level(logging.WARNING):
+            run_demography_tick(sim, sim.current_tick + 1)
+
+        assert not any("couple" in record.message for record in caplog.records), (
+            "an era that allows unpartnered birth was warned about having no "
+            "couple: the warning does not read the era's own predicate"
+        )
+
+    def test_a_population_with_no_couple_says_so_when_the_era_needs_one(
+        self, sim_with_zone, caplog
+    ):
+        """The other half of the sterility, and the one no column repairs.
+
+        Three of the five era templates return a birth probability of exactly
+        zero for a mother not in an active couple. A world whose founding
+        couples were never formed is therefore sterile until enough pair-bond
+        intents accumulate through step 2 -- which is correct behaviour, and
+        completely invisible. It is reported using the couple membership the
+        fertility step has already read, so saying it costs no query.
+        """
+        import logging
+
+        from epocha.apps.demography.orchestrator import run_demography_tick
+
+        sim, zone = sim_with_zone
+        self._population(sim, zone)
+
+        with caplog.at_level(logging.WARNING):
+            run_demography_tick(sim, sim.current_tick + 1)
+
+        assert any(
+            "couple" in record.message and record.levelno >= logging.WARNING
+            for record in caplog.records
+        ), (
+            "a population that cannot conceive under this era produced no "
+            "warning: the sterility is silent"
         )

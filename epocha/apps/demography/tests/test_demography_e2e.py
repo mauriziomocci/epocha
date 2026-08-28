@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
+from django.db.models import Q
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.demography.initialization import initialize_demography
 from epocha.apps.demography.models import DemographyEvent, PopulationSnapshot
-from epocha.apps.demography.orchestrator import run_demography_tick
+from epocha.apps.demography.orchestrator import DEMOGRAPHY_STEPS, run_demography_tick
+from epocha.apps.economy.models import Currency, GoodCategory, ZoneEconomy
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import Government, World, Zone
@@ -37,15 +39,17 @@ FOUNDING_COUPLES = 30
 # fail on the seed rather than on the wiring.
 ELDERS = 20
 ELDER_AGE = 95
+# Adults with nothing, in the expensive zone: the only population for which
+# the subsistence predicate is true, and therefore the only one that makes
+# the counter step and the forced-migration step do any work at all.
+DESTITUTE = 6
 
 
 @pytest.fixture
 def reference_simulation(db):
     """A founding population with the age and sex structure the templates
     assume: adults of both sexes across the fertile window, plus elders."""
-    user = User.objects.create_user(
-        email="e2e@epocha.dev", username="e2euser", password="pass1234"
-    )
+    user = User.objects.create_user(email="e2e@epocha.dev", username="e2euser", password="pass1234")
     sim = Simulation.objects.create(
         name="ReferenceRun",
         seed=2026,
@@ -61,6 +65,13 @@ def reference_simulation(db):
         zone_type="residential",
         boundary=Polygon.from_bbox((0, 0, 100, 100)),
         center=Point(50, 50),
+    )
+    refuge = Zone.objects.create(
+        world=world,
+        name="Rifugio",
+        zone_type="residential",
+        boundary=Polygon.from_bbox((200, 200, 300, 300)),
+        center=Point(250, 250),
     )
 
     for i in range(FOUNDING_COUPLES):
@@ -95,6 +106,45 @@ def reference_simulation(db):
             personality={},
         )
 
+    # An economy, so the subsistence line is a real number. Without it
+    # `compute_subsistence_threshold` returns 0.0, no agent is ever under the
+    # line, the starvation counter never increments and emergency flight is
+    # unreachable -- two of the eight steps iterating over nothing while the
+    # run reports success.
+    Currency.objects.create(
+        simulation=sim, code="DEN", name="Denarius", symbol="D", total_supply=100000.0
+    )
+    GoodCategory.objects.create(
+        simulation=sim,
+        code="grain",
+        name="Grain",
+        is_essential=True,
+        base_price=2.0,
+        price_elasticity=0.3,
+    )
+    ZoneEconomy.objects.create(zone=zone, market_prices={"grain": 4.0})
+    ZoneEconomy.objects.create(zone=refuge, market_prices={"grain": 1.0})
+
+    # Destitute adults in the expensive zone: they fall under the line, the
+    # counter climbs, and once it passes the era's `flight_trigger_ticks` the
+    # forced-migration step has somewhere cheaper to send them.
+    for i in range(DESTITUTE):
+        Agent.objects.create(
+            simulation=sim,
+            name=f"Indigente{i}",
+            zone=zone,
+            role="farmer",
+            location=Point(50, 50),
+            health=1.0,
+            wealth=0.0,
+            age=30 + i,
+            birth_tick=None,
+            education_level=0.2,
+            social_class="working",
+            gender=Agent.Gender.MALE,
+            personality={},
+        )
+
     for i in range(ELDERS):
         Agent.objects.create(
             simulation=sim,
@@ -112,6 +162,180 @@ def reference_simulation(db):
             personality={},
         )
     return sim
+
+
+def _intent(sim, agent, tick, payload):
+    """A DecisionLog row shaped the way the couple module reads them."""
+    import json
+
+    from epocha.apps.agents.models import DecisionLog
+
+    return DecisionLog.objects.create(
+        simulation=sim,
+        agent=agent,
+        tick=tick,
+        input_context="{}",
+        output_decision=json.dumps(payload),
+        llm_model="test",
+    )
+
+
+def _file_couple_intents(sim, tick):
+    """Mutual pair-bond intents, and a separation, for the tick after `tick`.
+
+    The two couple steps read `DecisionLog` rows at `tick - 1`, so a run whose
+    fixture files none of them iterates an empty queryset for every tick of
+    its horizon. That is how an end-to-end run can report success while a
+    quarter of the declared order never executes a line.
+    """
+    from epocha.apps.demography.models import Couple
+
+    unpartnered = [
+        a
+        for a in Agent.objects.filter(simulation=sim, is_alive=True).order_by("id")
+        if not Couple.objects.filter(
+            Q(agent_a=a) | Q(agent_b=a), dissolved_at_tick__isnull=True
+        ).exists()
+    ]
+    men = [a for a in unpartnered if a.gender == Agent.Gender.MALE]
+    assert men, "the fixture leaves no free man: nothing to resolve"
+
+    # The founding pass pairs every eligible woman, because the fixture has
+    # more men than women -- so a free woman has to be created here, after
+    # initialization, and she stands for the ordinary case the step exists
+    # for: someone who reaches marriageable age, or arrives, after the world
+    # was founded.
+    free_woman = Agent.objects.create(
+        simulation=sim,
+        name="Nubile",
+        zone=men[0].zone,
+        role="farmer",
+        location=Point(50, 50),
+        health=1.0,
+        wealth=50.0,
+        age=24,
+        birth_tick=int(sim.current_tick - 24 * TICKS_PER_YEAR),
+        education_level=0.5,
+        social_class="working",
+        gender=Agent.Gender.FEMALE,
+        personality={},
+    )
+    _intent(sim, men[0], tick, {"action": "pair_bond", "target": {"match": free_woman.name}})
+    _intent(sim, free_woman, tick, {"action": "pair_bond", "target": {"match": men[0].name}})
+
+    return free_woman
+
+
+@pytest.mark.django_db
+def test_every_declared_step_does_work_in_the_reference_run(reference_simulation):
+    """The run has to exercise the order it claims to prove.
+
+    The module docstring says only a run proves the steps compose. It did not:
+    the fixture filed no couple intent and carried no economy, so separations,
+    couple formation, the starvation counter and forced migration iterated
+    empty querysets for all 365 ticks while the acceptance test passed on
+    births and deaths alone. Deleting those four entries from
+    `DEMOGRAPHY_STEPS` left both e2e tests green -- half the declared order
+    was unmeasured by the test written to measure it composing.
+
+    Each step is asserted through an observable only that step produces, so
+    the assertion cannot be satisfied by another step's work.
+    """
+    sim = reference_simulation
+    initialize_demography(sim)
+    _file_couple_intents(sim, tick=0)
+    # Filed so the negative on step 1 below is a real refusal rather than an
+    # absence of input.
+    from epocha.apps.demography.models import Couple as _Couple
+
+    _intent(
+        sim,
+        _Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True).first().agent_a,
+        0,
+        {"action": "separate"},
+    )
+
+    for tick in range(1, TICKS + 1):
+        run_demography_tick(sim, tick)
+        sim.current_tick = tick
+        sim.save(update_fields=["current_tick"])
+
+    from epocha.apps.demography.models import Couple
+
+    kinds = set(DemographyEvent.objects.filter(simulation=sim).values_list("event_type", flat=True))
+
+    # 1 separations is NOT assertable on this run and saying why is the
+    # point: `pre_industrial_christian` ships `divorce_enabled: false`, the
+    # canonical indissolubility regime, so the step correctly returns without
+    # dissolving anything however many intents are filed. Asserting a
+    # dissolution here would be asserting against the era's own model. It is
+    # proven separately, on an era that permits divorce, by
+    # `test_the_separation_step_works_where_the_era_permits_divorce`.
+    assert not Couple.objects.filter(
+        simulation=sim, dissolution_reason=Couple.DissolutionReason.SEPARATE
+    ).exists(), (
+        "a couple was dissolved by separation under an era that forbids "
+        "divorce: the step is not reading the era's own predicate"
+    )
+    # 2 couple formation: a couple formed after the founding pass.
+    assert Couple.objects.filter(simulation=sim, formed_at_tick__gt=0).exists(), (
+        "step 2 did nothing: every couple in the run came from initialization"
+    )
+    # 3 mortality and 7 fertility.
+    assert DemographyEvent.EventType.DEATH in kinds, "step 3 did nothing"
+    assert DemographyEvent.EventType.BIRTH in kinds, "step 7 did nothing"
+    # 4 succession: an estate actually moved.
+    assert DemographyEvent.EventType.INHERITANCE_TRANSFER in kinds, (
+        "step 4 did nothing: no estate was settled in a run that had deaths"
+    )
+    # 5 the starvation counter: somebody was under the subsistence line.
+    assert Agent.objects.filter(
+        simulation=sim, consecutive_ticks_under_subsistence__gt=0
+    ).exists(), (
+        "step 5 did nothing: no agent was ever under the subsistence line, so "
+        "the fixture has no economy or nobody destitute in it"
+    )
+    # 6 forced migration: flight or the trapped crisis that stands in for it.
+    assert kinds & {
+        DemographyEvent.EventType.MIGRATION,
+        DemographyEvent.EventType.TRAPPED_CRISIS,
+        DemographyEvent.EventType.MASS_FLIGHT,
+    }, "step 6 did nothing: nobody fled and nobody was recorded as trapped"
+    # 8 the snapshot.
+    assert PopulationSnapshot.objects.filter(simulation=sim).count() == TICKS
+
+    assert len(DEMOGRAPHY_STEPS) == 8, (
+        "the declared order changed length: this test enumerates eight steps "
+        "and must be extended with the new one rather than left behind"
+    )
+
+
+@pytest.mark.django_db
+def test_the_separation_step_works_where_the_era_permits_divorce(reference_simulation):
+    """Step 1, proven on an era that admits it.
+
+    The reference run cannot prove this one: its era forbids divorce, so the
+    step declines every intent by design. Under `industrial`, which ships
+    `divorce_enabled: true`, the same intent must dissolve the couple in the
+    tick after it was filed -- and dissolve it by SEPARATION, not by a death
+    that happened to fall in the same tick.
+    """
+    from epocha.apps.demography.models import Couple
+
+    sim = reference_simulation
+    sim.config["demography_template"] = "industrial"
+    sim.save(update_fields=["config"])
+    initialize_demography(sim)
+
+    couple = Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True).first()
+    assert couple is not None, "initialization formed no couple: nothing to separate"
+    _intent(sim, couple.agent_a, 0, {"action": "separate"})
+
+    run_demography_tick(sim, 1)
+
+    couple.refresh_from_db()
+    assert couple.dissolved_at_tick == 1
+    assert couple.dissolution_reason == Couple.DissolutionReason.SEPARATE
 
 
 @pytest.mark.django_db

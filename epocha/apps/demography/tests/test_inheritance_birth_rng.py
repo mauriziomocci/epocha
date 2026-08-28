@@ -148,5 +148,8 @@ def test_the_stream_is_the_callers_to_own(sim_with_zone):  # noqa: F811
     mother, father = _parents(sim, zone, "NoRng")
     child = _make_agent(sim, zone, "ChildNoRng")
 
-    with pytest.raises(TypeError):
+    # `match` is load-bearing: a bare `pytest.raises(TypeError)` is satisfied
+    # by ANY TypeError, so making `rng` optional and adding a second required
+    # keyword-only argument would leave this green while the defect returned.
+    with pytest.raises(TypeError, match="rng"):
         apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
