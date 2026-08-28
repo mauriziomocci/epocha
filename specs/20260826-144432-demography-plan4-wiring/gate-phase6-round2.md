@@ -199,3 +199,38 @@ Il criterio scritto prima del lancio dichiara bloccante un criterio che non
 può fallire. Ce n'era uno. Il round è **NOT CONVERGED**, e il round 3 giudica
 la remediation di questo round — inclusa la correzione del costo per nascita,
 che nessun revisore di questo round ha visto.
+
+---
+
+## Round 3: criterio, scritto prima del lancio
+
+**2026-08-28, dopo il verdetto qui sopra e prima di lanciare il round 3.**
+
+**Ambito**: `git diff c7683bf..HEAD`, la remediation del round 2. Include il
+codice di produzione che nessun revisore del round 2 ha visto — la correzione
+del costo per nascita — che è il primo posto dove guardare.
+
+**Le tre classi bloccanti restano identiche**: un difetto di correttezza nel
+codice di produzione, un criterio che non può fallire, una chiusura dichiarata
+e non vera. Non sono state toccate e non lo saranno.
+
+**Che cosa questo round deve sospettare per primo.** Il round 2 ha chiuso il
+proprio unico bloccante rimuovendo un'asserzione. Sul work item precedente,
+due volte di fila, una riparazione ha distrutto un testimone mentre ne
+aggiungeva un altro, e la causa era sempre la stessa: la copertura misurata
+dopo la correzione invece che come differenza. Quindi la domanda del round 3
+è se la rimozione abbia lasciato scoperto qualcosa che quell'asserzione, per
+quanto inerte contro la mutazione provata, copriva contro un'altra.
+
+**Convergenza**: nessuna delle tre classi. Cifre e frasi si correggono nello
+stesso commit.
+
+**Perché può fallire**: la remediation aggiunge un precarico nuovo in un
+ciclo caldo, cambia la firma di una funzione auditata per la quarta volta,
+rimuove un'asserzione da una guardia di costo e riscrive tre chiusure di
+capitolo in due lingue. Se non produce nulla, il verdetto deve dire quali
+percorsi ha verificato.
+
+### Verdetto round 3
+
+*(da compilare a round concluso)*
