@@ -279,3 +279,38 @@ class TestSuccessionStep:
         assert not DemographyEvent.objects.filter(
             simulation=sim, event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER
         ).exists()
+
+
+class TestTransactionalBoundary:
+    """A step that writes twice must not be able to write once.
+
+    The four audited modules these steps drive each open their own
+    `transaction.atomic()`; the steps written here did not, so a failure
+    between a step's two writes left the database in a state the model
+    forbids -- agents marked dead with no DEATH event, which is the
+    invisible death this branch already had to fix once when a mother dying
+    in childbirth arrived after succession had run.
+
+    The failure is injected at the second write, which is the only place the
+    gap is observable: the first write has happened and the step has not
+    finished.
+    """
+
+    def test_a_failed_event_write_takes_the_deaths_with_it(self, sim_with_zone, monkeypatch):
+        sim, zone = sim_with_zone
+        victim = _agent(sim, zone, "Vittima", age=80)
+
+        def _explode(*args, **kwargs):
+            raise RuntimeError("event write failed")
+
+        monkeypatch.setattr(DemographyEvent.objects, "bulk_create", _explode)
+
+        with pytest.raises(RuntimeError):
+            orchestrator.run_mortality_step(_context(sim), rng=_AlwaysDies())
+
+        victim.refresh_from_db()
+        assert victim.is_alive is True, (
+            "the agent stayed dead after the event write failed: the step has "
+            "no transactional boundary and a death exists with no event"
+        )
+        assert victim.death_tick is None

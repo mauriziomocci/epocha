@@ -44,6 +44,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Q
 
 from epocha.apps.demography.rng import get_seeded_rng
@@ -294,31 +295,41 @@ def run_fertility_step(
         newborns.append(build_newborn(context, mother, _partner_of(mother), inheritance_rng))
         mothers_of_newborns.append(mother)
 
-    if dead_mothers:
-        Agent.objects.bulk_update(dead_mothers, ["is_alive", "death_tick", "death_cause"])
-        _settle_deaths(context, dead_mothers, step_index=step_index, step_name="fertility")
-
-    if not newborns:
+    if not dead_mothers and not newborns:
         return
 
-    Agent.objects.bulk_create(newborns)
-    DemographyEvent.objects.bulk_create(
-        [
-            DemographyEvent(
-                simulation=context.simulation,
-                tick=context.tick,
-                event_type=DemographyEvent.EventType.BIRTH,
-                primary_agent=newborn,
-                secondary_agent=mother,
-                payload={
-                    "step_index": step_index,
-                    "step_name": "fertility",
-                    "mother_died_in_childbirth": not mother.is_alive,
-                },
-            )
-            for newborn, mother in zip(newborns, mothers_of_newborns, strict=True)
-        ]
-    )
+    # Up to four writes describing one tick's births: the mothers who died
+    # of them, their settlement, the newborn rows and the birth events. One
+    # boundary around all four, because any partial application is a state
+    # the model forbids -- a newborn no event records, or a mother dead and
+    # unsettled -- and because the steps that drive audited modules already
+    # get one from those modules.
+    with transaction.atomic():
+        if dead_mothers:
+            Agent.objects.bulk_update(dead_mothers, ["is_alive", "death_tick", "death_cause"])
+            _settle_deaths(context, dead_mothers, step_index=step_index, step_name="fertility")
+
+        if not newborns:
+            return
+
+        Agent.objects.bulk_create(newborns)
+        DemographyEvent.objects.bulk_create(
+            [
+                DemographyEvent(
+                    simulation=context.simulation,
+                    tick=context.tick,
+                    event_type=DemographyEvent.EventType.BIRTH,
+                    primary_agent=newborn,
+                    secondary_agent=mother,
+                    payload={
+                        "step_index": step_index,
+                        "step_name": "fertility",
+                        "mother_died_in_childbirth": not mother.is_alive,
+                    },
+                )
+                for newborn, mother in zip(newborns, mothers_of_newborns, strict=True)
+            ]
+        )
 
 
 def age_in_years(agent: Any, tick: int, tick_duration_hours: float, acceleration: float) -> float:
@@ -406,23 +417,31 @@ def run_mortality_step(
     if not dead:
         return
 
-    Agent.objects.bulk_update(dead, ["is_alive", "death_tick", "death_cause"])
-    DemographyEvent.objects.bulk_create(
-        [
-            DemographyEvent(
-                simulation=context.simulation,
-                tick=context.tick,
-                event_type=DemographyEvent.EventType.DEATH,
-                primary_agent=agent,
-                payload={
-                    "step_index": step_index,
-                    "step_name": "mortality",
-                    "death_cause": agent.death_cause,
-                },
-            )
-            for agent in dead
-        ]
-    )
+    # The marking and the events are one fact, so they commit together or
+    # not at all. Split, a failure between them leaves agents dead that no
+    # DEATH event describes -- invisible to the crude death rate, to the
+    # event log and to succession, which is the second-class death this
+    # branch already had to repair once for childbirth. The four audited
+    # modules the other steps drive each open their own boundary; this is
+    # the same discipline for a step written here.
+    with transaction.atomic():
+        Agent.objects.bulk_update(dead, ["is_alive", "death_tick", "death_cause"])
+        DemographyEvent.objects.bulk_create(
+            [
+                DemographyEvent(
+                    simulation=context.simulation,
+                    tick=context.tick,
+                    event_type=DemographyEvent.EventType.DEATH,
+                    primary_agent=agent,
+                    payload={
+                        "step_index": step_index,
+                        "step_name": "mortality",
+                        "death_cause": agent.death_cause,
+                    },
+                )
+                for agent in dead
+            ]
+        )
 
 
 def _settle_deaths(

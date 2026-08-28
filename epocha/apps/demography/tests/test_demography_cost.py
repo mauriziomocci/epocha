@@ -224,16 +224,18 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
     deaths = Agent.objects.filter(simulation=sim, is_alive=False, death_tick=tick).count()
 
     assert deaths == population, "the fixture did not produce the expected deaths"
-    bound = FIXED_TERM_NO_CANDIDATES + PER_DEATH * deaths
+    bound = FIXED_TERM_NO_CANDIDATES + DEATH_TICK_ONCE + PER_DEATH * deaths
     assert observed <= bound, (
         f"{observed} queries for {deaths} deaths exceeds the declared bound "
-        f"{FIXED_TERM_NO_CANDIDATES} + {PER_DEATH} x {deaths} = {bound}"
+        f"{FIXED_TERM_NO_CANDIDATES} + {DEATH_TICK_ONCE} + {PER_DEATH} x "
+        f"{deaths} = {bound}"
     )
     # The bound has to be reached, not merely respected: a generous bound is
-    # satisfied by any implementation and proves nothing. Measured at 12
-    # queries per death for the first and 11 for each further one, the slack
-    # here is one query per death.
-    assert observed >= bound - deaths, (
+    # satisfied by any implementation and proves nothing. The measured slope
+    # is 10 against a declared worst case of 12, so the slack is exactly two
+    # queries per death and is pinned as such: a bound allowed to drift
+    # upward stops measuring anything.
+    assert observed >= bound - 2 * deaths, (
         f"{observed} queries is well under the declared bound {bound}: the "
         "bound has drifted upward and no longer measures anything"
     )
@@ -253,10 +255,23 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
 FIXED_TERM_NO_CANDIDATES = 35
 FIXED_TERM_WITH_CANDIDATES = 42
 
+# What a tick pays once for having any death at all, whatever their number:
+# the mortality step's own writes -- the marking and the event batch -- and
+# the transactional boundary around them, which shows up in a query count as
+# the savepoint pair it is. Measured at 51, 61, 81 and 121 queries for one,
+# two, four and eight deaths: an exactly linear 10 per death on an intercept
+# of 41, which is this term on top of the 35 above.
+#
+# It is a conditional FIXED term, not a per-event one, and it is declared
+# separately rather than folded into the per-death coefficient because
+# folding it there is what made the bound unreachable at four deaths while
+# binding at two -- one number describing two different things again.
+DEATH_TICK_ONCE = 6
+
 # The worst case the inheritance module documents for a single death (seven
 # queries for the heir ladder) plus the settlement writes its batch performs
-# around them. Measured slope is 10 per death with a further 4 paid once when
-# the tick has any death at all; declaring 12 as an upper-bound coefficient
-# absorbs that one-off, which is why the bound is reached at two deaths and
-# reached again at four rather than drifting loose.
+# around them. Declared at 12 against a measured slope of 10, because the
+# per-death cost varies with the deceased's family structure and the module's
+# own docstring says so: the bound is an upper bound at worst-case
+# coefficients, never an equality.
 PER_DEATH = 12

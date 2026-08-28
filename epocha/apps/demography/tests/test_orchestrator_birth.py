@@ -480,3 +480,44 @@ class TestFertilityStep:
         )
 
         assert not Agent.objects.filter(parent_agent=mother).exists()
+
+
+class TestFertilityTransactionalBoundary:
+    """The birth step writes up to four times and must not write partially.
+
+    Dead mothers, their settlement, the newborn rows and the birth events are
+    four separate writes. Without a boundary a failure at the last one leaves
+    newborns in the database that no BIRTH event describes -- agents that
+    exist demographically and not historically, which every downstream rate
+    of the snapshot then miscounts in one direction and the event log in the
+    other.
+    """
+
+    def test_a_failed_event_write_takes_the_newborns_with_it(
+        self, sim_with_zone, monkeypatch
+    ):
+        sim, zone = sim_with_zone
+        mother = _agent(sim, zone, "Madre", age=25)
+        father = _agent(sim, zone, "Padre", gender=Agent.Gender.MALE, age=27)
+        form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
+        context = _context(sim)
+
+        real_bulk_create = DemographyEvent.objects.bulk_create
+
+        def _explode(objs, *args, **kwargs):
+            objs = list(objs)
+            if objs and objs[0].event_type == DemographyEvent.EventType.BIRTH:
+                raise RuntimeError("birth event write failed")
+            return real_bulk_create(objs, *args, **kwargs)
+
+        monkeypatch.setattr(DemographyEvent.objects, "bulk_create", _explode)
+
+        with pytest.raises(RuntimeError):
+            orchestrator.run_fertility_step(
+                context, rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_SURVIVES])
+            )
+
+        assert not Agent.objects.filter(simulation=sim, birth_tick=context.tick).exists(), (
+            "a newborn survived the failed event write: the step has no "
+            "transactional boundary and an agent exists that no event records"
+        )
