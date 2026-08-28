@@ -169,8 +169,7 @@ class TestDeclaredOrder:
             derived.clear()
             step.run(context)
             assert tuple(dict.fromkeys(derived)) == step.rng_phases, (
-                f"step {step.name!r} declares {step.rng_phases} and derived "
-                f"{tuple(derived)}"
+                f"step {step.name!r} declares {step.rng_phases} and derived {tuple(derived)}"
             )
 
 

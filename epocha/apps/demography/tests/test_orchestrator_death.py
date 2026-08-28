@@ -215,9 +215,7 @@ class TestMortalityStep:
             rel=1e-9,
         )
         assert probability_from_birth_tick != pytest.approx(
-            orchestrator.mortality_probability_for(
-                infant, context, tick_duration_hours=24.0
-            ),
+            orchestrator.mortality_probability_for(infant, context, tick_duration_hours=24.0),
             rel=1e-3,
         )
 

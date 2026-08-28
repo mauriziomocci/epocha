@@ -155,9 +155,7 @@ def test_a_simulation_without_demography_is_untouched(monkeypatch):
     sim, zone = _simulation(None, demography=False)
     agent = _agent(sim, zone, "Indifferente", age=40)
 
-    monkeypatch.setattr(
-        "epocha.apps.simulation.tasks.chord", lambda header: (lambda callback: None)
-    )
+    monkeypatch.setattr("epocha.apps.simulation.tasks.chord", lambda header: lambda callback: None)
 
     run_simulation_loop(sim.id)
 
@@ -190,9 +188,7 @@ def test_a_missing_template_does_not_abort_the_tick(monkeypatch):
     sim.save()
     agent = _agent(sim, zone, "Immune", age=40)
 
-    monkeypatch.setattr(
-        "epocha.apps.simulation.tasks.chord", lambda header: (lambda callback: None)
-    )
+    monkeypatch.setattr("epocha.apps.simulation.tasks.chord", lambda header: lambda callback: None)
 
     run_simulation_loop(sim.id)
 

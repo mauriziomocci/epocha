@@ -1538,7 +1538,6 @@ def process_emergency_flight(
     from epocha.apps.demography.template_loader import load_template
     from epocha.apps.world.models import Government, World, Zone
 
-
     template_name = simulation.config.get("demography_template", "pre_industrial_christian")
     template = load_template(template_name)
     flight_trigger_ticks = template["migration"]["flight_trigger_ticks"]

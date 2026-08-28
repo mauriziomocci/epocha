@@ -233,7 +233,6 @@ class TestSnapshotFields:
         assert row.avg_household_size == pytest.approx(6 / 5, abs=0.01)
         assert row.avg_household_size != 0.0
 
-
     def test_tfr_denominator_counts_every_woman_of_the_mothers_age(self, sim_with_zones):
         """The two ways this rate silently lies, closed with one fixture.
 
@@ -266,9 +265,7 @@ class TestSnapshotFields:
         row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
         assert row.tfr_instant == pytest.approx(TICKS_PER_YEAR / 2, rel=1e-6)
 
-    def test_a_dissolved_couple_is_not_active_and_does_not_fuse_households(
-        self, sim_with_zones
-    ):
+    def test_a_dissolved_couple_is_not_active_and_does_not_fuse_households(self, sim_with_zones):
         """The predicate the shared fixture never exercises: it forms one
         couple and never dissolves any, so dropping the dissolution filter
         changes nothing there. Here a dissolved pair must count zero and its
@@ -289,9 +286,7 @@ class TestSnapshotFields:
         assert row.couples_active == 0
         assert row.avg_household_size == pytest.approx(1.0, abs=0.001)
 
-    def test_an_adult_child_of_a_living_parent_is_their_own_household(
-        self, sim_with_zones
-    ):
+    def test_an_adult_child_of_a_living_parent_is_their_own_household(self, sim_with_zones):
         """The docstring's own claim -- a household is a couple with the
         MINORS in its care -- against the sixty-year-old the derivation used
         to file under his eighty-five-year-old father's roof. Two adults,
@@ -307,9 +302,7 @@ class TestSnapshotFields:
         row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
         assert row.avg_household_size == pytest.approx(1.0, abs=0.001)
 
-    def test_a_minor_child_of_a_living_parent_shares_their_household(
-        self, sim_with_zones
-    ):
+    def test_a_minor_child_of_a_living_parent_shares_their_household(self, sim_with_zones):
         """The other half of the same claim, so the fix cannot overshoot: a
         ten-year-old with a living mother is hers, and the pair is one
         household of two.

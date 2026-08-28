@@ -168,9 +168,7 @@ def _tfr_instant(
         if agent.gender == Agent.Gender.FEMALE:
             women_by_age[int(age)] = women_by_age.get(int(age), 0) + 1
 
-    age_by_agent_id = {
-        agent.id: int(age) for agent, age in zip(living, ages, strict=True)
-    }
+    age_by_agent_id = {agent.id: int(age) for agent, age in zip(living, ages, strict=True)}
     births_by_age: dict[int, int] = {}
     for event in births:
         mother_age = age_by_agent_id.get(event["secondary_agent_id"])

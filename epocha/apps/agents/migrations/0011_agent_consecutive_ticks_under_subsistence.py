@@ -4,15 +4,17 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('agents', '0010_alter_agent_birth_tick_alter_agent_parent_agent'),
+        ("agents", "0010_alter_agent_birth_tick_alter_agent_parent_agent"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='agent',
-            name='consecutive_ticks_under_subsistence',
-            field=models.PositiveIntegerField(default=0, help_text='Consecutive ticks with wealth below the zone subsistence threshold; resets to zero as soon as wealth rises above it.'),
+            model_name="agent",
+            name="consecutive_ticks_under_subsistence",
+            field=models.PositiveIntegerField(
+                default=0,
+                help_text="Consecutive ticks with wealth below the zone subsistence threshold; resets to zero as soon as wealth rises above it.",
+            ),
         ),
     ]

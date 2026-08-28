@@ -242,9 +242,7 @@ class TestFertilityStep:
 
         orchestrator.run_fertility_step(
             context,
-            rng=_ScriptedRandom(
-                [BIRTH_HAPPENS, MOTHER_SURVIVES, BIRTH_HAPPENS, MOTHER_SURVIVES]
-            ),
+            rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_SURVIVES, BIRTH_HAPPENS, MOTHER_SURVIVES]),
         )
 
         newborns = list(
@@ -277,14 +275,10 @@ class TestFertilityStep:
 
         orchestrator.run_fertility_step(
             context,
-            rng=_ScriptedRandom(
-                [BIRTH_HAPPENS, MOTHER_SURVIVES, BIRTH_HAPPENS, MOTHER_SURVIVES]
-            ),
+            rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_SURVIVES, BIRTH_HAPPENS, MOTHER_SURVIVES]),
         )
 
-        assert not Agent.objects.filter(
-            simulation=sim, birth_tick=context.tick
-        ).exists(), (
+        assert not Agent.objects.filter(simulation=sim, birth_tick=context.tick).exists(), (
             "a dead woman or a man produced a birth: the candidate query "
             "stopped filtering on is_alive or gender"
         )
@@ -332,9 +326,7 @@ class TestFertilityStep:
         assert mother.death_tick == context.tick
         assert mother.death_cause == Agent.DeathCause.CHILDBIRTH
 
-    def test_a_mother_who_dies_in_childbirth_is_settled_like_any_other_death(
-        self, sim_with_zone
-    ):
+    def test_a_mother_who_dies_in_childbirth_is_settled_like_any_other_death(self, sim_with_zone):
         """A death is a death, whichever step produced it.
 
         Fertility is the seventh step and succession the fourth, so a mother
@@ -493,9 +485,7 @@ class TestFertilityTransactionalBoundary:
     other.
     """
 
-    def test_a_failed_event_write_takes_the_newborns_with_it(
-        self, sim_with_zone, monkeypatch
-    ):
+    def test_a_failed_event_write_takes_the_newborns_with_it(self, sim_with_zone, monkeypatch):
         sim, zone = sim_with_zone
         mother = _agent(sim, zone, "Madre", age=25)
         father = _agent(sim, zone, "Padre", gender=Agent.Gender.MALE, age=27)
