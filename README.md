@@ -126,6 +126,7 @@ Next come Demography Plan 3 (inheritance + migration) and Plan 4, which wires th
   | Whitepaper chapter | Code |
   |---|---|
   | §4.1 Demography | `epocha/apps/demography/{mortality,fertility,couple,inheritance,migration}.py` |
+  | §4.1.0 Per-tick orchestration | `epocha/apps/demography/{orchestrator,initialization,snapshot,context}.py` |
   | §4.2 Economy — behavioral | `epocha/apps/economy/{expectations,credit,banking,property_market}.py` |
   | §4.3 Reputation | `epocha/apps/agents/reputation.py` |
   | §4.4 Rumor propagation | `epocha/apps/agents/{information_flow,distortion,belief,affinity}.py` |

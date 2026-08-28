@@ -147,6 +147,7 @@ def build_newborn(
     mother: Any,
     father: Any | None,
     rng: random.Random,
+    zone_class_mean: float | None = None,
 ) -> Any:
     """Return the newborn `Agent` for this birth, unsaved.
 
@@ -178,7 +179,15 @@ def build_newborn(
 
     # Inheritance draws the gender, so the name pool can only be chosen after
     # it has run.
-    apply_inheritance_at_birth(child, mother, father, context.simulation, context.tick, rng)
+    apply_inheritance_at_birth(
+        child,
+        mother,
+        father,
+        context.simulation,
+        context.tick,
+        rng,
+        zone_class_mean=zone_class_mean,
+    )
     child.name = pick_newborn_name(context.template, child.gender, rng)
     return child
 
@@ -194,21 +203,27 @@ def run_fertility_step(
     (`resolve_childbirth_event`), and it states that "callers are
     responsible for persisting the state changes". This is that caller.
 
-    Query shape: one read of the candidate mothers, one read of the living
-    population count, one read of the active-couple membership, two reads of
-    the simulation-wide outlook terms, up to four reads per distinct
-    candidate zone for the zonal Becker inputs, one `bulk_create` for the
-    newborns, one `bulk_create` for the events, one `bulk_update` for the
-    mothers who died in childbirth. Nothing scales with the living
-    population beyond the single read.
+    Query shape, and the invariant it exists to hold: **resolving one
+    candidate costs zero queries, and so does one birth.** The step pays,
+    once each: one read of the candidate mothers, one of the living
+    population count, one of the active-couple membership, two of the
+    simulation-wide outlook terms, one `in_bulk` of the candidates'
+    partners; then up to four reads per distinct candidate zone for the
+    zonal Becker inputs and one more for that zone's mean class rank. It
+    writes, once each and only when there is something to write: a savepoint
+    pair around them all, a `bulk_update` and a settlement for the mothers
+    who died in childbirth, a `bulk_create` for the newborns and a
+    `bulk_create` for their events. Nothing here scales with the living
+    population beyond that single read, and nothing scales with the number
+    of births.
 
-    Resolving one candidate must cost zero queries, and everything above
-    exists to make that true: `tick_birth_probability` fetches whatever it
-    is not given, which turns each of those reads into a per-candidate one.
-    The phase-6 gate measured seven such queries per living fertile woman --
-    70 at five couples, 105 at ten -- an N+1 against FR-016. Three of the
-    four preloads answer that; the fourth is `select_related`
-    ("fertility_state"), the reverse one-to-one `avoid_conception` reads.
+    Everything above exists to make that true, because
+    `tick_birth_probability` and `apply_inheritance_at_birth` fetch whatever
+    they are not given, which turns each of those reads into a per-candidate
+    or per-birth one. The phase-6 gate measured seven per living fertile
+    woman -- 70 at five couples, 105 at ten -- an N+1 against FR-016, and
+    three more per birth, which FR-016a forbids by granting births no term of
+    their own.
 
     Building the zone bundle once for the whole loop is sound because the
     loop writes nothing: newborns, dead mothers and events are all persisted
@@ -223,12 +238,13 @@ def run_fertility_step(
     """
     from epocha.apps.agents.models import Agent
     from epocha.apps.demography.context import load_outlook_terms
-    from epocha.apps.demography.couple import active_couple_agent_ids
+    from epocha.apps.demography.couple import active_couple_partners
     from epocha.apps.demography.fertility import (
         build_zone_fertility_context,
         resolve_childbirth_event,
         tick_birth_probability,
     )
+    from epocha.apps.demography.inheritance import compute_zone_class_mean
     from epocha.apps.demography.models import DemographyEvent
 
     if rng is None:
@@ -252,11 +268,11 @@ def run_fertility_step(
         return
 
     current_population = Agent.objects.filter(simulation=context.simulation, is_alive=True).count()
-    couple_members = active_couple_agent_ids(context.simulation)
+    partners = active_couple_partners(context.simulation)
     era_requires_a_couple = bool(
         context.template["fertility"].get("require_couple_for_birth", True)
     )
-    if era_requires_a_couple and not couple_members:
+    if era_requires_a_couple and not partners:
         # Three of the five eras return a birth probability of exactly zero
         # for a mother not in an active couple, so a population with no
         # couple at all cannot conceive until step 2 has resolved enough
@@ -277,6 +293,19 @@ def run_fertility_step(
     outlook_terms = load_outlook_terms(context.simulation)
     zone_contexts: dict[Any, dict] = {}
 
+    # The two remaining per-birth reads, hoisted. `_partner_of` cost a couple
+    # lookup plus a foreign-key dereference for every birth, and
+    # `apply_inheritance_at_birth` computes the zone's mean class rank in one
+    # query of its own -- three per birth, against an FR-016a that grants
+    # births no term at all ("one query per birth makes the cost measurement
+    # fail"). Both are answered here once: the partners in a single `in_bulk`
+    # over the candidates' partner ids, the class mean per distinct candidate
+    # zone, which is a zone term and not a birth term.
+    partner_objects = Agent.objects.in_bulk(
+        {partners[m.id] for m in candidates if m.id in partners}
+    )
+    zone_class_means: dict[Any, float] = {}
+
     inheritance_rng = stream_for(context.simulation, context.tick, phase="inheritance")
     newborns: list[Any] = []
     mothers_of_newborns: list[Any] = []
@@ -295,7 +324,7 @@ def run_fertility_step(
             acceleration,
             current_tick=context.tick,
             zone_context=zone_contexts[mother.zone_id],
-            active_couple_agent_ids=couple_members,
+            partnered_agent_ids=partners,
         )
         if rng.random() >= probability:
             continue
@@ -311,7 +340,17 @@ def run_fertility_step(
         if not outcome["newborn_survived"]:
             continue
 
-        newborns.append(build_newborn(context, mother, _partner_of(mother), inheritance_rng))
+        if mother.zone_id not in zone_class_means:
+            zone_class_means[mother.zone_id] = compute_zone_class_mean(mother.zone)
+        newborns.append(
+            build_newborn(
+                context,
+                mother,
+                partner_objects.get(partners.get(mother.id)),
+                inheritance_rng,
+                zone_class_mean=zone_class_means[mother.zone_id],
+            )
+        )
         mothers_of_newborns.append(mother)
 
     if not dead_mothers and not newborns:
@@ -630,6 +669,14 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
 
     Query shape: one read of the living agents, one threshold query per zone
     -- zones, not agents -- and one `bulk_update`.
+
+    No transactional boundary, and that is a decision rather than an
+    omission: this step performs exactly ONE write, so there is no partial
+    state for a boundary to prevent. The two steps that write more than once
+    -- mortality and fertility -- open one each, and the four steps that
+    drive audited modules get theirs from those modules. A savepoint here
+    would buy nothing and would cost two statements in a per-tick budget
+    that is measured.
     """
     from epocha.apps.agents.models import Agent
     from epocha.apps.demography.context import compute_subsistence_threshold

@@ -54,18 +54,20 @@ def is_in_active_couple(agent) -> bool:
     ).exists()
 
 
-def active_couple_agent_ids(simulation) -> frozenset[int]:
-    """Every agent id that is currently one half of an undissolved couple.
+def active_couple_partners(simulation) -> dict[int, int]:
+    """Each partnered agent id mapped to the id of its partner.
 
-    `is_in_active_couple` answers the same question one agent at a time. A
-    caller iterating a whole population -- the fertility step is the one that
-    does -- would pay a query per living candidate for it, which is the
-    per-living-agent cost FR-016 forbids, so the whole membership is read
-    once here instead and tested in memory.
+    `is_in_active_couple` and `active_couple_for` answer this one agent at a
+    time. A caller iterating a whole population -- the fertility step is the
+    one that does -- would pay a query per candidate for membership and
+    another per birth for the partner, which is the per-agent and per-event
+    cost FR-016 and FR-016a forbid. Both answers come from the same single
+    read here: membership is `agent_id in mapping`, the partner is the value.
 
     Partner FKs are nullable (`SET_NULL` preserves the genealogical record
-    when an agent row goes away), so nulls are dropped rather than carried
-    into the set.
+    when an agent row goes away), so a half-null couple contributes nothing:
+    an agent whose partner row is gone is not partnered for any purpose this
+    mapping serves.
 
     Cost: exactly one query, whatever the population.
     """
@@ -75,7 +77,13 @@ def active_couple_agent_ids(simulation) -> frozenset[int]:
         simulation=simulation,
         dissolved_at_tick__isnull=True,
     ).values_list("agent_a_id", "agent_b_id")
-    return frozenset(agent_id for pair in pairs for agent_id in pair if agent_id is not None)
+    partners: dict[int, int] = {}
+    for a_id, b_id in pairs:
+        if a_id is None or b_id is None:
+            continue
+        partners[a_id] = b_id
+        partners[b_id] = a_id
+    return partners
 
 
 def active_couple_for(agent):

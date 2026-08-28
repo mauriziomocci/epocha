@@ -163,9 +163,9 @@ def _zone_context_for(sim, zone):
 
 
 def _active_couple_ids(sim):
-    from epocha.apps.demography.couple import active_couple_agent_ids
+    from epocha.apps.demography.couple import active_couple_partners
 
-    return active_couple_agent_ids(sim)
+    return active_couple_partners(sim)
 
 
 @pytest.mark.django_db
@@ -252,7 +252,7 @@ def test_the_injected_context_reproduces_every_probability_exactly():
             1.0,
             current_tick=TICK,
             zone_context=zone_context,
-            active_couple_agent_ids=couple_ids,
+            partnered_agent_ids=couple_ids,
         )
         for w in women
     ]
@@ -296,7 +296,7 @@ def test_a_candidate_resolved_through_the_context_costs_no_query():
             1.0,
             current_tick=TICK,
             zone_context=zone_context,
-            active_couple_agent_ids=couple_ids,
+            partnered_agent_ids=couple_ids,
         )
     assert len(captured.captured_queries) == 0, [q["sql"] for q in captured.captured_queries]
 

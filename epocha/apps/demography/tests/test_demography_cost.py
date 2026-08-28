@@ -161,18 +161,99 @@ def test_a_population_with_no_fertile_candidate_pays_none_of_the_fertility_prelo
     queries it never issues.
 
     The gap is a *conditional fixed* cost, not a per-agent one. FR-016 is
-    about the second, and part A is what proves it: the same seven queries
-    are paid once whether the zone holds one fertile woman or ten.
+    about the second, and part A is what proves it: the preloads are paid
+    once whether the zone holds one fertile woman or ten.
+
+    The equality below is the whole guard, and it used to be followed by
+    `assert observed < FIXED_TERM_WITH_CANDIDATES` carrying the message "the
+    two fixed terms have converged: either the preloads moved out of the
+    candidate branch, or this fixture grew a fertile woman". That assertion
+    could not fail and was removed rather than repaired. It sat behind an
+    equality that pins `observed` to a constant, so it reduced to a
+    comparison of two module constants with no production input left in it;
+    and measured with that shadow lifted, against the exact regression its
+    message names -- the preloads hoisted above the empty-candidate return --
+    it stayed green, because the inflated count is still below the other
+    term. The equality catches that regression on its own, which the same
+    measurement confirmed.
     """
     sim, zone = _simulation("nocandidates")
     for i in range(5):
         _agent(sim, zone, f"Vecchio{i}", age=70)
 
-    observed = _count_queries(sim, sim.current_tick + 1)
-    assert observed == FIXED_TERM_NO_CANDIDATES
-    assert observed < FIXED_TERM_WITH_CANDIDATES, (
-        "the two fixed terms have converged: either the preloads moved out of "
-        "the candidate branch, or this fixture grew a fertile woman"
+    assert _count_queries(sim, sim.current_tick + 1) == FIXED_TERM_NO_CANDIDATES
+
+
+class _ForcedBirths:
+    """A fertility stream that forces exactly `count` births, then stops.
+
+    Each birth consumes two draws: one below the probability to conceive and
+    one above the maternal-mortality rate so the mother survives. After the
+    scripted pairs the stream returns 1.0, which is above every per-tick birth
+    probability the Hadwiger schedule can produce.
+    """
+
+    def __init__(self, count):
+        self._draws = [0.0, 1.0] * count
+
+    def random(self):
+        return self._draws.pop(0) if self._draws else 1.0
+
+    def gauss(self, mu, sigma):
+        return mu
+
+    def randrange(self, n):
+        return 0
+
+
+@pytest.mark.django_db
+def test_the_count_does_not_grow_with_the_number_of_births(monkeypatch):
+    """FR-016a on the one event type it grants no term at all.
+
+    The budget is `a + b*deaths + c*intents + d*flights`, and births are
+    deliberately absent from it: the requirement states that they cost a
+    number of queries independent of their number, because the newborns and
+    their events are written in bulk and `apply_inheritance_at_birth` saves
+    nothing by contract. The sentence it ends on is the criterion -- "one
+    query per birth makes the cost measurement fail" -- so the assertion is
+    equality, not a bound.
+
+    No other fixture in this file has a single birth, so this cost went
+    unmeasured while every guard above stayed green: measured before this
+    test existed, four births cost nine queries more than one.
+    """
+    from epocha.apps.demography import orchestrator
+
+    def _count_with_births(label, births):
+        sim, zone = _simulation(label)
+        _couples(sim, zone, 6, label.upper()[:2])
+        real_stream_for = orchestrator.stream_for
+        monkeypatch.setattr(
+            orchestrator,
+            "stream_for",
+            lambda simulation, tick, phase: (
+                _ForcedBirths(births)
+                if phase == "fertility"
+                else real_stream_for(simulation, tick, phase)
+            ),
+        )
+        tick = sim.current_tick + 1
+        observed = _count_queries(sim, tick)
+        born = Agent.objects.filter(simulation=sim, birth_tick=tick).count()
+        monkeypatch.undo()
+        return observed, born
+
+    one, born_one = _count_with_births("birthsone", 1)
+    four, born_four = _count_with_births("birthsfour", 4)
+
+    assert born_one == 1 and born_four == 4, (
+        f"the scripted stream produced {born_one} and {born_four} births, not "
+        "1 and 4: the fixture is not measuring what it claims"
+    )
+    assert one == four, (
+        f"{one} queries for one birth and {four} for four: the block is "
+        "issuing queries per birth, which FR-016a forbids by granting births "
+        "no term of their own"
     )
 
 
@@ -258,15 +339,22 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
 # is every tick of an initialized simulation. That query buys the guarantee
 # that the population the steps see can age at all, and it is a fixed cost --
 # it does not grow with the population, which is what FR-016 forbids.
+#
+# The candidate term also carries the single `in_bulk` that loads the
+# candidates' partners, which is what lets a birth cost no query of its own:
+# one read for any number of candidates, and none at all when none of them is
+# partnered.
 FIXED_TERM_NO_CANDIDATES = 36
-FIXED_TERM_WITH_CANDIDATES = 43
+FIXED_TERM_WITH_CANDIDATES = 44
 
 # What a tick pays once for having any death at all, whatever their number:
 # the mortality step's own writes -- the marking and the event batch -- and
 # the transactional boundary around them, which shows up in a query count as
-# the savepoint pair it is. Measured at 51, 61, 81 and 121 queries for one,
-# two, four and eight deaths: an exactly linear 10 per death on an intercept
-# of 41, which is this term on top of the 35 above.
+# the savepoint pair it is. The slope is an exactly linear 10 per death on an
+# intercept that is this term on top of FIXED_TERM_NO_CANDIDATES above. The
+# measurements are deliberately not reproduced here as literals: they were,
+# and they went stale the moment that fixed term moved by one for the block's
+# per-tick self-repair read. The two tests below measure them instead.
 #
 # It is a conditional FIXED term, not a per-event one, and it is declared
 # separately rather than folded into the per-death coefficient because

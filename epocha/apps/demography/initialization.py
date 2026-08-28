@@ -15,10 +15,19 @@ A founding population with no couples therefore cannot produce a birth in the
 early ticks, and since nothing in production created couples, there was no
 path from a fresh world to a first newborn.
 
-Both are repaired here, once, before the first tick -- and only for
-simulations that opted into demography, because writing birth ticks and
-couples into a simulation that never asked for the subsystem would break the
-same invariance the tick-loop block is careful to preserve.
+Both are repaired here for simulations that opted into demography, and only
+for those: writing birth ticks and couples into a simulation that never asked
+for the subsystem would break the same invariance the tick-loop block is
+careful to preserve.
+
+The two repairs run at different moments, and the difference is deliberate.
+Couples are formed once, by the world generator, because pairing every
+eligible adult at once is founding-population behaviour and doing it per tick
+would bypass the pair-bond intents the couple step exists to resolve. Birth
+ticks are backfilled by the generator AND on every tick by the demography
+block, because a world generated before the flag was set carries none, and an
+agent without one is absent from every candidate query for the rest of the
+run.
 """
 
 from __future__ import annotations
@@ -89,7 +98,10 @@ def backfill_birth_ticks(simulation: Any) -> None:
     are skipped: their age no longer advances, and rewriting it would edit
     history for no consumer.
 
-    Query shape: one read, one `bulk_update`.
+    Query shape: one read, and nothing more when it comes back empty -- which
+    is every tick of an initialized simulation, since the demography block
+    calls this as its per-tick self-repair. When there is something to repair
+    it also costs the tick-duration lookup and one `bulk_update`.
     """
     from epocha.apps.agents.models import Agent
 

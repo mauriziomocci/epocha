@@ -330,6 +330,7 @@ After any code change, update documentation in the same commit:
 | Whitepaper chapter | Code |
 |---|---|
 | §4.1 Demography | `epocha/apps/demography/{mortality,fertility,couple,inheritance,migration}.py` |
+| §4.1.0 Per-tick orchestration | `epocha/apps/demography/{orchestrator,initialization,snapshot,context}.py` |
 | §4.2 Economy — behavioral | `epocha/apps/economy/{expectations,credit,banking,property_market}.py` |
 | §4.3 Reputation | `epocha/apps/agents/reputation.py` |
 | §4.4 Rumor propagation | `epocha/apps/agents/{information_flow,distortion,belief,affinity}.py` |
@@ -339,7 +340,7 @@ After any code change, update documentation in the same commit:
 | §4.8 Economy — base layer | `epocha/apps/economy/{production,market,distribution,monetary,initialization,engine}.py` |
 | §6.2 Era templates | `epocha/apps/demography/{template_loader,truncated_moments}.py`, `epocha/apps/demography/templates/*.json` |
 
-Note the two traps in this mapping, both verified against the source tree on 2026-07-17: the §4.4 belief filter lives in `agents/belief.py`, not `belief_filter.py`, and §4.6 Movement lives in `agents/movement.py`, not under `world/`. The mapping is mirrored in the project memory `feedback_whitepaper_doc_sync.md` and in the Contributing section of both READMEs; all four copies change together. Extend the table whenever a module in §8 is promoted to §4 — the Knowledge Graph (§8.1) is the only one still pending.
+Note the traps in this mapping. Two were verified against the source tree on 2026-07-17: the §4.4 belief filter lives in `agents/belief.py`, not `belief_filter.py`, and §4.6 Movement lives in `agents/movement.py`, not under `world/`. The third was found by the phase-6 gate of the Plan 4 wiring work item on 2026-08-28: the table listed only the five modelling modules, while §4.1.0 is an entire sub-chapter about `orchestrator.py` and the integration-contract table of §4.1 documents `context.py` by name. Three commits changed those files with no doc-sync obligation firing, and §4.1.0 went stale on the one field they renamed. The §4.1.0 row above closes that hole; the project memory `feedback_whitepaper_doc_sync.md` never had it, because it maps the whole `epocha/apps/demography/` directory. The mapping is mirrored in the project memory `feedback_whitepaper_doc_sync.md` and in the Contributing section of both READMEs; all four copies change together. Extend the table whenever a module in §8 is promoted to §4 — the Knowledge Graph (§8.1) is the only one still pending.
 
 ### Mandatory Code Review — Epocha Overrides
 

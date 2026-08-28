@@ -1214,6 +1214,18 @@ def apply_social_inheritance(
 # ---------------------------------------------------------------------------
 
 
+def compute_zone_class_mean(zone: Any) -> float:
+    """Public name for the zone mean class rank, for callers that preload it.
+
+    The fertility step computes this once per candidate zone and passes it to
+    every birth in that zone, because computing it inside
+    `apply_inheritance_at_birth` costs one query per birth. Thin alias rather
+    than a second implementation: there is one definition of this quantity
+    and it is the private one below.
+    """
+    return _compute_zone_class_mean(zone)
+
+
 def _compute_zone_class_mean(zone: Any) -> float:
     """Mean class rank (on `_EXTENDED_CLASS_RANK`) of living agents in `zone`.
 
@@ -1245,7 +1257,13 @@ def _compute_zone_class_mean(zone: Any) -> float:
 
 
 def apply_inheritance_at_birth(
-    child: Any, mother: Any, father: Any, simulation: Any, tick: int, rng: Any
+    child: Any,
+    mother: Any,
+    father: Any,
+    simulation: Any,
+    tick: int,
+    rng: Any,
+    zone_class_mean: float | None = None,
 ) -> None:
     """Birth-pipeline entry point: apply every inheritance mechanism to a newborn.
 
@@ -1309,7 +1327,13 @@ def apply_inheritance_at_birth(
     template that would produce scientifically wrong inheritance under a
     mislabeled era.
 
-    zone_class_mean: computed once via `_compute_zone_class_mean(mother.zone)`
+    zone_class_mean: supplied by the caller when it has already computed the
+        mean for this zone and tick, and computed here via
+        `_compute_zone_class_mean(mother.zone)` otherwise. A caller resolving
+        several births in one tick MUST supply it: computed here it is one
+        query per birth, and FR-016a grants births no term of their own. It
+        is a property of the zone, so one value serves every birth in it.
+        Formerly computed once via `_compute_zone_class_mean(mother.zone)`
     -- the child's zone is the mother's zone (a newborn has no location
     history of its own) -- before any of the three steps run, since
     `apply_social_inheritance` needs it and the query has no RNG
@@ -1361,7 +1385,8 @@ def apply_inheritance_at_birth(
     template_name = simulation.config.get("demography_template", "pre_industrial_christian")
     template = load_template(template_name)
 
-    zone_class_mean = _compute_zone_class_mean(mother.zone)
+    if zone_class_mean is None:
+        zone_class_mean = _compute_zone_class_mean(mother.zone)
 
     apply_trait_inheritance(child, mother, father, template, rng)
 

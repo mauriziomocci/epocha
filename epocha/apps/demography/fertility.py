@@ -156,8 +156,11 @@ def becker_modulation(
         zone_context: the bundle `build_zone_fertility_context` returns, when
             the caller already built it for this agent's zone and tick.
             Callers evaluating a whole population MUST pass it: built here
-            instead, it costs five queries per candidate, which is the
-            per-living-agent cost FR-016 forbids.
+            instead, every candidate pays the bundle's own cost, which is the
+            per-living-agent cost FR-016 forbids. That cost is stated once,
+            on `build_zone_fertility_context`, and deliberately not repeated
+            as a number here -- two docstrings carrying the same count is two
+            places for it to go stale, and they already disagreed once.
 
     Returns a scaling factor in [0.05, 3.0].
     """
@@ -245,7 +248,7 @@ def tick_birth_probability(
     current_tick: int | None = None,
     *,
     zone_context: dict | None = None,
-    active_couple_agent_ids: frozenset[int] | None = None,
+    partnered_agent_ids=None,
 ) -> float:
     """Compute the per-tick birth probability for a female agent.
 
@@ -265,7 +268,7 @@ def tick_birth_probability(
 
     Query cost. Resolving one candidate costs zero queries when the caller
     supplies everything that does not vary between candidates: `current_tick`,
-    `zone_context`, `active_couple_agent_ids`, and a `mother` whose
+    `zone_context`, `partnered_agent_ids`, and a `mother` whose
     `fertility_state` was already selected. Omit any of them and the missing
     value is fetched here, per candidate -- correct for an ad-hoc call,
     and the per-living-agent cost FR-016 forbids for a caller iterating a
@@ -275,9 +278,12 @@ def tick_birth_probability(
         zone_context: the bundle `build_zone_fertility_context` returns for
             this mother's zone and tick, passed straight to
             `becker_modulation`.
-        active_couple_agent_ids: the set `active_couple_agent_ids` returns,
-            replacing the per-agent `is_in_active_couple` lookup. Only read
-            when the era requires a couple for birth.
+        partnered_agent_ids: any container of the ids of agents currently in
+            an active couple, replacing the per-agent `is_in_active_couple`
+            lookup. The orchestrator passes the mapping
+            `active_couple_partners` returns, whose keys are exactly that set
+            and whose values it needs anyway for the newborn's father. Only
+            read when the era requires a couple for birth.
     """
     from epocha.apps.demography.couple import is_in_active_couple
     from epocha.apps.demography.models import AgentFertilityState  # noqa: F401
@@ -292,8 +298,8 @@ def tick_birth_probability(
     require_couple = bool(fertility_cfg.get("require_couple_for_birth", True))
     if require_couple:
         in_couple = (
-            mother.id in active_couple_agent_ids
-            if active_couple_agent_ids is not None
+            mother.id in partnered_agent_ids
+            if partnered_agent_ids is not None
             else is_in_active_couple(mother)
         )
         if not in_couple:
