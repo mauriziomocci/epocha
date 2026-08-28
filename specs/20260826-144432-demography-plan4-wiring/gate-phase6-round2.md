@@ -295,3 +295,56 @@ pretende.
 Il round 3 è **NOT CONVERGED**: due criteri che non potevano fallire, entrambi
 introdotti dalla remediation del round 2. Il round 4 giudica questa
 remediation.
+
+---
+
+## Round 4: criterio, scritto prima del lancio
+
+**2026-08-28, dopo il verdetto del round 3 e prima di lanciare il round 4.**
+
+**Ambito**: `git diff 8b0555e..HEAD`, la remediation del round 3.
+
+**Le tre classi bloccanti restano identiche** e non sono state toccate: un
+difetto di correttezza nel codice di produzione, un criterio che non può
+fallire, una chiusura dichiarata e non vera.
+
+### Il pattern che questo gate continua a produrre, e che il round 4 deve rompere
+
+Tre round, tre verdetti, e la stessa forma ogni volta: **la remediation del
+round N introduce il bloccante del round N+1**, sempre della stessa classe e
+sempre un passo più in là.
+
+- Il round 2 ha trovato un'asserzione inerte e l'ha chiusa rimuovendola.
+- Il round 3 ha trovato che la correzione del round 2 sul costo per nascita
+  aveva aggiunto **solo un testimone di costo**, e nessuno guardava il valore
+  che i precarichi producono.
+- Il round 3 l'ho chiuso aggiungendo tre testimoni di valore.
+
+La domanda del round 4 è quindi **la stessa un livello più fuori**: quei tre
+testimoni coprono ciò per cui sono stati scritti — è misurato — ma che cosa
+resta di ciò che il passo fertilità produce, e che nessun test asserisce per
+valore? Il neonato ha nome, sesso, orientamento, caratteri, classe sociale,
+istruzione, zona, `birth_tick`, genitori ed evento di nascita. I testimoni
+aggiunti ne coprono due. Il round 4 deve enumerare gli altri e dire, per
+ciascuno, quale mutazione lo lascerebbe verde.
+
+### Regola di processo, obbligatoria per questo round
+
+La lezione che il work item precedente ha pagato due volte: **quando una
+riparazione cambia un testimone, la batteria di mutazioni va eseguita anche
+contro la versione PRECEDENTE**, perché la copertura si misura come
+differenza e non dopo la correzione. Il round 4 la applica alla remediation
+del round 3 e lo dichiara nel verdetto.
+
+### Che cosa il verdetto deve contenere, oltre ai rilievi
+
+Se il round non produce nulla delle tre classi, deve **enumerare che cosa non
+ha coperto**. Un verdetto che dice solo «nessun rilievo» dopo tre round che
+ne hanno trovati non è un verdetto, è una resa.
+
+**Convergenza**: nessuna delle tre classi bloccanti. Cifre e frasi si
+correggono nello stesso commit.
+
+### Verdetto round 4
+
+*(da compilare a round concluso)*
