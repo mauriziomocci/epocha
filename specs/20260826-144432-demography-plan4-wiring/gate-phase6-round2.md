@@ -1266,3 +1266,66 @@ verdi**, ruff pulito su 339 file.
 Round 9 **NOT CONVERGED**. Il round 10 giudica questa remediation, e — per la
 regola che il round 8 ha scritto e il round 9 ha confermato per la seconda
 volta — lo fa di nuovo sull'**intero diff del ramo**, non sul solo delta.
+
+---
+
+## Round 10: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 9 e prima di lanciare il round 10.**
+
+**Ambito: `git diff develop..HEAD` per intero**, di nuovo. La regola scritta al
+round 8 è stata confermata due volte: il round 9, non ristretto, ha prodotto
+tre bloccanti di cui **nessuno** stava nella remediation che un round
+ristretto avrebbe giudicato.
+
+**Le tre classi bloccanti restano identiche** dal round 2.
+
+### Che cosa attaccare, in ordine
+
+1. **Le due delegazioni nuove.** `fertility._effective_age_in_years` ora
+   importa `orchestrator.age_in_years` dentro il corpo, e
+   `initialization.backfill_birth_ticks` inverte quella stessa formula.
+   Verifica che non esista un percorso di import circolare che si manifesti
+   solo in produzione, e che l'inversione sia esatta e non approssimata dal
+   `round()`.
+2. **La precedenza del matrimonio sulla catena dei tutori**, che è la
+   decisione di modello del round 9. Il caso che nessuno ha ancora
+   esercitato: un minore i cui DUE genitori sono vivi ma **non in coppia fra
+   loro**. Oggi finisce nel nucleo della madre per l'ordine dichiarato.
+   È la scelta giusta, e comunque sia, esiste un testimone che la fissi?
+3. **Il cambio di forma del payload dello snapshot**: i bucket della piramide
+   passano da quattro a cinque elementi e `sex_ratio` diventa nullable. Ho
+   verificato che nessun consumatore esiste fuori dalla demografia — grep a
+   zero risultati su `epocha/apps` escludendo l'app stessa. Verificalo tu
+   invece di crederlo, e guarda anche serializzatori, API e template.
+4. **La sesta e settima istanza della classe duplicazione sono state chiuse.
+   Cerca l'ottava.** Il gate l'ha trovata sette volte, due delle quali con
+   l'originale a due file di distanza e introdotto dallo stesso ramo.
+
+### Il terreno che il round 9 ha dichiarato NON coperto, e che questo eredita
+
+Il round 9 lo ha elencato con onestà e nessuno lo ha ancora calpestato:
+`inheritance.py` oltre le 73 righe del diff — cioè il grosso di un modulo di
+3600 righe che il ramo ora esegue a ogni tick; `migration.py` oltre
+`process_emergency_flight` e `coordinate_family_migration`; la correttezza
+numerica dei tassi dello snapshot contro le definizioni di Preston, Heuveline
+e Guillot che il docstring cita; `mortality.py`, `template_loader.py` fuori
+dalla sezione `names`, `truncated_moments.py`, `clark_calibration.py`.
+
+**Scegli e dichiara.** Non chiedo di coprirlo tutto: chiedo di sceglierne una
+parte, andarci a fondo, e dire esattamente che cosa resta fuori. Un elenco
+onesto di ciò che non è stato guardato vale più di una copertura nominale.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+La remediation del round 9 tocca cinque moduli di produzione, cambia una
+precedenza di modello, introduce due delegazioni fra moduli e una migrazione
+di schema. Se il round non produce nulla delle tre classi, la spiegazione
+ammessa è che la superficie sia stata coperta e non che non sia stata
+guardata, e il verdetto deve dire quali percorsi ha verificato per
+sostenerlo.
