@@ -662,3 +662,53 @@ def test_dissolve_on_death_both_partners_same_tick(sim_with_zone):
     assert couple.agent_b_name_snapshot == "Tobias"
     assert couple.dissolved_at_tick == 7
     assert couple.dissolution_reason == Couple.DissolutionReason.DEATH
+
+
+@pytest.mark.django_db
+def test_resolve_pair_bond_refuses_an_ambiguous_name(sim_with_zone, caplog):
+    """Two living agents share a name: bind neither, and say so.
+
+    Found by round 9 of the demography Plan 4 phase-6 gate. The resolver used
+    `filter(name=...).first()`, so on a collision the lowest id won in
+    silence and an agent was bound to somebody it never named. Before Plan 4
+    nothing in production created agents after world generation; Plan 4 makes
+    newborns, and `pick_newborn_name` draws from an era pool of TWELVE names
+    per sex with no uniqueness check, so a collision stops being unlikely and
+    becomes certain at the thirteenth birth of a sex.
+
+    Refusing is the ratified fix: it does not remove the ambiguity, it stops
+    the wrong marriage and leaves a record. Resolving by id instead of by
+    name would remove it, and is a separate work item because it changes the
+    action schema the decision loop hands the model.
+    """
+    import logging
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.current_tick = 5
+    sim.save()
+
+    suitor = _make_agent(sim, zone, "Bruno", gender=Agent.Gender.MALE)
+    first_amelia = _make_agent(sim, zone, "Amelia")
+    second_amelia = _make_agent(sim, zone, "Amelia")
+
+    # ONLY the ambiguous intent is filed. Under this era's implicit mutual
+    # consent a single intent suffices to form a couple, so if the second
+    # Amelia also named Bruno the pair would form from HER unambiguous side
+    # and this test would pass while proving nothing about the resolver.
+    _decision_log(sim, suitor, tick=4, action="pair_bond", target="Amelia")
+
+    with caplog.at_level(logging.WARNING, logger="epocha.apps.demography.couple"):
+        formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(42))
+
+    assert formed == [], (
+        "an ambiguous name was resolved: one of the two Amelias was married "
+        "off without ever being named"
+    )
+    assert not Couple.objects.filter(simulation=sim).exists()
+    assert any("Amelia" in record.message for record in caplog.records), (
+        "an ambiguous match must leave a record, or the intent vanishes with "
+        "no explanation in any log"
+    )
+    assert second_amelia.id != first_amelia.id

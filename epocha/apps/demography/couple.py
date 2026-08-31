@@ -278,13 +278,41 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list[Couple]:
     by_id: dict[int, Agent] = {}
 
     def _resolve_agent_by_name(name: str) -> Agent | None:
+        """Resolve an intent's target, refusing an ambiguous name.
+
+        `.first()` used to win here, which silently married whichever living
+        namesake carried the lowest id -- an agent bound to somebody it never
+        named. The ambiguity was theoretical while nothing in production
+        created agents after world generation; demography Plan 4 makes
+        newborns, and the era name pools hold TWELVE entries per sex with no
+        uniqueness check, so a collision is certain by the thirteenth birth
+        of a sex.
+
+        Refusing does not remove the ambiguity, it stops the wrong marriage
+        and leaves a record. Resolving by id rather than by name would remove
+        it and is tracked separately, because it changes the action schema
+        the decision loop hands the model. Two rows are fetched rather than
+        one, which is the same single query.
+        """
         if not name:
             return None
-        return Agent.objects.filter(
-            simulation=simulation,
-            name=name,
-            is_alive=True,
-        ).first()
+        matches = list(
+            Agent.objects.filter(
+                simulation=simulation,
+                name=name,
+                is_alive=True,
+            ).order_by("id")[:2]
+        )
+        if len(matches) > 1:
+            logging.getLogger(__name__).warning(
+                "demography: pair-bond target %r is ambiguous in simulation %s "
+                "-- at least two living agents carry that name, so the intent "
+                "is dropped rather than bound to an arbitrary one",
+                name,
+                simulation.id,
+            )
+            return None
+        return matches[0] if matches else None
 
     def _add_direct(proposer: Agent, match_id: int) -> None:
         by_id[proposer.id] = proposer
