@@ -569,3 +569,93 @@ che questo round aveva misurato sopravvivere. Suite 1719 verdi, ruff pulito.
 ### Conseguenza
 
 Round 5 **NOT CONVERGED**. Il round 6 giudica questa remediation.
+
+---
+
+## Round 6: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 5 e prima di lanciare il round 6.**
+
+**Ambito**: `git diff 47a8d44..HEAD`, la remediation del round 5 — i commit
+`281d5d7` e `c76c2f8`. Ogni file toccato rientra per intero.
+
+**Le tre classi bloccanti restano identiche** e non sono state toccate dal
+round 2 in poi: un difetto di correttezza nel codice di produzione, un
+criterio che non può fallire, una chiusura dichiarata e non vera.
+
+### Il conto onesto: sei round, sei volte lo stesso pattern
+
+La remediation del round N introduce il bloccante del round N+1, e dal round 3
+in poi **sempre dentro il testimone scritto per chiudere il round
+precedente**. Il round 5 ne ha trovati tre in un colpo, e due erano forme già
+nominate dai round 1 e 4: la fixture a una zona sola, e il valore corrotto che
+coincide con quello vero.
+
+**E il round 5 non li ha trovati tutti.** Dopo il suo verdetto, misurando il
+testimone appena riparato, ne è emerso un quarto della stessa classe: i campi
+erano catturati **per riferimento**, quindi `personality`, `conditions` e
+`location` — le tre colonne mutabili — venivano confrontate con se stesse. La
+forma che ri-assegna l'attributo moriva; una scrittura *in place*, che è la
+forma che una regressione reale assume quando del codice entra dentro una
+colonna JSON, lasciava tutti e 24 i test del file verdi. Chiuso con
+`copy.deepcopy` e ri-misurato.
+
+Questo è il fatto che il round 6 deve tenere davanti: **il round 5 ha
+enumerato ciò che non aveva coperto, e in quell'elenco non c'era l'aliasing.**
+Un revisore che dichiara i propri limiti resta comunque un revisore con
+limiti, e la copertura di un round non è la copertura del problema.
+
+### Che cosa questo round deve sospettare per primo
+
+La mossa strutturale della remediation è **derivare l'insieme dei campi
+confrontati da `Agent._meta.concrete_fields`** invece di enumerarli. È la
+risposta giusta al bloccante 1, e proprio per questo va attaccata dove una
+derivazione può mentire:
+
+- `UNCOMPARABLE` esclude `id` e `created_at`. L'esclusione è giustificata nel
+  commento, ma è un letterale scritto a mano dentro la riparazione di un
+  letterale scritto a mano: che cosa succede se una colonna futura non può
+  combaciare e nessuno la esclude, e che cosa succede se una che poteva
+  combaciare finisce lì dentro.
+- La guardia che nomina `personality`, `cunning`, `role`, `health`,
+  `location` pinna il rilievo del round 5. È essa stessa un letterale: può
+  restare verde mentre la derivazione a monte si svuota.
+- Alcune colonne **non possono differire** fra i due neonati della fixture —
+  `role` e `health` sono costanti per costruzione, `wealth` è zero
+  incondizionatamente. Per quelle, una corruzione al medesimo valore è un
+  no-op e non un difetto; ma il round dica esplicitamente quali colonne il
+  testimone può solo confermare e non discriminare.
+- Il wrapper di cattura ha una firma fissa. Se `build_newborn` acquisisce un
+  parametro, il testimone si rompe rumorosamente o silenziosamente: quale
+  delle due.
+
+### Che cosa il round 5 ha dichiarato di NON aver coperto, e che questo round eredita
+
+Sono i suoi passaggi, non i miei, e vanno chiusi o ri-dichiarati:
+
+- la corruzione di `location`, mai misurata;
+- i campi dell'evento fuori dal payload — `tick`, `event_type`, `simulation` —
+  di cui nessuno ha verificato se qualcosa li asserisca;
+- le quattro mutazioni sull'evento, **lette e non eseguite**;
+- il diff di branch `develop..HEAD`, mai riletto per intero da nessun round.
+
+### Che cosa il verdetto deve contenere
+
+Se il round non produce nulla delle tre classi, deve **enumerare che cosa non
+ha coperto**, e l'enumerazione del round 5 mostra che quell'elenco è la parte
+più utile del verdetto, non un contorno. Cinque round su cinque hanno prodotto
+un bloccante; un sesto che dice solo «nessun rilievo» non è un verdetto.
+
+**Convergenza**: nessuna delle tre classi bloccanti. Cifre e frasi si
+correggono nello stesso commit.
+
+### Perché questo criterio può fallire
+
+La remediation riscrive per intero la classe che regge dodici proprietà,
+introduce una derivazione dal metamodello di Django, aggiunge una seconda zona
+e una seconda classe sociale alla fixture, e cambia il modo in cui
+l'istantanea è catturata. Le mutazioni eseguite sono ventiquattro e quattro
+sono sopravvissute al primo colpo, tutte chiuse. Se il round non produce nulla
+delle tre classi, la spiegazione ammessa è che quelle misure lo abbiano già
+colto — non che il round non abbia guardato — e il verdetto deve dire quali
+percorsi ha verificato per sostenerlo.
