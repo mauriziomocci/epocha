@@ -801,3 +801,72 @@ muoiono tutte. Se il round non produce nulla, la spiegazione ammessa è che la
 superficie sia genuinamente piccola — non che il round non abbia guardato — e
 il verdetto deve dirlo enumerando che cosa ha verificato, a partire dalle
 quindici colonne che il round 6 non ha misurato.
+
+### Verdetto round 7: CONVERGED
+
+Un revisore, ambito ristretto, igiene rispettata: mutazioni solo sul codice di
+produzione, prove sui test eseguite su una copia usa-e-getta, albero pulito,
+nessun processo lasciato vivo.
+
+**Nessuna delle tre classi bloccanti.** Nessun difetto di correttezza nel
+codice di produzione — il diff in ambito non ne contiene una riga; nessun
+criterio che non può fallire fra le guardie nuove, con le quattro asserzioni
+di forma, il pin di `UNCOMPARABLE` e l'asserzione sul tick tutte provate
+morire contro la regressione che nominano; nessuna chiusura dichiarata e non
+vera.
+
+**La domanda del criterio ha avuto la risposta che serviva.** Il round 6 aveva
+classificato quindici colonne come costanti in produzione «per lettura e non
+per esperimento». Il round 7 le ha misurate, e con un esperimento più forte
+del travaso: due nuclei familiari che differiscono su tutte e quindici —
+carisma 0,05 contro 0,95, ricchezza 5,0 contro 900,0, salute 0,35 contro 0,95,
+ruoli, gruppi, caretaker e contatori diversi — fatti passare per il passo
+vero. Tutte e quindici escono identiche fra i due neonati, sia sull'oggetto
+costruito sia sulla riga persistita. La conclusione del round 6 regge; la sua
+giustificazione no, ed è stata sostituita da una misura.
+
+**Le altre domande, tutte con esito misurato.** `load_template` è chiamata
+esattamente due volte per passo, e l'alternanza delle ere non può
+disallinearsi in silenzio perché il fallback è un valore unico: due nascite
+che ci cadano sopra collidono e l'asserzione di forma spara. Le quattro
+asserzioni di forma muoiono ciascuna contro la propria regressione, con il
+proprio messaggio e senza oscurarsi a vicenda. Allargare `UNCOMPARABLE`
+fallisce per prima, prima ancora che `fields` sia calcolato.
+
+### I due rilievi fuori dalle classi bloccanti, e perché lo sono
+
+Non per una trattativa fatta dopo aver visto il risultato, ma per la
+definizione scritta prima del lancio.
+
+**R1 — la costanza di `health`, `charisma` e `mood` è una proprietà dei
+template, non del codice.** `heritability` è validata come mapping a chiavi
+**aperte**, e `apply_trait_inheritance` fa `setattr` di qualunque chiave nomini
+una colonna scalare di `Agent`. Misurato con un'era che le dichiara
+ereditabili: i due neonati escono con salute 0,092 contro 0,531 e i valori
+arrivano fino alla riga persistita. `health` in particolare è scritta come
+letterale **prima** che l'ereditarietà giri, quindi il template vince. Fuori
+dalle classi perché il criterio chiede che una colonna vari **in produzione**,
+e nessuno dei cinque template spediti dichiara quelle chiavi. Il difetto vero
+era il commento che affermava la costanza in forma incondizionata: ora è
+condizionato ai template, con la misura e con il rimedio strutturale nominato.
+
+**R2 — due asserzioni tautologiche in `test_newborn_carries_inherited_
+attributes`.** `gender in Agent.Gender.choices` confronta un valore con
+l'enumerazione da cui è tipato, e `assert newborn.sexual_orientation` è vera
+per il default `heterosexual`. Fuori dalla classe 2 perché quella è scoped
+alle guardie **nuove** e questa esiste da prima di `a9a7bb0`. Corretta lo
+stesso: un'era con rapporto dei sessi zero produce solo figlie contro un
+default `male`, e una distribuzione solo asessuale non può produrre il default
+`heterosexual`. Nessun seme toccato. Provata per mutazione: riscrivendo i due
+default dopo l'ereditarietà, il test ora muore.
+
+**R3** — la data di ultima verifica nella build map, allineata in entrambe le
+lingue.
+
+### Conseguenza
+
+Il gate di fase 6 sul codice è **CONVERGED al round 7**, dopo sei round NOT
+CONVERGED. Restano da eseguire, prima del push: il re-pin dei whitepaper, il
+flag di T038, la build map allo stato post-merge, suite e ruff, e la review
+sull'intero diff di branch — l'unico debito che nessun round ha saldato e che
+il criterio del round 7 ha esplicitamente assegnato alla chiusura.

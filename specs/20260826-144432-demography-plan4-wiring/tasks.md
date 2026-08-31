@@ -102,7 +102,7 @@ docker compose -f docker-compose.local.yml exec -T web pytest -q
 - [x] T035 [US1] End-to-end acceptance of SC-001: an N-tick simulation with demography active produces at least one birth and one death and a population that changes. Test: `epocha/apps/demography/tests/test_demography_e2e.py`
 - [x] T036 Update whitepaper §4.1 in **both** languages with the orchestrators, the declared order and the block's position in the tick (plan D2b), then close the FR-017 inventory row by row — the rows T009 and T024 already closed in their own commits are checked, not rewritten (Abstract, §4.1.1–§4.1.3, §4.1.4, §4.1.5, §4.2, §7.4, §7.5, §9, §10, §11, §12, Appendix B), leaving every calibration deferral untouched. Test: `docker compose -f docker-compose.local.yml exec -T web pytest epocha/apps/demography/tests/test_citation_hygiene.py -q`
 - [x] T037 Update `docs/build-map/epocha-build-map.html` in both languages, run `scripts/build_map_i18n.py fingerprint`, republish to the same artifact URL. Test: `docker compose -f docker-compose.local.yml exec -T web pytest epocha/apps/dashboard/tests/test_build_map_bilingual.py -q`
-- [ ] T038 Full suite green, then Matteo-mode review of the whole branch diff before the phase-6 gate. Command: `docker compose -f docker-compose.local.yml exec -T web pytest -q && docker compose -f docker-compose.local.yml exec -T web ruff check .`
+- [x] T038 Full suite green, then Matteo-mode review of the whole branch diff before the phase-6 gate. Command: `docker compose -f docker-compose.local.yml exec -T web pytest -q && docker compose -f docker-compose.local.yml exec -T web ruff check .`
 
 ---
 

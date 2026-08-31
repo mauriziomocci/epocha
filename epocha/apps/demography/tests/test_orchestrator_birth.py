@@ -160,9 +160,35 @@ class TestBirthOrchestrator:
         assert stored.is_alive is True
         assert stored.age == 0
 
-    def test_newborn_carries_inherited_attributes(self, sim_with_zone):
+    def test_newborn_carries_inherited_attributes(self, sim_with_zone, monkeypatch):
         """`apply_inheritance_at_birth` runs inside the orchestrator: the
-        newborn is not a blank row with a name on it."""
+        newborn is not a blank row with a name on it.
+
+        Both draws are pinned to values the MODEL DEFAULT cannot supply, and
+        that is the whole point of the era patched in below. The round-7 gate
+        measured the previous version of this test: it asserted
+        `gender in Agent.Gender.choices`, which compares a value against the
+        enumeration it is typed from, and `assert newborn.sexual_orientation`,
+        which is truthy for the default `heterosexual`. Forcing both model
+        defaults right after `apply_inheritance_at_birth` -- exactly the state
+        "inheritance wrote neither" that this docstring denies -- left the
+        test green. An era whose sex ratio is zero yields only daughters, and
+        the default is `male`; an era whose orientation distribution is
+        asexual alone cannot yield the default `heterosexual`. Neither pins a
+        seed.
+        """
+        from epocha.apps.demography import template_loader
+
+        real_load = template_loader.load_template
+
+        def _era_that_contradicts_the_defaults(name):
+            era = copy.deepcopy(real_load(name))
+            era["sex_ratio_at_birth"] = 0.0
+            era["sexual_orientation_distribution"] = {"asexual": 1.0}
+            return era
+
+        monkeypatch.setattr(template_loader, "load_template", _era_that_contradicts_the_defaults)
+
         sim, zone = sim_with_zone
         mother = _agent(sim, zone, "Madre", social_class="wealthy", education_level=0.8)
         father = _agent(sim, zone, "Padre", gender=Agent.Gender.MALE, social_class="wealthy")
@@ -171,8 +197,8 @@ class TestBirthOrchestrator:
 
         newborn = orchestrator.build_newborn(context, mother, father, rng)
 
-        assert newborn.gender in {g for g, _ in Agent.Gender.choices}
-        assert newborn.sexual_orientation
+        assert newborn.gender == Agent.Gender.FEMALE
+        assert newborn.sexual_orientation == Agent.SexualOrientation.ASEXUAL
         assert newborn.wealth == 0.0
 
     def test_a_birth_without_a_known_father_is_supported(self, sim_with_zone):
@@ -872,10 +898,22 @@ class TestTheStepPersistsWhatItBuilt:
         # is the mother's, the orientation is drawn -- so leaving them
         # constant in the fixture makes a corruption that copies one
         # newborn's value onto the other invisible, which is exactly what was
-        # measured: 1719 of 1719 green. The other fifteen columns that agree
-        # between these two newborns agree in production too, because
-        # `build_newborn` writes them as literals or leaves the model
-        # default, so copying them across is a no-op rather than a defect.
+        # measured: 1719 of 1719 green.
+        #
+        # The other fifteen columns these two newborns agree on also agree
+        # **under the five era templates that ship**, because `build_newborn`
+        # writes them as literals or leaves the model default, so copying
+        # them across is a no-op rather than a defect. That is a property of
+        # the templates and NOT of the code, and the round-7 gate measured
+        # the difference: `heritability` is validated as an open mapping
+        # (`template_loader.py`), and `apply_trait_inheritance` `setattr`s any
+        # key naming a scalar column of `Agent`, so an era declaring `health`,
+        # `charisma` or `mood` heritable makes those three vary per newborn
+        # and this witness stops discriminating them. `health` in particular
+        # is written as a literal BEFORE inheritance runs, so the template
+        # wins. Closing that hole means restricting the accepted key set in
+        # the loader, which is a separate work item; until then the sentence
+        # above is true of the shipped templates and of nothing more.
         assert len({v["location"] for v in built.values()}) == 2, (
             "both newborns were born at the same point: the fixture no longer "
             "separates the mother's own position from any position"
