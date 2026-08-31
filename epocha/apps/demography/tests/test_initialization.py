@@ -469,3 +469,45 @@ class TestActivationOnAnAlreadyGeneratedWorld:
             "a population that cannot conceive under this era produced no "
             "warning: the sterility is silent"
         )
+
+
+class TestBirthTickSharesTheOrchestratorsClock:
+    """The backfill writes `birth_tick`; `age_in_years` reads it. One clock.
+
+    Found by round 9 of the phase-6 gate, reading the whole branch diff
+    rather than the last remediation. `initialization.py` was the only module
+    of the subsystem that never named `acceleration` -- zero occurrences
+    against fifteen in `orchestrator.py` -- so the round trip returned the
+    written age multiplied by the era's acceleration factor. The function's
+    own docstring states the invariant it broke: an agent the world describes
+    as forty has to still be forty on the tick this runs.
+
+    Not cosmetic under an accelerated era: the Heligman-Pollard hazard would
+    be evaluated at four hundred years instead of forty, and the fertile
+    window -- which scales the other way -- would exclude the entire founding
+    population, so nobody would ever conceive.
+    """
+
+    def test_the_written_birth_tick_reads_back_as_the_written_age(self, sim_with_zone):
+        import copy
+
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.initialization import backfill_birth_ticks
+        from epocha.apps.demography.template_loader import load_template
+
+        sim, zone = sim_with_zone
+        agent = _agent(sim, zone, "Quarantenne", age=40)
+        Agent.objects.filter(pk=agent.pk).update(birth_tick=None)
+
+        template = copy.deepcopy(load_template("pre_industrial_christian"))
+        template["acceleration"] = 10.0
+        backfill_birth_ticks(sim, template=template)
+
+        agent.refresh_from_db()
+        read_back = orchestrator.age_in_years(
+            agent, sim.current_tick, orchestrator._tick_duration_hours(sim), 10.0
+        )
+        assert read_back == pytest.approx(40.0, abs=0.05), (
+            f"written as 40 and read back as {read_back}: the backfill and "
+            "the orchestrator are on different clocks"
+        )

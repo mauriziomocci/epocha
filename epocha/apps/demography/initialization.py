@@ -85,13 +85,26 @@ def initialize_demography(simulation: Any) -> None:
     form_initial_couples(simulation, template=template)
 
 
-def backfill_birth_ticks(simulation: Any) -> None:
+def backfill_birth_ticks(simulation: Any, template: dict | None = None) -> None:
     """Give every living agent a `birth_tick` consistent with its age.
 
     Derived from the age the generator wrote rather than invented: an agent
     the world describes as forty has to still be forty on the tick this runs,
     or the population's age structure is silently rewritten between
     generation and the first tick.
+
+    **The era's `acceleration` is part of that consistency and was missing.**
+    This module was the only one of the subsystem that never named the
+    factor, while `age_in_years` -- the single reader of what is written
+    here -- multiplies by it. The round trip therefore returned the written
+    age times the acceleration, and the invariant stated above was false for
+    any era that sets it away from 1.0: the Heligman-Pollard hazard would be
+    evaluated at four hundred years for a forty-year-old, and the fertile
+    window, which scales the other way, would exclude the entire founding
+    population so that nobody ever conceived. Found by round 9 of the
+    phase-6 gate, reading the whole branch diff rather than one remediation.
+    The inversion is delegated to `age_in_years` rather than rewritten here,
+    because rewriting it is exactly how the two clocks drifted apart.
 
     Agents that already carry a `birth_tick` are left alone -- this repairs
     what is missing and never overwrites a lineage a birth recorded. The dead
@@ -118,10 +131,40 @@ def backfill_birth_ticks(simulation: Any) -> None:
     # self-repair: on an already-initialized simulation, which is every tick
     # after the first, there is nothing pending and the read above is the
     # whole cost.
+    from epocha.apps.demography.template_loader import load_template
+
+    acceleration = 1.0
+    if template is None:
+        # Loaded here only when the caller has none. A named-but-broken era
+        # must DEGRADE and not abort -- the same rule the rest of this module
+        # follows -- because this function is also the demography block's
+        # per-tick self-repair, and a template typo must not stop the whole
+        # tick. Falling back to 1.0 reproduces exactly the behaviour that
+        # preceded the acceleration fix, which is the least surprising thing
+        # to do when the era cannot be read.
+        name = simulation.config.get("demography_template", "pre_industrial_christian")
+        try:
+            template = load_template(name)
+        except (FileNotFoundError, ValueError):
+            logging.getLogger(__name__).warning(
+                "demography: birth-tick backfill could not load template %r; "
+                "ages are converted at acceleration 1.0",
+                name,
+            )
+            template = None
+    if template is not None:
+        acceleration = float(template.get("acceleration", 1.0))
     ticks_per_year = HOURS_PER_YEAR / max(1e-9, _tick_duration_hours(simulation))
 
     for agent in pending:
-        agent.birth_tick = int(round(simulation.current_tick - (agent.age or 0) * ticks_per_year))
+        # The exact inverse of `age_in_years`, which computes
+        # `(tick - birth_tick) / ticks_per_year * acceleration`.
+        agent.birth_tick = int(
+            round(
+                simulation.current_tick
+                - (agent.age or 0) * ticks_per_year / max(1e-9, acceleration)
+            )
+        )
 
     Agent.objects.bulk_update(pending, ["birth_tick"])
     logger.info(
