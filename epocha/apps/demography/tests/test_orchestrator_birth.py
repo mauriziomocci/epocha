@@ -751,13 +751,34 @@ class TestTheStepPersistsWhatItBuilt:
         # loads its own from `simulation.config`.
         real_load = template_loader.load_template
 
-        def _era_without_heterosexuality(name):
+        # Two eras, deliberately different, because this witness has to
+        # separate two corruptions at once. Pinning the distribution to a
+        # single non-heterosexual value kills `sexual_orientation =
+        # "heterosexual"`, which is what the round-4 gate measured surviving
+        # -- but it also hands BOTH newborns the same orientation, and the
+        # round-6 gate then measured that copying one newborn's orientation
+        # onto the other survives the entire 1719-test suite. Alternating the
+        # draw per load gives the two births different, still non-
+        # heterosexual, values. The fixture asserts below that the
+        # alternation actually landed, so a misalignment fails loudly rather
+        # than putting the column quietly beyond reach.
+        eras = iter(({"homosexual": 1.0}, {"bisexual": 1.0}))
+
+        def _era_with_alternating_orientation(name):
             era = copy.deepcopy(real_load(name))
-            era["sexual_orientation_distribution"] = {"homosexual": 1.0}
+            era["sexual_orientation_distribution"] = next(eras, {"asexual": 1.0})
             return era
 
-        monkeypatch.setattr(template_loader, "load_template", _era_without_heterosexuality)
+        monkeypatch.setattr(template_loader, "load_template", _era_with_alternating_orientation)
 
+        # Pinned exactly, not merely used: `UNCOMPARABLE` is a hand-written
+        # literal inside the repair of a hand-written literal, and the round-6
+        # gate measured that adding three more names to it blinds the witness
+        # on those columns in silence. Widening it is now a diff-visible act
+        # that fails here first.
+        assert self.UNCOMPARABLE == frozenset({"id", "created_at"}), (
+            "the exclusion list grew: every added column stops being witnessed"
+        )
         fields = tuple(
             sorted(
                 f.attname for f in Agent._meta.concrete_fields if f.attname not in self.UNCOMPARABLE
@@ -784,9 +805,18 @@ class TestTheStepPersistsWhatItBuilt:
         # every newborn the first candidate's zone, and pinning the social
         # class to the value both were going to inherit anyway, both left the
         # suite green.
-        for zone, klass, edu in ((first_zone, "elite", 0.9), (second_zone, "poor", 0.1)):
+        for zone, klass, edu, spot in (
+            (first_zone, "elite", 0.9, Point(20, 20)),
+            (second_zone, "poor", 0.1, Point(250, 250)),
+        ):
             mother = _agent(
-                sim, zone, f"Madre{klass}", age=25, social_class=klass, education_level=edu
+                sim,
+                zone,
+                f"Madre{klass}",
+                age=25,
+                social_class=klass,
+                education_level=edu,
+                location=spot,
             )
             father = _agent(
                 sim,
@@ -796,6 +826,7 @@ class TestTheStepPersistsWhatItBuilt:
                 age=28,
                 social_class=klass,
                 education_level=edu,
+                location=spot,
             )
             form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
         context = _context(sim)
@@ -835,6 +866,24 @@ class TestTheStepPersistsWhatItBuilt:
         assert len({v["social_class"] for v in built.values()}) == 2, (
             "both newborns inherited the same social class: a corruption "
             "pinning that column would overwrite the value with itself"
+        )
+        # The two columns the round-6 gate found confirmable but not
+        # discriminable. They vary per newborn in production -- the position
+        # is the mother's, the orientation is drawn -- so leaving them
+        # constant in the fixture makes a corruption that copies one
+        # newborn's value onto the other invisible, which is exactly what was
+        # measured: 1719 of 1719 green. The other fifteen columns that agree
+        # between these two newborns agree in production too, because
+        # `build_newborn` writes them as literals or leaves the model
+        # default, so copying them across is a no-op rather than a defect.
+        assert len({v["location"] for v in built.values()}) == 2, (
+            "both newborns were born at the same point: the fixture no longer "
+            "separates the mother's own position from any position"
+        )
+        assert len({v["sexual_orientation"] for v in built.values()}) == 2, (
+            "both newborns drew the same sexual orientation: the alternating "
+            "era did not land, and a corruption copying one onto the other "
+            "would be invisible"
         )
 
         stored = {
@@ -913,5 +962,10 @@ class TestTheBirthEventDescribesItsOwnBirth:
                 f"{event.primary_agent.parent_agent_id}"
             )
             assert event.payload["step_name"] == "fertility"
+            # The round-6 gate measured `tick=context.tick + 1` leaving the
+            # whole demography subset green: nothing anywhere asserted the
+            # tick a birth is recorded at, which is the column every rate in
+            # the snapshot is grouped by.
+            assert event.tick == context.tick
         assert by_mother[dying.id].payload["mother_died_in_childbirth"] is True
         assert by_mother[survivor.id].payload["mother_died_in_childbirth"] is False

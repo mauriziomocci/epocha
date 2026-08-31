@@ -659,3 +659,75 @@ sono sopravvissute al primo colpo, tutte chiuse. Se il round non produce nulla
 delle tre classi, la spiegazione ammessa è che quelle misure lo abbiano già
 colto — non che il round non abbia guardato — e il verdetto deve dire quali
 percorsi ha verificato per sostenerlo.
+
+### Verdetto round 6: NOT CONVERGED
+
+Un revisore, ambito ristretto, igiene rispettata. Un bloccante, classe 2, e di
+nuovo dentro il testimone scritto per chiudere il round precedente: **settima
+volta**.
+
+**Bloccante — due delle trentaquattro colonne confrontate non possono
+discriminare, e sono le due che in produzione variano.** La remediation del
+round 5 ha sdoppiato zona e classe sociale e ha lasciato la posizione
+inchiodata: `_agent` fissa `Point(50, 50)` per ogni agente, quindi le due
+madri stavano sullo stesso punto in due zone diverse e i due neonati
+ereditavano quel punto. Misurato, con la regressione che questo gate ha già
+bloccato due volte su altre colonne — `newborns[-1].location =
+newborns[0].location` — **1719 test su 1719 verdi**.
+
+**La forma gemella sull'orientamento sessuale l'ha creata la remediation del
+round 4.** Pinnare la distribuzione a `{"homosexual": 1.0}` uccideva la
+corruzione a costante `= "heterosexual"`, ma dava a entrambi i neonati lo
+stesso valore: il travaso da un neonato all'altro restava verde. La
+riparazione di una forma aveva reso invisibile l'altra.
+
+Delle diciassette colonne costanti fra i due neonati, quindici lo sono anche
+in produzione — `build_newborn` le scrive come letterali o lascia il default
+del modello — quindi per quelle il travaso è un no-op e non un difetto.
+`location` e `sexual_orientation` erano le due eccezioni.
+
+**Non bloccanti**: `UNCOMPARABLE` poteva assorbire in silenzio qualunque
+colonna fuori dalle cinque nominate dalla guardia; il `tick` dell'evento di
+nascita non aveva alcun testimone, ed è la colonna su cui ogni tasso dello
+snapshot è raggruppato; la build map era ferma di un round.
+
+**Le quattro domande del criterio hanno avuto risposta.** La guardia sui
+cinque campi NON può restare verde mentre la derivazione si svuota: svuotando
+il filtro, muore per prima. Il letterale delle esclusioni si rompe
+rumorosamente nella direzione «colonna che non può combaciare», in silenzio
+nell'altra — ora chiusa. Il wrapper di cattura si rompe rumorosamente se
+`build_newborn` acquisisce un parametro. Le colonne che il testimone può solo
+confermare sono state enumerate una per una.
+
+**Classi 1 e 3: nessun rilievo**, e la ragione della classe 1 è che il diff in
+ambito non tocca una sola riga di produzione.
+
+### Che cosa è stato corretto in risposta
+
+- **Due posizioni diverse** per le due madri, e la fixture **asserisce anche
+  quella separazione**, accanto a zona e classe.
+- **La distribuzione dell'era alterna** fra due valori non eterosessuali, così
+  i due neonati differiscono sull'orientamento pur restando entrambi fuori dal
+  valore che la corruzione a costante userebbe. La fixture asserisce che
+  l'alternanza sia atterrata: se non lo fosse, fallisce invece di andare
+  inerte.
+- **`UNCOMPARABLE` è pinnata esattamente** a `{id, created_at}`: allargarla è
+  ora un atto visibile nel diff che fallisce lì per primo.
+- **Il `tick` dell'evento è asserito.**
+- La build map avanza al round 6 in entrambe le lingue.
+
+Ri-misurato: travaso della posizione, travaso dell'orientamento, `tick`
+spostato di uno e allargamento di `UNCOMPARABLE` **muoiono tutti e quattro**.
+
+### Un errore di processo, registrato perché non si ripeta
+
+Durante la remediation ho annullato la mutazione sul file di test con
+`git checkout --` su quel file, e poiché la riparazione non era ancora
+committata **ho cancellato la riparazione insieme alla mutazione**. Le misure
+erano già state prese e restano valide, ma il lavoro è stato riapplicato da
+capo. La regola che ne discende: **non si mutano file di test non committati**
+— o si committa prima, o si muta su una copia.
+
+### Conseguenza
+
+Round 6 **NOT CONVERGED**. Il round 7 giudica questa remediation.
