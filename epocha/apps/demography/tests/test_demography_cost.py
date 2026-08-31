@@ -401,3 +401,69 @@ DEATH_TICK_ONCE = 5
 # own docstring says so: the bound is an upper bound at worst-case
 # coefficients, never an equality.
 PER_DEATH = 12
+
+
+# Measured, not declared. Round 9 of the phase-6 gate found that no fixture in
+# this file ever built a `DecisionLog`, so the `c*intents` term of the budget
+# was the one coefficient nobody had ever put a number on -- while steps 1 and
+# 2 run on every tick of every simulation. The measure: two mutual intents
+# cost 7 queries more than none, four cost 14.
+PER_PAIR_BOND_INTENT = 3.5
+
+
+def _pair_bond_intent(sim, agent, target_name, tick):
+    import json
+
+    from epocha.apps.agents.models import DecisionLog
+
+    return DecisionLog.objects.create(
+        simulation=sim,
+        agent=agent,
+        tick=tick,
+        input_context="{}",
+        output_decision=json.dumps(
+            {"action": "pair_bond", "reason": "cost fixture", "target": target_name}
+        ),
+        llm_model="test-model",
+        cost_tokens=0,
+    )
+
+
+@pytest.mark.django_db
+def test_the_pair_bond_intent_term_is_measured_and_bounded():
+    """FR-016 on the term that had never been measured.
+
+    Steps 1 and 2 resolve the previous tick's intents on every tick. The
+    budget declares a `c*intents` coefficient and no fixture had ever built
+    one, so `test_doubling_the_living_population_does_not_change_the_count`
+    could not see it: it doubles a population that files nothing.
+
+    This pins the slope on the measure and, more importantly, pins that the
+    term is per INTENT and not per living agent -- the same population filing
+    twice as many intents costs proportionally more, while the same intents
+    among twice the population cost the same.
+    """
+    baseline_sim, baseline_zone = _simulation("intents0")
+    _couples(baseline_sim, baseline_zone, 6, "I0")
+    baseline = _count_queries(baseline_sim, baseline_sim.current_tick + 1)
+
+    two_sim, two_zone = _simulation("intents2")
+    _couples(two_sim, two_zone, 6, "I2")
+    unpaired_a = _agent(two_sim, two_zone, "LiberoA", age=30, gender=Agent.Gender.MALE)
+    unpaired_b = _agent(two_sim, two_zone, "LiberaB", age=28, gender=Agent.Gender.FEMALE)
+    tick = two_sim.current_tick + 1
+    _pair_bond_intent(two_sim, unpaired_a, unpaired_b.name, tick - 1)
+    _pair_bond_intent(two_sim, unpaired_b, unpaired_a.name, tick - 1)
+    with_two = _count_queries(two_sim, tick)
+
+    slope = (with_two - baseline) / 2
+    assert slope <= PER_PAIR_BOND_INTENT, (
+        f"{with_two} queries with two intents against {baseline} with none: "
+        f"{slope} per intent exceeds the declared {PER_PAIR_BOND_INTENT}. The "
+        "intents are produced one per deliberating agent, so a coefficient "
+        "that grows here is a per-living-agent term by another name"
+    )
+    assert with_two > baseline, (
+        "two pair-bond intents cost nothing at all: the fixture is not "
+        "reaching the resolver and this guard measures an empty queryset"
+    )
