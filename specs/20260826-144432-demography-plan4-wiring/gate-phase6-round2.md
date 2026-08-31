@@ -1189,3 +1189,80 @@ tutto superficialmente troverà meno di uno che ne legga metà a fondo. Il
 criterio chiede esplicitamente la profondità sui quattro punti sopra e accetta
 che il resto sia dichiarato non coperto: un elenco onesto di ciò che non è
 stato guardato vale più di una copertura nominale che non ha guardato niente.
+
+### Verdetto round 9: NOT CONVERGED
+
+**Il round 9 non era ristretto, ed è la scelta che ha prodotto il verdetto:
+nessuno dei tre bloccanti stava dentro la remediation del round 8.** Un round
+ristretto non ne avrebbe trovato nessuno.
+
+**C1, classe 1 — due orologi.** `initialization.py` era l'unico modulo del
+sottosistema a non nominare mai `acceleration`: zero occorrenze, contro
+quindici nell'orchestratore. Scriveva `birth_tick` senza il fattore e
+`age_in_years` lo rilegge moltiplicandovi, quindi il giro restituiva l'età
+scritta **per l'accelerazione**. Misurato: un quarantenne torna 400 anni a
+`acceleration=10`. Il docstring della funzione dichiarava esattamente
+l'invariante che il codice rompeva. Conseguenze dentro il ramo: azzardo di
+Heligman-Pollard valutato a quattrocento anni, e finestra fertile — che scala
+in senso opposto — che esclude l'intera popolazione fondatrice, quindi nessun
+concepimento mai.
+
+**C2, classe 1 — una persona a carico di due nuclei.** `_anchor` risaliva la
+catena dei tutori incondizionatamente, quindi una minorenne sposata finiva nel
+nucleo del genitore mentre la chiave del marito continuava a nominarla: il suo
+patrimonio contato in un nucleo, la sua appartenenza reclamata da un altro.
+Misurato: un anno di età ribalta il verdetto sulla stessa popolazione, a
+quattordici anni affamata accanto a un marito con diecimila, a diciassette no.
+Raggiungibile perché `min_marriage_age_*` non compare in `couple.py`: la
+soglia dell'era governa il solo accoppiamento fondatore, non il percorso per
+intenti.
+
+**C3, classe 1 — identità.** I bacini di nomi hanno **dodici** voci per sesso
+e `pick_newborn_name` non controlla l'unicità, quindi la collisione è certa al
+tredicesimo nato di un sesso; `_resolve_agent_by_name` legava il nome ambiguo
+all'omonimo con l'id più basso, in silenzio. Prima di questo ramo non nasceva
+nessuno: è il ramo a rendere certa una collisione finora impossibile.
+
+**Il pattern, sesta e settima istanza.** Due delle duplicazioni sono state
+introdotte **dal ramo stesso, nella stessa passata, con l'originale a due file
+di distanza**: `context.household_keys` riscriveva `couple.active_couple_partners`,
+e `orchestrator.age_in_years` riscriveva `fertility._effective_age_in_years`.
+Non è codice ereditato andato alla deriva: è codice nuovo che nasce già
+duplicato accanto al proprio originale, mentre sei docstring dello stesso ramo
+dichiarano la regola della sorgente canonica.
+
+### Che cosa è stato corretto in risposta
+
+- **C1**: il backfill riceve il template e delega l'inversione a
+  `age_in_years` invece di riscriverla; degrada ad accelerazione 1,0 con un
+  log se l'era non si carica, perché lo stesso codice è la riparazione per
+  tick del blocco e un refuso nel nome dell'era non deve fermare il tick.
+- **C2**: il matrimonio prevale sulla catena dei tutori. Decisione di modello
+  presa in autonomia e dichiarata: una coppia È un nucleo, prima riga del
+  docstring della derivazione, e nessuno può essere a carico di due.
+- **C3**, ratificata dall'utente: un bersaglio ambiguo viene **rifiutato e
+  registrato** invece che legato arbitrariamente. Non elimina l'ambiguità,
+  impedisce il matrimonio sbagliato. Risolvere per identificatore la
+  eliminerebbe ed è un work item separato, perché cambia lo schema d'azione
+  che il ciclo di decisione consegna al modello.
+- **Le due duplicazioni chiuse**: la mappa dei partner e la formula dell'età
+  hanno ora una sola implementazione ciascuna. La seconda aveva anche una
+  divergenza reale, il guardiano sul divisore presente in una sola delle due.
+- **Le code testuali**: il `why_here` del passo 5 e il docstring di
+  `migration.py` che asserivano ancora il modello pre-B1; «una query di soglia
+  per zona» che sono due; la memoizzazione che ne dichiarava tre quando ne
+  copre due; `HOURS_PER_YEAR` nominata anche nell'orchestratore e in
+  `fertility.py`, dove era un letterale nudo.
+- **La coda che valeva di più**: il costo per intento di accoppiamento non era
+  mai stato misurato da nessuna fixture, mentre i passi 1 e 2 girano a ogni
+  tick. Ora c'è una guardia che lo pinna sulla misura e dichiara che il
+  termine è per intento e non per agente vivo.
+
+Ogni correzione ha il proprio testimone, visto rosso prima. Suite **1735
+verdi**, ruff pulito su 339 file.
+
+### Conseguenza
+
+Round 9 **NOT CONVERGED**. Il round 10 giudica questa remediation, e — per la
+regola che il round 8 ha scritto e il round 9 ha confermato per la seconda
+volta — lo fa di nuovo sull'**intero diff del ramo**, non sul solo delta.
