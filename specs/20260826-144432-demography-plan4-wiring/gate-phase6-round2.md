@@ -1125,3 +1125,67 @@ mestiere per cui è stata scritta.
 Round 8 **NOT CONVERGED**. Il round 9 giudica questa remediation, e dopo di
 esso va ri-eseguita la review sull'intero diff del ramo, che il criterio del
 round 8 dichiara dovuta a ogni remediation che tocchi il codice di produzione.
+
+---
+
+## Round 9: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 8 e prima di lanciare il round 9.**
+
+### Il round 9 NON è ristretto, ed è una scelta motivata
+
+Otto round su otto sono stati ristretti al diff della remediation precedente.
+La scelta era giusta per la velocità — sul work item precedente aveva portato
+un round da venticinque minuti a tre senza perdere severità — ma la review di
+chiusura ha mostrato il conto: **quattro difetti di produzione che nessuno
+degli otto poteva vedere**, sei rilievi su dieci della stessa classe, una
+grandezza calcolata bene in un modulo e riletta stantia in quello accanto. È
+una classe che per definizione non esiste dentro un diff ristretto, e il round
+8 ne ha trovata una quinta istanza — due definizioni di «figlio di» in due
+moduli dello stesso sottosistema — proprio perché il criterio gli aveva
+chiesto di guardare fuori.
+
+**Ambito del round 9: `git diff develop..HEAD` per intero**, con la
+remediation del round 8 (`3787a8e`) come primo bersaglio. Non si fa una
+passata ristretta e poi una completa: la remediation è piccola, e una sola
+passata che le guardi entrambe costa meno di due e vede di più.
+
+**Le tre classi bloccanti restano identiche** dal round 2.
+
+### Che cosa attaccare per primo
+
+1. **`household_keys` dopo la seconda riscrittura.** Ora cerca il tutore vivo
+   in tre colonne e risale una catena. L'ordine madre-padre-caretaker è una
+   scelta: che cosa accade quando entrambi i genitori sono vivi ma non in
+   coppia fra loro, e il minore finisce nel nucleo dell'uno e non dell'altro.
+   La catena ha un insieme di visitati: è davvero impossibile un ciclo che la
+   faccia terminare su un nodo sbagliato invece che su nessuno.
+2. **La classe che il round 8 ha appena colto una quinta volta.** Cerca la
+   sesta: due moduli che definiscono la stessa relazione o la stessa
+   grandezza in modi diversi. `is_in_active_couple` contro la mappa dei
+   partner, `age_in_years` contro qualunque altra derivazione dell'età,
+   `compute_subsistence_threshold` contro la condizione 1 del trigger di
+   fuga, la nozione di «vivo» fra i passi.
+3. **I campi differiti.** La correzione dell'N+1 ha aggiunto tre colonne a un
+   `.only()`. Ce ne sono altri nel sottosistema, e ogni campo toccato fuori
+   dalla lista costa una query per oggetto: enumerali.
+4. **Il costo per intento di accoppiamento**, che la review di chiusura ha
+   registrato come coda e nessun round ha ancora misurato: i passi 1 e 2
+   girano a ogni tick e nessuna fixture di costo costruisce un intento.
+
+### Che cosa il verdetto deve contenere
+
+Rilievi per gravità con classe, `file:riga` e misura. Se non produce nulla
+delle tre classi, l'enumerazione di ciò che non ha coperto — su un diff di
+questa dimensione quell'elenco è la parte che vale, e i due verdetti
+precedenti lo hanno dimostrato.
+
+**Convergenza**: nessuna delle tre classi bloccanti.
+
+### Perché questo criterio può fallire
+
+Il diff è 53 file e circa 1900 righe di produzione, e un revisore che lo legga
+tutto superficialmente troverà meno di uno che ne legga metà a fondo. Il
+criterio chiede esplicitamente la profondità sui quattro punti sopra e accetta
+che il resto sia dichiarato non coperto: un elenco onesto di ciò che non è
+stato guardato vale più di una copertura nominale che non ha guardato niente.
