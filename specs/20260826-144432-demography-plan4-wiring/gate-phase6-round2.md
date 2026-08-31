@@ -428,3 +428,81 @@ esercitato da un test.
 Round 4 **NOT CONVERGED**: un criterio che non poteva fallire più due
 testimoni più deboli della loro stessa dichiarazione, tutti introdotti dalla
 remediation del round 3. Il round 5 giudica questa remediation.
+
+---
+
+## Round 5: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 4 e prima di lanciare il round 5.**
+
+**Ambito**: `git diff 2849510..HEAD` — la remediation del round 4 più la
+risposta alla domanda di copertura per valore che il round 4 aveva lasciato
+aperta, e i due testimoni che ne discendono.
+
+**Le tre classi bloccanti restano identiche** e non sono state toccate: un
+difetto di correttezza nel codice di produzione, un criterio che non può
+fallire, una chiusura dichiarata e non vera.
+
+### Che cosa la domanda del round 4 ha prodotto, misurato
+
+La domanda era: che cosa produce `run_fertility_step` che nessun test
+asserisce per valore, attraversando il passo. La risposta, misurata e non
+argomentata: **dodici cose su tredici**.
+
+Dodici corruzioni applicate dentro il passo — nome, sesso, orientamento
+sessuale, gli otto caratteri ereditabili scalari dimezzati, classe sociale,
+livello d'istruzione, ricchezza, zona, più quattro proprietà dell'evento di
+nascita (nome del passo, flag di morte in parto, appaiamento del neonato e
+appaiamento della madre) — hanno lasciato **1717 test su 1717 verdi**, suite
+intera e non solo il sottoinsieme demografico. L'unica che moriva era
+`birth_tick`, con otto rossi.
+
+La riparazione è **due testimoni, non dodici**, perché le otto corruzioni
+sugli attributi del neonato sono lo stesso difetto: il passo che sovrascrive
+ciò che il proprio produttore ha appena costruito. Il primo testimone cattura
+l'oggetto restituito da `build_newborn` e pretende che la riga persistita gli
+corrisponda campo per campo; il secondo pretende che ogni evento descriva la
+propria nascita, su due nascite di cui una con la madre che muore in parto.
+
+### La regola operativa, applicata e dichiarata
+
+**La batteria è stata eseguita anche contro la versione precedente.** Prima
+dei testimoni: dodici corruzioni su dodici sopravvivono alla suite intera.
+Dopo: dodici su dodici muoiono, ciascuna misurata **singolarmente**, perché
+una batteria combinata si ferma al primo campo e proverebbe solo quello.
+
+**E il pattern si è ripetuto dentro la riparazione stessa, per la quinta
+volta.** Il testimone sull'orientamento sessuale, alla prima stesura, era
+inerte: la corruzione forza `heterosexual` e tutti e cinque i template lo
+estraggono al 95,5%, quindi sovrascriveva un valore con se stesso. È emerso
+solo perché le mutazioni sono state misurate campo per campo invece che tutte
+insieme; la batteria combinata lo avrebbe dichiarato coperto. Corretto
+sostituendo la distribuzione dell'era sul caricatore — non cercando un seme
+fortunato — e ri-misurato.
+
+### Che cosa questo round deve sospettare per primo
+
+I due testimoni nuovi sono l'unica cosa che oggi separa dodici proprietà dal
+nulla. La domanda è quindi la stessa un livello più fuori: **che cosa quei due
+testimoni dichiarano di coprire e non coprono**, e che cosa resta fuori dal
+loro perimetro. Il primo dichiara esplicitamente di non coprire una
+corruzione interna a `build_newborn`; il round verifichi che quella frontiera
+sia davvero presidiata altrove, e non solo dichiarata.
+
+### Che cosa il verdetto deve contenere, oltre ai rilievi
+
+Se il round non produce nulla delle tre classi, deve **enumerare che cosa non
+ha coperto**. Quattro round su quattro hanno prodotto un bloccante; un quinto
+che dice solo «nessun rilievo» non è un verdetto, è una resa.
+
+**Convergenza**: nessuna delle tre classi bloccanti. Cifre e frasi si
+correggono nello stesso commit.
+
+### Perché questo criterio può fallire
+
+La remediation aggiunge due classi di test e un monkeypatch sul caricatore dei
+template, tocca un file di test già riscritto tre volte in questo gate, e
+introduce una fixture che cambia la distribuzione di un'era. Se il round non
+produce nulla, la spiegazione ammessa è che le ventiquattro misure di
+mutazione — dodici prima, dodici dopo — lo abbiano già colto, e il verdetto
+deve dire quali percorsi ha verificato per sostenerlo.
