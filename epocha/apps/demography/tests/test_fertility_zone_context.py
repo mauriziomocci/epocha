@@ -313,10 +313,18 @@ def test_a_half_null_couple_keeps_its_surviving_partner_a_member():
     picks between them on whether the caller supplied one. The survivor is a
     member with no partner, which is exactly what the value `None` says.
 
-    No production path builds this row today: `dissolve_on_death` nulls the
-    FK and writes `dissolved_at_tick` in the same save. The guard is here
-    because the equivalence is asserted in a docstring, and an invariant
-    written in prose and not enforced by a test gets violated silently.
+    This row IS reachable in production, and the sentence that used to stand
+    here said it was not. `dissolve_on_death` does null the FK and write
+    `dissolved_at_tick` in the same save, so that path cannot produce it --
+    but `agents/admin.py` registers `Agent` with the default `ModelAdmin`,
+    so deleting an agent from the Django admin fires `on_delete=SET_NULL` on
+    `Couple.agent_a`/`agent_b` without touching `dissolved_at_tick`, which is
+    exactly this row and exactly why `SET_NULL` is there. The original
+    enumeration looked for `.delete()` calls in the source and the admin path
+    is not a call in the source. Corrected after the round-4 phase-6 gate;
+    the consequence is substantial, because in that state the survivor now
+    conceives under an era that requires a couple, where she was excluded
+    before.
     """
     from epocha.apps.demography.couple import active_couple_partners, is_in_active_couple
     from epocha.apps.demography.models import Couple

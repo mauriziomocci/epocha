@@ -506,3 +506,66 @@ introduce una fixture che cambia la distribuzione di un'era. Se il round non
 produce nulla, la spiegazione ammessa è che le ventiquattro misure di
 mutazione — dodici prima, dodici dopo — lo abbiano già colto, e il verdetto
 deve dire quali percorsi ha verificato per sostenerlo.
+
+### Verdetto round 5: NOT CONVERGED
+
+Un revisore, ambito ristretto come dichiarato, igiene di processo rispettata:
+ogni mutazione ripristinata subito, un solo pytest per volta, nessun processo
+lasciato vivo.
+
+**Il pattern si è ripetuto per la sesta volta, e di nuovo dentro il testimone
+scritto per chiuderlo.** Tre criteri che non potevano fallire, tutti e tre
+nella classe `TestTheStepPersistsWhatItBuilt`, e due delle tre forme sono
+letteralmente quelle che i round 1 e 4 avevano già nominato.
+
+**Bloccante 1, classe 2 — il testimone si chiama «every field» e ne enumerava
+diciotto scritti a mano.** Il perimetro era il letterale `WITNESSED` più gli
+otto caratteri scalari, e nulla lo legava all'insieme dei campi che
+`build_newborn` scrive davvero: il letterale era già fuori sincrono col
+produttore il giorno in cui è nato. Fuori restavano `personality` — cinque
+tratti Big Five scritti da `inheritance.py:656` —, `cunning`, `role` e
+`health`. Misurato: azzerando la personalità di ogni neonato fra costruzione e
+salvataggio, **1719 test su 1719 verdi**.
+
+**Bloccante 2, classe 2 — la fixture aveva una zona sola**, quindi «la zona di
+*quella* madre» non era separabile da «una zona». Misurato con la regressione
+realistica, ogni neonato assegnato alla zona della prima candidata: 1719 su
+1719 verdi. È il rilievo che il round 4 aveva già fatto sul testimone della
+media di classe, ri-introdotto dentro il testimone scritto dopo di esso.
+
+**Bloccante 3, classe 2 — la corruzione della classe sociale sovrascriveva un
+valore con se stesso.** Madre `wealthy` e padre `elite` in entrambe le coppie,
+sotto una regola patrilineare verbatim: entrambi i neonati ereditavano
+`elite`, e pinnare quella colonna a `elite` lasciava 24 test su 24 verdi. È la
+stessa inerzia che la remediation del round 4 aveva trovato e chiuso
+sull'orientamento sessuale: riparata quella colonna, lasciata in piedi quella
+accanto sulla stessa trappola.
+
+**Non bloccante, prosa superata**: `test_fertility_zone_context.py` dichiarava
+ancora che nessun percorso di produzione costruisce la coppia attiva
+mezza-nulla, frase che il verdetto del round 4 aveva già rettificato in questo
+stesso documento.
+
+**Classe 1: nessun rilievo.** L'unica riga di produzione in ambito è
+l'annotazione di `active_couple_partners`, ora concorde con corpo e docstring.
+Tutte le chiusure del round 4 sono state ri-misurate e sono vive.
+
+### Che cosa è stato corretto in risposta
+
+- **L'insieme dei campi confrontati è derivato dal modello, non enumerato**:
+  `Agent._meta.concrete_fields` meno `id` e `created_at`, che non possono
+  combaciare per costruzione. Una colonna aggiunta domani è testimoniata senza
+  che nessuno se ne ricordi. Una guardia nomina esplicitamente i cinque campi
+  che il round 5 ha trovato mancanti, perché la regressione non torni in
+  silenzio.
+- **Due zone e due classi paterne**, con la fixture che **asserisce la propria
+  forma**: se i due neonati finissero nella stessa zona o nella stessa classe,
+  il test lo dice invece di andare inerte.
+- La prosa superata corretta in loco, con la ragione per cui era falsa.
+
+Ri-misurato: **ventidue mutazioni su ventidue muoiono**, comprese le quattro
+che questo round aveva misurato sopravvivere. Suite 1719 verdi, ruff pulito.
+
+### Conseguenza
+
+Round 5 **NOT CONVERGED**. Il round 6 giudica questa remediation.

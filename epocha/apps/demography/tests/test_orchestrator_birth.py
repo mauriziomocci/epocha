@@ -701,14 +701,13 @@ class TestFertilityTransactionalBoundary:
 class TestTheStepPersistsWhatItBuilt:
     """The step must not alter a newborn between building it and saving it.
 
-    Measured on 2026-08-29 against the whole 1717-test suite: eight
-    corruptions applied inside `run_fertility_step` AFTER `build_newborn`
-    returned -- the name, the gender, the sexual orientation, the eight
-    scalar heritable traits halved, the social class, the education level,
-    the wealth and the zone -- left every test in the project green.
-    `TestBirthOrchestrator` above does cover `build_newborn`, but it calls it
-    directly, so it witnesses nothing about what the step does with the
-    object it gets back.
+    Measured on 2026-08-29 against the whole suite: eight corruptions applied
+    inside `run_fertility_step` AFTER `build_newborn` returned -- the name,
+    the gender, the sexual orientation, the eight scalar heritable traits
+    halved, the social class, the education level, the wealth and the zone --
+    left every test in the project green. `TestBirthOrchestrator` above does
+    cover `build_newborn`, but it calls it directly, so it witnesses nothing
+    about what the step does with the object it gets back.
 
     One test rather than eight, because all eight corruptions are the same
     defect wearing different clothes: the step overwriting its own producer.
@@ -717,27 +716,28 @@ class TestTheStepPersistsWhatItBuilt:
     heterosexual at 0.955 and the sex ratio is near even -- and a statistical
     witness for a deterministic defect is theatre.
 
+    **The compared columns are derived from the model, never enumerated.**
+    The first version of this test listed them in a hand-written tuple, and
+    the round-5 gate measured that tuple already out of sync with the
+    producer the day it was written: `personality`, `cunning`, `role` and
+    `health` are all written on the newborn and none was compared, so wiping
+    every newborn's inherited personality between building and saving left
+    1719 tests of 1719 green. Deriving the set from
+    `Agent._meta.concrete_fields` means a column added tomorrow is witnessed
+    without anybody remembering to add it.
+
     What this does NOT witness, stated rather than left to be discovered: a
     corruption inside `build_newborn` itself, which is the subject of
     `TestBirthOrchestrator` and of the inheritance module's own audited tests.
     """
 
-    WITNESSED = (
-        "name",
-        "gender",
-        "sexual_orientation",
-        "social_class",
-        "education_level",
-        "wealth",
-        "zone_id",
-        "birth_tick",
-        "parent_agent_id",
-        "other_parent_agent_id",
-    )
+    # Excluded because they cannot match by construction, not because they do
+    # not matter: `id` is unset until `bulk_create` assigns it, and
+    # `created_at` is stamped at insert time.
+    UNCOMPARABLE = frozenset({"id", "created_at"})
 
     def test_every_field_survives_the_trip_to_the_database(self, sim_with_zone, monkeypatch):
         from epocha.apps.demography import template_loader
-        from epocha.apps.demography.tests.test_inheritance import SCALAR_HERITABLE_TRAITS
 
         # The orientation draw needs an era that can contradict the
         # corruption. Measured: with the shipped templates this witness
@@ -758,12 +758,44 @@ class TestTheStepPersistsWhatItBuilt:
 
         monkeypatch.setattr(template_loader, "load_template", _era_without_heterosexuality)
 
-        fields = self.WITNESSED + tuple(sorted(SCALAR_HERITABLE_TRAITS))
-        sim, zone = sim_with_zone
-        for i in range(2):
-            mother = _agent(sim, zone, f"Madre{i}", age=25, social_class="wealthy")
+        fields = tuple(
+            sorted(
+                f.attname for f in Agent._meta.concrete_fields if f.attname not in self.UNCOMPARABLE
+            )
+        )
+        # Named explicitly so the round-5 regression cannot come back quietly:
+        # these five were written by the producer and absent from the tuple
+        # the first version of this test compared.
+        assert {"personality", "cunning", "role", "health", "location"} <= set(fields), (
+            "the derived column set no longer covers the fields the round-5 gate found missing"
+        )
+
+        sim, first_zone = sim_with_zone
+        second_zone = Zone.objects.create(
+            world=World.objects.get(simulation=sim),
+            name="SecondaZona",
+            zone_type="residential",
+            boundary=Polygon.from_bbox((200, 200, 300, 300)),
+            center=Point(250, 250),
+        )
+        # Two zones and two paternal classes, because a fixture whose births
+        # agree on a column cannot tell "the value of THIS newborn" from "a
+        # constant". Measured on the one-zone, one-class version: assigning
+        # every newborn the first candidate's zone, and pinning the social
+        # class to the value both were going to inherit anyway, both left the
+        # suite green.
+        for zone, klass, edu in ((first_zone, "elite", 0.9), (second_zone, "poor", 0.1)):
+            mother = _agent(
+                sim, zone, f"Madre{klass}", age=25, social_class=klass, education_level=edu
+            )
             father = _agent(
-                sim, zone, f"Padre{i}", gender=Agent.Gender.MALE, age=28, social_class="elite"
+                sim,
+                zone,
+                f"Padre{klass}",
+                gender=Agent.Gender.MALE,
+                age=28,
+                social_class=klass,
+                education_level=edu,
             )
             form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
         context = _context(sim)
@@ -785,6 +817,18 @@ class TestTheStepPersistsWhatItBuilt:
             orchestrator.build_newborn = real_build
 
         assert len(built) == 2, f"expected two births, the step built {len(built)}"
+        # The fixture asserts its own shape: without both of these the
+        # comparison below cannot separate a per-newborn value from a
+        # constant, and the witness goes inert without saying so.
+        assert len({v["zone_id"] for v in built.values()}) == 2, (
+            "both newborns were built in the same zone: the fixture no longer "
+            "separates the mother's own zone from any zone"
+        )
+        assert len({v["social_class"] for v in built.values()}) == 2, (
+            "both newborns inherited the same social class: a corruption "
+            "pinning that column would overwrite the value with itself"
+        )
+
         stored = {
             a.parent_agent_id: a
             for a in Agent.objects.filter(simulation=sim, birth_tick=context.tick)
