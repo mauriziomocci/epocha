@@ -781,6 +781,8 @@ senza eliminare l'ambiguità. Risolvere gli intenti per identificatore anziché
 per nome la eliminerebbe ed è tracciato separatamente, perché cambia lo schema
 dell'azione che il ciclo di decisione consegna al modello.
 
+Con essi sono stati chiusi tre difetti della serie dello snapshot, tutti nell'artefatto che la campagna di validazione storica legge: il bucket d'età più anziano è un intervallo APERTO ed è ora etichettato con estremo superiore nullo anziché come `[100, 104]`, che archiviava un centotrentenne dentro un intervallo dichiarato fermarsi a 104; la piramide conta tutti e tre i valori del campo genere, quindi le sue celle sommano ora alla popolazione vivente invece di lasciarne cadere uno in silenzio; e `sex_ratio` è nullo quando non ci sono donne, mentre prima restituiva il CONTEGGIO dei maschi e rendeva dieci uomini senza donne indistinguibili da dieci uomini e una donna.
+
 ### 4.1.1 Modello di mortalità (Heligman-Pollard)
 
 > Stato: implementato a partire dal commit `b5be0e2b62aa1cc2119f3d66418461eb9e92ea66`, audit della spec CONVERGENTE 2026-04-18 round 4.

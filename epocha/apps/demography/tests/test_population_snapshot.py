@@ -399,6 +399,69 @@ class TestSnapshotSharesTheOrchestratorsClock:
         ), "the rates were annualised on the unaccelerated calendar"
 
 
+class TestTheSeriesDoesNotLieAtItsEdges:
+    """Three defects the closure review registered and nobody had closed.
+
+    All three sit in the artefact the historical-validation campaign is
+    supposed to read against Human Mortality Database and Wrigley-Schofield,
+    which is the one place where a plausible-looking wrong number costs the
+    most.
+    """
+
+    def test_the_open_bucket_is_labelled_open(self, sim_with_zones):
+        """A 130-year-old was filed inside an interval declared to stop at 104."""
+        sim, home, _ = sim_with_zones
+        tick = sim.current_tick + 1
+        _agent(sim, home, "Matusalemme", age=130)
+
+        snapshot.write_population_snapshot(_context(sim, tick))
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        low, high, *_ = row.age_pyramid[-1]
+        assert low == 100
+        assert high is None, (
+            f"the oldest bucket is labelled [{low}, {high}] but holds every age "
+            "above its floor: a reader cannot tell a centenarian from a "
+            "hundred-and-thirty-year-old"
+        )
+
+    def test_a_non_binary_agent_is_counted_somewhere(self, sim_with_zones):
+        """The pyramid counted two of the three genders the model carries.
+
+        The buckets summed to less than `total_alive` with nothing saying so,
+        which is a silent hole in the one series the validation campaign
+        reads.
+        """
+        sim, home, _ = sim_with_zones
+        tick = sim.current_tick + 1
+        _agent(sim, home, "Enby", age=30, gender=Agent.Gender.NON_BINARY)
+        _agent(sim, home, "Uomo", age=30)
+
+        snapshot.write_population_snapshot(_context(sim, tick))
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        counted = sum(sum(bucket[2:]) for bucket in row.age_pyramid)
+        assert counted == row.total_alive, (
+            f"{counted} agents in the pyramid against {row.total_alive} alive: "
+            "a gender the model carries is missing from the series"
+        )
+
+    def test_the_sex_ratio_of_a_womanless_population_is_not_a_count(self, sim_with_zones):
+        """Ten men and no women read the same as ten men and one woman."""
+        sim, home, _ = sim_with_zones
+        tick = sim.current_tick + 1
+        for i in range(10):
+            _agent(sim, home, f"Uomo{i}", age=30)
+
+        snapshot.write_population_snapshot(_context(sim, tick))
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        assert row.sex_ratio != 10.0, (
+            "a population with no women reports the male COUNT as its sex "
+            "ratio, which is indistinguishable from ten men and one woman"
+        )
+
+
 class TestSnapshotLifecycle:
     def test_one_snapshot_per_tick(self, populated_tick):
         sim, _, _, tick = populated_tick
@@ -429,5 +492,8 @@ class TestSnapshotLifecycle:
         assert row.total_alive == 0
         # Fields whose computed empty-population value differs from the model
         # default, so a writer that skips computation on empty cannot pass.
-        assert row.sex_ratio == 0.0  # zero males over zero females; default is 1.0
+        # `None`: with no women the ratio is undefined, and an empty
+        # population has none. It still differs from the model default of
+        # 1.0, so a writer that skips computation on empty cannot pass.
+        assert row.sex_ratio is None
         assert Couple.objects.count() == 0

@@ -118,7 +118,11 @@ def write_population_snapshot(context: Any) -> None:
         defaults={
             "total_alive": total_alive,
             "age_pyramid": _age_pyramid(living, ages),
-            "sex_ratio": (males / females) if females else float(males),
+            # `None`, not the male count. With no women the ratio is
+            # undefined, and returning `males` made ten men with no women
+            # indistinguishable from ten men and one woman in a FloatField
+            # that a reader takes for a ratio.
+            "sex_ratio": (males / females) if females else None,
             "avg_age": (sum(ages) / total_alive) if total_alive else 0.0,
             "crude_birth_rate": _per_thousand_per_year(len(births), total_alive, ticks_per_year),
             "crude_death_rate": _per_thousand_per_year(len(deaths), total_alive, ticks_per_year),
@@ -147,13 +151,31 @@ def _age_pyramid(living: list, ages: list[float]) -> list[list[int]]:
     buckets: dict[int, list[int]] = {}
     for agent, age in zip(living, ages, strict=True):
         low = min(int(age) // AGE_BUCKET_YEARS * AGE_BUCKET_YEARS, OLDEST_BUCKET_START)
-        entry = buckets.setdefault(low, [0, 0])
+        # Three counts, not two. `Agent.Gender` carries a third value, and
+        # counting only the pair made the buckets sum to LESS than
+        # `total_alive` with nothing saying so -- a silent hole in the one
+        # series the historical-validation campaign reads. Every living agent
+        # is now in exactly one cell.
+        entry = buckets.setdefault(low, [0, 0, 0])
         if agent.gender == Agent.Gender.MALE:
             entry[0] += 1
         elif agent.gender == Agent.Gender.FEMALE:
             entry[1] += 1
+        else:
+            entry[2] += 1
+    # The oldest bucket is OPEN and is labelled `None` on its upper bound,
+    # because it holds every age above its floor: labelling it
+    # `[100, 104]` filed a hundred-and-thirty-year-old inside an interval
+    # declared to stop at 104, which is the standard open-ended top interval
+    # of a population pyramid misreported as a closed one.
     return [
-        [low, low + AGE_BUCKET_YEARS - 1, counts[0], counts[1]]
+        [
+            low,
+            None if low == OLDEST_BUCKET_START else low + AGE_BUCKET_YEARS - 1,
+            counts[0],
+            counts[1],
+            counts[2],
+        ]
         for low, counts in sorted(buckets.items())
     ]
 

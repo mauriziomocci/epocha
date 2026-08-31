@@ -739,6 +739,8 @@ the ambiguity. Resolving intents by identifier rather than by name would
 remove it and is tracked separately, since it changes the action schema the
 decision loop hands the model.
 
+Three defects in the snapshot series itself were closed with them, all in the artefact the historical-validation campaign reads: the oldest age bucket is an OPEN interval and is now labelled with a null upper bound rather than as `[100, 104]`, which had filed a hundred-and-thirty-year-old inside an interval declared to stop at 104; the pyramid counts all three values of the gender field, so its cells now sum to the living population instead of silently dropping one of them; and `sex_ratio` is null when there are no women, where it previously returned the male COUNT and made ten men with no women indistinguishable from ten men and one woman.
+
 ### 4.1.1 Mortality model (Heligman-Pollard)
 
 > Status: implemented as of commit `b5be0e2b62aa1cc2119f3d66418461eb9e92ea66`, spec audit CONVERGED 2026-04-18 round 4.
