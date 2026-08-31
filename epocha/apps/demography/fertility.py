@@ -329,7 +329,9 @@ def tick_birth_probability(
         int(params_era.get("max_population", 500)),
         float(fertility_cfg.get("malthusian_floor_ratio", 0.1)),
     )
-    dt = (tick_duration_hours / 8760.0) * demography_acceleration
+    from epocha.apps.demography.orchestrator import HOURS_PER_YEAR
+
+    dt = (tick_duration_hours / HOURS_PER_YEAR) * demography_acceleration
     return effective * dt
 
 
@@ -357,8 +359,13 @@ def _effective_age_in_years(
             current_tick = (
                 Simulation.objects.only("current_tick").get(pk=agent.simulation_id).current_tick
             )
-    ticks_per_year = 8760.0 / tick_duration_hours
-    return (current_tick - agent.birth_tick) / max(1e-9, ticks_per_year) * demography_acceleration
+    # Delegated rather than recomputed. Round 9 found this formula written
+    # twice -- here and in `orchestrator.age_in_years` -- with one real
+    # divergence: only the other guarded the divisor, so a zero tick duration
+    # raised here and did not there. One formula, one guard.
+    from epocha.apps.demography.orchestrator import age_in_years
+
+    return age_in_years(agent, current_tick, tick_duration_hours, demography_acceleration)
 
 
 # ---------------------------------------------------------------------------

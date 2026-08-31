@@ -109,13 +109,23 @@ class DemographyTickContext:
         The phase-6 closure review counted three identical private helpers
         resolving this with a query each, in `orchestrator`, `snapshot` and
         `initialization`, while this container existed precisely to resolve
-        per-tick constants once. Memoised through `object.__setattr__`
+        per-tick constants once. Two of the three now share this one;
+        `initialization.backfill_birth_ticks` keeps its own because it runs
+        without a context, and saying so is better than implying three.
+        Memoised through `object.__setattr__`
         because the dataclass is frozen and the value is a cache of a
         world-level fact, not part of the context's identity.
         """
         if self.tick_duration_hours is None:
             object.__setattr__(self, "tick_duration_hours", _tick_duration_hours(self.simulation))
         return float(self.tick_duration_hours)
+
+
+# Hours in a Julian year, the conversion every age and rate in this
+# subsystem runs through. Named here rather than repeated as a literal:
+# `snapshot.py` and `initialization.py` already name it, and round 9
+# counted the same number in four forms across three modules.
+HOURS_PER_YEAR = 8760.0
 
 
 def is_demography_enabled(simulation: Any) -> bool:
@@ -436,7 +446,7 @@ def age_in_years(agent: Any, tick: int, tick_duration_hours: float, acceleration
     """
     if agent.birth_tick is None:
         return float(agent.age or 0)
-    ticks_per_year = 8760.0 / max(1e-9, tick_duration_hours)
+    ticks_per_year = HOURS_PER_YEAR / max(1e-9, tick_duration_hours)
     return (tick - agent.birth_tick) / max(1e-9, ticks_per_year) * acceleration
 
 
@@ -735,9 +745,11 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     tick's inheritance is counted as recovered rather than as still starving.
 
     Query shape: one read of the living agents, one read of the active
-    couples for the household derivation, one threshold query per zone --
-    zones, not agents -- and one `bulk_update`. None of these scales with the
-    number of living agents.
+    couples for the household derivation, up to TWO threshold queries per
+    zone -- zones, not agents, and two rather than one because
+    `compute_subsistence_threshold` reads the zone economy and then iterates
+    the essential good categories -- and one `bulk_update`. None of these
+    scales with the number of living agents.
 
     No transactional boundary, and that is a decision rather than an
     omission: this step performs exactly ONE write, so there is no partial
@@ -825,7 +837,7 @@ def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: 
     guarantees no living agent is left in that state; admitting them here
     would quietly reintroduce the frozen-age path this project is removing.
     """
-    ticks_per_year = 8760.0 / max(1e-9, tick_duration_hours)
+    ticks_per_year = HOURS_PER_YEAR / max(1e-9, tick_duration_hours)
     scale = ticks_per_year / max(1e-9, acceleration)
     oldest_fertile_birth_tick = tick - FERTILE_AGE_MAX * scale
     youngest_fertile_birth_tick = tick - FERTILE_AGE_MIN * scale
@@ -902,7 +914,7 @@ def run_demography_tick(simulation: Any, tick: int) -> None:
     # that step 2 exists to resolve.
     from epocha.apps.demography.initialization import backfill_birth_ticks
 
-    backfill_birth_ticks(simulation)
+    backfill_birth_ticks(simulation, template=template)
 
     context = DemographyTickContext(
         simulation=simulation,
@@ -997,10 +1009,13 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         rng_phases=(),
         run=run_starvation_counter_step,
         why_here=(
-            "The counter increments on the same predicate the flight trigger"
-            " reads -- wealth against the zone subsistence threshold -- so it"
-            " must read the post-succession wealth, or an heir who rose above"
-            " the line this tick is still counted as starving."
+            "The counter increments on a HOUSEHOLD predicate -- the household's "
+            "combined wealth against the sum of its members' zone thresholds -- "
+            "which is deliberately NOT the flight trigger's own individual "
+            "condition 1. A dependent minor owns nothing, so an individual "
+            "predicate made every child a chronic starveling. It must still"
+            " read the post-succession wealth, or an heir who rose above the"
+            " line this tick would still be counted as starving."
         ),
     ),
     DemographyStep(
