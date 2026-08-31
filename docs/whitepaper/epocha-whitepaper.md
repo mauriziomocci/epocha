@@ -717,6 +717,28 @@ until the two modules were compared, and under any accelerated era the age
 pyramid, the mean age and the TFR denominator described a population the
 mortality and fertility steps did not see.
 
+**Round 9 of the phase-6 gate, reading the whole branch diff rather than one
+remediation, found three further instances of the same class.** First, the
+birth-tick backfill in `initialization.py` was the only module of the
+subsystem that never named `acceleration`, while `age_in_years` -- the single
+reader of what it writes -- multiplies by it: the round trip returned the
+written age times the factor, so under an accelerated era a forty-year-old
+was aged at four hundred for the mortality hazard while the fertile window,
+which scales the other way, excluded the entire founding population and
+nobody conceived. Second, the household derivation walked the guardian chain
+unconditionally, so a married minor was pulled into her parent's household
+while her partner's household still named her -- counted in one and claimed
+by another, with one year of age flipping the verdict on the same population.
+Marriage now outranks the chain: a couple is a household, and a person cannot
+be a dependent of two. Third, `pick_newborn_name` draws from era pools of
+twelve names per sex with no uniqueness check, which makes a name collision
+certain by the thirteenth birth of a sex, and the pair-bond resolver bound an
+ambiguous name to whichever namesake carried the lowest id; it now refuses an
+ambiguous target and logs it, which stops the wrong marriage without removing
+the ambiguity. Resolving intents by identifier rather than by name would
+remove it and is tracked separately, since it changes the action schema the
+decision loop hands the model.
+
 ### 4.1.1 Mortality model (Heligman-Pollard)
 
 > Status: implemented as of commit `b5be0e2b62aa1cc2119f3d66418461eb9e92ea66`, spec audit CONVERGED 2026-04-18 round 4.

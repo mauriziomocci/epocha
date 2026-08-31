@@ -758,6 +758,29 @@ finché i due moduli non sono stati confrontati, e sotto qualunque era
 accelerata la piramide per età, l'età media e il denominatore del TFR
 descrivevano una popolazione che i passi di mortalità e fertilità non vedono.
 
+**Il round 9 del gate di fase 6, leggendo l'intero diff del ramo anziché una
+sola remediation, ha trovato altre tre istanze della stessa classe.** Primo,
+il backfill del `birth_tick` in `initialization.py` era l'unico modulo del
+sottosistema a non nominare mai `acceleration`, mentre `age_in_years` -- unico
+lettore di ciò che scrive -- vi moltiplica: il giro di andata e ritorno
+restituiva l'età scritta per il fattore, quindi sotto un'era accelerata un
+quarantenne veniva invecchiato a quattrocento anni per il rischio di
+mortalità, mentre la finestra fertile, che scala in senso opposto, escludeva
+l'intera popolazione fondatrice e nessuno concepiva. Secondo, la derivazione
+del nucleo risaliva la catena dei tutori incondizionatamente, quindi una
+minorenne sposata veniva trascinata nel nucleo del genitore mentre il nucleo
+del coniuge continuava a nominarla -- contata in uno e reclamata dall'altro,
+con un anno di età che ribaltava il verdetto sulla stessa popolazione. Ora il
+matrimonio prevale sulla catena: una coppia è un nucleo, e una persona non può
+essere a carico di due. Terzo, `pick_newborn_name` estrae da bacini d'era di
+dodici nomi per sesso senza controllo di unicità, il che rende certa una
+collisione al tredicesimo nato di un sesso, e il risolutore degli intenti
+legava un nome ambiguo all'omonimo con l'id più basso; ora rifiuta un
+bersaglio ambiguo e lo registra, il che impedisce il matrimonio sbagliato
+senza eliminare l'ambiguità. Risolvere gli intenti per identificatore anziché
+per nome la eliminerebbe ed è tracciato separatamente, perché cambia lo schema
+dell'azione che il ciclo di decisione consegna al modello.
+
 ### 4.1.1 Modello di mortalità (Heligman-Pollard)
 
 > Stato: implementato a partire dal commit `b5be0e2b62aa1cc2119f3d66418461eb9e92ea66`, audit della spec CONVERGENTE 2026-04-18 round 4.
