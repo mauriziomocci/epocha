@@ -736,6 +736,28 @@ ogni agente della fase lo stesso sorteggio uniforme, dato che la chiave di
 derivazione è solo `(simulation, tick, phase)`: morirebbero in blocco a una
 soglia d'età invece che indipendentemente.
 
+**Tre correzioni prodotte dalla review di chiusura del gate di fase 6, tutte
+della stessa classe: una grandezza calcolata correttamente in un modulo e
+riletta stantia in un altro.** Primo, `Agent.age` è una cache di `birth_tick`
+ed è ora rinfrescata dal passo di mortalità, che già deriva l'età di ogni
+vivente per il rischio; vengono scritte solo le righe la cui età intera si è
+mossa, in un solo `bulk_update`. Prima la colonna era scritta alla generazione
+del mondo e azzerata dal percorso di nascita, e nulla la faceva avanzare,
+quindi ogni agente nato dentro una run portava età zero per tutta la vita --
+valore che sia l'orizzonte di rendita della fuga d'emergenza sia il test di
+minore età per l'assegnazione del tutore leggono. Secondo, un neonato è ora
+inserito PRIMA che l'asse della madre venga liquidato, dentro la transazione
+del passo di fertilità, così che un figlio nato da una madre che muore nel
+partorirlo sia fra i suoi eredi; prima non era ancora una riga quando
+`resolve_heirs` girava, ed era per la stessa ragione invisibile alla passata
+sui tutori, che percorre lo stesso insieme di eredi. Terzo, lo snapshot di
+popolazione deriva le età e annualizza i propri tassi sullo stesso orologio
+dell'orchestratore, fattore `acceleration` dell'era incluso; i cinque template
+spediti lo pongono tutti a 1,0, quindi la divergenza è rimasta invisibile
+finché i due moduli non sono stati confrontati, e sotto qualunque era
+accelerata la piramide per età, l'età media e il denominatore del TFR
+descrivevano una popolazione che i passi di mortalità e fertilità non vedono.
+
 ### 4.1.1 Modello di mortalità (Heligman-Pollard)
 
 > Stato: implementato a partire dal commit `b5be0e2b62aa1cc2119f3d66418461eb9e92ea66`, audit della spec CONVERGENTE 2026-04-18 round 4.

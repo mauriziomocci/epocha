@@ -285,6 +285,123 @@ class TestTheCounterIsAHouseholdProperty:
         )
 
 
+class TestTheHouseholdKnowsBothParents:
+    """A minor is anchored through whichever parent is alive, not only the first.
+
+    Found by round 8, and it is the same signature the branch keeps
+    producing: `inheritance.py` resolves "child of" through
+    `Q(parent_agent=x) | Q(other_parent_agent=x)` -- both foreign keys --
+    while the household derivation read one. So the household fix closed the
+    starvation defect for the children of living mothers and left it open for
+    everybody else, including the one population the fertility path creates
+    on purpose: the newborn of a mother who dies bearing it.
+
+    Measured before the fix: each of the three cases below left the minor at
+    counter 1 with a solvent adult standing right next to it.
+    """
+
+    def test_a_minor_whose_mother_died_is_anchored_to_the_living_father(self, sim_with_zone):
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.context import compute_subsistence_threshold
+
+        sim, zone = sim_with_zone
+        threshold = compute_subsistence_threshold(sim, zone)
+        father = _agent(sim, zone, "PadreVivo", wealth=threshold * 50)
+        dead_mother = _agent(sim, zone, "MadreMorta", wealth=0.0)
+        Agent.objects.filter(pk=dead_mother.pk).update(is_alive=False)
+        orphan = _agent(
+            sim,
+            zone,
+            "Orfano",
+            wealth=0.0,
+            age=3,
+            birth_tick=int(sim.current_tick - 3 * 365),
+            parent_agent=dead_mother,
+            other_parent_agent=father,
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        orphan.refresh_from_db()
+        assert orphan.consecutive_ticks_under_subsistence == 0, (
+            "the minor was anchored to its dead mother and became a starving "
+            "household of one while its solvent father stood next to it"
+        )
+
+    def test_a_minor_in_care_is_anchored_to_its_caretaker(self, sim_with_zone):
+        """Both parents dead, a caretaker assigned: the ward is a dependent.
+
+        `assign_orphan_caretaker` exists precisely to place these children,
+        and the derivation's own docstring says a household is a couple with
+        the minors IN ITS CARE.
+        """
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.context import compute_subsistence_threshold
+
+        sim, zone = sim_with_zone
+        threshold = compute_subsistence_threshold(sim, zone)
+        guardian = _agent(sim, zone, "Tutore", wealth=threshold * 50)
+        ward = _agent(
+            sim,
+            zone,
+            "Pupillo",
+            wealth=0.0,
+            age=4,
+            birth_tick=int(sim.current_tick - 4 * 365),
+            caretaker_agent=guardian,
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        ward.refresh_from_db()
+        assert ward.consecutive_ticks_under_subsistence == 0, (
+            "a ward with an assigned caretaker was counted as its own starving household"
+        )
+
+    def test_the_anchor_is_transitive_through_a_minor_parent(self, sim_with_zone):
+        """The child of a minor mother belongs to the grandparent's household.
+
+        The fertile window opens at twelve and adulthood is sixteen or
+        eighteen depending on the era, so a four-to-six-year band of mothers
+        is itself anchored to a parent. Without transitivity the newborn is a
+        household of one and the grandparent's solvency never reaches it.
+        """
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.context import compute_subsistence_threshold
+
+        sim, zone = sim_with_zone
+        threshold = compute_subsistence_threshold(sim, zone)
+        grandparent = _agent(sim, zone, "Nonno", wealth=threshold * 50)
+        young_mother = _agent(
+            sim,
+            zone,
+            "MadreMinorenne",
+            wealth=0.0,
+            age=14,
+            birth_tick=int(sim.current_tick - 14 * 365),
+            parent_agent=grandparent,
+        )
+        baby = _agent(
+            sim,
+            zone,
+            "Nipote",
+            wealth=0.0,
+            age=0,
+            birth_tick=sim.current_tick,
+            parent_agent=young_mother,
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        baby.refresh_from_db()
+        young_mother.refresh_from_db()
+        assert young_mother.consecutive_ticks_under_subsistence == 0
+        assert baby.consecutive_ticks_under_subsistence == 0, (
+            "the anchor did not follow the minor mother up to the solvent "
+            "grandparent: the household derivation is not transitive"
+        )
+
+
 class TestFlightReadsThePersistedCounter:
     def test_flight_fires_from_the_stored_counter_alone(self, sim_with_zone):
         """FR-012: `process_emergency_flight` reads the column instead of

@@ -697,6 +697,26 @@ every agent of a phase the same uniform draw, since the derivation key is only
 `(simulation, tick, phase)` -- they would die in a block at an age threshold
 rather than independently.
 
+**Three corrections the phase-6 closure review produced, all of the same
+class: a quantity computed correctly in one module and re-read stale in
+another.** First, `Agent.age` is a cache of `birth_tick` and is now refreshed
+by the mortality step, which already derives every living agent's age for the
+hazard; only rows whose integer age moved are written, in one `bulk_update`.
+Until then the column was written at world generation and set to zero by the
+birth path, and nothing advanced it, so every agent born inside a run carried
+age zero for life -- which the emergency-flight annuity horizon and the
+minority test for caretaker assignment both read. Second, a newborn is now
+inserted BEFORE its mother's estate is settled inside the fertility step's
+transaction, so a child born of a mother who dies bearing it is among her
+heirs; previously it was not yet a row when `resolve_heirs` ran, and it was
+therefore also invisible to the caretaker pass, which walks the same heir set.
+Third, the population snapshot derives ages and annualises its rates on the
+same clock as the orchestrator, including the era's `acceleration` factor; the
+five shipped templates all set it to 1.0, so the divergence was invisible
+until the two modules were compared, and under any accelerated era the age
+pyramid, the mean age and the TFR denominator described a population the
+mortality and fertility steps did not see.
+
 ### 4.1.1 Mortality model (Heligman-Pollard)
 
 > Status: implemented as of commit `b5be0e2b62aa1cc2119f3d66418461eb9e92ea66`, spec audit CONVERGED 2026-04-18 round 4.

@@ -75,7 +75,22 @@ def write_population_snapshot(context: Any) -> None:
 
     living = list(
         Agent.objects.filter(simulation=simulation, is_alive=True)
-        .only("id", "gender", "birth_tick", "age", "zone_id", "parent_agent_id")
+        .only(
+            "id",
+            "gender",
+            "birth_tick",
+            "age",
+            "zone_id",
+            # All three guardian columns, because `household_keys`
+            # reads whichever is alive and a DEFERRED field costs one
+            # query per object the moment it is touched. Measured when
+            # the derivation learned about the second parent: births
+            # started costing two queries each, against an FR-016a that
+            # grants them no term at all.
+            "parent_agent_id",
+            "other_parent_agent_id",
+            "caretaker_agent_id",
+        )
         .order_by("id")
     )
     total_alive = len(living)
@@ -241,10 +256,3 @@ def _avg_household_size(
     households = set(household_keys(living, ages, simulation, adulthood_age).values())
 
     return len(living) / len(households) if households else 0.0
-
-
-def _tick_duration_hours(simulation: Any) -> float:
-    from epocha.apps.world.models import World
-
-    world = World.objects.filter(simulation=simulation).first()
-    return float(getattr(world, "tick_duration_hours", 24.0) or 24.0) if world else 24.0

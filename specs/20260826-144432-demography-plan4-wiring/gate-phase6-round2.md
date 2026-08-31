@@ -1056,3 +1056,72 @@ verso il basso. Cinque testimoni nuovi, ciascuno visto rosso prima
 dell'implementazione. Se il round non produce nulla delle tre classi, il
 verdetto deve dire quali percorsi ha verificato e che cosa ha lasciato
 scoperto.
+
+### Verdetto round 8: NOT CONVERGED
+
+Un revisore, igiene rispettata, albero pulito. **La classe 1 era viva, come il
+criterio aveva previsto, e ha prodotto.**
+
+**Bloccante, classe 1 e insieme classe 3.** `household_keys` ancorava un
+minore al solo `parent_agent`. Ma il modello porta tre colonne di tutela —
+`parent_agent`, `other_parent_agent`, `caretaker_agent` — e il modulo
+dell'eredità, cablato accanto da questo stesso work item, risolve «figlio di»
+come `Q(parent_agent=x) | Q(other_parent_agent=x)`, cioè **entrambe** le FK.
+Due definizioni della stessa relazione in due moduli del medesimo
+sottosistema: la firma che questo ramo continua a produrre.
+
+Il costo, misurato e non dedotto. Il minore la cui madre è morta e il cui
+padre è vivo veniva ancorato a se stesso: nucleo di uno, patrimonio zero,
+contatore che sale a ogni tick e non si azzera mai, nemmeno alla maggiore età.
+È il meccanismo di B1 intatto per quella popolazione. E lo era **anche per il
+neonato del percorso che B3 esisteva per servire**: madre morta di parto,
+padre vivo e solvente, chiavi misurate `{Padre: (2,), Neonato: (3,)}`. Il ramo
+stabiliva la relazione col padre nella stessa transazione e la derivazione la
+ignorava. Terzo caso, per non transitività: il figlio di una madre minorenne
+restava un nucleo di uno mentre il nonno solvente stava due passi più su, e la
+finestra scoperta — fra i dodici anni della fertilità e i sedici o diciotto
+della maggiore età — è dentro il modello spedito.
+
+**Le altre tre chiusure reggono**, verificate contro il sorgente: il rinfresco
+di `age` ai bordi (`birth_tick` nullo, età negativa clampata dal
+`PositiveIntegerField`), il riordino della transazione (il neonato esce con
+l'intero asse, e le altre morti del tick non cambiano esito), e l'orologio
+condiviso dello snapshot, con l'algebra verificata.
+
+**Nessun criterio che non può fallire fra le guardie nuove**, e il round dice
+come l'ha provato: ciascuno dei cinque testimoni separa contro il codice
+precedente, la guardia del raddoppio esercita davvero la scrittura dell'età, e
+la fixture end-to-end è stata provata per mutazione rendendo il passo un
+no-op.
+
+### Che cosa è stato corretto in risposta
+
+- **`household_keys` cerca il tutore vivo nell'ordine madre, padre,
+  caretaker**, ed è **transitiva**: la catena risale finché trova un adulto,
+  con un insieme di visitati che chiude i cicli che il modello dati non
+  vieta.
+- Tre testimoni nuovi, uno per caso, tutti visti rossi prima.
+- **Quattro test diretti su `household_keys`**, che nessun file importava: i
+  suoi bordi si raggiungevano solo attraverso i due chiamanti.
+- Le code del round: il commento sul costo ora dichiara che 35 e 43 valgono
+  sul tick in cui **nessuno compie gli anni**, e che un compleanno costa una
+  query in più; l'helper morto rimosso dallo snapshot; il riferimento a
+  `household_keys` corretto in nome di modulo.
+- **Doc-sync**: i due whitepaper guadagnano il paragrafo su B2, B3 e B4, che
+  il round ha giustamente segnalato assenti.
+
+### Un difetto introdotto dalla remediation, colto dalla guardia di costo
+
+Insegnare a `household_keys` le altre due colonne di tutela ha fatto salire il
+costo a **due query per nascita**, contro un FR-016a che alle nascite non
+concede alcun termine. Causa: lo snapshot carica gli agenti con `.only(...)`
+che non includeva `other_parent_agent_id` né `caretaker_agent_id`, e toccare
+un campo differito costa una query per oggetto. Le tre colonne sono ora
+caricate insieme. È la guardia di costo ad averlo colto, che è esattamente il
+mestiere per cui è stata scritta.
+
+### Conseguenza
+
+Round 8 **NOT CONVERGED**. Il round 9 giudica questa remediation, e dopo di
+esso va ri-eseguita la review sull'intero diff del ramo, che il criterio del
+round 8 dichiara dovuta a ogni remediation che tocchi il codice di produzione.

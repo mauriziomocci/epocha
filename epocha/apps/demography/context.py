@@ -124,9 +124,10 @@ def household_keys(
     The model has no household entity, so it is derived: partners share one,
     a MINOR child -- younger than the era template's `migration.adulthood_age`,
     the same threshold household migration coordination uses -- belongs to
-    its living parent's, and everyone else is their own. The age test is
-    load-bearing: without it a sixty-year-old files under his
-    eighty-five-year-old father's roof.
+    the household of whichever guardian is still alive, and everyone else is
+    their own. The age test is load-bearing: without it a sixty-year-old
+    files under his eighty-five-year-old father's roof. The guardian search
+    and the chain that follows it are documented at the call site below.
 
     Lives here, and is shared, because two callers need the same notion and
     a second copy of a quantity is precisely the defect the phase-6 closure
@@ -154,10 +155,47 @@ def household_keys(
         if b_id is not None:
             partner_of[b_id] = a_id
 
-    keys: dict[int, tuple[int, ...]] = {}
+    # A minor is anchored through WHICHEVER guardian is alive, in the order
+    # mother, father, appointed caretaker. Reading `parent_agent` alone --
+    # which is what the first version of this function did -- left every
+    # child whose mother had died as a household of one standing next to a
+    # solvent father, which is the starvation defect this derivation exists
+    # to close, still open for that population. `inheritance.py` already
+    # resolves "child of" as `Q(parent_agent=x) | Q(other_parent_agent=x)`,
+    # so a second, narrower definition of the same relation in the module
+    # next door is exactly the duplication the phase-6 closure review named.
+    # `caretaker_agent` joins them because the docstring says "the minors in
+    # its care" and `assign_orphan_caretaker` exists to put them there.
+    guardian_of: dict[int, int] = {}
     for agent, age in zip(living, ages, strict=True):
-        is_anchored_minor = agent.parent_agent_id in living_ids and age < adulthood_age
-        anchor = agent.parent_agent_id if is_anchored_minor else agent.id
+        if age >= adulthood_age:
+            continue
+        for candidate in (
+            agent.parent_agent_id,
+            agent.other_parent_agent_id,
+            agent.caretaker_agent_id,
+        ):
+            if candidate is not None and candidate in living_ids:
+                guardian_of[agent.id] = candidate
+                break
+
+    def _anchor(agent_id: int) -> int:
+        # Transitive, because a mother can herself be a minor: the fertile
+        # window opens at twelve and adulthood is sixteen or eighteen, so a
+        # four-to-six-year band of mothers is anchored to a parent of their
+        # own, and without following the chain their newborn is a household
+        # of one that the grandparent's solvency never reaches. The visited
+        # set bounds a cycle that the data model does not forbid.
+        seen: set[int] = set()
+        current = agent_id
+        while current in guardian_of and current not in seen:
+            seen.add(current)
+            current = guardian_of[current]
+        return current
+
+    keys: dict[int, tuple[int, ...]] = {}
+    for agent in living:
+        anchor = _anchor(agent.id)
         partner = partner_of.get(anchor)
         keys[agent.id] = tuple(sorted((anchor, partner))) if partner else (anchor,)
     return keys

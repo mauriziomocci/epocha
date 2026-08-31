@@ -162,3 +162,62 @@ def test_aggregate_outlook_combines_three_components(sim_with_zone):
 
     result = compute_aggregate_outlook(agent)
     assert result == pytest.approx((1.0 + 1.0 + 0.0) / 3.0)
+
+
+class TestHouseholdKeys:
+    """Direct tests for the shared household derivation.
+
+    Round 8 noted that nothing imported this function: its edges were only
+    ever reached through its two callers, so a change in its contract would
+    surface as a puzzling failure somewhere else. These pin the contract
+    itself.
+    """
+
+    @staticmethod
+    def _stub(agent_id, parent=None, other=None, caretaker=None):
+        class _A:
+            id = agent_id
+            parent_agent_id = parent
+            other_parent_agent_id = other
+            caretaker_agent_id = caretaker
+
+        return _A()
+
+    def test_an_adult_is_its_own_household(self, db):
+        from epocha.apps.demography.context import household_keys
+
+        adult = self._stub(1)
+        keys = household_keys([adult], [40.0], None, adulthood_age=18.0)
+        assert keys == {1: (1,)}
+
+    def test_an_adult_child_of_a_living_parent_is_not_anchored(self, db):
+        """The age test, which keeps a sixty-year-old out of his father's roof."""
+        from epocha.apps.demography.context import household_keys
+
+        parent, child = self._stub(1), self._stub(2, parent=1)
+        keys = household_keys([parent, child], [85.0, 60.0], None, adulthood_age=18.0)
+        assert keys[2] == (2,)
+
+    def test_the_guardian_order_is_mother_then_father_then_caretaker(self, db):
+        from epocha.apps.demography.context import household_keys
+
+        mother, father, guardian = self._stub(1), self._stub(2), self._stub(3)
+        by_mother = self._stub(4, parent=1, other=2, caretaker=3)
+        by_father = self._stub(5, parent=99, other=2, caretaker=3)
+        by_caretaker = self._stub(6, parent=99, other=98, caretaker=3)
+        living = [mother, father, guardian, by_mother, by_father, by_caretaker]
+        ages = [40.0, 40.0, 40.0, 3.0, 3.0, 3.0]
+
+        keys = household_keys(living, ages, None, adulthood_age=18.0)
+
+        assert keys[4] == (1,), "a living mother must win"
+        assert keys[5] == (2,), "the father must be used when the mother is gone"
+        assert keys[6] == (3,), "the caretaker is the last resort, not the first"
+
+    def test_a_cycle_terminates(self, db):
+        """The data model does not forbid it, so the walk must not hang."""
+        from epocha.apps.demography.context import household_keys
+
+        a, b = self._stub(1, parent=2), self._stub(2, parent=1)
+        keys = household_keys([a, b], [3.0, 3.0], None, adulthood_age=18.0)
+        assert set(keys) == {1, 2}

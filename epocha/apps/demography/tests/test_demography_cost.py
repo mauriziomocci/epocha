@@ -354,12 +354,22 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
 # candidates' partners, which is what lets a birth cost no query of its own:
 # one read for any number of candidates, and none at all when none of them is
 # partnered.
-# Re-pinned on the measure after the phase-6 closure review, never by
-# raising a threshold to let a red through. The remediation moved this
-# DOWN by one: the starvation counter gained one read of the active
-# couples for its household derivation, and the tick duration stopped
-# being resolved with a query of its own in each of three steps, which
-# is what `DemographyTickContext` existed for.
+# Re-pinned on the measure after the phase-6 closure review, never by raising
+# a threshold to let a red through. Two changes cancel to a net minus one on
+# THIS tick: the starvation counter gained one read of the active couples for
+# its household derivation, and the tick duration stopped being resolved with
+# a query of its own in each of three steps, which is what
+# `DemographyTickContext` existed for.
+#
+# Stated exactly, because round 8 measured it and the previous wording did
+# not: these constants describe a tick on which NOBODY has a birthday. The
+# mortality step refreshes `Agent.age` from `birth_tick` and writes only the
+# rows whose integer age actually moved, so a tick where one does costs one
+# more -- 36 and 44, measured. The fixtures here build `birth_tick` so the
+# derived age already equals the stored one, which is why these two
+# equalities sit on the no-birthday case; the doubling guard below is the one
+# that exercises the write, and it is pinned on an equality rather than on a
+# constant precisely so it stays honest about that.
 FIXED_TERM_NO_CANDIDATES = 35
 FIXED_TERM_WITH_CANDIDATES = 43
 

@@ -713,7 +713,7 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
 
     The predicate is a HOUSEHOLD one: the household's combined wealth
     against the sum of its members' zone thresholds, with the household
-    derived by `context.household_keys` -- the same derivation the snapshot
+    derived by `demography.context.household_keys` -- the same derivation the snapshot
     reports average household size from, shared rather than copied.
 
     That is a deliberate divergence from the flight trigger's own first
