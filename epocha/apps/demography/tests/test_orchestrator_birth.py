@@ -9,6 +9,7 @@ event was nobody's job until now.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import replace
 
 import pytest
@@ -695,3 +696,170 @@ class TestFertilityTransactionalBoundary:
             "a newborn survived the failed event write: the step has no "
             "transactional boundary and an agent exists that no event records"
         )
+
+
+class TestTheStepPersistsWhatItBuilt:
+    """The step must not alter a newborn between building it and saving it.
+
+    Measured on 2026-08-29 against the whole 1717-test suite: eight
+    corruptions applied inside `run_fertility_step` AFTER `build_newborn`
+    returned -- the name, the gender, the sexual orientation, the eight
+    scalar heritable traits halved, the social class, the education level,
+    the wealth and the zone -- left every test in the project green.
+    `TestBirthOrchestrator` above does cover `build_newborn`, but it calls it
+    directly, so it witnesses nothing about what the step does with the
+    object it gets back.
+
+    One test rather than eight, because all eight corruptions are the same
+    defect wearing different clothes: the step overwriting its own producer.
+    Witnessing the fields one at a time would also have forced a statistical
+    assertion for gender and for orientation -- every era template draws
+    heterosexual at 0.955 and the sex ratio is near even -- and a statistical
+    witness for a deterministic defect is theatre.
+
+    What this does NOT witness, stated rather than left to be discovered: a
+    corruption inside `build_newborn` itself, which is the subject of
+    `TestBirthOrchestrator` and of the inheritance module's own audited tests.
+    """
+
+    WITNESSED = (
+        "name",
+        "gender",
+        "sexual_orientation",
+        "social_class",
+        "education_level",
+        "wealth",
+        "zone_id",
+        "birth_tick",
+        "parent_agent_id",
+        "other_parent_agent_id",
+    )
+
+    def test_every_field_survives_the_trip_to_the_database(self, sim_with_zone, monkeypatch):
+        from epocha.apps.demography import template_loader
+        from epocha.apps.demography.tests.test_inheritance import SCALAR_HERITABLE_TRAITS
+
+        # The orientation draw needs an era that can contradict the
+        # corruption. Measured: with the shipped templates this witness
+        # SURVIVED `sexual_orientation = "heterosexual"`, because all five
+        # draw heterosexual at 0.955, both newborns had drawn it already, and
+        # the corruption overwrote a value with itself. A fixture that cannot
+        # construct the case it claims is the defect this file keeps paying
+        # for, so the distribution is replaced -- rather than a seed hunted
+        # for a lucky draw. It is patched on the LOADER because
+        # `apply_inheritance_at_birth` ignores the tick context's template and
+        # loads its own from `simulation.config`.
+        real_load = template_loader.load_template
+
+        def _era_without_heterosexuality(name):
+            era = copy.deepcopy(real_load(name))
+            era["sexual_orientation_distribution"] = {"homosexual": 1.0}
+            return era
+
+        monkeypatch.setattr(template_loader, "load_template", _era_without_heterosexuality)
+
+        fields = self.WITNESSED + tuple(sorted(SCALAR_HERITABLE_TRAITS))
+        sim, zone = sim_with_zone
+        for i in range(2):
+            mother = _agent(sim, zone, f"Madre{i}", age=25, social_class="wealthy")
+            father = _agent(
+                sim, zone, f"Padre{i}", gender=Agent.Gender.MALE, age=28, social_class="elite"
+            )
+            form_couple(mother, father, formed_at_tick=sim.current_tick - 1)
+        context = _context(sim)
+
+        built = {}
+        real_build = orchestrator.build_newborn
+
+        def _capturing(ctx, mother_arg, father, rng, zone_class_mean=None):
+            child = real_build(ctx, mother_arg, father, rng, zone_class_mean=zone_class_mean)
+            built[mother_arg.id] = {f: getattr(child, f) for f in fields}
+            return child
+
+        orchestrator.build_newborn = _capturing
+        try:
+            orchestrator.run_fertility_step(
+                context, rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_SURVIVES] * 2)
+            )
+        finally:
+            orchestrator.build_newborn = real_build
+
+        assert len(built) == 2, f"expected two births, the step built {len(built)}"
+        stored = {
+            a.parent_agent_id: a
+            for a in Agent.objects.filter(simulation=sim, birth_tick=context.tick)
+        }
+        assert set(stored) == set(built), "a newborn that was built was never persisted"
+        for mother_id, expected in built.items():
+            row = stored[mother_id]
+            for field in fields:
+                assert getattr(row, field) == expected[field], (
+                    f"{field} of the newborn of mother {mother_id} is "
+                    f"{getattr(row, field)!r} in the database but was "
+                    f"{expected[field]!r} when the orchestrator built it: the "
+                    "step altered the newborn after building it"
+                )
+
+
+class TestTheBirthEventDescribesItsOwnBirth:
+    """Four properties of the BIRTH payload, none of which had a witness.
+
+    Measured on 2026-08-29: pairing every event with `newborns[0]` and with
+    `mothers_of_newborns[0]`, renaming the step to "mortality", and pinning
+    `mother_died_in_childbirth` to False each left the whole suite green. A
+    single birth cannot separate the pairing -- with one newborn `newborns[0]`
+    IS the newborn -- so this runs two births, and one of the two mothers dies
+    so the flag has both values to be wrong about.
+    """
+
+    def test_two_births_produce_two_correctly_paired_events(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        survivor = _agent(sim, zone, "Sopravvive", age=25)
+        form_couple(
+            _agent(sim, zone, "PadreA", gender=Agent.Gender.MALE, age=28),
+            survivor,
+            formed_at_tick=sim.current_tick - 1,
+        )
+        dying = _agent(sim, zone, "MuoreInParto", age=26)
+        form_couple(
+            _agent(sim, zone, "PadreB", gender=Agent.Gender.MALE, age=29),
+            dying,
+            formed_at_tick=sim.current_tick - 1,
+        )
+        # Candidates are read in id order, so the survivor is resolved first
+        # and the scripted stream below is aligned to that order. The fixture
+        # asserts it rather than assuming it.
+        assert survivor.id < dying.id, "the fixture no longer controls the resolution order"
+        context = _context(sim)
+
+        # Two draws for a birth whose mother lives, three when she dies:
+        # `resolve_childbirth_event` only draws neonatal survival in the
+        # branch where the mother died.
+        orchestrator.run_fertility_step(
+            context,
+            rng=_ScriptedRandom(
+                [BIRTH_HAPPENS, MOTHER_SURVIVES, BIRTH_HAPPENS, MOTHER_DIES, NEWBORN_SURVIVES]
+            ),
+        )
+
+        events = list(
+            DemographyEvent.objects.filter(
+                simulation=sim, event_type=DemographyEvent.EventType.BIRTH
+            ).select_related("primary_agent")
+        )
+        assert len(events) == 2, f"expected two birth events, found {len(events)}"
+
+        by_mother = {e.secondary_agent_id: e for e in events}
+        assert set(by_mother) == {survivor.id, dying.id}, (
+            "the birth events do not name the two mothers who gave birth: "
+            "they are all pointing at the same one"
+        )
+        for mother_id, event in by_mother.items():
+            assert event.primary_agent.parent_agent_id == mother_id, (
+                f"the event for mother {mother_id} names newborn "
+                f"{event.primary_agent_id}, whose mother is "
+                f"{event.primary_agent.parent_agent_id}"
+            )
+            assert event.payload["step_name"] == "fertility"
+        assert by_mother[dying.id].payload["mother_died_in_childbirth"] is True
+        assert by_mother[survivor.id].payload["mother_died_in_childbirth"] is False
