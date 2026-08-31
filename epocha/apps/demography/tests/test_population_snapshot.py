@@ -337,6 +337,68 @@ class TestSnapshotFields:
         assert bucket[0] == 60
 
 
+class TestSnapshotSharesTheOrchestratorsClock:
+    """One notion of time for the whole subsystem, or the validation series
+    measures a different model from the one that produced it.
+
+    Found by the closure review over the whole branch diff, which is the
+    first pass that ever compared two modules against each other: the
+    orchestrator derives an age as `(tick - birth_tick) / ticks_per_year *
+    acceleration` while the snapshot dropped the acceleration factor. All
+    five shipped templates set it to 1.0, so the two agreed and no test could
+    tell them apart -- and `acceleration` is a per-era template parameter the
+    schema admits, read by the orchestrator in three places. Under an
+    accelerated era the age pyramid, the mean age, the TFR denominator and
+    the household age threshold all describe a population that the mortality
+    and fertility steps do not see.
+    """
+
+    def test_the_snapshot_ages_match_the_orchestrators_under_an_accelerated_era(
+        self, sim_with_zones
+    ):
+        import copy
+
+        sim, home, _ = sim_with_zones
+        tick = sim.current_tick + 1
+        agent = _agent(sim, home, "Accelerato", age=10)
+
+        template = copy.deepcopy(load_template("pre_industrial_christian"))
+        template["acceleration"] = 10.0
+        context = orchestrator.DemographyTickContext(simulation=sim, tick=tick, template=template)
+        expected = orchestrator.age_in_years(
+            agent, tick, orchestrator._tick_duration_hours(sim), 10.0
+        )
+        # The fixture has to be able to tell the two formulas apart, or it
+        # proves nothing: at acceleration 1.0 they coincide by construction.
+        assert expected != pytest.approx(10.0, abs=0.5), (
+            "the accelerated age is indistinguishable from the unaccelerated "
+            "one: this fixture cannot separate the two clocks"
+        )
+
+        DemographyEvent.objects.create(
+            simulation=sim,
+            tick=tick,
+            event_type=DemographyEvent.EventType.BIRTH,
+            primary_agent=agent,
+        )
+
+        snapshot.write_population_snapshot(context)
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        assert row.avg_age == pytest.approx(expected, abs=0.01), (
+            "the snapshot dated the population on a different clock from the "
+            "one mortality and fertility run on"
+        )
+        # The rates are annualised on the same clock, and they need their own
+        # assertion: measured, once the ages stopped going through
+        # `ticks_per_year`, dropping the acceleration from that conversion
+        # left every test in this file green. One birth in a population of
+        # one, annualised over an era where a tick is ten times longer.
+        assert row.crude_birth_rate == pytest.approx(
+            1 / 1 * 1000 * (TICKS_PER_YEAR / 10.0), rel=1e-6
+        ), "the rates were annualised on the unaccelerated calendar"
+
+
 class TestSnapshotLifecycle:
     def test_one_snapshot_per_tick(self, populated_tick):
         sim, _, _, tick = populated_tick

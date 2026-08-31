@@ -385,7 +385,21 @@ class TestFertilityStep:
             event_type=DemographyEvent.EventType.DEATH,
             primary_agent=mother,
         ).exists(), "no DEATH event for a mother who died in childbirth"
-        assert heir.wealth > 0.0, "her estate was never settled"
+        # Asserted over the whole next generation rather than over one named
+        # heir, because WHICH child takes the estate is the era's succession
+        # rule and not this test's subject. Since the newborn is now created
+        # before its mother is settled -- so that it can inherit from her at
+        # all -- it joins the heir set, and `pre_industrial_christian` orders
+        # heirs eldest-male-then-female: a newborn son takes ahead of a
+        # four-year-old daughter. The previous version named `heir` and so
+        # passed or failed on the newborn's drawn sex, which is seeded from
+        # the simulation id and therefore differed between running this file
+        # alone and running it with the rest.
+        estate_reached = sum(
+            a.wealth for a in Agent.objects.filter(simulation=sim, parent_agent=mother)
+        )
+        assert mother.wealth == 0.0, "the dead mother kept her estate"
+        assert estate_reached > 0.0, "her estate reached none of her children"
         assert couple.dissolved_at_tick == context.tick, "her couple was never dissolved"
 
     def test_a_newborn_that_does_not_survive_is_not_created(self, sim_with_zone):
@@ -683,6 +697,48 @@ class TestPreloadedValuesReachTheNewborn:
                 "zone: the per-zone cache is being read by something other than "
                 "the mother's own zone"
             )
+
+
+class TestTheNewbornExistsWhenItsMotherIsSettled:
+    """A child born of a mother who dies bearing it is her heir.
+
+    Found by the closure review over the whole branch diff. Inside the
+    fertility step's transaction the settlement of dead mothers used to run
+    BEFORE `bulk_create(newborns)`, so at the moment the estate was divided
+    the newborn was not a row: `resolve_heirs` could not find it among the
+    children, and the caretaker pass -- which walks `heirs["children"]` --
+    could not see it either. The only orphan the childbirth path produces was
+    precisely the only orphan the caretaker assignment could never reach, and
+    it would never be reached later, because the batch runs only in the tick
+    of the death.
+
+    Ratified as a model decision rather than assumed: a newborn inherits from
+    the mother who died bearing it, which is the rule of essentially every
+    real succession system, and the order of two lines is not the place to
+    leave that implicit.
+    """
+
+    def test_a_newborn_inherits_from_the_mother_who_died_bearing_it(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        # An era that admits birth outside a couple, so the mother has no
+        # surviving spouse to absorb the estate ahead of the child, and no
+        # other children: the newborn is the whole of the next generation.
+        mother = _agent(sim, zone, "Sola", age=26, wealth=500.0)
+        context = _context(sim, template_name="modern_democracy")
+
+        orchestrator.run_fertility_step(
+            context,
+            rng=_ScriptedRandom([BIRTH_HAPPENS, MOTHER_DIES, NEWBORN_SURVIVES]),
+        )
+
+        mother.refresh_from_db()
+        assert mother.is_alive is False, "the scripted stream did not kill the mother"
+        newborn = Agent.objects.get(simulation=sim, birth_tick=context.tick)
+        assert newborn.parent_agent_id == mother.id
+        assert newborn.wealth > 0.0, (
+            "the newborn inherited nothing from the mother who died bearing "
+            "it: it was not yet a row when her estate was settled"
+        )
 
 
 class TestFertilityTransactionalBoundary:

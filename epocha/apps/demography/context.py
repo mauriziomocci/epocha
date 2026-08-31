@@ -8,6 +8,8 @@ state.
 
 from __future__ import annotations
 
+from typing import Any
+
 from epocha.apps.economy.market import SUBSISTENCE_NEED_PER_AGENT
 from epocha.apps.economy.models import GoodCategory, ZoneEconomy
 
@@ -108,3 +110,54 @@ def compute_aggregate_outlook(agent, *, outlook_terms: tuple[float, float] | Non
         outlook_terms = load_outlook_terms(agent.simulation)
     confidence_term, stability_term = outlook_terms
     return (_to_signed_unit(agent.mood) + confidence_term + stability_term) / 3.0
+
+
+def household_keys(
+    living: list,
+    ages: list[float],
+    simulation: Any,
+    adulthood_age: float,
+) -> dict[int, tuple[int, ...]]:
+    """Map every living agent to the key of the household it belongs to.
+
+    A household is a couple with the minors in its care, or a single adult.
+    The model has no household entity, so it is derived: partners share one,
+    a MINOR child -- younger than the era template's `migration.adulthood_age`,
+    the same threshold household migration coordination uses -- belongs to
+    its living parent's, and everyone else is their own. The age test is
+    load-bearing: without it a sixty-year-old files under his
+    eighty-five-year-old father's roof.
+
+    Lives here, and is shared, because two callers need the same notion and
+    a second copy of a quantity is precisely the defect the phase-6 closure
+    review found in four places on this branch: the snapshot reports average
+    household size, and the starvation counter asks whether a household can
+    feed itself. A dependent minor owns nothing -- `apply_inheritance_at_birth`
+    writes `wealth = 0.0` on every newborn -- so asking that question of the
+    individual makes every child in the world a chronic starveling.
+
+    The partner map skips null sides explicitly. `Couple.agent_a`/`agent_b`
+    are nullable and `SET_NULL` keeps the genealogical record when an agent
+    row is deleted, so an undissolved row can carry one live partner and one
+    null; writing a `None` key would put every such survivor in one shared
+    household.
+    """
+    from epocha.apps.demography.models import Couple
+
+    living_ids = {agent.id for agent in living}
+    partner_of: dict[int, int] = {}
+    for a_id, b_id in Couple.objects.filter(
+        simulation=simulation, dissolved_at_tick__isnull=True
+    ).values_list("agent_a_id", "agent_b_id"):
+        if a_id is not None:
+            partner_of[a_id] = b_id
+        if b_id is not None:
+            partner_of[b_id] = a_id
+
+    keys: dict[int, tuple[int, ...]] = {}
+    for agent, age in zip(living, ages, strict=True):
+        is_anchored_minor = agent.parent_agent_id in living_ids and age < adulthood_age
+        anchor = agent.parent_agent_id if is_anchored_minor else agent.id
+        partner = partner_of.get(anchor)
+        keys[agent.id] = tuple(sorted((anchor, partner))) if partner else (anchor,)
+    return keys

@@ -18,6 +18,7 @@ from django.contrib.gis.geos import Point, Polygon
 from django.db.models import Q
 
 from epocha.apps.agents.models import Agent
+from epocha.apps.demography.couple import form_couple
 from epocha.apps.demography.initialization import initialize_demography
 from epocha.apps.demography.models import DemographyEvent, PopulationSnapshot
 from epocha.apps.demography.orchestrator import DEMOGRAPHY_STEPS, run_demography_tick
@@ -128,22 +129,43 @@ def reference_simulation(db):
     # Destitute adults in the expensive zone: they fall under the line, the
     # counter climbs, and once it passes the era's `flight_trigger_ticks` the
     # forced-migration step has somewhere cheaper to send them.
+    # Paired with EACH OTHER, and that is what makes them destitute rather
+    # than merely poor. Subsistence is a household property: the counter asks
+    # whether a household can feed itself, so a penniless agent married to a
+    # solvent one is not starving. Initialization pairs almost every eligible
+    # adult -- thirty-six couples in this fixture -- so leaving these six
+    # single handed each of them a solvent spouse and the step measured
+    # nothing. Coupling them here keeps them out of that matching and gives
+    # the run one genuinely insolvent household per pair.
+    destitute: list = []
     for i in range(DESTITUTE):
-        Agent.objects.create(
-            simulation=sim,
-            name=f"Indigente{i}",
-            zone=zone,
-            role="farmer",
-            location=Point(50, 50),
-            health=1.0,
-            wealth=0.0,
-            age=30 + i,
-            birth_tick=None,
-            education_level=0.2,
-            social_class="working",
-            gender=Agent.Gender.MALE,
-            personality={},
+        destitute.append(
+            Agent.objects.create(
+                simulation=sim,
+                name=f"Indigente{i}",
+                zone=zone,
+                role="farmer",
+                location=Point(50, 50),
+                health=1.0,
+                wealth=0.0,
+                age=30 + i,
+                birth_tick=None,
+                education_level=0.2,
+                social_class="working",
+                # Only the two that get paired below carry a woman each:
+                # the rest stay male, because initialization pairs every
+                # eligible adult it can and the couple-intent fixture needs a
+                # man it left free.
+                gender=Agent.Gender.FEMALE if i in (0, 2) else Agent.Gender.MALE,
+                personality={},
+            )
         )
+    # Four of the six are paired into two insolvent households; the last two
+    # stay free because `_file_couple_intents` needs a free man to resolve,
+    # and they were the only free men in the fixture.
+    paired = destitute[:4]
+    for first, second in zip(paired[::2], paired[1::2], strict=True):
+        form_couple(first, second, formed_at_tick=sim.current_tick)
 
     for i in range(ELDERS):
         Agent.objects.create(

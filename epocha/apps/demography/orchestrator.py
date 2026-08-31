@@ -97,6 +97,25 @@ class DemographyTickContext:
     simulation: Any
     tick: int
     template: dict
+    # Resolved once per tick alongside the template, and for the same reason
+    # the template is: it is a per-world constant that cannot change inside a
+    # tick, and four steps need it. Left at `None` the accessor falls back to a
+    # query, so a context built by hand -- as tests do -- still works.
+    tick_duration_hours: float | None = None
+
+    def hours_per_tick(self) -> float:
+        """The world's tick duration, resolved at most once per context.
+
+        The phase-6 closure review counted three identical private helpers
+        resolving this with a query each, in `orchestrator`, `snapshot` and
+        `initialization`, while this container existed precisely to resolve
+        per-tick constants once. Memoised through `object.__setattr__`
+        because the dataclass is frozen and the value is a cache of a
+        world-level fact, not part of the context's identity.
+        """
+        if self.tick_duration_hours is None:
+            object.__setattr__(self, "tick_duration_hours", _tick_duration_hours(self.simulation))
+        return float(self.tick_duration_hours)
 
 
 def is_demography_enabled(simulation: Any) -> bool:
@@ -253,7 +272,7 @@ def run_fertility_step(
         rng = stream_for(context.simulation, context.tick, phase="fertility")
 
     step_index = _step_index("fertility")
-    tick_duration_hours = _tick_duration_hours(context.simulation)
+    tick_duration_hours = context.hours_per_tick()
     acceleration = float(context.template.get("acceleration", 1.0))
 
     candidates = list(
@@ -366,6 +385,19 @@ def run_fertility_step(
     # unsettled -- and because the steps that drive audited modules already
     # get one from those modules.
     with transaction.atomic():
+        # The newborns are written FIRST, and the order is load-bearing: a
+        # child born of a mother who dies bearing it is her heir, and
+        # `process_inheritance_batch` resolves heirs with a query over her
+        # living children. Settling before the insert left that child out of
+        # its own mother's estate, and out of the caretaker pass, which walks
+        # the same `heirs["children"]` -- so the only orphan this path can
+        # produce was the only orphan the assignment could never reach, and
+        # never would, because the batch runs solely in the tick of the
+        # death. Found by the closure review of the phase-6 gate; the
+        # succession rule itself was ratified rather than assumed.
+        if newborns:
+            Agent.objects.bulk_create(newborns)
+
         if dead_mothers:
             Agent.objects.bulk_update(dead_mothers, ["is_alive", "death_tick", "death_cause"])
             _settle_deaths(context, dead_mothers, step_index=step_index, step_name="fertility")
@@ -373,7 +405,6 @@ def run_fertility_step(
         if not newborns:
             return
 
-        Agent.objects.bulk_create(newborns)
         DemographyEvent.objects.bulk_create(
             [
                 DemographyEvent(
@@ -454,7 +485,7 @@ def run_mortality_step(
         rng = stream_for(context.simulation, context.tick, phase="mortality")
 
     step_index = _step_index("mortality")
-    tick_duration_hours = _tick_duration_hours(context.simulation)
+    tick_duration_hours = context.hours_per_tick()
     acceleration = float(context.template.get("acceleration", 1.0))
     params = context.template["mortality"]["heligman_pollard"]
 
@@ -463,8 +494,25 @@ def run_mortality_step(
         return
 
     dead: list[Any] = []
+    # `Agent.age` is a cache of `birth_tick`, and this is where it is
+    # refreshed. `birth_tick` remains the canonical source and the only one
+    # that advances by itself, but the column is READ by two paths that this
+    # work item made live and that are not ours to rewrite:
+    # `annuity_for_agent(agent.age, ...)` inside the third condition of
+    # emergency flight, and `child.age >= adulthood_age` in the caretaker
+    # pass. Left stale, every agent born in the run carried age 0 for life --
+    # the longest working horizon the model admits, and permanent minority.
+    # Refreshed here because this step already derives the age of every
+    # living agent for the hazard, so the value costs nothing extra; only the
+    # rows whose stored value actually moved are written, and they go in one
+    # `bulk_update`, so the query count does not scale with the population.
+    aged: list[Any] = []
     for agent in living:
         age = age_in_years(agent, context.tick, tick_duration_hours, acceleration)
+        stored_age = max(0, int(age))
+        if stored_age != agent.age:
+            agent.age = stored_age
+            aged.append(agent)
         probability = mortality_probability_for(agent, context, tick_duration_hours)
         if rng.random() >= probability:
             continue
@@ -472,6 +520,9 @@ def run_mortality_step(
         agent.death_tick = context.tick
         agent.death_cause = sample_death_cause(age, params, rng)
         dead.append(agent)
+
+    if aged:
+        Agent.objects.bulk_update(aged, ["age"])
 
     if not dead:
         return
@@ -660,18 +711,33 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     and until this column existed it took the count as an argument nobody
     could supply.
 
-    The predicate is deliberately the SAME one the trigger uses -- the
-    agent's wealth against `compute_subsistence_threshold` for their zone --
-    because a counter maintained on one line and consumed against another
-    diverges in silence, and the flight then fires on a count no reader can
-    trace back to a state.
+    The predicate is a HOUSEHOLD one: the household's combined wealth
+    against the sum of its members' zone thresholds, with the household
+    derived by `context.household_keys` -- the same derivation the snapshot
+    reports average household size from, shared rather than copied.
+
+    That is a deliberate divergence from the flight trigger's own first
+    condition, which stays individual, and it is written here because the
+    previous version of this docstring claimed the two were the same. They
+    were, and the consequence was found by the phase-6 closure review:
+    `apply_inheritance_at_birth` writes `wealth = 0.0` on every newborn, so
+    an individual predicate put every child in the world permanently below
+    the line. After `flight_trigger_ticks` -- thirty ticks under the default
+    era and FIVE under `sci_fi` -- each of them satisfied conditions one and
+    two of emergency flight, and since mass flight fires above 30% of a
+    zone's reference population the infant cohort alone was enough to trip
+    it. Subsistence is a household question; the counter is what now gates
+    the trigger, so a dependent minor in a solvent household never reaches
+    it.
 
     Position in the declared order matters and is recorded there: this runs
     AFTER succession, so an heir who rose above the line thanks to this
     tick's inheritance is counted as recovered rather than as still starving.
 
-    Query shape: one read of the living agents, one threshold query per zone
-    -- zones, not agents -- and one `bulk_update`.
+    Query shape: one read of the living agents, one read of the active
+    couples for the household derivation, one threshold query per zone --
+    zones, not agents -- and one `bulk_update`. None of these scales with the
+    number of living agents.
 
     No transactional boundary, and that is a decision rather than an
     omission: this step performs exactly ONE write, so there is no partial
@@ -682,7 +748,7 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     that is measured.
     """
     from epocha.apps.agents.models import Agent
-    from epocha.apps.demography.context import compute_subsistence_threshold
+    from epocha.apps.demography.context import compute_subsistence_threshold, household_keys
 
     living = list(
         Agent.objects.filter(simulation=context.simulation, is_alive=True)
@@ -691,6 +757,18 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     )
     if not living:
         return
+
+    tick_duration_hours = context.hours_per_tick()
+    acceleration = float(context.template.get("acceleration", 1.0))
+    ages = [
+        age_in_years(agent, context.tick, tick_duration_hours, acceleration) for agent in living
+    ]
+    keys = household_keys(
+        living,
+        ages,
+        context.simulation,
+        adulthood_age=float(context.template["migration"]["adulthood_age"]),
+    )
 
     thresholds: dict[Any, float] = {}
     changed: list[Any] = []
@@ -703,7 +781,19 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
                 else 0.0
             )
 
-        under_subsistence = agent.wealth < thresholds[zone_id]
+    # Aggregated per household, then applied to each of its members: a
+    # household feeds itself or it does not, and its dependants starve with
+    # it rather than on their own account.
+    household_wealth: dict[tuple[int, ...], float] = {}
+    household_threshold: dict[tuple[int, ...], float] = {}
+    for agent in living:
+        key = keys[agent.id]
+        household_wealth[key] = household_wealth.get(key, 0.0) + agent.wealth
+        household_threshold[key] = household_threshold.get(key, 0.0) + thresholds[agent.zone_id]
+    starving = {key for key, total in household_wealth.items() if total < household_threshold[key]}
+
+    for agent in living:
+        under_subsistence = keys[agent.id] in starving
         updated = agent.consecutive_ticks_under_subsistence + 1 if under_subsistence else 0
         if updated != agent.consecutive_ticks_under_subsistence:
             agent.consecutive_ticks_under_subsistence = updated
@@ -814,7 +904,12 @@ def run_demography_tick(simulation: Any, tick: int) -> None:
 
     backfill_birth_ticks(simulation)
 
-    context = DemographyTickContext(simulation=simulation, tick=tick, template=template)
+    context = DemographyTickContext(
+        simulation=simulation,
+        tick=tick,
+        template=template,
+        tick_duration_hours=_tick_duration_hours(simulation),
+    )
     for step in DEMOGRAPHY_STEPS:
         step.run(context)
 

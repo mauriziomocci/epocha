@@ -219,6 +219,40 @@ class TestMortalityStep:
             rel=1e-3,
         )
 
+    def test_the_stored_age_column_is_advanced_to_the_derived_age(self, sim_with_zone):
+        """`Agent.age` has to become true, because two live paths read it.
+
+        Found by the closure review over the whole branch diff. The column is
+        written at world generation and, for agents BORN in the simulation,
+        set to 0 by `build_newborn` -- and nothing ever advanced it, so every
+        simulation-born agent carried age 0 for life. Two consumers read it
+        and neither is ours to rewrite: `annuity_for_agent(agent.age, ...)`
+        inside the third condition of emergency flight, which hands a newborn
+        the longest working horizon the model admits and therefore the
+        largest expected gain from any move; and `child.age >= adulthood_age`
+        in the caretaker pass, which would assign a guardian to a
+        forty-year-old born in the run.
+
+        `birth_tick` remains the canonical source and the only thing that
+        advances on its own. The column is a cache of it, and the mortality
+        step is where it is refreshed because that step already derives the
+        age of every living agent for the hazard.
+        """
+        sim, zone = sim_with_zone
+        # Born in the simulation: the column says 0 and the derived age is 30.
+        agent = _agent(sim, zone, "Nato", age=30)
+        Agent.objects.filter(pk=agent.pk).update(age=0)
+        context = _context(sim)
+
+        orchestrator.run_mortality_step(context, rng=_ScriptedRandom([1.0] * 20))
+
+        agent.refresh_from_db()
+        assert agent.is_alive is True, "the scripted stream killed the agent"
+        assert agent.age == 30, (
+            f"the stored age is {agent.age}: nothing advances the column, so "
+            "the annuity horizon and the minority test read a newborn"
+        )
+
     def test_no_living_agent_is_a_no_op(self, sim_with_zone):
         sim, _ = sim_with_zone
         context = _context(sim)

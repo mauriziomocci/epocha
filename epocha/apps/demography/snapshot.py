@@ -58,10 +58,20 @@ def write_population_snapshot(context: Any) -> None:
     """
     from epocha.apps.agents.models import Agent
     from epocha.apps.demography.models import Couple, DemographyEvent, PopulationSnapshot
+    from epocha.apps.demography.orchestrator import age_in_years
 
     simulation = context.simulation
     tick = context.tick
-    ticks_per_year = HOURS_PER_YEAR / max(1e-9, _tick_duration_hours(simulation))
+    tick_duration_hours = context.hours_per_tick()
+    # One clock for the whole subsystem. `acceleration` compresses simulated
+    # years into ticks and the orchestrator applies it to every age it
+    # derives, so a snapshot ignoring it dated the population on a different
+    # calendar from the one mortality and fertility run on -- and annualised
+    # its rates on that same wrong calendar. All five shipped templates set
+    # it to 1.0, which is why the divergence stayed invisible until the
+    # closure review compared the two modules against each other.
+    acceleration = float(context.template.get("acceleration", 1.0))
+    ticks_per_year = HOURS_PER_YEAR / max(1e-9, tick_duration_hours) / max(1e-9, acceleration)
 
     living = list(
         Agent.objects.filter(simulation=simulation, is_alive=True)
@@ -70,7 +80,7 @@ def write_population_snapshot(context: Any) -> None:
     )
     total_alive = len(living)
 
-    ages = [_age_of(agent, tick, ticks_per_year) for agent in living]
+    ages = [age_in_years(agent, tick, tick_duration_hours, acceleration) for agent in living]
     males = sum(1 for a in living if a.gender == Agent.Gender.MALE)
     females = sum(1 for a in living if a.gender == Agent.Gender.FEMALE)
 
@@ -108,13 +118,6 @@ def write_population_snapshot(context: Any) -> None:
             ),
         },
     )
-
-
-def _age_of(agent: Any, tick: int, ticks_per_year: float) -> float:
-    """Age in years from `birth_tick`, the only source that advances."""
-    if agent.birth_tick is None:
-        return float(agent.age or 0)
-    return (tick - agent.birth_tick) / ticks_per_year
 
 
 def _age_pyramid(living: list, ages: list[float]) -> list[list[int]]:
@@ -223,26 +226,19 @@ def _avg_household_size(
     report, and a different derivation would produce a different series that
     looks equally plausible.
     """
-    from epocha.apps.demography.models import Couple
+    from epocha.apps.demography.context import household_keys
 
     if not living:
         return 0.0
 
-    living_ids = {agent.id for agent in living}
-    partner_of: dict[int, int] = {}
-    for a_id, b_id in Couple.objects.filter(
-        simulation=simulation, dissolved_at_tick__isnull=True
-    ).values_list("agent_a_id", "agent_b_id"):
-        partner_of[a_id] = b_id
-        partner_of[b_id] = a_id
-
-    households: set[tuple[int, ...]] = set()
-    for agent, age in zip(living, ages, strict=True):
-        is_anchored_minor = agent.parent_agent_id in living_ids and age < adulthood_age
-        anchor = agent.parent_agent_id if is_anchored_minor else agent.id
-        partner = partner_of.get(anchor)
-        key = tuple(sorted((anchor, partner))) if partner else (anchor,)
-        households.add(key)
+    # Derived by the shared helper rather than here. The inline copy that
+    # used to sit in this function was one of the four duplicated quantities
+    # the phase-6 closure review named, and it had drifted: it wrote `None`
+    # keys for the null side of a half-dissolved couple, which the shared
+    # version guards against. The starvation counter asks the same question
+    # of the same unit, and two derivations of "household" would produce two
+    # series that each look plausible.
+    households = set(household_keys(living, ages, simulation, adulthood_age).values())
 
     return len(living) / len(households) if households else 0.0
 

@@ -120,6 +120,16 @@ def test_doubling_the_living_population_does_not_change_the_count():
     large, zone_large = _simulation("large")
     _couples(large, zone_large, 10, "G")
 
+    # The stored `age` is made stale on purpose, in both runs. The mortality
+    # step refreshes that column from `birth_tick` and writes only the rows
+    # whose value actually moved -- so a fixture whose ages already agree
+    # never exercises that write at all, and this equality would say nothing
+    # about whether it scales with the population. With every row stale, the
+    # write fires in both runs, and the counts still have to match: one
+    # `bulk_update` for five agents and one for ten.
+    Agent.objects.filter(simulation=small).update(age=0)
+    Agent.objects.filter(simulation=large).update(age=0)
+
     count_small = _count_queries(small, small.current_tick + 1)
     count_large = _count_queries(large, large.current_tick + 1)
 
@@ -344,8 +354,14 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
 # candidates' partners, which is what lets a birth cost no query of its own:
 # one read for any number of candidates, and none at all when none of them is
 # partnered.
-FIXED_TERM_NO_CANDIDATES = 36
-FIXED_TERM_WITH_CANDIDATES = 44
+# Re-pinned on the measure after the phase-6 closure review, never by
+# raising a threshold to let a red through. The remediation moved this
+# DOWN by one: the starvation counter gained one read of the active
+# couples for its household derivation, and the tick duration stopped
+# being resolved with a query of its own in each of three steps, which
+# is what `DemographyTickContext` existed for.
+FIXED_TERM_NO_CANDIDATES = 35
+FIXED_TERM_WITH_CANDIDATES = 43
 
 # What a tick pays once for having any death at all, whatever their number:
 # the mortality step's own writes -- the marking and the event batch -- and
@@ -362,7 +378,11 @@ FIXED_TERM_WITH_CANDIDATES = 44
 # separately rather than folded into the per-death coefficient because
 # folding it there is what made the bound unreachable at four deaths while
 # binding at two -- one number describing two different things again.
-DEATH_TICK_ONCE = 6
+# Re-pinned on the measure after the phase-6 closure review: resolving the
+# tick duration once per context instead of once per step removed one
+# query from this path too. Measured 60 queries at two deaths and 80 at
+# four, so the slope is 10 and the intercept 40 = 35 + 5.
+DEATH_TICK_ONCE = 5
 
 # The worst case the inheritance module documents for a single death (seven
 # queries for the heir ladder) plus the settlement writes its batch performs

@@ -210,6 +210,81 @@ class TestCounterStep:
         assert just_above.consecutive_ticks_under_subsistence == 0
 
 
+class TestTheCounterIsAHouseholdProperty:
+    """A dependent minor is not a starving household of one.
+
+    Found by the closure review over the whole branch diff, and ratified as a
+    model decision before being changed. The counter used to compare an
+    agent's OWN wealth against the threshold, and `apply_inheritance_at_birth`
+    writes `child.wealth = 0.0` on every newborn: so every child in the world
+    entered permanently below the line and, after `flight_trigger_ticks` --
+    thirty ticks under the default era, FIVE under `sci_fi` -- satisfied the
+    first two conditions of emergency flight. Since mass flight fires above
+    30% of a zone's reference population, the infant cohort alone was enough
+    to trigger it.
+
+    The subsistence question is a household question: the household's wealth
+    against the sum of its members' thresholds. The derivation is the one the
+    snapshot already had -- partners share a household, a minor belongs to
+    its living parent's -- now shared rather than copied, because a second
+    copy of a quantity is the defect this branch was carrying in four places.
+    """
+
+    def test_a_minor_in_a_solvent_household_does_not_starve(self, sim_with_zone):
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.context import compute_subsistence_threshold
+
+        sim, zone = sim_with_zone
+        threshold = compute_subsistence_threshold(sim, zone)
+        parent = _agent(sim, zone, "Genitore", wealth=threshold * 10)
+        child = _agent(
+            sim,
+            zone,
+            "Figlio",
+            wealth=0.0,
+            age=2,
+            birth_tick=int(sim.current_tick - 2 * 365),
+            parent_agent=parent,
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        child.refresh_from_db()
+        parent.refresh_from_db()
+        assert parent.consecutive_ticks_under_subsistence == 0
+        assert child.consecutive_ticks_under_subsistence == 0, (
+            "a child with no wealth of its own was counted as a starving "
+            "household: every newborn in the world becomes a famine migrant"
+        )
+
+    def test_a_minor_in_an_insolvent_household_does_starve(self, sim_with_zone):
+        """The other side, so the fix is not a blanket exemption for minors."""
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.context import compute_subsistence_threshold
+
+        sim, zone = sim_with_zone
+        threshold = compute_subsistence_threshold(sim, zone)
+        parent = _agent(sim, zone, "GenitorePovero", wealth=threshold * 0.2)
+        child = _agent(
+            sim,
+            zone,
+            "FiglioPovero",
+            wealth=0.0,
+            age=2,
+            birth_tick=int(sim.current_tick - 2 * 365),
+            parent_agent=parent,
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        child.refresh_from_db()
+        parent.refresh_from_db()
+        assert parent.consecutive_ticks_under_subsistence == 1
+        assert child.consecutive_ticks_under_subsistence == 1, (
+            "the household is below the line and the minor was not counted"
+        )
+
+
 class TestFlightReadsThePersistedCounter:
     def test_flight_fires_from_the_stored_counter_alone(self, sim_with_zone):
         """FR-012: `process_emergency_flight` reads the column instead of
