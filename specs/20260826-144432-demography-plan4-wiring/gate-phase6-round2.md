@@ -731,3 +731,73 @@ capo. La regola che ne discende: **non si mutano file di test non committati**
 ### Conseguenza
 
 Round 6 **NOT CONVERGED**. Il round 7 giudica questa remediation.
+
+---
+
+## Round 7: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 6 e prima di lanciare il round 7.**
+
+**Ambito**: `git diff 98d8ab4..HEAD`, la remediation del round 6 (`f8815e7`).
+Ogni file toccato rientra per intero.
+
+**Le tre classi bloccanti restano identiche** dal round 2 e non sono state
+toccate.
+
+### Dove sta la debolezza del verdetto precedente, e da lì si comincia
+
+Il round 6 ha enumerato le diciassette colonne che i due neonati della fixture
+hanno identiche, e ne ha classificate **quindici come costanti anche in
+produzione**, dichiarando testualmente di averlo stabilito «per lettura di
+`build_newborn` e non per esperimento». È l'unica affermazione portante del
+verdetto che non sia stata misurata, ed è esattamente la forma di ragionamento
+che questo gate ha già smentito tre volte: una proprietà dedotta dalla lettura
+e non provata per mutazione.
+
+**La domanda del round 7 è quindi: quelle quindici sono davvero costanti in
+produzione?** Per ciascuna, o si nomina il letterale o il default del modello
+che la fissa, oppure si misura il travaso `newborns[-1].X = newborns[0].X` e
+si dice se sopravvive. Se anche una sola di esse varia per neonato in una run
+vera, è una colonna cieca e un bloccante di classe 2, identico a quello del
+round 6 una colonna più in là.
+
+### Gli altri punti da attaccare
+
+- **L'iteratore che alterna le ere** presume che `load_template` sia chiamata
+  esattamente due volte durante il passo. La fixture asserisce che
+  l'alternanza sia atterrata, quindi un disallineamento fallisce rumorosamente
+  — ma il round verifichi che sia davvero così e non per fortuna, e che cosa
+  accade se un percorso futuro aggiunge una chiamata.
+- **Le quattro asserzioni di forma della fixture** (zona, classe, posizione,
+  orientamento) sono ora quattro letterali. Valgono ciò che il round 6 ha
+  provato per la guardia dei cinque campi, o possono restare verdi mentre
+  quello che asserivano si svuota?
+- **`UNCOMPARABLE` pinnata a un'uguaglianza esatta** blocca l'allargamento, ma
+  che cosa succede a chi ha una ragione legittima di allargarla.
+
+### Debiti dichiarati, e dove vengono saldati
+
+Il diff di branch `develop..HEAD` non è mai stato riletto per intero da nessun
+round, ed è 1922 righe di produzione su 18 file. **Non è compito di questo
+round**: è la review Matteo sull'intero diff prevista dal passo di chiusura, a
+gate CONVERGED, e resta esplicitamente aperto fino a lì. Il round 7 non lo
+legga e non lo dichiari coperto.
+
+### Che cosa il verdetto deve contenere
+
+Rilievi per gravità con classe, `file:riga` e misura. Se non produce nulla
+delle tre classi, l'enumerazione esplicita di ciò che non ha coperto. Sei
+round su sei hanno prodotto un bloccante, e cinque di questi sono nati dentro
+il testimone scritto per chiudere il round precedente.
+
+**Convergenza**: nessuna delle tre classi bloccanti.
+
+### Perché questo criterio può fallire
+
+La remediation cambia quattro cose in un file di test e nulla nel codice di
+produzione: due posizioni, un iteratore di ere, un'uguaglianza sulle
+esclusioni, un'asserzione sul tick. Le mutazioni eseguite sono quattro e
+muoiono tutte. Se il round non produce nulla, la spiegazione ammessa è che la
+superficie sia genuinamente piccola — non che il round non abbia guardato — e
+il verdetto deve dirlo enumerando che cosa ha verificato, a partire dalle
+quindici colonne che il round 6 non ha misurato.
