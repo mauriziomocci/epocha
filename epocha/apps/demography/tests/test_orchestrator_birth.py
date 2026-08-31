@@ -805,7 +805,15 @@ class TestTheStepPersistsWhatItBuilt:
 
         def _capturing(ctx, mother_arg, father, rng, zone_class_mean=None):
             child = real_build(ctx, mother_arg, father, rng, zone_class_mean=zone_class_mean)
-            built[mother_arg.id] = {f: getattr(child, f) for f in fields}
+            # Deep-copied, and that is load-bearing rather than defensive:
+            # `personality`, `conditions` and `location` are mutable, and
+            # capturing them by reference compares an object with itself. On
+            # the version that did, `newborn.personality["MUTATED"] = 1.0`
+            # applied inside the step -- an in-place write, the shape a real
+            # regression takes when code reaches into a JSON column -- left
+            # the whole file green while the rebinding form died. Measured
+            # before this line existed.
+            built[mother_arg.id] = copy.deepcopy({f: getattr(child, f) for f in fields})
             return child
 
         orchestrator.build_newborn = _capturing
