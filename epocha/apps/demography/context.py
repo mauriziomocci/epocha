@@ -143,17 +143,15 @@ def household_keys(
     null; writing a `None` key would put every such survivor in one shared
     household.
     """
-    from epocha.apps.demography.models import Couple
+    from epocha.apps.demography.couple import active_couple_partners
 
+    # The partner map comes from `couple.active_couple_partners`, not from a
+    # second copy of its body. Round 9 counted this file re-implementing that
+    # function line for line, both of them added by this same work item --
+    # code that is born duplicated next to its original, which is the pattern
+    # the gate has now caught six times.
+    partner_of = active_couple_partners(simulation)
     living_ids = {agent.id for agent in living}
-    partner_of: dict[int, int] = {}
-    for a_id, b_id in Couple.objects.filter(
-        simulation=simulation, dissolved_at_tick__isnull=True
-    ).values_list("agent_a_id", "agent_b_id"):
-        if a_id is not None:
-            partner_of[a_id] = b_id
-        if b_id is not None:
-            partner_of[b_id] = a_id
 
     # A minor is anchored through WHICHEVER guardian is alive, in the order
     # mother, father, appointed caretaker. Reading `parent_agent` alone --
@@ -186,9 +184,20 @@ def household_keys(
         # own, and without following the chain their newborn is a household
         # of one that the grandparent's solvency never reaches. The visited
         # set bounds a cycle that the data model does not forbid.
+        #
+        # MARRIAGE OUTRANKS THE CHAIN, and the walk stops at the first node
+        # that is in an active couple -- starting with the agent itself. A
+        # couple IS a household, which is the first sentence of this
+        # docstring, so a married minor cannot also be a dependent of her
+        # parent's: measured before this guard, she was pulled into the
+        # parent's household while her partner's key still named her, so her
+        # wealth was counted in one household and her membership claimed by
+        # another, and one year of age flipped the verdict on the same
+        # population. Reachable because the era's minimum marriage age gates
+        # only the founding matcher and not the per-tick intent path.
         seen: set[int] = set()
         current = agent_id
-        while current in guardian_of and current not in seen:
+        while current not in partner_of and current in guardian_of and current not in seen:
             seen.add(current)
             current = guardian_of[current]
         return current

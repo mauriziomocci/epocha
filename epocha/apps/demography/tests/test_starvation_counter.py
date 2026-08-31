@@ -402,6 +402,61 @@ class TestTheHouseholdKnowsBothParents:
         )
 
 
+class TestMarriageOutranksTheGuardianChain:
+    """A married minor belongs to her marital household, not her parent's.
+
+    Found by round 9. `_anchor` walked the guardian chain unconditionally, so
+    a minor who was ALSO in an active couple was pulled into her parent's
+    household while her husband's key still named her: her wealth counted in
+    one household and her membership claimed by another. Measured, one year
+    of age flipped the verdict on the same population -- at fourteen she was
+    starving next to a husband holding ten thousand, at seventeen she was not.
+
+    Reachable, and not a curiosity: `min_marriage_age_male` and
+    `min_marriage_age_female` appear nowhere in `couple.py`, so the era's
+    threshold gates only the founding matcher in `initialization.py`, while
+    the per-tick intent path does not read it. The fertile window opens at
+    twelve against an adulthood age of sixteen or eighteen.
+
+    The precedence -- marriage wins -- is a model decision taken here rather
+    than left implicit: a couple IS a household, which is the first sentence
+    of the derivation's own docstring, and a person cannot be a dependent of
+    two households at once.
+    """
+
+    def test_a_married_minor_is_in_her_own_household_not_her_parents(self, sim_with_zone):
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.context import compute_subsistence_threshold
+        from epocha.apps.demography.couple import form_couple
+
+        sim, zone = sim_with_zone
+        threshold = compute_subsistence_threshold(sim, zone)
+        grandparent = _agent(sim, zone, "NonnoPovero", wealth=0.0)
+        wife = _agent(
+            sim,
+            zone,
+            "MoglieMinorenne",
+            wealth=0.0,
+            age=14,
+            birth_tick=int(sim.current_tick - 14 * 365),
+            parent_agent=grandparent,
+            gender=Agent.Gender.FEMALE,
+        )
+        husband = _agent(sim, zone, "Marito", wealth=threshold * 100)
+        form_couple(wife, husband, formed_at_tick=sim.current_tick - 1)
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        wife.refresh_from_db()
+        husband.refresh_from_db()
+        assert husband.consecutive_ticks_under_subsistence == 0
+        assert wife.consecutive_ticks_under_subsistence == 0, (
+            "the married minor was anchored to her destitute parent while her "
+            "husband's household still claimed her: she is a dependent of two "
+            "households at once"
+        )
+
+
 class TestFlightReadsThePersistedCounter:
     def test_flight_fires_from_the_stored_counter_alone(self, sim_with_zone):
         """FR-012: `process_emergency_flight` reads the column instead of
