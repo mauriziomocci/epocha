@@ -870,3 +870,116 @@ CONVERGED. Restano da eseguire, prima del push: il re-pin dei whitepaper, il
 flag di T038, la build map allo stato post-merge, suite e ruff, e la review
 sull'intero diff di branch — l'unico debito che nessun round ha saldato e che
 il criterio del round 7 ha esplicitamente assegnato alla chiusura.
+
+---
+
+## Review di chiusura sull'intero diff del ramo: IL GATE SI RIAPRE
+
+**2026-08-29, dopo il CONVERGED del round 7.**
+
+Il criterio del round 7 aveva assegnato a questo passo il debito che nessun
+round aveva saldato: **`git diff develop..HEAD` non era mai stato riletto per
+intero**, perché ogni round era ristretto al diff della remediation
+precedente. La review ha letto 1752 righe di produzione su 12 file e ha
+trovato **quattro difetti di correttezza nel codice di produzione**, tutti
+verificati contro il sorgente prima di essere accettati.
+
+Il CONVERGED del round 7 resta valido **nel proprio ambito**, che era il diff
+della remediation del round 6. Non era sbagliato: era ristretto. È la
+restrizione stessa — che aveva fatto risparmiare tempo per sei round — ad
+avere una cecità strutturale, e questa ne è la fattura.
+
+### I quattro bloccanti, verificati
+
+**B1 — ogni bambino del mondo è un affamato cronico, e il contatore nuovo lo
+certifica a ogni tick.** Il passo 5 decide con `agent.wealth <
+thresholds[zone_id]`, sul patrimonio **individuale**;
+`inheritance.py` scrive `child.wealth = 0.0` su ogni nato. Ogni neonato entra
+sotto soglia e non ne esce finché non gli muore un genitore. Dopo
+`flight_trigger_ticks` — 30 tick col template di default, **5 con `sci_fi`** —
+supera la condizione 1 e la 2 della fuga d'emergenza. Poiché la fuga di massa
+scatta sopra il 30% della popolazione di zona, la sola coorte infantile basta
+a superare la soglia. Il ramo contiene già la nozione che gli manca:
+`snapshot.py` definisce che un minore appartiene al nucleo del genitore, con
+il proprio test d'età. Il passo 5 non lo sa.
+
+**B2 — `Agent.age` vale 0 per sempre su ogni agente nato nella simulazione, e
+due percorsi vivi lo leggono.** Le uniche scritture della colonna sono in
+`world/generator.py` e `orchestrator.py:171`; nulla la fa avanzare. I
+consumatori: `migration.py:682`, `annuity_for_agent(agent.age, ...)` dentro la
+condizione 3 della fuga, che dà a ogni nato l'orizzonte lavorativo massimo e
+quindi il guadagno atteso massimo da qualunque trasferimento — e si somma a
+B1 sullo stesso individuo; e `inheritance.py:3605`, `child.age >=
+adulthood_age`, per cui a un quarantenne nato nella simulazione viene
+assegnato un tutore.
+
+**B3 — il neonato non esiste quando si liquida l'eredità della madre che
+l'ha partorito.** Dentro la stessa transazione, `_settle_deaths` gira prima di
+`bulk_create(newborns)`. Al momento della liquidazione il neonato non è una
+riga: `resolve_heirs` non lo trova fra i figli, quindi una madre nubile morta
+di parto non gli lascia nulla; e la passata sui tutori, limitata a
+`heirs["children"]`, non lo vede affatto. L'unico orfano che il percorso del
+parto produce è precisamente l'unico che l'assegnazione del tutore non può
+raggiungere.
+
+**B4 — due definizioni dell'età, e la seconda perde il fattore di
+accelerazione.** `orchestrator.py:409` moltiplica per `acceleration`,
+`snapshot.py:117` no. Con i cinque template spediti `acceleration` vale 1,0 e
+i numeri coincidono, quindi nessun test lo vede; con 10,0 — valore che lo
+schema ammette — la piramide per età, l'età media, il denominatore del TFR e
+la soglia di minore età divergono dal modello che dichiarano di misurare. È
+l'artefatto di validazione contro HMD e Wrigley-Schofield.
+
+### Sei code, non bloccanti
+
+`_tick_duration_hours` scritta tre volte con tre query per tick, mentre
+`DemographyTickContext` esiste per risolvere una volta per tick esattamente
+questo; `HOURS_PER_YEAR` nudo in due punti contro il divieto di numeri magici;
+la successione dichiara nel docstring una protezione contro la doppia
+liquidazione che vale in una sola direzione, con la query di
+`settled_elsewhere` che nell'ordine dichiarato non può mai trovare nulla; lo
+snapshot ricostruisce a mano la mappa dei partner che `couple.py` fornisce già
+con i propri null guard, e legge `Couple` due volte; `sex_ratio` restituisce
+un conteggio quando non ci sono donne, rendendo indistinguibili due
+popolazioni diverse; e tre imprecisioni della piramide — bucket aperto
+etichettato come chiuso, agenti non binari che spariscono dalla somma,
+`_avg_household_size` non transitiva su una madre minorenne.
+
+### IL PATTERN, che è la cosa che conta
+
+**Sei rilievi su dieci sono la stessa cosa: il ramo calcola una grandezza
+correttamente in un posto e ne legge una copia stantia o duplicata in un
+altro.** L'età da `birth_tick` contro la colonna `age` congelata; l'età con
+l'accelerazione contro quella senza; la mappa dei partner centralizzata in
+`couple.py` contro quella riscritta a mano nello snapshot; la durata del tick
+risolta tre volte; e il patrimonio individuale letto come se fosse quello del
+nucleo, mentre il nucleo è definito trenta righe più in là nello stesso work
+item.
+
+La premessa architetturale — una sorgente canonica per grandezza — è scritta
+esplicitamente in cinque docstring ed è corretta. Il cablaggio ne ha aggiunta
+una seconda a quattro grandezze su cinque. **Non è disattenzione locale: è che
+nessun passo del gate ha mai confrontato due moduli diversi fra loro.** La
+restrizione dell'ambito, che è stata la scelta giusta per la velocità dei
+round, ha questa cecità come costo, e la fattura arriva tutta insieme qui.
+
+### Conseguenza, e che cosa serve dall'utente
+
+Il gate è **RIAPERTO**. Il ramo **non è mergiato** e non lo sarà finché B1-B4
+non sono chiusi e un round nuovo non giudica quella remediation.
+
+**B2 e B4 sono meccanici**: far avanzare `age` dentro la `bulk_update` che il
+passo mortalità già esegue, e passare `acceleration` allo snapshot — meglio
+ancora, riusare `age_in_years` invece di riscriverla, che è il pattern stesso.
+
+**B1 e B3 sono decisioni di modello e non le prendo da solo.** B1 chiede se il
+contatore di sussistenza vada calcolato sul nucleo invece che sull'individuo,
+oppure se i minori vadano esclusi dal passo 5: sono due modelli diversi con
+conseguenze diverse sulla migrazione, e la spec dice testualmente che il
+contatore si incrementa «quando l'agente è sotto la soglia di sussistenza»,
+quindi cambiarlo è una revisione di requisito, gate di fase 2, decisione
+dell'utente. B3 chiede se un neonato debba ereditare dalla madre morta nel
+partorirlo: la risposta intuitiva è sì, ma è una regola di successione e
+questo progetto non decide regole di successione per intuizione.
+
+T038 è riaperto: la validazione finale non è passata.
