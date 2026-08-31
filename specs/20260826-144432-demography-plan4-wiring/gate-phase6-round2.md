@@ -983,3 +983,76 @@ partorirlo: la risposta intuitiva è sì, ma è una regola di successione e
 questo progetto non decide regole di successione per intuizione.
 
 T038 è riaperto: la validazione finale non è passata.
+
+---
+
+## Round 8: criterio, scritto prima del lancio
+
+**2026-08-29, dopo la riapertura del gate e prima di lanciare il round 8.**
+
+**Ambito**: `git diff 9e9ed9c..HEAD`, la remediation dei quattro difetti che
+la review di chiusura ha trovato (`170c6d1`). Ogni file toccato rientra per
+intero.
+
+**Le tre classi bloccanti restano identiche** e non sono state toccate dal
+round 2.
+
+### Perché questo round è diverso dai sette precedenti
+
+I round 5, 6 e 7 hanno giudicato diff che non contenevano **una sola riga di
+codice di produzione**: la classe 1 era vuota per costruzione, non per
+verifica, e i tre revisori lo hanno dichiarato. Questa remediation tocca tre
+moduli di produzione — `orchestrator.py`, `snapshot.py`, `context.py` — e
+cambia un **modello**, non un testimone. La classe 1 è viva e va giudicata per
+prima.
+
+### Che cosa attaccare, in ordine
+
+1. **Il predicato di nucleo** (`context.household_keys` più il passo
+   contatore). È una regola di modello nuova e i suoi bordi non sono stati
+   tutti esercitati: un agente senza zona, un nucleo che si estende su due
+   zone, un minore il cui genitore muore nello stesso tick, il neonato
+   ancorato a una madre che muore di parto, una coppia mezza-nulla. Per
+   ciascuno: che cosa fa il codice, e c'è un testimone.
+2. **Il rinfresco di `age`**. Tronca con `int()`: che cosa succede a
+   `birth_tick` nel futuro, a un'età negativa, a `birth_tick` nullo. E la
+   colonna è ora scritta a ogni tick in cui un compleanno cade: il termine
+   fisso di costo è pinnato su un tick in cui nessuno compie gli anni, e la
+   guardia del raddoppio è l'unica che esercita la scrittura.
+3. **Il riordino della transazione della fertilità**. I neonati sono creati
+   prima della liquidazione: che altro vede ora una riga che prima non
+   c'era. In particolare le query che `process_inheritance_batch` esegue per
+   le ALTRE morti dello stesso tick, e la passata sui tutori.
+4. **La memoizzazione su una dataclass frozen** (`hours_per_tick`), che
+   scrive con `object.__setattr__`: è sicura rispetto al riuso del contesto e
+   ai test che ne costruiscono uno a mano.
+5. **La fixture end-to-end**, cambiata per far starve qualcuno: verifica che
+   il passo 5 sia davvero esercitato e non solo che il test sia tornato
+   verde.
+
+### La lezione di processo, che vale più del round
+
+**La review di chiusura ha trovato quattro difetti che sette round non
+potevano vedere**, e la ragione è strutturale: ogni round era ristretto al
+diff della remediation precedente, quindi nessuno ha mai confrontato due
+moduli fra loro. Sei dei dieci rilievi erano la stessa cosa — una grandezza
+calcolata bene in un posto e riletta stantia in un altro — che è una classe
+che per definizione non esiste dentro un diff ristretto.
+
+Ne discende una regola per il resto di questo work item e per i successivi:
+**la review sull'intero diff del ramo non è un passo finale da eseguire una
+volta.** Va ri-eseguita dopo ogni remediation che tocchi il codice di
+produzione, perché è l'unica passata che può vedere quella classe. Il round 8
+non la sostituisce.
+
+**Convergenza**: nessuna delle tre classi bloccanti.
+
+### Perché questo criterio può fallire
+
+La remediation cambia un predicato di modello, aggiunge una funzione
+condivisa consumata da due moduli, riordina una transazione, introduce una
+memoizzazione su una struttura immutabile e ri-pinna tre costanti di costo
+verso il basso. Cinque testimoni nuovi, ciascuno visto rosso prima
+dell'implementazione. Se il round non produce nulla delle tre classi, il
+verdetto deve dire quali percorsi ha verificato e che cosa ha lasciato
+scoperto.
