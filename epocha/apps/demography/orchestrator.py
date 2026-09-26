@@ -109,9 +109,11 @@ class DemographyTickContext:
         The phase-6 closure review counted three identical private helpers
         resolving this with a query each, in `orchestrator`, `snapshot` and
         `initialization`, while this container existed precisely to resolve
-        per-tick constants once. Two of the three now share this one;
-        `initialization.backfill_birth_ticks` keeps its own because it runs
-        without a context, and saying so is better than implying three.
+        per-tick constants once. The snapshot now reads it through this
+        accessor. `initialization` and the couple resolver run without a
+        context, so they call `_tick_duration_hours` below directly -- the
+        same single helper, where `initialization` used to keep a copy of its
+        own that the gate's round 10 preparation removed.
         Memoised through `object.__setattr__`
         because the dataclass is frozen and the value is a cache of a
         world-level fact, not part of the context's identity.
@@ -122,9 +124,11 @@ class DemographyTickContext:
 
 
 # Hours in a Julian year, the conversion every age and rate in this
-# subsystem runs through. Named here rather than repeated as a literal:
-# `snapshot.py` and `initialization.py` already name it, and round 9
-# counted the same number in four forms across three modules.
+# subsystem runs through. Defined here once and imported by `snapshot.py`
+# and `initialization.py`, which used to define their own: round 9 counted
+# the same number in four forms across three modules. `mortality.py` and
+# `migration.py`, audited modules that predate this work item, still write
+# it themselves.
 HOURS_PER_YEAR = 8760.0
 
 

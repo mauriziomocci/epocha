@@ -37,7 +37,8 @@ from __future__ import annotations
 
 from typing import Any
 
-HOURS_PER_YEAR = 8760.0
+from epocha.apps.demography.orchestrator import HOURS_PER_YEAR
+
 AGE_BUCKET_YEARS = 5
 OLDEST_BUCKET_START = 100
 

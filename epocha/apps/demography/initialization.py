@@ -35,11 +35,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from epocha.apps.demography.orchestrator import is_demography_enabled
+from epocha.apps.demography.orchestrator import (
+    HOURS_PER_YEAR,
+    _tick_duration_hours,
+    is_demography_enabled,
+)
 
 logger = logging.getLogger(__name__)
-
-HOURS_PER_YEAR = 8760.0
 
 
 def initialize_demography(simulation: Any) -> None:
@@ -265,10 +267,3 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
         "demography initialization: formed initial couples for simulation %s",
         simulation.id,
     )
-
-
-def _tick_duration_hours(simulation: Any) -> float:
-    from epocha.apps.world.models import World
-
-    world = World.objects.filter(simulation=simulation).first()
-    return float(getattr(world, "tick_duration_hours", 24.0) or 24.0) if world else 24.0
