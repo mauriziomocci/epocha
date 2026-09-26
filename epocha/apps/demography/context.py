@@ -193,8 +193,12 @@ def household_keys(
         # parent's household while her partner's key still named her, so her
         # wealth was counted in one household and her membership claimed by
         # another, and one year of age flipped the verdict on the same
-        # population. Reachable because the era's minimum marriage age gates
-        # only the founding matcher and not the per-tick intent path.
+        # population. Reachable when this guard was written because the era's
+        # minimum marriage age gated only the founding matcher; since
+        # `couple.meets_marriage_age` it gates the intent path too, and the
+        # guard stays necessary all the same: the pre-industrial eras set the
+        # female threshold at 14 against an adulthood age of 16, so a married
+        # minor is a legitimate state there.
         seen: set[int] = set()
         current = agent_id
         while current not in partner_of and current in guardian_of and current not in seen:

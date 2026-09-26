@@ -109,6 +109,32 @@ def write_population_snapshot(context: Any) -> None:
     deaths = [e for e in events if e["event_type"] == DemographyEvent.EventType.DEATH]
     migrations = [e for e in events if e["event_type"] == DemographyEvent.EventType.MIGRATION]
 
+    # Mothers who died giving birth this tick are no longer among the living,
+    # and the TFR read mothers' ages from the living only: their births fell
+    # out of the numerator while the crude birth rate counted them (round 10
+    # of the phase-6 gate). They were exposed during the tick, so they enter
+    # the rate's numerator AND denominator. One read, and only on a tick
+    # that has such a birth, which is also a tick that already pays the
+    # death path.
+    living_ids = {agent.id for agent in living}
+    lost_mother_ids = {
+        e["secondary_agent_id"]
+        for e in births
+        if e["secondary_agent_id"] is not None and e["secondary_agent_id"] not in living_ids
+    }
+    lost_mothers = (
+        list(
+            Agent.objects.filter(id__in=lost_mother_ids)
+            .only("id", "gender", "birth_tick", "age")
+            .order_by("id")
+        )
+        if lost_mother_ids
+        else []
+    )
+    lost_mother_ages = [
+        age_in_years(agent, tick, tick_duration_hours, acceleration) for agent in lost_mothers
+    ]
+
     couples_active = Couple.objects.filter(
         simulation=simulation, dissolved_at_tick__isnull=True
     ).count()
@@ -127,7 +153,9 @@ def write_population_snapshot(context: Any) -> None:
             "avg_age": (sum(ages) / total_alive) if total_alive else 0.0,
             "crude_birth_rate": _per_thousand_per_year(len(births), total_alive, ticks_per_year),
             "crude_death_rate": _per_thousand_per_year(len(deaths), total_alive, ticks_per_year),
-            "tfr_instant": _tfr_instant(births, living, ages, ticks_per_year),
+            "tfr_instant": _tfr_instant(
+                births, living + lost_mothers, ages + lost_mother_ages, ticks_per_year
+            ),
             "net_migration_by_zone": _net_migration(migrations),
             "couples_active": couples_active,
             "avg_household_size": _avg_household_size(
@@ -197,7 +225,9 @@ def _tfr_instant(
     """Sum of this tick's age-specific fertility rates, annualised.
 
     The age-specific rate at age x is this tick's births to mothers of age x
-    divided by the women of age x alive at the tick; the TFR is their sum
+    divided by the women of age x exposed during the tick -- the living, plus
+    the mothers who died giving birth in it, which the caller appends to
+    `living` and `ages` because they are no longer alive; the TFR is their sum
     over the fertile window. With one tick of events the sum is dominated by
     whichever ages happened to give birth, which is why the module docstring
     calls these observations rather than estimates.
@@ -228,6 +258,12 @@ def _tfr_instant(
 def _net_migration(migrations: list[dict]) -> dict[str, int]:
     """Net arrivals minus departures per zone, keyed by zone id as a string.
 
+    Counted in PEOPLE, not events. `coordinate_family_migration`, the only
+    producer, writes one event per household: the primary agent plus
+    everyone listed in `payload["household_members"]`. Counting one per
+    event under-reported migration by the size of the household (round 10
+    of the phase-6 gate).
+
     JSON object keys are strings, so an integer zone id would come back from
     the database as one anyway; writing it as a string keeps what is read
     identical to what was written.
@@ -237,10 +273,11 @@ def _net_migration(migrations: list[dict]) -> dict[str, int]:
         payload = event.get("payload") or {}
         origin = payload.get("from_zone")
         destination = payload.get("to_zone")
+        movers = 1 + len(payload.get("household_members") or [])
         if origin is not None:
-            net[str(origin)] = net.get(str(origin), 0) - 1
+            net[str(origin)] = net.get(str(origin), 0) - movers
         if destination is not None:
-            net[str(destination)] = net.get(str(destination), 0) + 1
+            net[str(destination)] = net.get(str(destination), 0) + movers
     return net
 
 

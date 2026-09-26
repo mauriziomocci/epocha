@@ -942,3 +942,32 @@ def test_the_age_carries_the_eras_acceleration(sim_with_zone):
         "fourteen years of age at acceleration 2.0 were read as seven: the "
         "age rule is not on the orchestrator's clock"
     )
+
+
+@pytest.mark.django_db
+def test_a_refused_target_does_not_end_the_proposers_other_intents(sim_with_zone):
+    """The rule refuses a PAIRING, not a proposer.
+
+    An adult who filed two intents, the first toward a minor and the second
+    toward an adult, must still marry the second. Round 10 of the phase-6
+    gate measured that turning the refusal's `continue` into a `break` left
+    every test green, because no fixture gave a proposer a second target.
+    The minor is created first so her intent is read first.
+    """
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+
+    minor = _make_agent(sim, zone, "Tredicenne", age=13)
+    adult = _make_agent(sim, zone, "Adulta", age=24)
+    suitor = _make_agent(sim, zone, "Pretendente", age=30, gender=Agent.Gender.MALE)
+    _decision_log(sim, suitor, tick=4, action="pair_bond", target=minor.name)
+    _decision_log(sim, suitor, tick=4, action="pair_bond", target=adult.name)
+
+    formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(13))
+
+    assert [{c.agent_a_id, c.agent_b_id} for c in formed] == [{suitor.id, adult.id}], (
+        "refusing the minor ended the suitor's turn before his valid second intent"
+    )

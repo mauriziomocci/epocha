@@ -124,7 +124,9 @@ def populated_tick(sim_with_zones):
         tick=tick,
         event_type=DemographyEvent.EventType.MIGRATION,
         primary_agent=mover,
-        payload={"from_zone": home.id, "to_zone": away.id},
+        # The shape `coordinate_family_migration` writes: a mover alone
+        # carries an EMPTY `household_members`, never a missing key.
+        payload={"household_members": [], "from_zone": home.id, "to_zone": away.id},
     )
 
     return sim, home, away, tick
@@ -212,6 +214,39 @@ class TestSnapshotFields:
         assert row.net_migration_by_zone[str(home.id)] == -1
         assert row.net_migration_by_zone != {}
 
+    def test_net_migration_counts_the_household_not_the_event(self, sim_with_zones):
+        """One MIGRATION event moves a whole household.
+
+        `coordinate_family_migration` emits ONE event per household, with the
+        primary agent as `primary_agent` and everyone who moved with them in
+        `payload["household_members"]`. Round 10 of the phase-6 gate measured
+        the snapshot counting one migrant per event, so a family of three
+        registered as one: the series under-reported migration by the size of
+        the household, and it is the series a famine validation reads.
+        """
+        sim, home, away = sim_with_zones
+        tick = sim.current_tick + 1
+        head = _agent(sim, away, "Capofamiglia", age=40)
+        partner = _agent(sim, away, "Compagna", age=38, gender=Agent.Gender.FEMALE)
+        child = _agent(sim, away, "Figlio", age=8)
+        DemographyEvent.objects.create(
+            simulation=sim,
+            tick=tick,
+            event_type=DemographyEvent.EventType.MIGRATION,
+            primary_agent=head,
+            payload={
+                "household_members": [partner.id, child.id],
+                "from_zone": home.id,
+                "to_zone": away.id,
+                "reason": "emergency_flight",
+            },
+        )
+
+        snapshot.write_population_snapshot(_context(sim, tick))
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        assert row.net_migration_by_zone == {str(home.id): -3, str(away.id): 3}
+
     def test_couples_active(self, populated_tick):
         sim, _, _, tick = populated_tick
 
@@ -264,6 +299,47 @@ class TestSnapshotFields:
 
         row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
         assert row.tfr_instant == pytest.approx(TICKS_PER_YEAR / 2, rel=1e-6)
+
+    def test_a_mother_who_died_giving_birth_still_counts_in_the_tfr(self, sim_with_zones):
+        """Found by round 10 of the phase-6 gate: the rate read the mother's age
+        from the LIVING agents only, so a birth whose mother died in labour
+        was dropped from the numerator -- the crude birth rate counted it and
+        the TFR did not. She was exposed for the tick, so she belongs in the
+        denominator as well: with a living woman of the same age beside her
+        the age-specific rate is 1/2, and an implementation that restores
+        only the numerator reads 1/1.
+        """
+        sim, home, _ = sim_with_zones
+        tick = sim.current_tick + 1
+        mother = _agent(
+            sim,
+            home,
+            "MadreMorta",
+            age=30,
+            gender=Agent.Gender.FEMALE,
+            is_alive=False,
+            death_tick=tick,
+        )
+        _agent(sim, home, "Coetanea", age=30, gender=Agent.Gender.FEMALE)
+        newborn = _agent(sim, home, "Orfana", age=0, gender=Agent.Gender.FEMALE)
+        newborn.birth_tick = tick
+        newborn.save(update_fields=["birth_tick"])
+        DemographyEvent.objects.create(
+            simulation=sim,
+            tick=tick,
+            event_type=DemographyEvent.EventType.BIRTH,
+            primary_agent=newborn,
+            secondary_agent=mother,
+            payload={"mother_died_in_childbirth": True},
+        )
+
+        snapshot.write_population_snapshot(_context(sim, tick))
+
+        row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
+        assert row.tfr_instant == pytest.approx(TICKS_PER_YEAR / 2, rel=1e-6), (
+            "a birth whose mother died in labour is missing from the TFR, or "
+            "her exposure is missing from its denominator"
+        )
 
     def test_a_dissolved_couple_is_not_active_and_does_not_fuse_households(self, sim_with_zones):
         """The predicate the shared fixture never exercises: it forms one

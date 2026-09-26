@@ -412,11 +412,11 @@ class TestMarriageOutranksTheGuardianChain:
     of age flipped the verdict on the same population -- at fourteen she was
     starving next to a husband holding ten thousand, at seventeen she was not.
 
-    Reachable, and not a curiosity: `min_marriage_age_male` and
-    `min_marriage_age_female` appear nowhere in `couple.py`, so the era's
-    threshold gates only the founding matcher in `initialization.py`, while
-    the per-tick intent path does not read it. The fertile window opens at
-    twelve against an adulthood age of sixteen or eighteen.
+    Reachable, and not a curiosity. When this was found the era's minimum
+    marriage age gated only the founding matcher; it now gates the intent
+    path as well (`couple.meets_marriage_age`), and the state remains legal:
+    the pre-industrial eras set the female threshold at 14 against an
+    adulthood age of 16, so a married fourteen-year-old is a minor there.
 
     The precedence -- marriage wins -- is a model decision taken here rather
     than left implicit: a couple IS a household, which is the first sentence

@@ -395,7 +395,18 @@ def test_the_population_lives(reference_simulation):
     # age pyramid; this test only asserts that the machinery runs.
     assert births > 0, f"no birth in {TICKS} ticks"
     assert deaths > 0, f"no death in {TICKS} ticks"
-    assert population_at_end != population_at_start
+    # The accounting identity, not `end != start`. The streams are keyed on
+    # the simulation's primary key, so the run's births and deaths depend on
+    # how many simulations the suite created first, and a year in which they
+    # happen to balance is a living population, not a failure: measured,
+    # this assertion used to be `end != start` and failed at 86 against 86
+    # once the suite created a few more simulations. The identity is also
+    # the stronger claim -- every birth adds a living agent, every death
+    # removes one, and migration moves agents without creating or losing any.
+    assert population_at_end == population_at_start + births - deaths, (
+        f"{population_at_start} + {births} births - {deaths} deaths should be "
+        f"{population_at_start + births - deaths} living agents, found {population_at_end}"
+    )
 
 
 @pytest.mark.django_db

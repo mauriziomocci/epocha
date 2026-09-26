@@ -1473,3 +1473,85 @@ vera o un difetto che questo ramo ha reso raggiungibile, e lo dica.
 **1751 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
 
 **Convergenza**: invariata. Nessuna delle tre classi bloccanti.
+
+### Verdetto round 10: NOT CONVERGED
+
+Un revisore, ambito `develop..HEAD` per intero, igiene rispettata e
+verificata: albero pulito, nessun processo residuo, mutazioni ripristinate
+dal backup. Sei rilievi bloccanti.
+
+- **F1, classe 1.** La fuga d'emergenza valuta ogni agente vivo come un
+  migrante autonomo, minori e neonati compresi. Con il contatore di nucleo
+  tutti i membri di un nucleo insolvente raggiungono la soglia insieme, e
+  l'orizzonte di Sjaastad è il più lungo proprio per il bambino: misurato
+  sul tick vero, la tutrice di 63 anni resta in `trapped_crisis`, la pupilla
+  di 10 fugge da sola con `household_members: []` e fa scattare da sola la
+  fuga di massa. È il residuo di B1.
+- **F2, classe 1, ottava istanza della duplicazione.** `coordinate_family_migration`
+  ricostruisce il nucleo a mano (partner più figli propri) invece di usare
+  `household_keys`: la sposa minorenne segue la madre lasciando il marito,
+  il pupillo resta indietro, il figliastro pure.
+- **F3, classe 1.** `net_migration_by_zone` contava un migrante per evento
+  mentre l'unico produttore scrive un evento per nucleo; la fixture del
+  test costruiva un payload senza `household_members`, forma che la
+  produzione non scrive mai.
+- **F4, classe 2.** `PER_PAIR_BOND_INTENT = 3.5` era misurato sulla forma
+  più economica, la coppia reciproca; tre query in più sul solo ramo non
+  reciproco lasciavano la guardia verde.
+- **F5, classe 3.** Il §4.1.3 diceva ancora che cablare `mourning_ticks` è
+  «una modifica di una riga riservata al Plan 4», voce esplicita
+  dell'inventario di FR-017 con T036 spuntato.
+- **F6, classe 1, la più lieve.** Il TFR scartava le nascite delle madri
+  morte di parto.
+
+Il pattern è il solito: cinque rilievi su sei sono una grandezza definita in
+un modulo e riletta diversamente in un altro, e i quattro di produzione
+stanno tutti sul confine fra migrazione e `household_keys`, che nessun round
+aveva confrontato.
+
+### Remediation, prima parte
+
+Corretti con testimone rosso prima, mutazioni misurate una per una contro un
+backup (tutte uccise):
+
+- **F3**: lo snapshot conta l'agente principale più `household_members`; la
+  fixture usa ora la forma che la produzione scrive.
+- **F4**: la guardia misura tre forme a due e quattro intenti, pretende
+  linearità e il raggiungimento del limite; misurato 3,5 per la coppia
+  reciproca, 6 per l'intento unilaterale, 7 per il combinato, 3 per un
+  intento rifiutato dalla soglia d'età. `PER_PAIR_BOND_INTENT` è ripinnata a
+  7, il caso peggiore raggiunto.
+- **F5**: la prosa del §4.1.3 in entrambe le lingue dice che il Plan 4 non
+  ha cablato il lutto e che il cablaggio è rinviato al work item separato
+  sulle chiavi della coppia, deciso dall'utente il 2026-09-26; nello stesso
+  paragrafo, la promessa di un builder non eterosessuale e non binario
+  «parte del deliverable del Plan 4» diventa ciò che il Plan 4 consegna,
+  un accoppiamento fondatore di soli uomini con donne. `marriage_market_type`
+  non «seleziona» più nulla nel testo, e il §6.2 dichiara le quattro chiavi
+  non lette.
+- **F6**: le madri morte di parto nel tick entrano nel numeratore e
+  nell'esposizione della loro età, con una lettura sola e solo nei tick che
+  ne hanno.
+- **Non bloccanti**: il testimone mancante per un bersaglio rifiutato che
+  non deve chiudere il turno del proponente (M7, ora uccisa); tre commenti
+  superati in `context.py`, `test_starvation_counter.py` e
+  `orchestrator.py`, quest'ultimo mio e falso: la durata del tick era già
+  risolta alla costruzione del contesto, non si spostava alcuna query.
+
+**Un criterio che poteva fallire per caso, trovato dalla suite e non dal
+round.** La prima versione della guardia F4 passava da sola e cadeva nella
+suite intera, e con essa cadeva `test_the_population_lives`. Causa unica:
+`get_seeded_rng` mescola l'id della simulazione nel seme, quindi quale
+fixture veda una nascita o una morte dipende da quante simulazioni la suite
+ha creato prima. La guardia ora forza a zero nascite e morti; il test
+end-to-end, che pretendeva `fine != inizio` e cadeva a 86 contro 86, asserisce
+l'identità contabile `fine = inizio + nascite − morti`, che è anche
+l'affermazione più forte.
+
+Suite **1754 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
+
+**F1 e F2 aspettano la conferma dell'utente**: la correzione cambia il
+comportamento della migrazione in `migration.py`, modulo auditato. La
+proposta è che la fuga valuti e muova il nucleo di `household_keys`: chi è a
+carico di un altro agente non viene valutato da solo e parte con chi lo ha a
+carico.

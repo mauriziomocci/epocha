@@ -403,12 +403,16 @@ DEATH_TICK_ONCE = 5
 PER_DEATH = 12
 
 
-# Measured, not declared. Round 9 of the phase-6 gate found that no fixture in
-# this file ever built a `DecisionLog`, so the `c*intents` term of the budget
-# was the one coefficient nobody had ever put a number on -- while steps 1 and
-# 2 run on every tick of every simulation. The measure: two mutual intents
-# cost 7 queries more than none, four cost 14.
-PER_PAIR_BOND_INTENT = 3.5
+# Measured, not declared, and at the WORST shape. Round 9 of the phase-6 gate
+# found that no fixture in this file ever built a `DecisionLog`, so the
+# `c*intents` term of the budget was the one coefficient nobody had ever put a
+# number on -- while steps 1 and 2 run on every tick of every simulation --
+# and pinned 3.5 on two MUTUAL intents. Round 10 found that the cheapest shape:
+# per intent, a mutual pair costs 3.5, a unilateral intent 6 (the normal shape,
+# since every shipped era sets implicit mutual consent) and an arranged one 7,
+# each exactly linear from two intents to four. An intent refused by the
+# marriage-age rule costs 3. The bound is the worst of the three, reached.
+PER_PAIR_BOND_INTENT = 7
 
 
 def _pair_bond_intent(sim, agent, target_name, tick):
@@ -429,41 +433,109 @@ def _pair_bond_intent(sim, agent, target_name, tick):
     )
 
 
+def _intents_of_shape(label, count, shape):
+    """A simulation whose previous tick filed `count` intents of one shape.
+
+    The three shapes the resolver can be handed cost differently, and the
+    bound is the WORST of them, so each has to be built:
+
+    - `mutual`: pairs of agents naming each other, `count` intents in all;
+    - `unilateral`: one agent naming another who files nothing -- the normal
+      shape, since every shipped era sets `implicit_mutual_consent`;
+    - `arranged`: a parent naming a child and a match through `for_child`,
+      which resolves two names per intent.
+    """
+    sim, zone = _simulation(label)
+    _couples(sim, zone, 6, label.upper())
+    tick = sim.current_tick + 1
+    for i in range(count if shape != "mutual" else count // 2):
+        man = _agent(sim, zone, f"{label}Libero{i}", age=30, gender=Agent.Gender.MALE)
+        woman = _agent(sim, zone, f"{label}Libera{i}", age=28, gender=Agent.Gender.FEMALE)
+        if shape == "arranged":
+            parent = _agent(sim, zone, f"{label}Genitore{i}", age=55)
+            _pair_bond_intent(sim, parent, {"for_child": woman.name, "match": man.name}, tick - 1)
+        else:
+            _pair_bond_intent(sim, man, woman.name, tick - 1)
+            if shape == "mutual":
+                _pair_bond_intent(sim, woman, man.name, tick - 1)
+    return sim, tick
+
+
+def _count_queries_without_vital_events(sim, tick, monkeypatch):
+    """`_count_queries` with no birth and no death, whatever the seed.
+
+    The streams are keyed on the simulation's primary key (`rng.py`), so
+    which tick of which fixture sees a birth or a death depends on how many
+    simulations the suite created before it. A guard comparing several
+    fixtures on exact counts must not ride on that: measured, the first
+    version of the intent guard passed alone and failed inside the full
+    suite. Both vital-event streams return 1.0, above every per-tick birth
+    and death probability.
+    """
+    from epocha.apps.demography import orchestrator
+
+    real_stream_for = orchestrator.stream_for
+    monkeypatch.setattr(
+        orchestrator,
+        "stream_for",
+        lambda simulation, tick, phase: (
+            _ForcedBirths(0)
+            if phase in ("fertility", "mortality")
+            else real_stream_for(simulation, tick, phase)
+        ),
+    )
+    try:
+        return _count_queries(sim, tick)
+    finally:
+        monkeypatch.undo()
+
+
 @pytest.mark.django_db
-def test_the_pair_bond_intent_term_is_measured_and_bounded():
-    """FR-016 on the term that had never been measured.
+def test_the_pair_bond_intent_term_is_measured_and_bounded(monkeypatch):
+    """FR-016 on the term that had never been measured, at its worst case.
 
-    Steps 1 and 2 resolve the previous tick's intents on every tick. The
-    budget declares a `c*intents` coefficient and no fixture had ever built
-    one, so `test_doubling_the_living_population_does_not_change_the_count`
-    could not see it: it doubles a population that files nothing.
+    Steps 1 and 2 resolve the previous tick's intents on every tick. Round 9
+    of the phase-6 gate found that no fixture had ever built one, and pinned
+    the slope on two MUTUAL intents -- the one shape in which the second
+    intent rides on the first. Round 10 measured the others: a unilateral
+    intent, the normal shape under implicit mutual consent, costs 6, and an
+    arranged one costs 7, while the guard pinned 3.5 and stayed green under
+    three extra queries on the non-mutual branch. The module docstring
+    promises worst-case coefficients with a fixture that reaches them; this
+    is that fixture.
 
-    This pins the slope on the measure and, more importantly, pins that the
-    term is per INTENT and not per living agent -- the same population filing
-    twice as many intents costs proportionally more, while the same intents
-    among twice the population cost the same.
+    Each shape is measured at two and four intents, so the term is shown to
+    be linear in the intents -- a per-INTENT term, not a per-living-agent one
+    by another name -- and the worst shape must hit the bound exactly.
     """
     baseline_sim, baseline_zone = _simulation("intents0")
     _couples(baseline_sim, baseline_zone, 6, "I0")
-    baseline = _count_queries(baseline_sim, baseline_sim.current_tick + 1)
-
-    two_sim, two_zone = _simulation("intents2")
-    _couples(two_sim, two_zone, 6, "I2")
-    unpaired_a = _agent(two_sim, two_zone, "LiberoA", age=30, gender=Agent.Gender.MALE)
-    unpaired_b = _agent(two_sim, two_zone, "LiberaB", age=28, gender=Agent.Gender.FEMALE)
-    tick = two_sim.current_tick + 1
-    _pair_bond_intent(two_sim, unpaired_a, unpaired_b.name, tick - 1)
-    _pair_bond_intent(two_sim, unpaired_b, unpaired_a.name, tick - 1)
-    with_two = _count_queries(two_sim, tick)
-
-    slope = (with_two - baseline) / 2
-    assert slope <= PER_PAIR_BOND_INTENT, (
-        f"{with_two} queries with two intents against {baseline} with none: "
-        f"{slope} per intent exceeds the declared {PER_PAIR_BOND_INTENT}. The "
-        "intents are produced one per deliberating agent, so a coefficient "
-        "that grows here is a per-living-agent term by another name"
+    baseline = _count_queries_without_vital_events(
+        baseline_sim, baseline_sim.current_tick + 1, monkeypatch
     )
-    assert with_two > baseline, (
-        "two pair-bond intents cost nothing at all: the fixture is not "
-        "reaching the resolver and this guard measures an empty queryset"
+
+    slopes = {}
+    for shape in ("mutual", "unilateral", "arranged"):
+        costs = []
+        for count in (2, 4):
+            sim, tick = _intents_of_shape(f"{shape}{count}", count, shape)
+            costs.append(_count_queries_without_vital_events(sim, tick, monkeypatch) - baseline)
+        assert costs[0] > 0, (
+            f"{shape} intents cost nothing at all: the fixture is not reaching "
+            "the resolver and this guard measures an empty queryset"
+        )
+        assert costs[1] == 2 * costs[0], (
+            f"{shape} intents cost {costs[0]} at two and {costs[1]} at four: "
+            "the term is not linear in the intents"
+        )
+        slopes[shape] = costs[0] / 2
+        assert slopes[shape] <= PER_PAIR_BOND_INTENT, (
+            f"{slopes[shape]} queries per {shape} intent exceeds the declared "
+            f"{PER_PAIR_BOND_INTENT}. The intents are produced one per "
+            "deliberating agent, so a coefficient that grows here is a "
+            "per-living-agent term by another name"
+        )
+    assert max(slopes.values()) == PER_PAIR_BOND_INTENT, (
+        f"no shape reaches the declared {PER_PAIR_BOND_INTENT} per intent "
+        f"(measured {slopes}): a bound nothing reaches proves nothing"
     )

@@ -695,9 +695,11 @@ def run_couple_formation_step(
     if rng is None:
         rng = stream_for(context.simulation, context.tick, phase="couple")
 
-    # The tick length is the context's, resolved once per tick: the resolver's
-    # marriage-age rule needs it, and resolving it here moves the one query
-    # the mortality step would otherwise pay, it does not add one.
+    # The tick length is the context's, which `run_demography_tick` resolves
+    # once when it builds the context: the resolver's marriage-age rule needs
+    # it, and passing it here costs no query. A hand-built context without
+    # it resolves it on this call instead, once, and shares it with the
+    # steps that follow.
     resolve_pair_bond_intents(
         context.simulation,
         context.tick,
