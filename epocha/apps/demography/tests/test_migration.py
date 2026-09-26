@@ -119,7 +119,6 @@ def _make_agent(sim, zone, name, **kwargs):
         health=1.0,
         wealth=100.0,
         age=30,
-        birth_tick=0,
         mood=0.5,
         education_level=0.5,
         social_class="working",
@@ -127,6 +126,12 @@ def _make_agent(sim, zone, name, **kwargs):
         personality={},
     )
     defaults.update(kwargs)
+    # `birth_tick` agrees with `age` unless a test sets it: the household
+    # derivation the flight path now shares reads the canonical age from
+    # `birth_tick`, and the old default of 0 made a thirty-year-old fifty
+    # days old by that reading -- a minor, anchored to whoever was named
+    # as their parent.
+    defaults.setdefault("birth_tick", int(sim.current_tick - defaults["age"] * 365))
     return Agent.objects.create(simulation=sim, name=name, zone=zone, **defaults)
 
 
@@ -1826,7 +1831,10 @@ class TestProcessEmergencyFlightFlees:
         _make_wage(sim, currency, worker, tick=50, amount=250.0)
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
-        partner = _make_agent(sim, zone, "Partner", wealth=100.0)
+        # Penniless, so the HOUSEHOLD starves: the flight condition is the
+        # household's since round 10 of the phase-6 gate, and a partner
+        # holding 100.0 would keep this household home.
+        partner = _make_agent(sim, zone, "Partner", wealth=0.0)
         form_couple(agent, partner, formed_at_tick=1)
         minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10, wealth=0.0)
 
@@ -1861,7 +1869,10 @@ class TestProcessEmergencyFlightFlees:
         _make_wage(sim, currency, worker, tick=50, amount=250.0)
         _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
-        partner = _make_agent(sim, zone, "Partner", wealth=100.0)
+        # Penniless, so the HOUSEHOLD starves: the flight condition is the
+        # household's since round 10 of the phase-6 gate, and a partner
+        # holding 100.0 would keep this household home.
+        partner = _make_agent(sim, zone, "Partner", wealth=0.0)
         form_couple(agent, partner, formed_at_tick=1)
 
         _set_starvation_counters({agent.id: 30})
@@ -1940,6 +1951,278 @@ class TestProcessEmergencyFlightFlees:
         assert event.payload["reason"] == "emergency_flight"
         assert event.payload["from_zone"] == zone.id
         assert event.payload["to_zone"] == other_zone.id
+
+
+def _flight_world(sim, zone):
+    """A world where flight from `zone` pays: a second zone at zero distance
+    with a positive wage, and a subsistence threshold of 5.0 in `zone`.
+
+    Returns the destination zone. The worker who earns the wage lives
+    there and is solvent, so they never enter a household under test.
+    """
+    _make_government(sim)
+    other_zone = _make_zone_at(zone.world, 50, 50, "OtherZone")
+    currency = Currency.objects.create(
+        simulation=sim, code="LVR", name="Livre", symbol="L", total_supply=50_000.0
+    )
+    worker = _make_agent(sim, other_zone, "Worker", role="")
+    _make_wage(sim, currency, worker, tick=50, amount=250.0)
+    _make_subsistence_threshold_of_five(sim, zone)
+    return other_zone
+
+
+class TestEmergencyFlightMovesTheHousehold:
+    """Flight is decided and executed per HOUSEHOLD, as `household_keys`
+    defines it, not per individual.
+
+    Found by round 10 of the phase-6 gate. The starvation counter became a
+    household predicate at the closure review, so every member of an
+    insolvent household reaches `flight_trigger_ticks` on the same tick --
+    but `process_emergency_flight` still evaluated each agent as an
+    autonomous migrant, and the Sjaastad horizon is longest precisely for a
+    child: a sixty-three-year-old guardian was trapped while her ten-year-old
+    ward fled alone and tripped mass flight by herself (F1). And the members
+    who DID follow a decider came from a second, hand-built definition of the
+    household -- partner plus own children -- that disagreed with
+    `household_keys` on wards, stepchildren and married minors (F2).
+    """
+
+    @pytest.mark.django_db
+    def test_a_dependent_minor_is_not_evaluated_on_its_own(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        other_zone = _flight_world(sim, zone)
+        guardian = _make_agent(sim, zone, "Tutrice", age=63, wealth=0.0)
+        ward = _make_agent(sim, zone, "Pupilla", age=10, wealth=0.0, caretaker_agent=guardian)
+        _set_starvation_counters({guardian.id: 30, ward.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+
+        ward.refresh_from_db()
+        assert ward.zone_id == zone.id, "a ten-year-old fled on her own"
+        assert other_zone.id != zone.id
+        assert not DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+        ).exists()
+        trapped = set(
+            DemographyEvent.objects.filter(
+                simulation=sim, event_type=DemographyEvent.EventType.TRAPPED_CRISIS
+            ).values_list("primary_agent_id", flat=True)
+        )
+        assert trapped == {guardian.id, ward.id}, (
+            "every member of a trapped household is trapped, and each keeps "
+            "their own TRAPPED_CRISIS record"
+        )
+        assert not DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
+        ).exists()
+
+    @pytest.mark.django_db
+    def test_a_ward_leaves_with_her_guardian(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        other_zone = _flight_world(sim, zone)
+        guardian = _make_agent(sim, zone, "Tutore", age=40, wealth=0.0)
+        ward = _make_agent(sim, zone, "Pupillo", age=10, wealth=0.0, caretaker_agent=guardian)
+        _set_starvation_counters({guardian.id: 30, ward.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+
+        ward.refresh_from_db()
+        assert ward.zone_id == other_zone.id, "the guardian fled and left the ward behind"
+        events = DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+        )
+        assert [(e.primary_agent_id, e.payload["household_members"]) for e in events] == [
+            (guardian.id, [ward.id])
+        ]
+
+    @pytest.mark.django_db
+    def test_a_stepchild_leaves_with_the_household(self, sim_with_zone):
+        """The child is the second partner's only: the decider, the partner
+        with the lower id, is not her parent."""
+        sim, zone = sim_with_zone
+        other_zone = _flight_world(sim, zone)
+        decider = _make_agent(sim, zone, "Patrigno", age=40, wealth=0.0)
+        mother = _make_agent(sim, zone, "Madre", age=38, wealth=0.0)
+        form_couple(decider, mother, formed_at_tick=1)
+        stepchild = _make_agent(sim, zone, "Figliastra", age=8, wealth=0.0, parent_agent=mother)
+        _set_starvation_counters({decider.id: 30, mother.id: 30, stepchild.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+
+        for member in (decider, mother, stepchild):
+            member.refresh_from_db()
+            assert member.zone_id == other_zone.id, f"{member.name} was left behind"
+        # Arriving in the right zone is not enough: before the fix the
+        # stepchild got there by fleeing ALONE, as her own migrant, which
+        # left every zone assertion above green. One household, one event.
+        events = DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+        )
+        # In moving order: the partner first, then the dependents.
+        assert [(e.primary_agent_id, e.payload["household_members"]) for e in events] == [
+            (decider.id, [mother.id, stepchild.id])
+        ]
+
+    @pytest.mark.django_db
+    def test_a_married_minor_stays_with_her_husband(self, sim_with_zone):
+        """Her mother's household starves and flees; hers does not. Marriage
+        outranks the guardian chain in `household_keys` (round 9, C2), so
+        she is not her mother's dependent and must not be carried off."""
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        mother = _make_agent(sim, zone, "Madre", age=40, wealth=0.0)
+        daughter = _make_agent(sim, zone, "Sposa", age=15, wealth=0.0, parent_agent=mother)
+        husband = _make_agent(sim, zone, "Marito", age=20, wealth=1000.0, gender=Agent.Gender.MALE)
+        form_couple(daughter, husband, formed_at_tick=1)
+        _set_starvation_counters({mother.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+
+        daughter.refresh_from_db()
+        assert daughter.zone_id == zone.id, "a married minor was carried off by her mother"
+
+    @pytest.mark.django_db
+    def test_a_solvent_partner_keeps_the_household_home(self, sim_with_zone):
+        """Condition 1 is the household's, like the counter: combined wealth
+        against the members' combined thresholds. One partner at 4.0 beside
+        one at 100.0 is not a starving household, whatever the counter says."""
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        poor = _make_agent(sim, zone, "Povera", wealth=4.0)
+        rich = _make_agent(sim, zone, "Ricco", wealth=100.0, gender=Agent.Gender.MALE)
+        form_couple(poor, rich, formed_at_tick=1)
+        _set_starvation_counters({poor.id: 30, rich.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+
+        poor.refresh_from_db()
+        assert poor.zone_id == zone.id
+        assert not DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+        ).exists()
+
+    @pytest.mark.django_db
+    def test_mass_flight_counts_the_people_who_fled(self, sim_with_zone):
+        """Four of ten fled as one household: 40%, above the 30% line. A
+        numerator of primary agents reads it as 10%."""
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        father = _make_agent(sim, zone, "Padre", age=40, wealth=0.0, gender=Agent.Gender.MALE)
+        mother = _make_agent(sim, zone, "Madre", age=38, wealth=0.0)
+        form_couple(father, mother, formed_at_tick=1)
+        children = [
+            _make_agent(sim, zone, f"Figlio{i}", age=6 + i, wealth=0.0, parent_agent=mother)
+            for i in range(2)
+        ]
+        for i in range(6):
+            _make_agent(sim, zone, f"Vicino{i}", wealth=100.0)
+        household = [father, mother, *children]
+        _set_starvation_counters({member.id: 30 for member in household})
+
+        process_emergency_flight(sim, tick=50)
+
+        event = DemographyEvent.objects.get(
+            simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
+        )
+        assert sorted(event.payload["agents"]) == sorted(member.id for member in household)
+
+    @pytest.mark.django_db
+    def test_mass_flight_counts_the_households_that_fled_in_the_window(self, sim_with_zone):
+        """The historical half of the numerator counts people too.
+
+        A household of four fled five ticks ago and now lives elsewhere; six
+        remain. Four of ten at window start is 40%. Reading only the primary
+        agent of the past event gives one of seven, 14%, and no mass flight.
+        """
+        sim, zone = sim_with_zone
+        other_zone = _flight_world(sim, zone)
+        fled = [_make_agent(sim, other_zone, f"Fuggito{i}", wealth=100.0) for i in range(4)]
+        for i in range(6):
+            _make_agent(sim, zone, f"Rimasto{i}", wealth=100.0)
+        DemographyEvent.objects.create(
+            simulation=sim,
+            tick=45,
+            event_type=DemographyEvent.EventType.MIGRATION,
+            primary_agent=fled[0],
+            payload={
+                "household_members": [member.id for member in fled[1:]],
+                "from_zone": zone.id,
+                "to_zone": other_zone.id,
+                "reason": "emergency_flight",
+            },
+        )
+
+        process_emergency_flight(sim, tick=50)
+
+        event = DemographyEvent.objects.get(
+            simulation=sim, event_type=DemographyEvent.EventType.MASS_FLIGHT
+        )
+        assert sorted(event.payload["agents"]) == sorted(member.id for member in fled)
+
+    @pytest.mark.django_db
+    def test_a_fleeing_household_costs_its_two_writes_and_nothing_more(
+        self, sim_with_zone, django_assert_num_queries
+    ):
+        """The tick derives every household once and hands each fleeing one
+        its members, so a flight costs the movers' `bulk_update` and the
+        event `create` -- two queries. Deriving the household again per
+        flight, which `coordinate_family_migration` does when it is handed
+        nothing, adds three reads each, one of them population-sized: the
+        second household below would then cost five more, not two.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        def _cost(label, households):
+            sim, zone = sim_with_zone
+            for i in range(households):
+                parent = _make_agent(sim, zone, f"{label}Genitore{i}", age=40, wealth=0.0)
+                child = _make_agent(
+                    sim, zone, f"{label}Figlio{i}", age=8, wealth=0.0, parent_agent=parent
+                )
+                _set_starvation_counters({parent.id: 30, child.id: 30})
+            with CaptureQueriesContext(connection) as captured:
+                process_emergency_flight(sim, tick=50)
+            flights = DemographyEvent.objects.filter(
+                simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+            ).count()
+            assert flights == households, (
+                f"{flights} flights for {households} starving households: the "
+                "fixture is not reaching the flight path, and this measures nothing"
+            )
+            DemographyEvent.objects.filter(simulation=sim).delete()
+            Agent.objects.filter(simulation=sim, name__startswith=label).delete()
+            return len(captured.captured_queries)
+
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        one = _cost("Uno", 1)
+        two = _cost("Due", 2)
+
+        assert two - one == 2, (
+            f"{one} queries with one fleeing household and {two} with two: a "
+            "flight should cost its two writes, and the household must not be "
+            "derived again per flight"
+        )
+
+
+class TestCoordinateFamilyMigrationUsesTheHouseholdDerivation:
+    """Called without an explicit member list, `coordinate_family_migration`
+    derives the household with `household_keys` -- the one definition --
+    rather than rebuilding partner plus own children by hand."""
+
+    @pytest.mark.django_db
+    def test_a_ward_follows_her_caretaker(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        target_zone = _make_other_zone(zone.world)
+        guardian = _make_agent(sim, zone, "Tutore", age=40)
+        ward = _make_agent(sim, zone, "Pupilla", age=10, caretaker_agent=guardian)
+
+        result = coordinate_family_migration(
+            guardian, target_zone, tick=50, template=_minimal_template()
+        )
+
+        assert result == [ward.id]
 
 
 class TestProcessEmergencyFlightTrapped:
@@ -2601,8 +2884,10 @@ class TestProcessEmergencyFlightMassFlight:
         # `other_zone` has none, so its threshold lookup costs 1 via the
         # documented DoesNotExist early return -- (2+2+2) + (2+2+1) = 11)
         # + population aggregate(1) + historical-flight window(1) +
-        # agent fetch(1) = 1+1+1+11+1+1+1 = 17.
-        with django_assert_num_queries(17) as captured_small:
+        # agent fetch(1) + the active-couple partner map `household_keys`
+        # reads (1), since flight is decided per household (round 10 of the
+        # phase-6 gate) = 1+1+1+11+1+1+1+1 = 18.
+        with django_assert_num_queries(18) as captured_small:
             _set_starvation_counters({})
             process_emergency_flight(sim, tick=50)
         small_population_queries = len(captured_small.captured_queries)

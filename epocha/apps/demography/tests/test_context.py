@@ -221,3 +221,42 @@ class TestHouseholdKeys:
         a, b = self._stub(1, parent=2), self._stub(2, parent=1)
         keys = household_keys([a, b], [3.0, 3.0], None, adulthood_age=18.0)
         assert set(keys) == {1, 2}
+
+
+class TestStarvingHouseholds:
+    """`starving_households`, the one "under subsistence" of the subsystem.
+
+    Pure over its inputs, so it is tested on stand-ins: the starvation
+    counter and emergency flight both reach it only through a whole tick.
+    """
+
+    @staticmethod
+    def _member(agent_id, wealth, zone_id=1):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(id=agent_id, wealth=wealth, zone_id=zone_id)
+
+    def test_the_threshold_is_the_line_itself_not_below_it(self):
+        """Wealth exactly equal to the members' combined threshold feeds the
+        household; one unit less does not. The counter's original predicate
+        was a strict `<`, and the two callers must not drift from it."""
+        from epocha.apps.demography.context import starving_households
+
+        fed = [self._member(1, 6.0), self._member(2, 4.0)]
+        short = [self._member(3, 6.0), self._member(4, 3.0)]
+        keys = {1: (1, 2), 2: (1, 2), 3: (3, 4), 4: (3, 4)}
+
+        starving = starving_households(fed + short, keys, {1: 5.0})
+
+        assert starving == {(3, 4)}
+
+    def test_each_member_is_priced_at_their_own_zone(self):
+        """A household split across two zones owes each zone's threshold for
+        the member who lives there, not the decider's twice."""
+        from epocha.apps.demography.context import starving_households
+
+        members = [self._member(1, 8.0, zone_id=1), self._member(2, 0.0, zone_id=2)]
+        keys = {1: (1, 2), 2: (1, 2)}
+
+        assert starving_households(members, keys, {1: 2.0, 2: 7.0}) == {(1, 2)}
+        assert starving_households(members, keys, {1: 2.0, 2: 5.0}) == set()

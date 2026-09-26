@@ -361,17 +361,22 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
 # a query of its own in each of three steps, which is what
 # `DemographyTickContext` existed for.
 #
+# Re-pinned again, up by one, after round 10 of the phase-6 gate: emergency
+# flight is now decided per HOUSEHOLD, and the forced-migration step reads
+# the active-couple partner map `context.household_keys` needs. One read per
+# tick, whatever the population -- the doubling guard below still holds.
+#
 # Stated exactly, because round 8 measured it and the previous wording did
 # not: these constants describe a tick on which NOBODY has a birthday. The
 # mortality step refreshes `Agent.age` from `birth_tick` and writes only the
 # rows whose integer age actually moved, so a tick where one does costs one
-# more -- 36 and 44, measured. The fixtures here build `birth_tick` so the
+# more -- 37 and 45, measured. The fixtures here build `birth_tick` so the
 # derived age already equals the stored one, which is why these two
 # equalities sit on the no-birthday case; the doubling guard below is the one
 # that exercises the write, and it is pinned on an equality rather than on a
 # constant precisely so it stays honest about that.
-FIXED_TERM_NO_CANDIDATES = 35
-FIXED_TERM_WITH_CANDIDATES = 43
+FIXED_TERM_NO_CANDIDATES = 36
+FIXED_TERM_WITH_CANDIDATES = 44
 
 # What a tick pays once for having any death at all, whatever their number:
 # the mortality step's own writes -- the marking and the event batch -- and
@@ -391,7 +396,10 @@ FIXED_TERM_WITH_CANDIDATES = 43
 # Re-pinned on the measure after the phase-6 closure review: resolving the
 # tick duration once per context instead of once per step removed one
 # query from this path too. Measured 60 queries at two deaths and 80 at
-# four, so the slope is 10 and the intercept 40 = 35 + 5.
+# four, so the slope is 10 and the intercept 40 = 35 + 5. The round-10
+# partner-map read sits in FIXED_TERM_NO_CANDIDATES, which the bound above
+# adds, so it is not re-counted in this term; those two figures predate it
+# and were not re-measured.
 DEATH_TICK_ONCE = 5
 
 # The worst case the inheritance module documents for a single death (seven

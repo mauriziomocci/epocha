@@ -791,6 +791,59 @@ def _scatter_location_in_zone(zone: Any, rng: Any | None) -> Any:
     )
 
 
+def _ordered_household_members(key: tuple[int, ...], others: list) -> list:
+    """The members who move with a household's decider, in moving order.
+
+    `others` is every member but the decider. The partner is the other id
+    in the household `key` (a couple's key names both partners), so it
+    sorts first; the dependents follow oldest-first by `birth_tick`, with
+    `id` breaking ties. One ordering for both callers of
+    `coordinate_family_migration`, so the payload does not depend on which
+    of them derived the household.
+    """
+    return sorted(
+        others,
+        key=lambda member: (
+            member.id not in key,
+            member.birth_tick is None,
+            member.birth_tick or 0,
+            member.id,
+        ),
+    )
+
+
+def _household_members_of(agent: Any, tick: int, template: dict) -> list:
+    """Everyone who shares `agent`'s household, by `context.household_keys`.
+
+    For a caller that moves one household and holds nothing else: the
+    derivation needs the whole living population, because a household is a
+    relation among agents, so this costs three reads -- the living agents,
+    the partner map, the tick duration. `process_emergency_flight` derives
+    every household of the tick once instead and never calls this.
+    """
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.context import household_keys
+    from epocha.apps.demography.orchestrator import _tick_duration_hours, age_in_years
+
+    living = list(
+        Agent.objects.filter(simulation_id=agent.simulation_id, is_alive=True).order_by("id")
+    )
+    tick_duration_hours = _tick_duration_hours(agent.simulation_id)
+    acceleration = float(template.get("acceleration", 1.0))
+    ages = [age_in_years(member, tick, tick_duration_hours, acceleration) for member in living]
+    keys = household_keys(
+        living,
+        ages,
+        agent.simulation_id,
+        adulthood_age=float(template["migration"]["adulthood_age"]),
+    )
+    key = keys.get(agent.id)
+    if key is None:
+        return []
+    others = [member for member in living if member.id != agent.id and keys[member.id] == key]
+    return _ordered_household_members(key, others)
+
+
 def coordinate_family_migration(
     agent: Any,
     target_zone: Any,
@@ -799,6 +852,7 @@ def coordinate_family_migration(
     reason: str = "voluntary",
     emit_event_even_if_empty: bool = False,
     rng: Any | None = None,
+    members: list | None = None,
 ) -> list:
     """Move `agent`'s partner and minor children into `target_zone` in
     the same tick as `agent`'s own `move_to` decision, emitting one
@@ -866,22 +920,27 @@ def coordinate_family_migration(
     unlike a decider whose own journey may still be a multi-tick partial
     movement in progress.
 
-    HOUSEHOLD MEMBERSHIP:
-    - Partner: `couple.active_couple_for(agent)`'s resolved partner, INCLUDED
-      only if alive. `active_couple_for` does not itself filter on the
-      partner's own aliveness (the same documented edge case
-      `_resolve_spouse_heirs` and `generate_mourning_memories` already
-      account for in `inheritance.py`) -- this function applies the
-      "only if alive" qualifier itself.
-    - Minor children: living agents with `agent` as EITHER parentage FK
-      (`parent_agent` or `other_parent_agent`), with
-      `age < template["migration"]["adulthood_age"]` (16 for the
-      pre-industrial and industrial templates, 18 for modern_democracy
-      and sci_fi -- verified against all five era template JSON files).
-      ADULT children (`age >= adulthood_age`) are deliberately excluded:
-      per the design spec, "I figli adulti decidono indipendentemente"
-      (adult children decide independently) -- they are never moved by
-      this function and never appear in its return value.
+    HOUSEHOLD MEMBERSHIP is `context.household_keys`, the subsystem's one
+    definition of a household: everyone else who shares `agent`'s key. That
+    is the living partner, and every minor -- younger than
+    `template["migration"]["adulthood_age"]` on the canonical age from
+    `birth_tick` -- anchored to the household through ANY guardian column
+    (`parent_agent`, `other_parent_agent`, `caretaker_agent`), transitively,
+    with marriage outranking the chain. ADULT children are their own
+    household and never move here: per the design spec, "I figli adulti
+    decidono indipendentemente" (adult children decide independently).
+    Until round 10 of the phase-6 gate this function rebuilt the household
+    by hand -- the partner plus the agent's OWN children by the two parent
+    columns -- and disagreed with `household_keys` three ways, all measured:
+    a ward stayed behind when her caretaker left, a stepchild stayed behind
+    when the decider was not her parent, and a married minor followed her
+    mother away from her husband.
+    - `members`, when supplied, IS that list, in moving order, already
+      derived by a caller that holds the whole population's keys for the
+      tick -- `process_emergency_flight` does -- so the derivation is not
+      repeated per household. Omitted, the household is derived here.
+    - Either way the order is `_ordered_household_members`: partner first,
+      then the others oldest-first by `birth_tick`, `id` breaking ties.
 
     MINORS ARE NOT CALLED TO THE DECISION LOOP: this function never
     creates a `DecisionLog` row or an additional `DemographyEvent` for
@@ -928,15 +987,15 @@ def coordinate_family_migration(
     placement itself.
 
     Query cost contract: up to 5 queries, bounded, independent of
-    household size -- (1) `active_couple_for` (the `Couple` lookup), (2)
-    fetching the partner's own `Agent` row (skipped when there is no
-    active couple), (3) the minor-children fetch (one query, either-FK
-    filter, mirrors `_resolve_children_heirs`'s own shape in
-    `inheritance.py`), (4) one `bulk_update` for every mover at once
-    (skipped when the household is empty), (5) one `DemographyEvent`
-    `create` (skipped when the household is empty). `_scatter_location_
-    in_zone` and the `rng` it consumes are pure Python (no ORM access),
-    so adding `location` to the write does not change this count.
+    household size. With `members` supplied: (1) one `bulk_update` for
+    every mover at once and (2) one `DemographyEvent` `create`, each
+    skipped when there is nothing to write. Without it, three reads come
+    first: the simulation's living agents, the active-couple partner map
+    `household_keys` reads, and the world's tick duration for the canonical
+    ages. The first of these returns a row per living agent -- ONE query,
+    but population-sized, which is why the tick's caller passes `members`.
+    `_scatter_location_in_zone` and the `rng` it consumes are pure Python
+    (no ORM access), so writing `location` does not change this count.
 
     Args:
         agent: the deciding Agent instance. Must be saved. Its own `zone`
@@ -955,6 +1014,9 @@ def coordinate_family_migration(
             forwarded to `_scatter_location_in_zone` for every mover's
             `location`. Defaults to `None` (deterministic zone-center
             fallback). See the ADDITIVE EXTENSION section above.
+        members: the household members to move with `agent`, as
+            `household_keys` defines them, when the caller already derived
+            them; `None` derives them here. See HOUSEHOLD MEMBERSHIP.
 
     Returns:
         The list of household member ids (partner, if any, then minor
@@ -963,28 +1025,12 @@ def coordinate_family_migration(
         (when one is created). Empty when there was no partner and no
         minor child to move.
     """
-    from django.db.models import Q
-
     from epocha.apps.agents.models import Agent
-    from epocha.apps.demography.couple import active_couple_for
     from epocha.apps.demography.models import DemographyEvent
 
-    adulthood_age = template["migration"]["adulthood_age"]
-
-    movers: list = []
-
-    couple = active_couple_for(agent)
-    if couple is not None:
-        partner = couple.agent_b if couple.agent_a_id == agent.id else couple.agent_a
-        if partner is not None and partner.is_alive:
-            movers.append(partner)
-
-    minor_children = Agent.objects.filter(
-        Q(parent_agent=agent) | Q(other_parent_agent=agent),
-        is_alive=True,
-        age__lt=adulthood_age,
-    ).order_by("birth_tick", "id")
-    movers.extend(minor_children)
+    if members is None:
+        members = _household_members_of(agent, tick, template)
+    movers: list = list(members)
 
     if not movers and not emit_event_even_if_empty:
         return []
@@ -1102,12 +1148,17 @@ def evaluate_emergency_flight(
     unrelated existing contract. The user's resolution: PASS IT IN. This
     function never reads it off `agent` and never derives it from
     anything else in the arguments -- it trusts the caller entirely.
-    PLAN 4 OWNS creating the actual storage (a new mechanism, likely a
-    per-agent counter table or cache, not decided here) and feeding this
-    argument every tick. Until Plan 4 does that, emergency flight CANNOT
-    fire in a live run -- a direct, accepted consequence, consistent with
-    demography not being wired into the tick loop at all yet (verified:
-    `simulation/engine.py` is untouched by this entire plan).
+    Demography Plan 4 created that storage, the column
+    `Agent.consecutive_ticks_under_subsistence`, maintained once per tick by
+    the orchestrator's starvation counter; `process_emergency_flight` reads
+    it from the row and passes it here. This function still takes the
+    count as an argument, so a caller evaluating one agent by hand can
+    supply any value.
+
+    ONE AGENT, INDIVIDUALLY. This function answers condition 1 for the
+    agent it is given. The tick does not use it: `process_emergency_flight`
+    decides per household (round 10 of the phase-6 gate), asking condition
+    1 of the household through the same shared core.
 
     REUSE, NOT REIMPLEMENTATION: condition 1 reuses
     `compute_subsistence_threshold` (`demography/context.py`) exactly as
@@ -1170,8 +1221,24 @@ def evaluate_emergency_flight(
         The target Zone with the highest positive expected gain, or
         `None` when any of the three conditions fails.
     """
+    from epocha.apps.demography.context import compute_subsistence_threshold
+
+    # Condition 1 asked of the INDIVIDUAL, which is this function's
+    # documented contract for a single agent. `process_emergency_flight`,
+    # the path the tick runs, asks it of the household instead -- see its
+    # docstring -- and passes the answer to the same shared core.
+    zone_entry = zone_stats["zones"][agent.zone_id]
+    subsistence_threshold = zone_entry.get("subsistence_threshold")
+    if subsistence_threshold is None:
+        subsistence_threshold = compute_subsistence_threshold(simulation, zone_entry["zone"])
     _, target_zone = _resolve_flight_decision(
-        agent, simulation, tick, template, zone_stats, consecutive_ticks_under_subsistence
+        agent,
+        simulation,
+        tick,
+        template,
+        zone_stats,
+        consecutive_ticks_under_subsistence,
+        under_subsistence=agent.wealth < subsistence_threshold,
     )
     return target_zone
 
@@ -1183,35 +1250,28 @@ def _resolve_flight_decision(
     template: dict,
     zone_stats: dict,
     consecutive_ticks_under_subsistence: int,
+    under_subsistence: bool,
 ) -> tuple[bool, Any | None]:
-    """Shared decision core factored out of `evaluate_emergency_flight`
-    (T036/T037) so `process_emergency_flight` (T039) can distinguish
-    "not starving long enough" from "starving long enough but trapped"
-    WITHOUT re-deriving the three conditions and WITHOUT a second,
-    redundant `compute_subsistence_threshold` query per agent (preflight
-    point 2 and point 6, respectively) -- see PREFLIGHT DECISIONS in
-    `process_emergency_flight`'s own docstring for the full account of
-    why this split exists and why it does not change
-    `evaluate_emergency_flight`'s own already-committed public contract
-    (same signature, same `Zone | None` return; this function is purely
-    an internal implementation detail, never imported by test code
-    except through the two public functions that wrap it).
+    """Shared decision core of `evaluate_emergency_flight` and
+    `process_emergency_flight`, so the latter can distinguish "not
+    starving long enough" from "starving long enough but trapped" without
+    re-deriving the conditions (T036/T037, T039).
 
-    CACHED SUBSISTENCE THRESHOLD (optional, backward-compatible):
-    `zone_stats["zones"][zone_id]` may carry an OPTIONAL
-    `"subsistence_threshold"` key (a float, T039's own addition to the
-    `zone_stats` contract T034 defined). When present, it is used
-    directly, skipping `compute_subsistence_threshold`'s own query cost
-    entirely -- `process_emergency_flight` computes this ONCE PER ZONE
-    before its per-agent loop, since the threshold depends only on the
-    zone, never on the individual agent, and reusing it across every
-    agent in that zone is exactly the same "compute once, never per
-    agent" discipline `zone_stats` already applies to wage/unemployment.
-    When absent (as in every T036/T037 test, which builds `zone_stats`
-    without this key), this function falls back to calling
-    `compute_subsistence_threshold` directly -- `evaluate_emergency_flight`
-    called standalone, outside `process_emergency_flight`'s batch context,
-    behaves EXACTLY as it did before this key existed.
+    CONDITION 1 IS THE CALLER'S. `under_subsistence` is condition 1 already
+    answered, because the two callers ask it of different units:
+    `evaluate_emergency_flight` of the individual agent, its documented
+    single-agent contract, and `process_emergency_flight` -- the path the
+    tick runs -- of the household, through `context.starving_households`,
+    the same predicate the starvation counter uses. Round 10 of the
+    phase-6 gate found this core computing condition 1 itself, on the
+    individual, while the counter feeding condition 2 was a household one:
+    a dependent child owns nothing, so she met condition 1 on her own,
+    inherited condition 2 from her household, and fled alone. The cached
+    per-zone threshold in `zone_stats` (T039) is now read by the callers.
+
+    Conditions 2 and 3 are read off `agent`, which for a household is its
+    decider: the counter, and the Sjaastad horizon of
+    `build_migration_outlook`, which runs on the agent's age.
 
     Returns:
         `(meets_preconditions, target_zone)`: `meets_preconditions` is
@@ -1221,15 +1281,7 @@ def _resolve_flight_decision(
         documents. The trapped case is precisely `meets_preconditions is
         True and target_zone is None`.
     """
-    from epocha.apps.demography.context import compute_subsistence_threshold
-
-    zone_entry = zone_stats["zones"][agent.zone_id]
-    current_zone = zone_entry["zone"]
-    subsistence_threshold = zone_entry.get("subsistence_threshold")
-    if subsistence_threshold is None:
-        subsistence_threshold = compute_subsistence_threshold(simulation, current_zone)
-
-    if agent.wealth >= subsistence_threshold:
+    if not under_subsistence:
         return False, None
 
     flight_trigger_ticks = template["migration"]["flight_trigger_ticks"]
@@ -1282,49 +1334,48 @@ def process_emergency_flight(
     read costs no query of its own, and a caller can no longer disagree
     with the store about who is starving.
 
-    PER-AGENT STEPS, in order, over every living agent in `simulation`'s
-    world, `id` ascending (deterministic, this module's convention):
-    1. Resolve `(meets_preconditions, target_zone)` via the SAME private
-       `_resolve_flight_decision` helper `evaluate_emergency_flight`
-       delegates to -- NOT by calling `evaluate_emergency_flight` and
-       separately re-deriving "starving long enough" a second time, which
-       would COST A SECOND `compute_subsistence_threshold` query per
-       agent for no new information (see PREFLIGHT DECISIONS point 2
-       resolution below).
+    PER-HOUSEHOLD STEPS (round 10 of the phase-6 gate). The unit of the
+    decision is the household as `context.household_keys` defines it --
+    the subsystem's one definition -- derived once for the tick over every
+    living agent in the world's zones. Households are taken in the order of
+    their lowest-id member (deterministic, this module's convention), and
+    each is decided ONCE, by its decider: the anchor, meaning the lower id
+    of a couple or the single adult, never a dependent.
+    1. Resolve `(meets_preconditions, target_zone)` via the private
+       `_resolve_flight_decision` core `evaluate_emergency_flight` shares.
+       Condition 1 is the HOUSEHOLD's -- combined wealth against the
+       members' combined zone thresholds, through
+       `context.starving_households`, the predicate the starvation counter
+       uses -- and conditions 2 and 3 read the decider's counter and the
+       decider's Sjaastad horizon.
     2. `target_zone is not None` -> FLEE: `coordinate_family_migration`
-       moves the household (called BEFORE mutating `agent.zone`, so its
-       own `payload["from_zone"]` reads correctly -- see that function's
-       own docstring note), `reason="emergency_flight"`,
-       `emit_event_even_if_empty=True` (the design requires the flight
-       event even for a solo agent with no dependents), `rng=rng` (fix
-       T046/I-12 -- see below). `agent.zone` AND `agent.location` (fix T046/I-12:
-       this decider bypasses `agents/movement.py`'s `execute_movement`
-       entirely -- nothing else in this call graph would otherwise ever
-       write their `location`) are then set in memory, deferred to ONE
-       batched `bulk_update` at the end covering every fleeing agent this
-       tick. A `Memory` at `EMERGENCY_FLIGHT_MEMORY_WEIGHT` (0.85),
-       `source_type=DIRECT`, `origin_agent=agent` (self-referential: this
-       is the fleeing agent's own first-hand experience) is queued.
-    3. `meets_preconditions and target_zone is None` -> TRAPPED: a
-       `TRAPPED_CRISIS` event is queued (`payload={"zone": agent.zone_id,
-       "consecutive_under_subsistence": <the counter value used>}`, per
-       the design spec's own payload schema table). The agent is
-       recorded for the batched co-zone witness pass below -- NEVER
+       moves every other member, handed the list already derived (called
+       BEFORE mutating the decider's zone, so `payload["from_zone"]` reads
+       correctly), `reason="emergency_flight"`,
+       `emit_event_even_if_empty=True`, `rng=rng` (fix T046/I-12). The
+       decider's `zone` and `location` are set in memory and written in ONE
+       batched `bulk_update` at the end. The decider writes a first-hand
+       `Memory` at `EMERGENCY_FLIGHT_MEMORY_WEIGHT` (0.85),
+       `source_type=DIRECT`, `origin_agent=decider`.
+    3. `meets_preconditions and target_zone is None` -> TRAPPED: every
+       member of the household is trapped, and each gets their own
+       `TRAPPED_CRISIS` event (`payload={"zone": member.zone_id,
+       "consecutive_under_subsistence": <that member's counter>}`). Never
        relocated.
-    4. Neither -> no-op for this agent.
+    4. Neither -> no-op for the household.
 
-    Household members (partner, minor children) moved by step 2 for an
-    EARLIER agent this tick are recorded and SKIPPED in their own turn
-    later in the same loop, rather than re-evaluated: by the time the
-    outer loop would reach them, their in-memory `Agent` instance (a
-    SEPARATE Python object fetched by this function's own agents query,
-    distinct from the one `coordinate_family_migration` fetched
-    internally) would still show their OLD `zone_id` -- evaluating
-    "starving in the old zone" after they have ALREADY been moved to a
-    (by construction, better) new one would be evaluating a state that no
-    longer holds, a determinism/correctness hazard, not merely a stylistic
-    one. Skipping them is cheap (a Python `set` membership check, no
-    query) and avoids it entirely.
+    WHY THE HOUSEHOLD AND NOT THE AGENT. Until round 10 every living agent
+    was evaluated on its own, while the counter that gates condition 2 had
+    become a household predicate at the closure review. Every member of an
+    insolvent household therefore reached the trigger together, and the
+    Sjaastad horizon (`residual_working_life_years`) is longest precisely
+    for a child: measured through the real tick, a sixty-three-year-old
+    guardian was trapped while her ten-year-old ward fled alone and tripped
+    mass flight by herself. The members who did follow a decider came from
+    a second, hand-built household definition that left wards and
+    stepchildren behind and carried married minors off. A household that
+    spans two zones -- partners living apart -- leaves from the decider's
+    zone, and its members' thresholds are each their own zone's.
 
     MISS-3 CO-ZONE PROPAGATION, BATCHED (not per trapped agent, and --
     fix T046/M-3 -- NOT per (trapped agent, witness) PAIR
@@ -1450,9 +1501,14 @@ def process_emergency_flight(
       out-migration (as opposed to emergency flight) during the window is
       symmetrically NOT added back, for the same reason: this module
       tracks only `payload__reason="emergency_flight"` events, matching
-      the numerator's own scope; Plan 4's orchestrator does not exist yet
-      (`simulation/engine.py` untouched), so no voluntary-migration
-      traffic can occur in a live run until it does.
+      the numerator's own scope. Demography Plan 4 wires this function
+      into the tick but not voluntary migration, which is outside its
+      scope, so no voluntary-migration traffic occurs in a live run yet.
+
+    The numerator counts PEOPLE: the primary agent of every flight event
+    plus its `household_members`, historical and current alike. Until
+    round 10 it counted primary agents only, so a household of four that
+    fled read as one person against a denominator of people.
 
     When `len(fled) / population_at_window_start >
     MASS_FLIGHT_THRESHOLD_FRACTION` (STRICT, 0.30), a `MASS_FLIGHT` event
@@ -1503,10 +1559,12 @@ def process_emergency_flight(
     queries, per its own "CACHED SUBSISTENCE THRESHOLD" contract) + 1
     population aggregate (`Count` grouped by zone, one query regardless
     of zone or agent count) + 1 historical-flight-window query + 1 query
-    to fetch the living agents to iterate. PLUS, only for agents who
-    actually flee: `coordinate_family_migration`'s own up-to-5-query cost
-    EACH (inherent to reusing that function as-is, not a new N+1 this
-    function introduces). PLUS, only when at least one agent is trapped:
+    to fetch the living agents to iterate + 1 for the active-couple partner
+    map the household derivation reads (the ages need no query: the tick
+    duration comes from the world already loaded). PLUS, only for
+    households that actually flee: `coordinate_family_migration`'s own
+    cost, which is two writes when it is handed the members, as it is
+    here. PLUS, only when at least one agent is trapped:
     1 batched witness-fetch query (never per trapped agent). PLUS up to 5
     final writes (relocation `bulk_update`, flight-memory `bulk_create`,
     trapped-event `bulk_create`, trapped-memory `bulk_create`,
@@ -1532,8 +1590,13 @@ def process_emergency_flight(
     from django.db.models import Count
 
     from epocha.apps.agents.models import Agent, Memory
-    from epocha.apps.demography.context import compute_subsistence_threshold
+    from epocha.apps.demography.context import (
+        compute_subsistence_threshold,
+        household_keys,
+        starving_households,
+    )
     from epocha.apps.demography.models import DemographyEvent
+    from epocha.apps.demography.orchestrator import age_in_years
     from epocha.apps.demography.rng import get_seeded_rng
     from epocha.apps.demography.template_loader import load_template
     from epocha.apps.world.models import Government, World, Zone
@@ -1586,15 +1649,18 @@ def process_emergency_flight(
             payload__reason="emergency_flight",
             tick__gt=window_start,
             tick__lt=tick,
-        ).values("payload__from_zone", "primary_agent_id"):
-            from_zone_id = row["payload__from_zone"]
-            # PostgreSQL's JSONField key-transform (the implicit `->>` text
-            # extraction `.values("payload__from_zone")` compiles to)
-            # returns the value as a string, not the original JSON
-            # integer -- cast explicitly so this key matches `Zone.id`
-            # (a Python int) in every dict lookup below.
+        ).values("payload", "primary_agent_id"):
+            # The whole payload, decoded as JSON, rather than a key
+            # transform per field: `household_members` is a list, and
+            # everyone in it fled as surely as the primary agent did. Round
+            # 10 of the phase-6 gate measured the numerator counting primary
+            # agents only, so a household of four read as one person.
+            payload = row["payload"] or {}
+            from_zone_id = payload.get("from_zone")
             if from_zone_id is not None and row["primary_agent_id"] is not None:
-                fled_agent_ids_by_zone[int(from_zone_id)].add(row["primary_agent_id"])
+                fled = fled_agent_ids_by_zone[int(from_zone_id)]
+                fled.add(row["primary_agent_id"])
+                fled.update(payload.get("household_members") or [])
 
         # Fix T046/I-11: snapshot of HISTORICAL-only fled counts per zone,
         # taken BEFORE this tick's own new departures are added into
@@ -1612,50 +1678,99 @@ def process_emergency_flight(
             zone_id: len(fled_ids) for zone_id, fled_ids in fled_agent_ids_by_zone.items()
         }
 
-        agents = Agent.objects.filter(zone__in=zones, is_alive=True).order_by("id")
+        agents = list(Agent.objects.filter(zone__in=zones, is_alive=True).order_by("id"))
 
-        already_relocated_agent_ids: set[int] = set()
+        # Households, derived once for the tick by the subsystem's one
+        # definition (`context.household_keys`), and starving households by
+        # its one predicate (`context.starving_households`, which the
+        # starvation counter uses too). The tick duration comes from the
+        # world already loaded above, so the ages cost no query; the partner
+        # map `household_keys` reads is the one query this adds.
+        acceleration = float(template.get("acceleration", 1.0))
+        ages = [
+            age_in_years(agent, tick, world.tick_duration_hours or 24.0, acceleration)
+            for agent in agents
+        ]
+        keys = household_keys(
+            agents,
+            ages,
+            simulation,
+            adulthood_age=float(template["migration"]["adulthood_age"]),
+        )
+        starving = starving_households(
+            agents,
+            keys,
+            {
+                zone_id: entry["subsistence_threshold"]
+                for zone_id, entry in zone_stats["zones"].items()
+            },
+        )
+        members_by_key: dict[tuple[int, ...], list] = defaultdict(list)
+        for agent in agents:
+            members_by_key[keys[agent.id]].append(agent)
+
         agents_to_relocate: list = []
         flight_memories: list = []
-        trapped_agents: list = []  # (agent, ticks) pairs, id-ascending order
+        trapped_agents: list = []  # (agent, ticks) pairs, sorted by id below
+        decided: set[tuple[int, ...]] = set()
 
         for agent in agents:
-            if agent.id in already_relocated_agent_ids:
+            key = keys[agent.id]
+            if key in decided:
                 continue
-
-            ticks = agent.consecutive_ticks_under_subsistence
+            decided.add(key)
+            members = members_by_key[key]
+            # The decider is the household's anchor -- the lower id of a
+            # couple, or the single adult -- never a dependent: it is the
+            # decider's counter and Sjaastad horizon that conditions 2 and 3
+            # read. A partner outside the zoned population leaves the other.
+            decider = min(
+                (member for member in members if member.id in key),
+                key=lambda member: member.id,
+                default=members[0],
+            )
+            ticks = decider.consecutive_ticks_under_subsistence
             meets_preconditions, target_zone = _resolve_flight_decision(
-                agent, simulation, tick, template, zone_stats, ticks
+                decider,
+                simulation,
+                tick,
+                template,
+                zone_stats,
+                ticks,
+                under_subsistence=key in starving,
             )
 
             if target_zone is not None:
-                origin_zone = zone_stats["zones"][agent.zone_id]["zone"]
-                from_zone_id = agent.zone_id
+                origin_zone = zone_stats["zones"][decider.zone_id]["zone"]
+                from_zone_id = decider.zone_id
 
                 household_member_ids = coordinate_family_migration(
-                    agent,
+                    decider,
                     target_zone,
                     tick,
                     template,
                     reason="emergency_flight",
                     emit_event_even_if_empty=True,
                     rng=rng,
+                    members=_ordered_household_members(
+                        key, [member for member in members if member.id != decider.id]
+                    ),
                 )
-                already_relocated_agent_ids.update(household_member_ids)
 
-                agent.zone = target_zone
+                decider.zone = target_zone
                 # Fix T046/I-12: the decider's own `location`, not only their
                 # household's -- this call graph bypasses
                 # `agents/movement.py`'s `execute_movement` entirely for
                 # the fleeing agent, so nothing else ever writes it.
-                agent.location = _scatter_location_in_zone(target_zone, rng)
-                agents_to_relocate.append(agent)
+                decider.location = _scatter_location_in_zone(target_zone, rng)
+                agents_to_relocate.append(decider)
 
-                fled_agent_ids_by_zone[from_zone_id].add(agent.id)
+                fled_agent_ids_by_zone[from_zone_id].add(decider.id)
+                fled_agent_ids_by_zone[from_zone_id].update(household_member_ids)
 
                 flight_memories.append(
                     Memory(
-                        agent=agent,
+                        agent=decider,
                         content=(
                             f"I had to leave {origin_zone.name} because of hunger. "
                             "There was no other choice."
@@ -1664,12 +1779,18 @@ def process_emergency_flight(
                         source_type=Memory.SourceType.DIRECT,
                         reliability=1.0,
                         tick_created=tick,
-                        origin_agent=agent,
+                        origin_agent=decider,
                     )
                 )
 
             elif meets_preconditions:
-                trapped_agents.append((agent, ticks))
+                # A trapped household traps every member, and each keeps
+                # their own TRAPPED_CRISIS record with their own counter.
+                trapped_agents.extend(
+                    (member, member.consecutive_ticks_under_subsistence) for member in members
+                )
+
+        trapped_agents.sort(key=lambda pair: pair[0].id)
 
         if agents_to_relocate:
             Agent.objects.bulk_update(agents_to_relocate, ["zone", "location"])

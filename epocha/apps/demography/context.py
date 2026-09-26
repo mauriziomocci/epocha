@@ -212,3 +212,32 @@ def household_keys(
         partner = partner_of.get(anchor)
         keys[agent.id] = tuple(sorted((anchor, partner))) if partner else (anchor,)
     return keys
+
+
+def starving_households(
+    living: list,
+    keys: dict[int, tuple[int, ...]],
+    threshold_by_zone: dict,
+) -> set[tuple[int, ...]]:
+    """The keys of the households that cannot feed themselves this tick.
+
+    A household starves when its members' combined wealth is below the sum
+    of their zones' subsistence thresholds: a dependent minor owns nothing
+    and eats all the same, so the question is asked of the household and
+    never of the individual. The one definition of "under subsistence" in
+    the subsystem, used by the orchestrator's starvation counter and by the
+    first condition of emergency flight -- which kept an individual copy
+    until round 10 of the phase-6 gate measured a child fleeing alone from
+    a household the counter had declared starving as a whole.
+
+    `threshold_by_zone` maps each member's `zone_id` to its threshold and is
+    read strictly: a member whose zone the caller did not price is a
+    caller's error, not a zero.
+    """
+    wealth: dict[tuple[int, ...], float] = {}
+    need: dict[tuple[int, ...], float] = {}
+    for agent in living:
+        key = keys[agent.id]
+        wealth[key] = wealth.get(key, 0.0) + agent.wealth
+        need[key] = need.get(key, 0.0) + threshold_by_zone[agent.zone_id]
+    return {key for key, total in wealth.items() if total < need[key]}

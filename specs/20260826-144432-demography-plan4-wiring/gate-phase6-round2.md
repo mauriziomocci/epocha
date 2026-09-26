@@ -1550,8 +1550,59 @@ l'affermazione più forte.
 
 Suite **1754 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
 
-**F1 e F2 aspettano la conferma dell'utente**: la correzione cambia il
-comportamento della migrazione in `migration.py`, modulo auditato. La
-proposta è che la fuga valuti e muova il nucleo di `household_keys`: chi è a
-carico di un altro agente non viene valutato da solo e parte con chi lo ha a
-carico.
+**F1 e F2 aspettavano la conferma dell'utente**, perché la correzione cambia
+il comportamento della migrazione in `migration.py`, modulo auditato. L'ha
+data il 2026-09-26: la fuga valuta e muove il nucleo di `household_keys`.
+
+### Remediation, seconda parte: F1 e F2
+
+**La decisione per nucleo.** `process_emergency_flight` deriva i nuclei una
+volta per tick con `context.household_keys` e decide ciascuno una volta, per
+bocca del suo decisore: l'ancoraggio, cioè l'id più basso di una coppia o
+l'adulto singolo, mai un dipendente. La condizione 1 è del nucleo, attraverso
+`context.starving_households`, predicato nuovo e UNICO che ora usa anche il
+contatore di fame, invece della copia individuale che il docstring del
+contatore dichiarava «divergenza deliberata»; le condizioni 2 e 3 leggono il
+contatore e l'orizzonte di Sjaastad del decisore. Un nucleo in fuga parte
+intero con un solo evento; un nucleo intrappolato intrappola ogni membro, e
+ciascuno conserva il proprio `TRAPPED_CRISIS`. Il numeratore della fuga di
+massa conta persone, storiche e correnti.
+
+**Una sola definizione di nucleo.** `coordinate_family_migration` non
+ricostruisce più il nucleo a mano: riceve i membri dal chiamante che li ha già
+derivati, oppure li deriva da sé con `household_keys`. L'ordine dei membri è
+uno solo, il partner per primo e poi i dipendenti dal più anziano.
+
+**Testimoni, tutti visti rossi prima o provati per mutazione.** Sette
+testimoni nuovi contro la versione precedente: la pupilla che non fugge da
+sola accanto alla tutrice intrappolata, la pupilla che parte con il tutore, il
+figliastro che parte con il nucleo in un solo evento (la prima stesura
+passava per caso, perché la bambina arrivava nella stessa zona fuggendo da
+sola: ora il test pretende un evento unico), la sposa minorenne che resta con
+il marito, il partner solvente che trattiene il nucleo, la fuga di massa che
+conta quattro persone e non una, e la derivazione di ripiego che porta la
+pupilla. Poi tre testimoni scritti per chiudere due mutazioni sopravvissute:
+il numeratore storico in persone, il costo di una fuga (due scritture, e
+nessuna nuova derivazione del nucleo per ogni nucleo in fuga) e il confine
+esatto di `starving_households`, dove una ricchezza pari alla soglia sfama il
+nucleo. Nove mutazioni sulla produzione, misurate una per una: sette uccise al
+primo colpo, le altre due dopo i testimoni appena descritti.
+
+**Il costo, ri-pinnato sulla misura.** Il passo di migrazione forzata legge
+ora la mappa dei partner che `household_keys` richiede: una query per tick,
+qualunque sia la popolazione. `FIXED_TERM_NO_CANDIDATES` e
+`FIXED_TERM_WITH_CANDIDATES` salgono da 35 e 43 a 36 e 44, e la guardia sul
+raddoppio della popolazione resta un'uguaglianza. La guardia del costo fisso
+della fuga passa da 17 a 18 query per la stessa ragione.
+
+**Fixture incoerenti, trovate dalla derivazione nuova.** `test_migration.py`
+e `test_inheritance.py` creavano agenti con `age=30` e `birth_tick=0`, cioè
+di cinquanta giorni per l'età canonica: `household_keys` li leggeva come
+minori. In `test_migration.py` la fixture deriva ora `birth_tick` dall'età; in
+`test_inheritance.py`, dove `birth_tick` ordina gli eredi in seimila righe di
+test, è corretto il solo agente che il test SC-004 giudica. Due fixture di
+`test_migration.py` avevano un partner con patrimonio 100 accanto a un agente
+a 4, cioè un nucleo che con la regola nuova non muore di fame: il partner ha
+ora patrimonio zero, che è il caso che quei test volevano esercitare.
+
+Suite **1765 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.

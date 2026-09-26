@@ -740,10 +740,14 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     derived by `demography.context.household_keys` -- the same derivation the snapshot
     reports average household size from, shared rather than copied.
 
-    That is a deliberate divergence from the flight trigger's own first
-    condition, which stays individual, and it is written here because the
-    previous version of this docstring claimed the two were the same. They
-    were, and the consequence was found by the phase-6 closure review:
+    The predicate is `context.starving_households`, and emergency flight
+    asks its first condition through the same function. It did not always:
+    this docstring once declared the flight trigger's condition individual,
+    as a deliberate divergence, and round 10 of the phase-6 gate measured
+    what that cost -- a ten-year-old whose household the counter declared
+    starving was judged on her own, and fled alone. Before that, the two had
+    been the same INDIVIDUAL predicate, and the consequence was found by the
+    phase-6 closure review:
     `apply_inheritance_at_birth` writes `wealth = 0.0` on every newborn, so
     an individual predicate put every child in the world permanently below
     the line. After `flight_trigger_ticks` -- thirty ticks under the default
@@ -774,7 +778,11 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     that is measured.
     """
     from epocha.apps.agents.models import Agent
-    from epocha.apps.demography.context import compute_subsistence_threshold, household_keys
+    from epocha.apps.demography.context import (
+        compute_subsistence_threshold,
+        household_keys,
+        starving_households,
+    )
 
     living = list(
         Agent.objects.filter(simulation=context.simulation, is_alive=True)
@@ -810,13 +818,7 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     # Aggregated per household, then applied to each of its members: a
     # household feeds itself or it does not, and its dependants starve with
     # it rather than on their own account.
-    household_wealth: dict[tuple[int, ...], float] = {}
-    household_threshold: dict[tuple[int, ...], float] = {}
-    for agent in living:
-        key = keys[agent.id]
-        household_wealth[key] = household_wealth.get(key, 0.0) + agent.wealth
-        household_threshold[key] = household_threshold.get(key, 0.0) + thresholds[agent.zone_id]
-    starving = {key for key, total in household_wealth.items() if total < household_threshold[key]}
+    starving = starving_households(living, keys, thresholds)
 
     for agent in living:
         under_subsistence = keys[agent.id] in starving
@@ -1024,10 +1026,10 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         run=run_starvation_counter_step,
         why_here=(
             "The counter increments on a HOUSEHOLD predicate -- the household's "
-            "combined wealth against the sum of its members' zone thresholds -- "
-            "which is deliberately NOT the flight trigger's own individual "
-            "condition 1. A dependent minor owns nothing, so an individual "
-            "predicate made every child a chronic starveling. It must still"
+            "combined wealth against the sum of its members' zone thresholds, "
+            "`context.starving_households`, which emergency flight also asks "
+            "its condition 1 through. A dependent minor owns nothing, so an "
+            "individual predicate made every child a chronic starveling. It must still"
             " read the post-succession wealth, or an heir who rose above the"
             " line this tick would still be counted as starving."
         ),

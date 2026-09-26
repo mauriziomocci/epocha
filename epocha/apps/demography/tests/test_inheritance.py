@@ -6353,7 +6353,20 @@ class TestEraCoverageSC004:
             center=Point(250, 250),
         )
         family_head = _make_agent(sim, zone, f"{era_name}FamilyHead")
-        teenager = _make_agent(sim, zone, f"{era_name}Teenager", parent_agent=family_head, age=17)
+        # `birth_tick` set to agree with `age`: household membership reads
+        # the canonical age from `birth_tick` since `coordinate_family_
+        # migration` derives the household with `context.household_keys`
+        # (round 10 of the phase-6 gate), and this file's `_make_agent`
+        # defaults `birth_tick` to 0, which would make a seventeen-year-old
+        # a newborn by that reading and a minor under every era.
+        teenager = _make_agent(
+            sim,
+            zone,
+            f"{era_name}Teenager",
+            parent_agent=family_head,
+            age=17,
+            birth_tick=50 - 17 * 365,
+        )
 
         # Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION: a
         # seeded rng is passed here (T038-added, KEYWORD-only-in-practice
