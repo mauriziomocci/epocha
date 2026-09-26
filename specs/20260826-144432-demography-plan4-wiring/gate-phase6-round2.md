@@ -1606,3 +1606,66 @@ a 4, cioè un nucleo che con la regola nuova non muore di fame: il partner ha
 ora patrimonio zero, che è il caso che quei test volevano esercitare.
 
 Suite **1765 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
+
+---
+
+## Round 11: criterio, scritto prima del lancio
+
+**2026-09-26, dopo i commit `b596753` e `b1b7c0d` e prima di lanciare il
+round 11.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola scritta al
+round 8 e confermata dai round 9 e 10, nessuno dei quali ha trovato i propri
+bloccanti dentro la remediation che un round ristretto avrebbe giudicato.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **La decisione per nucleo della fuga d'emergenza** (`b1b7c0d`), che cambia
+   un modello e non un testimone. Il decisore è l'ancoraggio del nucleo:
+   verifica i casi che nessun test costruisce — un minore orfano senza
+   tutore vivo, che è un nucleo da solo e si valuta da solo; un nucleo con i
+   partner in due zone; un partner fuori dalla popolazione con zona; un
+   nucleo il cui decisore ha un contatore diverso da quello dei dipendenti,
+   perché la composizione del nucleo è cambiata nel tick. E dì se è giusto
+   che solo il decisore scriva la memoria di prima mano della fuga.
+2. **Il predicato condiviso `context.starving_households`.** Il contatore di
+   fame lo usa ora al posto della propria aggregazione: verifica che il
+   rifattore sia un'equivalenza esatta, e che nessuno dei due chiamanti
+   prezzi un membro sulla zona sbagliata.
+3. **La fuga di massa in persone.** Numeratore e denominatore devono contare
+   la stessa unità nella finestra intera, storica e corrente; verifica anche
+   i due limiti dichiarati della ricostruzione del denominatore alla luce dei
+   nuclei.
+4. **La classe che la suite, non il round, ha trovato in questa
+   remediation**: criteri che dipendono dall'id della simulazione, perché
+   `get_seeded_rng` lo mescola nel seme. Due sono stati chiusi; cerca gli
+   altri — ogni uguaglianza esatta su conteggi di query, nascite o morti in
+   una fixture che non forza gli stream vitali.
+5. **La guardia per intento a 7** (`b596753`): è davvero il caso peggiore?
+   Le forme non costruite: un intento verso un bersaglio già in coppia, verso
+   un morto, verso un nome ambiguo, un proponente con più bersagli.
+
+### Il terreno ereditato
+
+Il round 10 ha dichiarato non coperti `inheritance.py` oltre il diff,
+`mortality.py`, `template_loader.py` oltre lo schema della coppia,
+`truncated_moments.py`, `clark_calibration.py`, la parte volontaria di
+`migration.py`, `fertility.py` oltre `_effective_age_in_years`, e le cifre
+end-to-end non ri-misurate. **Scegli e dichiara**, come ai round precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+La remediation del round 10 cambia il modello della fuga d'emergenza in un
+modulo auditato, introduce un predicato condiviso fra due moduli, cambia due
+serie dello snapshot e ri-pinna quattro costanti di costo. Se il round non
+produce nulla delle tre classi, il verdetto deve dire quali percorsi ha
+verificato per sostenerlo e che cosa ha lasciato fuori.
