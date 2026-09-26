@@ -1406,3 +1406,70 @@ corsa di un anno «da 80 a 90 agenti con 14 nascite e 4 morti», che misurata
 oggi dà 86 che diventano 88, con 7 nascite e 5 morti. Lo stesso commento
 stantio stava nel test end-to-end, ed è corretto con la misura. Suite **1751
 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
+
+---
+
+## Round 10: emendamento al criterio, scritto prima del lancio
+
+**2026-09-26, dopo i commit `86d9f25` e `143df0d` e prima di lanciare il
+round 10.** Il criterio del round 10 era stato scritto e committato
+(`430e73a`) prima che questi due commit esistessero. Un criterio che non
+nomina il codice cambiato dopo di lui è un criterio che quel codice
+attraversa senza essere guardato, quindi lo emendo qui, in coda e in chiaro,
+invece di riscriverlo.
+
+**Che cosa NON cambia.** L'ambito resta `git diff develop..HEAD` per intero.
+Le tre classi bloccanti restano quelle del round 2 e non sono toccate: un
+difetto di correttezza nel codice di produzione, un criterio che non può
+fallire, una chiusura dichiarata e non vera. I quattro punti d'attacco e il
+terreno ereditato dal round 9 restano validi così come sono scritti sopra.
+
+**Che cosa si aggiunge come bersaglio, per primo.**
+
+1. **`couple.meets_marriage_age` e i suoi due chiamanti.** Il predicato
+   dichiara di essere l'unica regola d'età al matrimonio del sottosistema.
+   Verifica che non esista un terzo percorso che forma coppie senza
+   passarci — i soli chiamanti di `form_couple` fuori dai test sono oggi
+   `form_initial_couples` e `resolve_pair_bond_intents` — e attacca i suoi
+   bordi: `birth_tick` nullo, che ricade sulla colonna `age`; un genere
+   nullo o vuoto, che cade nel ramo della soglia più alta; un'era che
+   dichiari una soglia femminile superiore a quella maschile.
+2. **Il punto del risolutore in cui il predicato è applicato.** Il ciclo di
+   formazione, al proponente e a ciascun bersaglio. Un agente sotto soglia
+   può essere proponente di un intento e bersaglio di un altro nello stesso
+   tick, e l'intento combinato riattribuisce il proponente al figlio:
+   verifica che il rifiuto non lasci sfuggire alcuna combinazione e che non
+   ne rifiuti una legittima, per esempio consumando `used` o interrompendo
+   il ciclo di un proponente adulto che ha un secondo bersaglio valido.
+3. **Il controllo del lettore nel backfill di `birth_tick`.** Il ciclo che
+   arretra il tick finché `age_in_years` torna corto dichiara di girare al
+   più una volta. Verifica che termini sempre — accelerazione molto alta o
+   molto bassa, durata del tick estrema, `age` nullo — e che la parte intera
+   dell'età riletta coincida con quella scritta, che è la proprietà su cui
+   poggiano sia il rinfresco dell'età del passo mortalità sia la soglia.
+4. **Il costo.** La durata del tick arriva ora al risolutore dal contesto, e
+   la query si sposta dal passo mortalità al passo di formazione delle
+   coppie invece di aggiungersi. Misurato: 43, 50 e 57 query a zero, due e
+   quattro intenti. Verifica che lo spostamento regga anche sotto gli ordini
+   permutati dei passi che SC-002 esegue, e che il termine per intento non
+   cresca in un caso che la guardia non costruisce, come un intento
+   combinato o un bersaglio sotto soglia.
+5. **La rimozione delle due copie** (`143df0d`). `snapshot.py` importa ora
+   `orchestrator` a livello di modulo: verifica l'assenza di un ciclo
+   d'import che si manifesti solo in produzione, dal generatore del mondo o
+   dal worker Celery.
+
+**Un rilievo già registrato, e che il round giudichi invece di ereditare.**
+Quattro chiavi del blocco `couple` dei template — `mourning_ticks`,
+`marriage_market_radius`, `marriage_market_type`, `allowed_types` — sono
+validate e documentate nella Tabella 4.5 ma nessun codice le legge, e il
+§4.1.3 descrive `marriage_market_type` come se selezionasse il regime. Le ho
+classificate precedenti al ramo e da portare all'utente come decisione di
+perimetro. Quella classificazione è mia e non è un'esenzione scritta in
+anticipo: il round decida se una di esse è una chiusura dichiarata e non
+vera o un difetto che questo ramo ha reso raggiungibile, e lo dica.
+
+**Stato di partenza misurato**: HEAD `143df0d` più questo emendamento, suite
+**1751 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
+
+**Convergenza**: invariata. Nessuna delle tre classi bloccanti.
