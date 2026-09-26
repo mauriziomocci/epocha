@@ -1669,3 +1669,64 @@ modulo auditato, introduce un predicato condiviso fra due moduli, cambia due
 serie dello snapshot e ri-pinna quattro costanti di costo. Se il round non
 produce nulla delle tre classi, il verdetto deve dire quali percorsi ha
 verificato per sostenerlo e che cosa ha lasciato fuori.
+
+### Verdetto round 11: NOT CONVERGED
+
+Un revisore, ambito `develop..HEAD` per intero, igiene verificata: albero
+pulito, nessun processo residuo, i cinque moduli mutati identici ai backup.
+Quattro rilievi bloccanti, **nessuno ancora corretto**: la sessione del
+2026-09-26 si è fermata al verdetto su richiesta dell'utente.
+
+- **R1, classe 1, introdotto dalla remediation del round 10.** Un nucleo
+  diviso fra due zone viene attribuito per intero alla zona del decisore:
+  un solo `from_zone` nel payload, il numeratore corrente e storico della
+  fuga di massa e la migrazione netta dello snapshot contano i membri che
+  non hanno mai abitato quella zona. Riprodotto: decisore in A con nove
+  vicini, moglie e due figli in «Casa» con due vicini; esito `MASS_FLIGHT`
+  da A al 40% quando da A è partito uno su dieci, nulla da Casa che ne ha
+  perso tre su cinque, e lo snapshot a `{A: -4, Casa: 0}`. Contro la
+  versione `b596753` non scatta nulla da A: la remediation l'ha introdotto.
+  È il caso normale, non un limite: il generatore assegna le zone a
+  rotazione, l'accoppiamento fondatore non guarda la zona, il neonato
+  eredita la zona della madre. Correzione indicata: ogni persona attribuita
+  alla propria zona di partenza, catturata prima dello spostamento, nel
+  numeratore corrente, nel payload e nello snapshot.
+- **R2, classe 1, codice preesistente reso vivo dal ramo.** `mortality.py`
+  usa `q·dt` per `q < 0.1` invece della forma geometrica `1-(1-q)^dt`:
+  sottostima misurata fino al 4,71% nelle ere pre-industriali (4,96% in
+  `industrial`), con un salto spurio di circa il 5% fra 82 e 83 anni,
+  contro un errore dichiarato «below 0.5%» nel §4.1.1. Lo stesso paragrafo
+  dice che `q` supera 0.1 per i neonati pre-industriali: falso, `q(0)` vale
+  0,0247. Correzione indicata: una riga, sempre la forma geometrica.
+- **R3, classe 3.** Il §4.1.5 dice ancora, in entrambe le lingue, che la
+  condizione (1) resta individuale per «divergenza deliberata», due
+  paragrafi dopo l'equazione (4.58) riscritta a `Σ_h`. Stessa classe di F5.
+- **R4, classe 3, classificazione del revisore e discutibile.**
+  `inheritance.py` dichiara che coprire la sussistenza del pupillo dello
+  Stato (`"state_ward"`) è compito per tick dell'orchestratore del Plan 4;
+  nessun codice lo fa e la spec non lo elenca fra ciò che il Plan 4 non
+  consegna. Misurato: un pupillo di otto anni senza patrimonio diventa
+  decisore di se stesso e fugge da solo.
+
+**Non bloccanti**, da correggere nello stesso giro: la condizione 2 letta
+dal contatore del partner di id più basso (N1, serve una regola di nucleo);
+due mutazioni sopravvissute, il decisore «mai un dipendente» (M7) e
+l'ordine dei dipendenti dal più anziano (M10), senza testimone; quattro
+uguaglianze in `test_demography_cost.py` che non forzano gli stream vitali
+e dipendono dall'id della simulazione (misurato: 7 fixture su 400 vedono un
+evento vitale); la memoria di prima mano della fuga scritta dal solo
+decisore e non dal partner adulto, che il revisore giudica decisione
+dell'utente; prosa e riferimenti superati (N8).
+
+**Confermato dal round**: il predicato condiviso `starving_households` è un
+rifattore esatto; la guardia per intento a 7 è il vero caso peggiore, per
+costruzione e per misura su sette forme d'intento; nessun ciclo d'import.
+
+**Prosa della build map corretta in questo commit.** Il paragrafo `hb.p1`
+inglese diceva dal 7 agosto che la fase 0 era «under way» su una scala
+latente logit senza troncamento, mentre l'italiano normativo la dice
+conclusa sulla normale troncata, che è ciò che il codice implementa
+(`truncated_moments.py`). La guardia bilingue non lo vedeva: confronta
+un'impronta del testo italiano, quindi un ricalcolo delle impronte dopo una
+modifica al solo italiano la rende verde senza traduzione. Segnalato dalla
+sessione del sito pubblico.
