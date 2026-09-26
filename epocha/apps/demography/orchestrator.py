@@ -691,7 +691,15 @@ def run_couple_formation_step(
     if rng is None:
         rng = stream_for(context.simulation, context.tick, phase="couple")
 
-    resolve_pair_bond_intents(context.simulation, context.tick, rng)
+    # The tick length is the context's, resolved once per tick: the resolver's
+    # marriage-age rule needs it, and resolving it here moves the one query
+    # the mortality step would otherwise pay, it does not add one.
+    resolve_pair_bond_intents(
+        context.simulation,
+        context.tick,
+        rng,
+        tick_duration_hours=context.hours_per_tick(),
+    )
 
 
 def run_forced_migration_step(context: DemographyTickContext) -> None:

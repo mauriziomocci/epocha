@@ -154,17 +154,32 @@ def backfill_birth_ticks(simulation: Any, template: dict | None = None) -> None:
             template = None
     if template is not None:
         acceleration = float(template.get("acceleration", 1.0))
-    ticks_per_year = HOURS_PER_YEAR / max(1e-9, _tick_duration_hours(simulation))
+    from epocha.apps.demography.orchestrator import age_in_years
+
+    tick_duration_hours = _tick_duration_hours(simulation)
+    ticks_per_year = HOURS_PER_YEAR / max(1e-9, tick_duration_hours)
+    tick = simulation.current_tick
 
     for agent in pending:
-        # The exact inverse of `age_in_years`, which computes
-        # `(tick - birth_tick) / ticks_per_year * acceleration`.
-        agent.birth_tick = int(
-            round(
-                simulation.current_tick
-                - (agent.age or 0) * ticks_per_year / max(1e-9, acceleration)
-            )
-        )
+        # The inverse of `age_in_years`, which computes
+        # `(tick - birth_tick) / ticks_per_year * acceleration`. `birth_tick`
+        # is an integer, so the inverse cannot be exact when a year is not a
+        # whole number of ticks (a weekly world has 52.14), and rounding to
+        # the nearest tick alone put the read-back age BELOW the written one
+        # for 40 of the 91 ages 0-90 on a weekly world: its integer part
+        # then lost a year, the mortality step's age refresh rewrote the
+        # column to that, and a founder written at exactly the era's minimum marriage age failed
+        # the marriage-age rule. The reader is therefore the judge: the birth
+        # tick moves back one tick while `age_in_years` reads less than the
+        # written age -- at most once, since rounding is off by at most half
+        # a tick. Flooring the formula instead is not enough on its own:
+        # where the inverse is a whole number of ticks the float product can
+        # land a hair above it, and the reader then returns 62.999... for 63,
+        # measured on a weekly world.
+        written = agent.age or 0
+        agent.birth_tick = int(round(tick - written * ticks_per_year / max(1e-9, acceleration)))
+        while age_in_years(agent, tick, tick_duration_hours, acceleration) < written:
+            agent.birth_tick -= 1
 
     Agent.objects.bulk_update(pending, ["birth_tick"])
     logger.info(
@@ -183,9 +198,12 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
     mechanism that forms couples later in the run, rather than by a second,
     parallel rule that would drift from it.
 
-    Eligibility comes from the era template's own minimum marriage ages, not
-    from a threshold invented here, and agents already in an active couple are
-    skipped so a repeated call cannot double-pair anyone.
+    Eligibility is `couple.meets_marriage_age`, the one marriage-age rule the
+    intent resolver applies too: the era template's own minimum ages, on the
+    canonical age derived from `birth_tick`. This function used to apply its
+    own copy of the rule, on the `age` column, while the intent path applied
+    none -- round 9 of the Plan 4 phase-6 gate. Agents already in an active
+    couple are skipped so a repeated call cannot double-pair anyone.
 
     Args:
         simulation: the simulation whose founding population is paired.
@@ -198,6 +216,7 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
     from epocha.apps.demography.couple import (
         form_couple,
         homogamy_score,
+        meets_marriage_age,
         stable_matching,
     )
     from epocha.apps.demography.models import Couple
@@ -208,8 +227,6 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
         template = load_template(config.get("demography_template", "pre_industrial_christian"))
     couple_config = template["couple"]
     weights = couple_config["homogamy_weights"]
-    min_age_male = couple_config["min_marriage_age_male"]
-    min_age_female = couple_config["min_marriage_age_female"]
 
     already_partnered = set()
     for pair in Couple.objects.filter(
@@ -222,10 +239,14 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
         .exclude(id__in=already_partnered)
         .order_by("id")
     )
-    men = [a for a in living if a.gender == Agent.Gender.MALE and (a.age or 0) >= min_age_male]
-    women = [
-        a for a in living if a.gender == Agent.Gender.FEMALE and (a.age or 0) >= min_age_female
+    tick_duration_hours = _tick_duration_hours(simulation)
+    eligible = [
+        a
+        for a in living
+        if meets_marriage_age(a, template, simulation.current_tick, tick_duration_hours)
     ]
+    men = [a for a in eligible if a.gender == Agent.Gender.MALE]
+    women = [a for a in eligible if a.gender == Agent.Gender.FEMALE]
     if not men or not women:
         return
 

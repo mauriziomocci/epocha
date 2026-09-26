@@ -511,3 +511,104 @@ class TestBirthTickSharesTheOrchestratorsClock:
             f"written as 40 and read back as {read_back}: the backfill and "
             "the orchestrator are on different clocks"
         )
+
+
+class TestTheFoundingPairingSharesTheIntentPathsAgeRule:
+    """One marriage-age rule for both paths that form couples.
+
+    Round 9 of the phase-6 gate found the era's minimum marriage age applied
+    on the founding pairing and ignored on the intent path. The fix is one
+    predicate used by both, on the canonical age -- `age_in_years` over
+    `birth_tick` -- where the founding pairing used to read the `age` column.
+    """
+
+    def test_an_existing_birth_tick_outranks_the_column(self, sim_with_zone):
+        """The backfill never overwrites a recorded `birth_tick`, so a founder
+        can carry one that disagrees with the column. Each is made to say
+        the opposite of the other, in both directions: a rule that reads the
+        column pairs the wrong one.
+        """
+        sim, zone = sim_with_zone
+        # The column says 30, the birth tick says 12: under the female 14.
+        _agent(
+            sim,
+            zone,
+            "ColonnaAdulta",
+            age=30,
+            gender=Agent.Gender.FEMALE,
+            birth_tick=sim.current_tick - int(12 * TICKS_PER_YEAR),
+        )
+        # The column says 10, the birth tick says 25: well over the male 16.
+        groom = _agent(
+            sim,
+            zone,
+            "ColonnaBambino",
+            age=10,
+            gender=Agent.Gender.MALE,
+            birth_tick=sim.current_tick - int(25 * TICKS_PER_YEAR),
+        )
+        bride = _agent(sim, zone, "Sposa", age=24, gender=Agent.Gender.FEMALE)
+
+        initialization.initialize_demography(sim)
+
+        pairs = set(Couple.objects.filter(simulation=sim).values_list("agent_a_id", "agent_b_id"))
+        assert pairs == {tuple(sorted((groom.id, bride.id)))}, (
+            "the founding pairing read the frozen `age` column instead of the "
+            "canonical age from `birth_tick`"
+        )
+
+
+class TestTheBackfillNeverMakesAFounderYounger:
+    """`birth_tick` is an integer, so the inverse of `age_in_years` is rounded.
+
+    Rounding to the NEAREST tick makes the read-back age fall below the
+    written one whenever a year is not a whole number of ticks: a weekly
+    world has 52.14 of them, and 40 of the 91 ages 0-90 came back short on
+    it. The read-back age then
+    truncates to one year less: the mortality step's age refresh rewrites the
+    column to that, and a founder written at exactly the era's minimum
+    marriage age is refused by the canonical age rule. The backfill now lets
+    `age_in_years` judge the written tick and moves it one tick into the past
+    when the reader comes back short, so the integer part of the read-back
+    age is the written age. Age 63 on a weekly world is the float case: the
+    exact inverse is a whole number of ticks and the reader still returned
+    62.999..., which is why rounding toward the past alone was not the fix.
+    """
+
+    WEEK_HOURS = 168.0
+
+    def test_every_integer_age_reads_back_as_itself_on_a_weekly_world(self, sim_with_zone):
+        from epocha.apps.demography import orchestrator
+
+        sim, zone = sim_with_zone
+        World.objects.filter(simulation=sim).update(tick_duration_hours=self.WEEK_HOURS)
+        agents = [_agent(sim, zone, f"Eta{age}", age=age) for age in range(0, 91)]
+
+        initialization.backfill_birth_ticks(sim)
+
+        younger = []
+        for agent in agents:
+            agent.refresh_from_db()
+            read_back = orchestrator.age_in_years(agent, sim.current_tick, self.WEEK_HOURS, 1.0)
+            if int(read_back) != agent.age:
+                younger.append((agent.age, round(read_back, 4)))
+        assert younger == [], (
+            f"written ages that read back as another integer: {younger[:5]} ({len(younger)} of 91)"
+        )
+
+    def test_a_founder_at_exactly_the_threshold_is_paired_on_a_weekly_world(self, sim_with_zone):
+        """The consequence that matters: under `industrial` the women's
+        threshold is 16, and 16 years is 834.29 weekly ticks."""
+        sim, zone = sim_with_zone
+        sim.config = {"demography_enabled": True, "demography_template": "industrial"}
+        sim.save()
+        World.objects.filter(simulation=sim).update(tick_duration_hours=self.WEEK_HOURS)
+        _agent(sim, zone, "Sedicenne", age=16, gender=Agent.Gender.FEMALE)
+        _agent(sim, zone, "Adulto", age=30, gender=Agent.Gender.MALE)
+
+        initialization.initialize_demography(sim)
+
+        assert Couple.objects.filter(simulation=sim).count() == 1, (
+            "a sixteen-year-old founder was refused under a threshold of 16: "
+            "the backfill made her younger than the world wrote her"
+        )

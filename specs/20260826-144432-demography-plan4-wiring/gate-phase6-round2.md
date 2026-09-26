@@ -1329,3 +1329,80 @@ di schema. Se il round non produce nulla delle tre classi, la spiegazione
 ammessa è che la superficie sia stata coperta e non che non sia stata
 guardata, e il verdetto deve dire quali percorsi ha verificato per
 sostenerlo.
+
+---
+
+## Decisione presa su delega dell'utente: la soglia d'età al matrimonio vale anche per gli intenti
+
+**2026-09-26, prima del lancio del round 10.** L'handoff la portava come
+decisione aperta, perché tocca `couple.py`, modulo auditato del Plan 2.
+L'utente l'ha delegata con queste condizioni, eseguite alla lettera.
+
+**Il difetto.** `min_marriage_age_male` e `min_marriage_age_female` erano
+lette dal solo `initialization.form_initial_couples`, e sulla colonna `age`;
+`resolve_pair_bond_intents` non le guardava, quindi un intento poteva sposare
+un agente sotto la soglia della propria era. Era la condizione di
+raggiungibilità di C2: la correzione del round 9 aveva chiuso il sintomo sul
+contatore, non la causa.
+
+**La decisione.** Un solo predicato, `couple.meets_marriage_age`, usato da
+entrambi i percorsi che formano coppie. Sta in `couple.py` perché la
+formazione delle coppie possiede le regole del matrimonio; calcola l'età con
+`orchestrator.age_in_years` su `birth_tick`, quindi porta l'`acceleration`
+dell'era. La soglia è un minimo inclusivo in anni compiuti. Un genere diverso
+da maschile e femminile, che i template non coprono, deve soddisfare la più
+alta delle due soglie, scelta conservativa dichiarata nel docstring. Nel
+risolutore il predicato sta nel ciclo di formazione, l'unico punto da cui
+passa ogni coppia, diretta o combinata, e si applica al proponente e a ogni
+bersaglio; un rifiuto non forma coppie ed è registrato a livello WARNING,
+sullo stesso modello di C3. I valori dei template non sono toccati. **C2
+resta**: nelle ere pre-industriali la soglia femminile è 14 contro una
+maggiore età di 16, quindi una quattordicenne sposata è legittima e il
+matrimonio deve continuare a prevalere sulla catena dei tutori.
+
+**Un difetto che la decisione ha scoperto.** Spostare l'accoppiamento
+fondatore dalla colonna all'età canonica ha reso visibile che il backfill di
+`birth_tick` arrotondava al tick più vicino l'inversa di `age_in_years`: su un
+mondo settimanale, 40 delle 91 età da 0 a 90 rileggevano un valore sotto
+quello scritto, la parte intera perdeva un anno, il rinfresco dell'età del
+passo mortalità riscriveva la colonna, e una fondatrice scritta esattamente a
+16 anni sotto `industrial` veniva rifiutata dalla soglia di 16. Ora è il
+lettore a giudicare: il tick scritto arretra di uno finché `age_in_years`
+torna corto. Arrotondare per difetto da solo non bastava, e la mutazione lo
+ha mostrato: a 63 anni l'inversa è un numero intero di tick e il prodotto in
+virgola mobile rileggeva 62,999...
+
+**Misure.** Test rossi prima, su entrambi i lati del confine: un anno sotto
+soglia rifiutato, esattamente alla soglia accettato, per ciascun sesso e in
+entrambi i ruoli; più il matrimonio combinato di una dodicenne, il non
+binario a 15 e a 16, l'età letta da `birth_tick` e non dalla colonna in
+entrambe le direzioni, l'accelerazione, e due testimoni sul backfill. Contro
+la versione precedente del codice i test nuovi danno sette rossi. Dodici
+mutazioni sulla produzione, misurate una per una contro un backup: undici
+morte al primo colpo; la dodicesima, `floor` al posto di `round`, è
+sopravvissuta perché il controllo del lettore la rendeva ridondante, quindi
+il `floor` è stato tolto e le due mutazioni sul controllo muoiono entrambe.
+**Costo per intento invariato**: 43 query senza intenti, 50 con due, 57 con
+quattro, cioè 3,5 per intento come al round 9; il rifiuto legge oggetti già
+in mano, e la durata del tick arriva dal contesto, dove la query si sposta dal
+passo mortalità invece di aggiungersi.
+
+**Fuori perimetro, e registrato qui invece che taciuto.** La stessa lettura
+ha trovato altre quattro chiavi del blocco `couple` dei template che nessun
+codice legge: `mourning_ticks`, `marriage_market_radius`,
+`marriage_market_type` e `allowed_types`. Sono validate dal caricatore e
+documentate nella Tabella 4.5 del §4.1.3 come parametri per era, e il §4.1.3
+dice che `marriage_market_type` «seleziona» fra matrimonio autonomo e
+combinato, mentre il risolutore accetta un intento combinato in qualunque
+era. Sono precedenti a questo ramo e sono una decisione di perimetro, non una
+correzione da prendere in autonomia: vanno portate all'utente.
+
+**Prosa superata, corretta nello stesso commit.** Aggiornando il conteggio
+della suite, la build map si è rivelata ferma su tre affermazioni false in
+entrambe le lingue: «tutti e trentotto i task sono chiusi» mentre T038 è
+aperto dalla riapertura del gate; costi fissi di 36 e 44 query e 6 per il
+tick con morti, mentre i pin sono 35, 43 e 5 dalla review di chiusura; e la
+corsa di un anno «da 80 a 90 agenti con 14 nascite e 4 morti», che misurata
+oggi dà 86 che diventano 88, con 7 nascite e 5 morti. Lo stesso commento
+stantio stava nel test end-to-end, ed è corretto con la misura. Suite **1751
+verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.

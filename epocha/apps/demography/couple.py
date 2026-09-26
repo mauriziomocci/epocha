@@ -222,7 +222,55 @@ def form_couple(
     )
 
 
-def resolve_pair_bond_intents(simulation, tick: int, rng) -> list[Couple]:
+def meets_marriage_age(agent, template: dict, tick: int, tick_duration_hours: float) -> bool:
+    """Whether the agent has reached the era's minimum age at marriage.
+
+    The ONE marriage-age rule of the subsystem, used by both paths that form
+    couples: the founding pairing (`initialization.form_initial_couples`) and
+    the intent resolver (`resolve_pair_bond_intents`). Round 9 of the Plan 4
+    phase-6 gate found the rule applied on the first path and absent from the
+    second, so every couple formed by intent ignored the era's threshold --
+    the minority test that the household derivation then had to arbitrate.
+    Applying the rule on both paths through a second copy would have
+    reproduced the defect class the gate kept finding; this function is the
+    copy there is.
+
+    The age is `orchestrator.age_in_years` over `birth_tick`, the canonical
+    source, and not the `age` column, which is a cache refreshed by the
+    mortality step. It therefore carries the era's `acceleration` exactly as
+    the hazard and the fertile window do.
+
+    Thresholds are the template's `couple.min_marriage_age_male` and
+    `couple.min_marriage_age_female`, in completed years and inclusive: an
+    agent exactly at the threshold may marry. The templates carry no third
+    threshold, so an agent of any other gender value meets the HIGHER of the
+    two -- a conservative choice where the era's data is silent, since it
+    never admits a marriage either declared threshold would refuse. The values
+    themselves are era data audited with the templates and are not decided
+    here.
+    """
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.orchestrator import age_in_years
+
+    couple_cfg = template["couple"]
+    male = couple_cfg["min_marriage_age_male"]
+    female = couple_cfg["min_marriage_age_female"]
+    if agent.gender == Agent.Gender.MALE:
+        threshold = male
+    elif agent.gender == Agent.Gender.FEMALE:
+        threshold = female
+    else:
+        threshold = max(male, female)
+    acceleration = float(template.get("acceleration", 1.0))
+    return age_in_years(agent, tick, tick_duration_hours, acceleration) >= threshold
+
+
+def resolve_pair_bond_intents(
+    simulation,
+    tick: int,
+    rng,
+    tick_duration_hours: float | None = None,
+) -> list[Couple]:
     """Process pair_bond intents from tick - 1, form couples where mutual.
 
     Reads DecisionLog.output_decision (TextField, JSON blob). Pre-filters
@@ -245,6 +293,17 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list[Couple]:
        same matching (fix for audit finding B2-03).
     6. Malformed DecisionLog JSON is logged at WARNING level instead of
        being silently skipped (fix for audit finding B2-02).
+    7. Refuses, and logs at WARNING level, a pairing in which either side is
+       below the era's minimum marriage age (`meets_marriage_age`). The
+       check sits in the formation loop, the one place every couple passes
+       through whether its intent was direct or arranged, and it reads
+       objects the loop already holds, so it costs no query.
+
+    `tick_duration_hours` is the world's tick length, which the age rule
+    needs. The orchestrator passes the value its tick context has already
+    resolved; a caller without one -- the tests calling this directly --
+    leaves it out and pays one query, and only when there is an intent to
+    judge.
 
     Sources:
     - Tick+1 settlement pattern from Economy Spec 2 Plan 3b (property market).
@@ -366,6 +425,24 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list[Couple]:
         _add_direct(child, match_id)
 
     formed: list = []
+
+    def _of_marriage_age(agent: Agent) -> bool:
+        nonlocal tick_duration_hours
+        if tick_duration_hours is None:
+            from epocha.apps.demography.orchestrator import _tick_duration_hours
+
+            tick_duration_hours = _tick_duration_hours(simulation)
+        if meets_marriage_age(agent, template, tick, tick_duration_hours):
+            return True
+        logger.warning(
+            "demography: pair-bond intent involving %r (agent %s) refused in "
+            "simulation %s -- below the era's minimum marriage age",
+            agent.name,
+            agent.id,
+            simulation.id,
+        )
+        return False
+
     used: set[int] = set()
     with transaction.atomic():
         # Deterministic iteration (fix B2-03): sort by proposer id
@@ -373,13 +450,15 @@ def resolve_pair_bond_intents(simulation, tick: int, rng) -> list[Couple]:
             if proposer_id in used:
                 continue
             proposer = by_id[proposer_id]
-            if is_in_active_couple(proposer):
+            if not _of_marriage_age(proposer) or is_in_active_couple(proposer):
                 continue
             for target_id in direct_intents[proposer_id]:
                 if target_id in used:
                     continue
                 target = Agent.objects.filter(id=target_id, is_alive=True).first()
-                if target is None or is_in_active_couple(target):
+                if target is None or not _of_marriage_age(target):
+                    continue
+                if is_in_active_couple(target):
                     continue
                 mutual = target_id in direct_intents and proposer_id in direct_intents.get(
                     target_id, []
