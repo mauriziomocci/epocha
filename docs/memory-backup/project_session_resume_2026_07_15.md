@@ -1,12 +1,24 @@
 ---
 name: project_session_resume_2026_07_15
-description: "Stato di ripresa del progetto Epocha, aggiornato al 2026-08-12 con la chiusura del work item sui difetti di design della demografia"
+description: "Stato di ripresa del progetto Epocha: in testa lo stato del Plan 4 al 2026-09-26 (round 11 NOT CONVERGED), sotto la chiusura del work item sui difetti di design (2026-08-12)"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 7c7baa02-253c-4d77-885d-7497b3471918
   modified: 2026-08-12T12:30:24.862Z
 ---
+
+# AGGIORNAMENTO 2026-09-26 (sera) — demografia Plan 4
+
+Work item in corso sul branch `20260826-144432-demography-plan4-wiring`, gate
+di fase 6 al **round 11: NOT CONVERGED**, quattro bloccanti (R1 nucleo diviso
+fra due zone attribuito alla zona del decisore; R2 mortalità per tick
+sottostimata fino al 5% da `q*dt`; R3 prosa del §4.1.5; R4 pupillo dello
+Stato, decisione di perimetro per l'utente), nessuno ancora corretto. Per
+riprendere leggere `specs/20260826-144432-demography-plan4-wiring/HANDOFF-2026-09-26-round11.md`
+e il documento di gate. Branch pushato su GitHub e PR in stato Draft verso
+`develop` (URL nel commit successivo all'handoff). Il merge è dell'utente.
+Vedi anche [[project-demography-couple-followups]] e [[project-public-website]].
 
 # SESSION RESUME — aggiornato il 2026-08-12
 

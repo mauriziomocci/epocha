@@ -1477,7 +1477,16 @@ class TestApplySocialInheritanceClarkRegression:
         father = _make_agent(sim, zone, "Father", social_class="elite", education_level=0.9)
         child = _make_agent(sim, zone, "Child")
 
-        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        # A fixed stream, not one derived from the simulation. `get_seeded_rng`
+        # mixes `simulation.id` into the seed, and that id is the database
+        # sequence: it moves whenever another test file creates more rows
+        # before this one. This assertion is on a SAMPLED outcome, so a
+        # different stream can legitimately land outside the interval and
+        # turn the test red for a reason that has nothing to do with the
+        # code under test -- which is exactly what happened when this branch
+        # added new fixtures. Pinning the stream keeps the property being
+        # asserted and removes the dependency on suite ordering.
+        rng = random.Random(20260827)
         apply_social_inheritance(child, mother, father, template, zone_class_mean=4.0, rng=rng)
 
         assert child.social_class in _TEST_VALID_SAMPLED_CLASS_LABELS
@@ -2141,7 +2150,14 @@ class TestApplyInheritanceAtBirthEndToEnd:
         )
         child = _make_agent(sim, zone, "Child")
 
-        apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
+        apply_inheritance_at_birth(
+            child,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            get_seeded_rng(sim, sim.current_tick, phase="inheritance"),
+        )
 
         for name in SCALAR_HERITABLE_TRAITS:
             value = getattr(child, name)
@@ -2166,6 +2182,19 @@ class TestApplyInheritanceAtBirthDeterminism:
     """SC-003: identical simulation seed and tick reproduce an identical
     child state bit for bit -- proof that the fixed step order feeds all
     three inheritance mechanisms from a single continuous RNG stream.
+
+    HOW THIS IS PROVEN, AND WHY IT CHANGED (Plan 4, SC-006): the property
+    is that ONE run, replayed from the same seed and tick, produces the
+    same child. Until Plan 4 this test proved it by applying the pipeline
+    to TWO DIFFERENT children in the same tick and asserting they came out
+    identical -- which held only because the function re-derived its stream
+    internally from `(simulation, tick, "inheritance")` and consumed a draw
+    count independent of the parents. That is the Plan 4 defect, and the
+    test was asserting it as a desirable property: in a live tick it means
+    every newborn receives the same sex, the same orientation and the same
+    trait residuals. The replay is now expressed as a replay -- the same
+    child fixture, two streams derived identically -- so it proves
+    repeatability without requiring two children to collide.
 
     SCOPE, STATED HONESTLY (phase-6 audit round 1, T046, M-1 test
     remediation): this test calls `apply_inheritance_at_birth` twice in
@@ -2204,8 +2233,22 @@ class TestApplyInheritanceAtBirthDeterminism:
         child_a = _make_agent(sim, zone, "ChildA")
         child_b = _make_agent(sim, zone, "ChildB")
 
-        apply_inheritance_at_birth(child_a, mother, father, sim, sim.current_tick)
-        apply_inheritance_at_birth(child_b, mother, father, sim, sim.current_tick)
+        apply_inheritance_at_birth(
+            child_a,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            get_seeded_rng(sim, sim.current_tick, phase="inheritance"),
+        )
+        apply_inheritance_at_birth(
+            child_b,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            get_seeded_rng(sim, sim.current_tick, phase="inheritance"),
+        )
 
         for name in SCALAR_HERITABLE_TRAITS:
             assert getattr(child_a, name) == getattr(child_b, name), name
@@ -2218,6 +2261,27 @@ class TestApplyInheritanceAtBirthDeterminism:
         assert child_a.wealth == child_b.wealth == 0.0
         assert child_a.zone == child_b.zone == mother.zone
 
+        # The half that separates replay from the defect it used to certify.
+        # Everything above holds whether the function consumes the stream it
+        # is handed or quietly re-derives its own from
+        # `(simulation, tick, "inheritance")` -- the two are the same
+        # sequence at the same offset. Advancing the stream before the third
+        # call makes them different sequences, so a function reading its
+        # argument produces a different child and one deriving internally
+        # produces the same one. Without this the test is green on the
+        # defect and on the fix alike, which is what it was.
+        child_c = _make_agent(sim, zone, "ChildC")
+        advanced = get_seeded_rng(sim, sim.current_tick, phase="inheritance")
+        advanced.random()
+        apply_inheritance_at_birth(child_c, mother, father, sim, sim.current_tick, advanced)
+        assert any(
+            getattr(child_c, name) != getattr(child_a, name) for name in SCALAR_HERITABLE_TRAITS
+        ), (
+            "a child born off an advanced stream is identical to one born off "
+            "the stream's start: the function is not reading the rng it was "
+            "given"
+        )
+
 
 class TestApplyInheritanceAtBirthEmptyZoneGuard:
     """A zone with zero living agents does not raise, and the zone-mean
@@ -2229,21 +2293,16 @@ class TestApplyInheritanceAtBirthEmptyZoneGuard:
     (_UNKNOWN_CLASS_FALLBACK_RANK, the "working" rank = 3) rather than only
     asserting "no exception raised".
 
-    Since A3 the rule is no longer deterministic. `apply_inheritance_at_birth`
-    builds its own rng, so the innovation is silenced at the seam where that
-    rng is made rather than by passing one in -- the criterion is the FALLBACK
-    MEAN reaching the arithmetic, not the draw layered on top of it.
+    Since A3 the rule is no longer deterministic, so the innovation is
+    silenced by handing the function a noiseless stream -- the criterion is
+    the FALLBACK MEAN reaching the arithmetic, not the draw layered on top of
+    it. Until Plan 4 that had to be done by monkeypatching `get_seeded_rng`
+    inside the module, because the function derived its own stream; now the
+    stream is a parameter and the stub goes in through the front door.
     """
 
     @pytest.mark.django_db
-    def test_empty_zone_falls_back_to_working_rank_mean(self, sim_with_zone, monkeypatch):
-        import epocha.apps.demography.inheritance as inheritance_module
-
-        monkeypatch.setattr(
-            inheritance_module,
-            "get_seeded_rng",
-            lambda simulation, tick, phase: _NoGaussianNoise(0),
-        )
+    def test_empty_zone_falls_back_to_working_rank_mean(self, sim_with_zone):
         sim, populated_zone = sim_with_zone
         empty_zone = Zone.objects.create(
             world=populated_zone.world,
@@ -2275,7 +2334,14 @@ class TestApplyInheritanceAtBirthEmptyZoneGuard:
         mother.zone = empty_zone
         child = _make_agent(sim, populated_zone, "Child")
 
-        apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
+        apply_inheritance_at_birth(
+            child,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            _NoGaussianNoise(0),
+        )
 
         # clark_regression: child_rank = 0.7*parent_rank + 0.3*zone_class_mean.
         # father.social_class = "middle" -> parent_rank = 2. Empty-zone
@@ -2322,7 +2388,14 @@ class TestApplyInheritanceAtBirthNoPersistence:
         original_wealth = child.wealth
         assert original_wealth == 100.0
 
-        apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
+        apply_inheritance_at_birth(
+            child,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            get_seeded_rng(sim, sim.current_tick, phase="inheritance"),
+        )
 
         # In-memory mutation happened...
         assert child.wealth == 0.0
@@ -6280,7 +6353,20 @@ class TestEraCoverageSC004:
             center=Point(250, 250),
         )
         family_head = _make_agent(sim, zone, f"{era_name}FamilyHead")
-        teenager = _make_agent(sim, zone, f"{era_name}Teenager", parent_agent=family_head, age=17)
+        # `birth_tick` set to agree with `age`: household membership reads
+        # the canonical age from `birth_tick` since `coordinate_family_
+        # migration` derives the household with `context.household_keys`
+        # (round 10 of the phase-6 gate), and this file's `_make_agent`
+        # defaults `birth_tick` to 0, which would make a seventeen-year-old
+        # a newborn by that reading and a minor under every era.
+        teenager = _make_agent(
+            sim,
+            zone,
+            f"{era_name}Teenager",
+            parent_agent=family_head,
+            age=17,
+            birth_tick=50 - 17 * 365,
+        )
 
         # Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION: a
         # seeded rng is passed here (T038-added, KEYWORD-only-in-practice
