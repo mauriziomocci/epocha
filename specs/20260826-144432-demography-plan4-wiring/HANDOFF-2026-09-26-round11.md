@@ -20,8 +20,8 @@ al verdetto e si chiede. Push del branch e PR sono autorizzati con la skill
 **VERIFICATO la sera del 2026-09-26** (misurato, non ricordato):
 
 - Branch `20260826-144432-demography-plan4-wiring`. HEAD è il commit che
-  porta questo handoff, figlio di `7a24c7a`; `git rev-list --count
-  develop..HEAD` dà **72**.
+  registra l'URL della PR, figlio di `91b9599`; `git rev-list --count
+  develop..HEAD` dà **73**.
 - `develop` e `origin/develop` fermi su `2223968`: il merge resta un
   fast-forward.
 - Suite **1765 verdi** a `b1b7c0d` e rimisurata dal revisore del round 11 a
@@ -32,11 +32,16 @@ al verdetto e si chiede. Push del branch e PR sono autorizzati con la skill
   al verdetto su richiesta dell'utente.
 - `tasks.md`: T038 aperto (validazione finale).
 
+- **Push e PR verificati.** Il branch è su GitHub a `91b9599` (remoto e
+  locale coincidevano dopo il push, in fast-forward da `04129ed`). La PR è
+  https://github.com/mauriziomocci/epocha/pull/18, **Draft**, verso
+  `develop`, `MERGEABLE` e `CLEAN`. **Nessuna CI la verifica**:
+  `.github/workflows/ci.yml` parte solo per `main`, quindi la verifica è la
+  suite locale. La descrizione della PR va aggiornata quando il gate
+  converge, e lo stato Draft tolto solo allora.
+
 **ASSUNTO, non verificato**:
 
-- Che il push di stasera e la PR Draft siano andati a buon fine: lo dice il
-  commit successivo a questo, che registra l'URL della PR. Se non c'è,
-  verificare con `git ls-remote` e `/opt/homebrew/bin/gh pr list`.
 - Che l'artifact della build map sia alla versione 21, con la voce `13.desc`
   del sito pubblico aggiunta da un'altra sessione: lo ha riferito quella
   sessione, non l'ho letto.
@@ -110,7 +115,7 @@ pubblico, in corso in un'altra sessione sul branch
 ```bash
 git branch --show-current            # 20260826-144432-demography-plan4-wiring
 git status --short                   # vuoto
-git rev-list --count develop..HEAD   # 72, o 73 con il commit dell'URL della PR
+git rev-list --count develop..HEAD   # 73
 git rev-list --count HEAD..develop   # 0
 docker compose -f docker-compose.local.yml exec -T web pytest -q        # 1765 passed
 docker compose -f docker-compose.local.yml exec -T web ruff check .
