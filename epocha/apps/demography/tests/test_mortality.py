@@ -357,3 +357,41 @@ class TestFitHeligmanPollard:
         # Additional bound checks consistent with curve_fit lower/upper
         assert fitted["D"] >= 0.0, f"D must be >= 0, got {fitted['D']}"
         assert fitted["G"] >= 0.0, f"G must be >= 0, got {fitted['G']}"
+
+
+# ---------------------------------------------------------------------------
+# The domain of the per-tick conversion: a tick of at most one simulated year
+# ---------------------------------------------------------------------------
+
+
+class TestTickLongerThanAYear:
+    """`dt` above one simulated year is rejected, not silently mis-compounded.
+
+    With `q` held over each year of age, the ticks of one year compound back
+    to exactly `q(x)` only while a tick fits inside a year of age: a tick of
+    `dt > 1` years spans two ages and charges both at the first one's `q`.
+    Round 15 of the Plan 4 phase-6 gate measured it: at yearly ticks under
+    acceleration 2, `l(2)` came out 0.9426 against the life table's 0.9662.
+    """
+
+    def test_a_tick_of_two_simulated_years_is_rejected(self):
+        from epocha.apps.demography.orchestrator import TickLongerThanAYearError
+
+        with pytest.raises(TickLongerThanAYearError, match="2.0"):
+            tick_mortality_probability(
+                30, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=8760, demography_acceleration=2.0
+            )
+
+    def test_a_tick_one_hour_longer_than_a_year_is_rejected(self):
+        from epocha.apps.demography.orchestrator import TickLongerThanAYearError
+
+        with pytest.raises(TickLongerThanAYearError):
+            tick_mortality_probability(30, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=8761)
+
+    def test_a_tick_of_exactly_one_simulated_year_is_admitted(self):
+        """The boundary belongs to the domain: half-year ticks at acceleration 2."""
+        tick_q = tick_mortality_probability(
+            30, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=4380, demography_acceleration=2.0
+        )
+
+        assert tick_q == pytest.approx(annual_mortality_probability(30, PRE_INDUSTRIAL_PARAMS))

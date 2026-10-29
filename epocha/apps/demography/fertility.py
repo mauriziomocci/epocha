@@ -329,10 +329,9 @@ def tick_birth_probability(
         int(params_era.get("max_population", 500)),
         float(fertility_cfg.get("malthusian_floor_ratio", 0.1)),
     )
-    from epocha.apps.demography.orchestrator import HOURS_PER_YEAR
+    from epocha.apps.demography.orchestrator import years_per_tick
 
-    dt = (tick_duration_hours / HOURS_PER_YEAR) * demography_acceleration
-    return effective * dt
+    return effective * years_per_tick(tick_duration_hours, demography_acceleration)
 
 
 def _effective_age_in_years(

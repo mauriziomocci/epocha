@@ -96,9 +96,15 @@ def tick_mortality_probability(
     approximation: one power is evaluated per agent per tick either way.
     `annual_mortality_probability` caps `q` below 1, so `1 - q` stays
     strictly positive.
+
+    The tick must fit inside a year of age: `orchestrator.years_per_tick`
+    computes `dt` and raises `TickLongerThanAYearError` above one simulated
+    year, where the compounding claim above stops holding.
     """
+    from epocha.apps.demography.orchestrator import years_per_tick
+
+    dt = years_per_tick(tick_duration_hours, demography_acceleration)
     annual_q = annual_mortality_probability(age, params)
-    dt = (tick_duration_hours / 8760.0) * demography_acceleration
     return 1.0 - (1.0 - annual_q) ** dt
 
 

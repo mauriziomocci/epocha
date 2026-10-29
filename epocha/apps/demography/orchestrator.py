@@ -127,9 +127,41 @@ class DemographyTickContext:
 # subsystem runs through. Defined here once and imported by `snapshot.py`
 # and `initialization.py`, which used to define their own: round 9 counted
 # the same number in four forms across three modules. `mortality.py` and
-# `migration.py`, audited modules that predate this work item, still write
-# it themselves.
+# `fertility.py` read it through `years_per_tick` below; `migration.py`, an
+# audited module that predates this work item, still writes it itself.
 HOURS_PER_YEAR = 8760.0
+
+
+class TickLongerThanAYearError(ValueError):
+    """A tick spans more than one simulated year, outside demography's domain."""
+
+
+def years_per_tick(tick_duration_hours: float, acceleration: float) -> float:
+    """Simulated years per tick, `dt = tick_duration_hours / 8760 * acceleration`.
+
+    The single point where demography converts a tick into simulated time:
+    the mortality and the fertility conversions both read `dt` from here.
+    Its domain is `dt <= 1`. Mortality holds `q(x)` over each year of age,
+    so the ticks of one year compound back to exactly `q(x)` only while a
+    tick fits inside a year of age; a tick of `dt > 1` years spans two ages
+    and charges both at the first one's `q` -- round 15 of the Plan 4
+    phase-6 gate measured `l(2)` at 0.9426 against the life table's 0.9662,
+    at yearly ticks under acceleration 2. Fertility scales an annual rate
+    linearly by `dt`, while a mother gives birth at most once per tick. No
+    shipped template accelerates time and the world generator writes 24-hour
+    ticks, so the guard rejects a configuration no shipped path produces,
+    by name, instead of simulating it wrongly.
+
+    Raises:
+        TickLongerThanAYearError: when `dt > 1`.
+    """
+    dt = (tick_duration_hours / HOURS_PER_YEAR) * acceleration
+    if dt > 1.0:
+        raise TickLongerThanAYearError(
+            f"a tick of {tick_duration_hours} hours at acceleration {acceleration} spans "
+            f"{dt} simulated years; demography admits at most one year per tick"
+        )
+    return dt
 
 
 def is_demography_enabled(simulation: Any) -> bool:

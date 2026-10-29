@@ -365,6 +365,32 @@ class TestFirstYearOfLife:
         )
 
 
+class TestTickLongerThanAYear:
+    def test_the_mortality_step_refuses_a_tick_of_two_simulated_years(self, sim_with_zone):
+        """Yearly ticks under acceleration 2 make one tick two years of age.
+
+        The per-tick conversion holds `q` over each year of age, so a tick
+        spanning two of them charges both at the first one's `q`: round 15
+        of the Plan 4 phase-6 gate measured `l(2)` at 0.9426 against the life
+        table's 0.9662. The step refuses the world by name instead of
+        producing that population.
+        """
+        sim, zone = sim_with_zone
+        World.objects.filter(simulation=sim).update(tick_duration_hours=8760.0)
+        # Forty years old at two simulated years per tick.
+        _agent(sim, zone, "Anziano", age=40, birth_tick=sim.current_tick - 20)
+        # A copy: `load_template` hands out a shared dict.
+        template = {**load_template("pre_industrial_christian"), "acceleration": 2.0}
+
+        with pytest.raises(orchestrator.TickLongerThanAYearError):
+            orchestrator.run_mortality_step(
+                orchestrator.DemographyTickContext(
+                    simulation=sim, tick=sim.current_tick + 1, template=template
+                ),
+                rng=_NeverDies(),
+            )
+
+
 class TestSuccessionStep:
     def test_succession_settles_the_estates_of_this_tick_dead(self, sim_with_zone):
         """The succession step runs after mortality and reads the agents that
