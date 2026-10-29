@@ -99,3 +99,26 @@ class TestFirstMarriageSchedule:
         # an everyone-marries schedule is exactly 0.0 (FR-002).
         everyone_marries = FirstMarriageSchedule(25.5, 5.5, 1.0, 14)
         assert everyone_marries.hazard(5000.0) == 0.0
+
+
+class TestConditioningOnTheMinimumAge:
+    christian = FirstMarriageSchedule(25.580, 5.5, 0.88, 14)
+    islamic = FirstMarriageSchedule(18.639, 4.0, 0.97, 14)
+
+    def test_the_conditional_cdf_at_50_is_the_christian_realized_share(self):
+        assert self.christian.conditional_cdf(50) == pytest.approx(0.8776, abs=1e-3)
+
+    def test_the_conditional_cdf_is_zero_below_the_minimum_age(self):
+        assert self.christian.conditional_cdf(13.9) == 0.0
+
+    def test_no_marriage_is_drawn_below_the_minimum_age(self):
+        assert self.christian.tick_probability(13.9, 168 / 8760) == 0.0
+
+    def test_the_conditional_cdf_reaches_the_islamic_realized_share(self):
+        # C* = (C - F(m)) / (1 - F(m)) of the spec: 0.968 where F(14) is 0.062.
+        assert self.islamic.conditional_cdf(80) == pytest.approx(0.968, abs=1e-3)
+
+    def test_the_tick_probability_is_one_minus_exp_of_the_hazard(self):
+        dt = 168 / 8760
+        expected = 1 - math.exp(-self.christian.hazard(25) * dt)
+        assert self.christian.tick_probability(25, dt) == pytest.approx(expected, abs=1e-12)

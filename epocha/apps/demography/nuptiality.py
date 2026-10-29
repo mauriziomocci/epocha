@@ -164,3 +164,30 @@ class FirstMarriageSchedule:
         if survival <= 0.0:
             return 0.0
         return self.density(x) / survival
+
+    def conditional_cdf(self, x: float) -> float:
+        """Share of women married by age x among those who reach min_age single (R4).
+
+        F*(x) = (F(x) - F(m)) / (1 - F(m)) for x >= m, and 0.0 below m. A woman
+        reaches the minimum age m unmarried, so the mass F(m) that (R2) puts
+        under m is never realized; the per-tick rule of tick_probability
+        realizes exactly this conditioned calendar, because the hazard (R3)
+        is unchanged by conditioning on being single at m. 1 - F(m) is
+        strictly positive for every template the loader accepts (the loader
+        requires a solvable (R5)), so no guard is needed.
+        """
+        if x < self.min_age:
+            return 0.0
+        mass_below_minimum = self.cdf(self.min_age)
+        return (self.cdf(x) - mass_below_minimum) / (1.0 - mass_below_minimum)
+
+    def tick_probability(self, x: float, years_per_tick: float) -> float:
+        """Probability of a first marriage during one tick at age x (FR-002).
+
+        p = 1 - exp(-h(x) * dt) with dt the tick length in years, the exact
+        probability of at least one event of a constant-hazard process over
+        the tick. 0.0 below the era minimum age.
+        """
+        if x < self.min_age:
+            return 0.0
+        return 1.0 - math.exp(-self.hazard(x) * years_per_tick)
