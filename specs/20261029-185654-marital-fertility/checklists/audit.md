@@ -12,7 +12,7 @@ applies the fixes between rounds and records the resolution. Round cap: 10
 
 Categories: INCORRECT, UNJUSTIFIED, INCONSISTENT, MISSING, VERIFIED.
 
-**Current verdict: NOT CONVERGED after round 2; round 3 pending.**
+**Current verdict: NOT CONVERGED after round 3; round 4 pending.**
 
 ## Round 1 (2026-10-29, 19:15-19:26, independent `critical-analyzer`)
 
@@ -65,3 +65,24 @@ whitepaper EN line 826, template e0 = 70.7.
 | R2-11 | MISSING | §11 bullet "Hadwiger ASFR is evaluated deterministically" not named. | Named in FR-006. |
 
 **Verdict round 2: NOT CONVERGED** (2 INCORRECT, 0 UNJUSTIFIED, 6 INCONSISTENT, 3 MISSING). Fixes applied in the same pass; round 3 re-audits.
+
+## Round 3 (2026-10-29, 19:49-20:00, independent `critical-analyzer`)
+
+All R1 and R2 findings RESOLVED per the reviewer (R2-01 checked against
+`economy/initialization.py:34,150-160,212-243` and `world/generator.py:195,430`).
+Every table number recomputed with the real `nuptiality.py`, `mortality.py` and
+`hadwiger_asfr` (industrial T_m = 6.22: TFR0 3.9974 / 3.9757, NRR 1.8677 /
+1.8576). Contract unchanged and ethics verified; every SC can fail.
+
+| # | Class | Finding (evidence) | Resolution |
+|---|---|---|---|
+| R3-01 | INCORRECT | The realized level equals T_m*rho_BK only if nothing else multiplies the rate; the Malthusian ceiling (from 0.8*max_population) and `avoid_conception` do, and the spec itself predicts the ceiling binds. | Identity qualified under (N1a): below 0.8*max_population and without `avoid_conception`, which cannot fire in the three couple eras (`fertility_agency = biological`, action filtered in `agents/decision.py`); FR-006 label of 4.306 adds "below the Malthusian ceiling". |
+| R3-02 | INCONSISTENT | SC-006 B gate did not say whether the point estimate or an interval bound decides; interval conditional on one seed. | Point estimate decides ([0.90, 1.10]); 95% interval reported with variance (5/T_m)^2 * sum_g B_g/E_g^2, declared conditional on one seed and non-deciding. |
+| R3-03 | MISSING | Tests relying on the default template (`pre_industrial_christian` is the silent default in orchestrator, engine, couple, initialization) escape the FR-005 search; `test_demography_cost.py:209` docstring names "the Hadwiger schedule". | FR-005 phase-4 search extended to tests without an explicit template; that docstring named for correction. |
+| R3-04 | MISSING | Economy template of the SC-006 B world not named. | `initialize_economy(template_name="pre_industrial")`, the generator default, named. |
+| R3-05 | INCONSISTENT | SC-002 mutation value depends on the age convention (2.363 at tick start, 2.352 mid-tick). | Convention fixed (age at tick start, as the code); mutation expected to fail, with 2.363 reported; 4.283 unchanged. |
+| R3-06 | INCONSISTENT | 1/(0.343*3.0) is 0.972. | Written 1/(0.3426*3.0) = 0.973. |
+| R3-07 | INCONSISTENT | l(25) compared with an e0; 38.47 not in a source table. | Compared e0 with e0 (template 70.7 against 38.47); Munro / Appendix 9 row added as secondary source. |
+| R3-08 | INCONSISTENT | Header said the Trinity "can approve" under the profile, later text says the profile must be verified. | Header aligned: profile as transmitted by the coordinator, not read in chat, verified by the Trinity before approval. |
+
+**Verdict round 3: NOT CONVERGED** (1 INCORRECT, 0 UNJUSTIFIED, 5 INCONSISTENT, 2 MISSING). Fixes applied in the same pass; round 4 re-audits.
