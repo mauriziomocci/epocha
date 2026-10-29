@@ -131,8 +131,8 @@ def test_the_history_holds_the_nine_most_recent_prior_messages(chat):
 def test_the_chat_page_hands_an_attachment_to_the_model(db, upload, in_prompt):
     """The one thing the chat page does that the JSON endpoint does not: an
     attachment, even with no text, reaches the prompt and is recorded on the
-    visitor's message. A document is read from a temporary file, which is
-    removed afterwards."""
+    visitor's message. That the temporary file of a document is removed is
+    pinned by the next test."""
     from django.core.files.uploadedfile import SimpleUploadedFile
 
     user = User.objects.create_user(email="att@epocha.dev", username="attuser", password="pw1234")
@@ -159,3 +159,49 @@ def test_the_chat_page_hands_an_attachment_to_the_model(db, upload, in_prompt):
     assert in_prompt in llm.complete.call_args.kwargs["prompt"]
     visitor = ChatMessage.objects.get(session__agent=agent, role="user")
     assert visitor.content == f" [Attached: {upload[0]}]"
+
+
+def test_the_temporary_file_of_an_attached_document_is_removed(db):
+    """The parser reads a document from a path, so the upload is written to a
+    temporary file first. It used to be created with `delete=False` and never
+    removed, one file left on disk per attachment (round 15 of the Plan 4
+    phase-6 gate); the path the parser received must be gone once the reply
+    is sent."""
+    import os
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from epocha.apps.world import document_parser
+
+    user = User.objects.create_user(email="tmp@epocha.dev", username="tmpuser", password="pw1234")
+    simulation = Simulation.objects.create(name="ChatTmp", seed=1, owner=user, current_tick=3)
+    World.objects.create(simulation=simulation)
+    agent = Agent.objects.create(
+        simulation=simulation, name="Brunilde", role="farmer", location=Point(1, 1), age=30
+    )
+    client = Client()
+    client.force_login(user)
+    llm = MagicMock()
+    llm.complete.return_value = "ok"
+    llm.get_provider_info.return_value = "fake"
+    parsed_paths = []
+    real_extract_text = document_parser.extract_text
+
+    def recording_extract_text(path):
+        parsed_paths.append(path)
+        assert os.path.exists(path), "the parser must find the file while it reads"
+        return real_extract_text(path)
+
+    with (
+        patch("epocha.apps.llm_adapter.client.get_chat_llm_client", return_value=llm),
+        patch.object(document_parser, "extract_text", side_effect=recording_extract_text),
+    ):
+        response = client.post(
+            f"/simulations/{simulation.id}/chat/{agent.id}/",
+            data={"message": "", "file": SimpleUploadedFile("letter.txt", b"Meet me.")},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+    assert response.status_code == 200
+    assert len(parsed_paths) == 1
+    assert not os.path.exists(parsed_paths[0])
