@@ -12,6 +12,7 @@ from epocha.apps.demography import nuptiality
 from epocha.apps.demography.nuptiality import (
     FirstMarriageSchedule,
     _standard_lower,
+    location_from_observed_mean,
     standard_cdf,
     standard_density,
     truncated_mean,
@@ -131,3 +132,28 @@ class TestTruncatedMean:
         # (spec, section "Dal valore storico a u"): the left tail cut at 14
         # weighs more than the right tail cut at 50.
         assert truncated_mean(25.5, 5.5, 14) == pytest.approx(25.421, abs=1e-3)
+
+
+class TestLocationFromObservedMean:
+    @pytest.mark.parametrize(
+        ("observed_mean", "scale", "min_age", "expected_location"),
+        [
+            (25.5, 5.5, 14, 25.580),  # pre_industrial_christian
+            (19.0, 4.0, 14, 18.639),  # pre_industrial_islamic
+            (25.5, 5.5, 16, 25.571),  # industrial
+            (28.0, 6.0, 18, 28.172),  # modern_democracy and sci_fi
+        ],
+    )
+    def test_the_location_matches_the_values_computed_for_the_eras(
+        self, observed_mean, scale, min_age, expected_location
+    ):
+        location = location_from_observed_mean(observed_mean, scale, min_age)
+        assert location == pytest.approx(expected_location, abs=1e-3)
+
+    def test_the_location_reproduces_the_observed_mean(self):
+        location = location_from_observed_mean(25.5, 5.5, 14)
+        assert truncated_mean(location, 5.5, 14) == pytest.approx(25.5, abs=1e-5)
+
+    def test_an_unreachable_mean_is_rejected_with_the_reachable_interval(self):
+        with pytest.raises(ValueError, match=r"18\.78"):
+            location_from_observed_mean(18.5, 5.5, 14)

@@ -34,6 +34,7 @@ import math
 from dataclasses import dataclass
 
 from scipy.integrate import quad
+from scipy.optimize import brentq
 from scipy.special import gammainc, gammaincc
 
 # Standardized Coale-McNeil density (mean 0, variance 1), Rodriguez and
@@ -58,6 +59,19 @@ _EXP_OVERFLOW_GUARD = 700.0
 # the observation window of any one source: Wrigley et al. (1997) is cited for
 # the mean values, not for this ceiling.
 OBSERVATION_CEILING_AGE = 50.0
+
+# The location is searched on [min_age - LOCATION_BRACKET_SD * scale,
+# OBSERVATION_CEILING_AGE]. Ten standard deviations below the minimum age is
+# where the schedule has no mass in the window; the truncated mean at that
+# end is the lowest value any location can give. Tunable bracket width,
+# wide enough for every era of the spec (checked, spec section "Dal valore
+# storico a u").
+LOCATION_BRACKET_SD = 10.0
+
+# Absolute tolerance of the root finder on the location, in years: far below
+# the precision of any historical mean age (Brent 1973; scipy.optimize.brentq
+# xtol). Tunable numerical tolerance.
+LOCATION_XTOL_YEARS = 1e-6
 
 
 def standard_density(z: float) -> float:
@@ -226,3 +240,35 @@ def truncated_mean(
         (min_age - location) / scale
     )
     return numerator / denominator
+
+
+def location_from_observed_mean(observed_mean: float, scale: float, min_age: float) -> float:
+    """Solve (R5) for the location u that reproduces an observed mean age.
+
+    Finds u such that truncated_mean(u, scale, min_age) equals observed_mean,
+    by Brent's method (scipy.optimize.brentq) on
+    [min_age - LOCATION_BRACKET_SD * scale, OBSERVATION_CEILING_AGE]. The
+    truncated mean grows with u but does not cover every value.
+
+    Raises:
+        ValueError: when the truncated mean does not bracket observed_mean,
+            with the reachable interval in the message; no location is
+            invented in that case.
+    """
+    lower = min_age - LOCATION_BRACKET_SD * scale
+    upper = OBSERVATION_CEILING_AGE
+    try:
+        return brentq(
+            lambda u: truncated_mean(u, scale, min_age) - observed_mean,
+            lower,
+            upper,
+            xtol=LOCATION_XTOL_YEARS,
+        )
+    except ValueError as error:
+        reachable_low = truncated_mean(lower, scale, min_age)
+        reachable_high = truncated_mean(upper, scale, min_age)
+        raise ValueError(
+            f"mean age {observed_mean} cannot be reproduced by the schedule: "
+            f"the reachable interval for scale {scale} and minimum age {min_age} "
+            f"is [{reachable_low:.2f}, {reachable_high:.2f}]"
+        ) from error
