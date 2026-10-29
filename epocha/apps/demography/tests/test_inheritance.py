@@ -5873,6 +5873,34 @@ class TestProcessInheritanceBatchReplacesADeadCaretaker:
         assert persisted.caretaker_agent_id is None
         assert "state_ward" in persisted.conditions
 
+    @pytest.mark.django_db
+    def test_a_dependent_who_comes_of_age_that_day_needs_no_caretaker(self, sim_with_government):
+        """A minor is younger than `migration.adulthood_age`; on the birthday
+        itself the dependent is an adult, as `context.household_keys` reads
+        her, and is neither given a caretaker nor flagged a state ward.
+        Round 12 of the phase-6 gate found the boundary unpinned: the
+        mutation of `<` into `<=` in the minority test survived."""
+        from epocha.apps.demography.template_loader import load_template
+
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        adulthood_age = load_template("industrial")["migration"]["adulthood_age"]
+        grandmother, orphan = self._orphan_in_grandmothers_care(sim, zone, tick)
+        # Daily ticks at acceleration 1.0: a year is exactly 365 of them, so
+        # this birth tick lands the canonical age on the threshold itself.
+        orphan.birth_tick = tick - adulthood_age * _TICKS_PER_YEAR
+        orphan.age = adulthood_age
+        orphan.save(update_fields=["birth_tick", "age"])
+        grandmother.is_alive = False
+        grandmother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[grandmother])
+
+        persisted = Agent.objects.get(id=orphan.id)
+        assert "state_ward" not in persisted.conditions
+        assert persisted.caretaker_agent_id == grandmother.id
+
 
 class TestProcessInheritanceBatchKeepsALivingCaretaker:
     """A minor's guardians are its parents AND its current caretaker: a

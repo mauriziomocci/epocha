@@ -1926,6 +1926,44 @@ class TestEmergencyFlightMovesTheHousehold:
         ]
 
     @pytest.mark.django_db
+    def test_the_payload_lists_the_partner_then_the_dependents_oldest_first(self, sim_with_zone):
+        """`payload["household_members"]` is in moving order: the partner,
+        then the dependents oldest-first by `birth_tick`. The children are
+        created youngest first, so their ids run against their ages and an
+        order by id alone would read reversed. Round 11 of the phase-6 gate
+        left this order without a witness (mutation M10 survived)."""
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        decider = _make_agent(sim, zone, "Padre", age=40, wealth=0.0, gender=Agent.Gender.MALE)
+        partner = _make_agent(sim, zone, "Madre", age=38, wealth=0.0)
+        form_couple(decider, partner, formed_at_tick=1)
+        youngest = _make_agent(sim, zone, "Piccola", age=3, wealth=0.0, parent_agent=partner)
+        middle = _make_agent(sim, zone, "Media", age=7, wealth=0.0, parent_agent=partner)
+        eldest = _make_agent(sim, zone, "Grande", age=12, wealth=0.0, parent_agent=partner)
+        _set_starvation_counters(
+            {
+                decider.id: 30,
+                partner.id: 30,
+                youngest.id: 30,
+                middle.id: 30,
+                eldest.id: 30,
+            }
+        )
+
+        process_emergency_flight(sim, tick=50)
+
+        event = DemographyEvent.objects.get(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+        )
+        assert event.primary_agent_id == decider.id
+        assert event.payload["household_members"] == [
+            partner.id,
+            eldest.id,
+            middle.id,
+            youngest.id,
+        ]
+
+    @pytest.mark.django_db
     def test_an_adult_child_decides_alone_and_stays(self, sim_with_zone):
         """Design spec: "I figli adulti decidono indipendentemente". A fed
         adult son is his own household, so his parent's flight leaves him."""

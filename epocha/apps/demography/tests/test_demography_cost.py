@@ -244,12 +244,19 @@ def test_the_count_does_not_grow_with_the_number_of_births(monkeypatch):
         sim, zone = _simulation(label)
         _couples(sim, zone, 6, label.upper()[:2])
         real_stream_for = orchestrator.stream_for
+        # The mortality stream is forced too, to no death: it is keyed on the
+        # simulation's primary key, so an unforced stream lets a death land
+        # in one fixture and not the other depending on how many simulations
+        # the suite created first, and the equality below would compare a
+        # death's queries with none (round 12 of the phase-6 gate, N3).
         monkeypatch.setattr(
             orchestrator,
             "stream_for",
             lambda simulation, tick, phase: (
                 _ForcedBirths(births)
                 if phase == "fertility"
+                else _ForcedBirths(0)
+                if phase == "mortality"
                 else real_stream_for(simulation, tick, phase)
             ),
         )
