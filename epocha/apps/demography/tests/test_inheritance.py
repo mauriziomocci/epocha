@@ -90,9 +90,10 @@ Also covers the SC-004 era coverage gate (Plan 3, T041, Phase 8 closure):
 all five era templates drive BOTH the inheritance path
 (`process_inheritance_batch`) and the migration path (the household
 `context.household_keys` derives and `coordinate_family_migration` moves,
-and the flight decision `_resolve_flight_decision`) without error, each asserted against era-appropriate outcomes -- estate tax rate,
-succession rule signature, adulthood_age, and flight_trigger_ticks --
-never merely "does not raise".
+and the flight decision `_resolve_flight_decision`) without error, each
+asserted against era-appropriate outcomes -- estate tax rate, succession
+rule signature, adulthood_age, and flight_trigger_ticks -- never merely
+"does not raise".
 """
 
 from __future__ import annotations
@@ -109,6 +110,7 @@ import pytest
 from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent, Memory, Relationship
+from epocha.apps.demography.context import household_keys
 from epocha.apps.demography.couple import form_couple
 from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
@@ -128,7 +130,6 @@ from epocha.apps.demography.inheritance import (
     resolve_heirs,
     transfer_loans_as_lender,
 )
-from epocha.apps.demography.context import household_keys
 from epocha.apps.demography.migration import (
     _resolve_flight_decision,
     coordinate_family_migration,
