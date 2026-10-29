@@ -179,3 +179,44 @@ class TestSchedulePerEra:
         assert first_marriage_schedule(self.christian_config) is first_marriage_schedule(
             dict(self.christian_config)
         )
+
+
+_WEEKLY_YEARS = 168 / 8760
+_FIRST_AGE, _LAST_AGE = 12.0, 50.0
+
+
+def _propagate_never_married(schedule):
+    """Propagate the never-married fraction tick by tick, with no random draw.
+
+    Age is taken at the start of each tick: married = S * p(age).
+    Returns (mean age of the marriages, share married at the last age).
+    """
+    never_married = 1.0
+    weighted_age = married_total = 0.0
+    age = _FIRST_AGE
+    while age < _LAST_AGE:
+        married = never_married * schedule.tick_probability(age, _WEEKLY_YEARS)
+        weighted_age += married * age
+        married_total += married
+        never_married -= married
+        age += _WEEKLY_YEARS
+    return weighted_age / married_total, 1.0 - never_married
+
+
+class TestRealizedCalendar:
+    config = TestSchedulePerEra.christian_config
+
+    def test_the_weekly_propagation_realizes_the_observed_mean(self):
+        schedule = first_marriage_schedule(self.config)
+        mean_age, share_married = _propagate_never_married(schedule)
+        # Targets computed here: the mean is the template value, the share is
+        # the conditioned CDF (R4) at the end of the window.
+        assert mean_age == pytest.approx(25.50, abs=0.02)
+        assert share_married == pytest.approx(schedule.conditional_cdf(50), abs=0.002)
+        assert share_married == pytest.approx(0.8776, abs=0.002)
+
+    def test_using_the_template_mean_as_location_misses_the_target(self):
+        # Mutation proof of SC-002: skipping (R5) and using 25.5 as u gives a
+        # realized mean of about 25.42, further than the 0.02 tolerance.
+        mean_age, _ = _propagate_never_married(FirstMarriageSchedule(25.5, 5.5, 0.88, 14))
+        assert abs(mean_age - 25.50) > 0.02
