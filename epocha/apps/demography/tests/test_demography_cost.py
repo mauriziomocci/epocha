@@ -101,7 +101,7 @@ def _count_queries(sim, tick):
 
 
 @pytest.mark.django_db
-def test_doubling_the_living_population_does_not_change_the_count():
+def test_doubling_the_living_population_does_not_change_the_count(monkeypatch):
     """SC-005 part A: the equality that forbids per-agent queries.
 
     Both runs carry the same fertile structure -- couples of the same ages,
@@ -130,8 +130,12 @@ def test_doubling_the_living_population_does_not_change_the_count():
     Agent.objects.filter(simulation=small).update(age=0)
     Agent.objects.filter(simulation=large).update(age=0)
 
-    count_small = _count_queries(small, small.current_tick + 1)
-    count_large = _count_queries(large, large.current_tick + 1)
+    # At zero vital events by construction: the streams are keyed on the
+    # simulation's primary key, and measured on this branch a ten-couple run
+    # drew a vital event the five-couple run did not once two more
+    # simulations were created earlier in the suite -- 45 against 50.
+    count_small = _count_queries_without_vital_events(small, small.current_tick + 1, monkeypatch)
+    count_large = _count_queries_without_vital_events(large, large.current_tick + 1, monkeypatch)
 
     assert count_small == count_large, (
         f"{count_small} queries at 5 agents and {count_large} at 10: the block "
@@ -140,7 +144,7 @@ def test_doubling_the_living_population_does_not_change_the_count():
 
 
 @pytest.mark.django_db
-def test_the_count_is_the_pinned_constant_at_zero_vital_events():
+def test_the_count_is_the_pinned_constant_at_zero_vital_events(monkeypatch):
     """The fixed term of a tick that has fertile candidates, written down.
 
     A bound with no measured value is a bound nobody can regress against, so
@@ -151,11 +155,12 @@ def test_the_count_is_the_pinned_constant_at_zero_vital_events():
     sim, zone = _simulation("fixed")
     _couples(sim, zone, 5, "F")
 
-    assert _count_queries(sim, sim.current_tick + 1) == FIXED_TERM_WITH_CANDIDATES
+    observed = _count_queries_without_vital_events(sim, sim.current_tick + 1, monkeypatch)
+    assert observed == FIXED_TERM_WITH_CANDIDATES
 
 
 @pytest.mark.django_db
-def test_a_population_with_no_fertile_candidate_pays_none_of_the_fertility_preloads():
+def test_a_population_with_no_fertile_candidate_pays_none_of_the_fertility_preloads(monkeypatch):
     """The other fixed term, and the reason there are two of them.
 
     The fertility step preloads what its candidates need -- the living
@@ -191,7 +196,8 @@ def test_a_population_with_no_fertile_candidate_pays_none_of_the_fertility_prelo
     for i in range(5):
         _agent(sim, zone, f"Vecchio{i}", age=70)
 
-    assert _count_queries(sim, sim.current_tick + 1) == FIXED_TERM_NO_CANDIDATES
+    observed = _count_queries_without_vital_events(sim, sim.current_tick + 1, monkeypatch)
+    assert observed == FIXED_TERM_NO_CANDIDATES
 
 
 class _ForcedBirths:
