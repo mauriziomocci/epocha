@@ -74,3 +74,43 @@ class TestChatConsumer:
         assert response["role"] == "system"
 
         await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_the_websocket_prompt_states_the_agents_age(simulation):
+    """The third chat channel says the same thing about the speaker as the
+    private and the group chat of the dashboard: who the agent is and how
+    old, from demography's canonical age (`birth_tick`), never the frozen
+    `Agent.age` column. Round 12 of the phase-6 gate found this channel
+    still opening with name and role only, so a newborn answered like an
+    adult here."""
+    from asgiref.sync import sync_to_async
+
+    from epocha.apps.world.models import World
+
+    await sync_to_async(World.objects.create)(simulation=simulation)
+    simulation.current_tick = 5000
+    await sync_to_async(simulation.save)(update_fields=["current_tick"])
+    infant = await sync_to_async(Agent.objects.create)(
+        simulation=simulation,
+        name="Pietro",
+        role="child",
+        age=30,
+        birth_tick=5000 - 330,
+        personality={},
+    )
+    llm = MagicMock()
+    llm.complete.return_value = "..."
+
+    with patch("epocha.apps.llm_adapter.client.get_chat_llm_client", return_value=llm):
+        communicator = _make_communicator(infant.id)
+        connected, _ = await communicator.connect()
+        assert connected
+        await communicator.send_json_to({"message": "Hello"})
+        await communicator.receive_json_from(timeout=10)
+        await communicator.disconnect()
+
+    system_prompt = llm.complete.call_args.kwargs["system_prompt"]
+    assert "You are Pietro, a child, 10 months old." in system_prompt
+    assert "as a person of that age would" in system_prompt

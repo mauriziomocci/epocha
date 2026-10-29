@@ -478,6 +478,37 @@ def current_age_in_years(agent: Any) -> float:
     return age_in_years(agent, simulation.current_tick, tick_duration_hours, acceleration)
 
 
+# Below this age the chat prompts count months: a ten-month-old and a
+# two-year-old are not the same speaker, and "0 years old" says nothing to
+# the model. A presentation choice, not a demographic parameter.
+_AGE_IN_MONTHS_BELOW_YEARS = 2
+
+
+def describe_age(agent: Any) -> str:
+    """The agent's age in words for a chat prompt: completed years, or
+    completed months below two years, from `current_age_in_years`.
+
+    Lives beside the canonical age rather than in either chat channel so
+    that the dashboard (private and group chat) and the WebSocket consumer
+    word it the same way without one presentation app importing another.
+    """
+    years = current_age_in_years(agent)
+    if years < _AGE_IN_MONTHS_BELOW_YEARS:
+        months = int(years * 12)
+        return f"{months} month{'s' if months != 1 else ''}"
+    return f"{int(years)} years"
+
+
+def describe_speaker(agent: Any) -> str:
+    """The opening of every chat prompt, in every channel: who the agent is
+    and how old, so a newborn does not answer like an adult (D-29-4).
+    Reads `agent.simulation` (and its world) once, for the age."""
+    return (
+        f"You are {agent.name}, a {agent.role}, {describe_age(agent)} old. "
+        f"Speak and react as a person of that age would. "
+    )
+
+
 def minor_agent_ids(simulation: Any, tick: int) -> set[int]:
     """Ids of the living agents too young to be asked to decide at `tick`.
 
