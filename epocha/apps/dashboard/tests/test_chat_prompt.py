@@ -85,3 +85,39 @@ def test_months_are_used_up_to_two_years_and_years_from_two(sim):
 
     assert "18 months old" in toddler
     assert "2 years old" in two_year_old
+
+
+def test_the_group_chat_prompt_states_each_agents_age(sim):
+    """The group chat builds its own prompt; it says the same thing about
+    the speaker as the private chat, so a newborn in a group does not answer
+    like an adult either."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from django.test import Client
+
+    infant = Agent.objects.create(
+        simulation=sim,
+        name="Pietro",
+        role="child",
+        location=Point(1, 1),
+        age=30,
+        birth_tick=CURRENT_TICK - 330,
+    )
+    llm = MagicMock()
+    llm.complete.return_value = "..."
+    client = Client()
+    client.force_login(sim.owner)
+
+    with patch("epocha.apps.llm_adapter.client.get_chat_llm_client", return_value=llm):
+        response = client.post(
+            f"/simulations/{sim.id}/group-chat/",
+            data=json.dumps({"message": "Hello", "agent_ids": [infant.id]}),
+            content_type="application/json",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+
+    assert response.status_code == 200
+    system_prompt = llm.complete.call_args.kwargs["system_prompt"]
+    assert "You are Pietro, a child, 10 months old." in system_prompt
+    assert "as a person of that age would" in system_prompt

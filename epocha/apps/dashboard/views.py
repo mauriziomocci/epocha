@@ -107,20 +107,28 @@ def _describe_age(agent) -> str:
     return f"{int(years)} years"
 
 
+def _describe_speaker(agent) -> str:
+    """The opening of every chat prompt, private or group: who the agent
+    is and how old, so a newborn does not answer like an adult. Reads
+    `agent.simulation` (and its world) once, for the age."""
+    return (
+        f"You are {agent.name}, a {agent.role}, {_describe_age(agent)} old. "
+        f"Speak and react as a person of that age would. "
+    )
+
+
 def _build_chat_system_prompt(agent, request, personality_prompt, memory_text, chat_history):
     """Build the system prompt for agent chat conversations.
 
     Shared between chat_view and chat_send_api to avoid duplication.
     Instructs the LLM to roleplay as the agent with historically accurate
     behavior, reacting naturally to the full spectrum of human interaction.
-    States the agent's age, so a newborn does not answer like an adult.
-    Reads `agent.simulation` (and its world) once, for the age.
+    Opens with `_describe_speaker`, which states the agent's age.
     """
     lang_instruction = _get_language_instruction(request)
 
     return (
-        f"You are {agent.name}, a {agent.role}, {_describe_age(agent)} old. "
-        f"Speak and react as a person of that age would. "
+        f"{_describe_speaker(agent)}"
         f"You are in a private face-to-face conversation with a visitor.\n"
         f"IMPORTANT: {lang_instruction}"
         f"Stay in character at all times. React as this specific person would, "
@@ -916,7 +924,13 @@ def group_chat_view(request, sim_id):
         from epocha.apps.llm_adapter.client import get_chat_llm_client
 
         client = get_chat_llm_client()
-        agents = list(Agent.objects.filter(id__in=agent_ids, simulation=simulation, is_alive=True))
+        # `select_related` because `_describe_speaker` reads each agent's
+        # simulation for its age.
+        agents = list(
+            Agent.objects.filter(
+                id__in=agent_ids, simulation=simulation, is_alive=True
+            ).select_related("simulation")
+        )
 
         # Gather recent events
         recent_events = Event.objects.filter(
@@ -976,7 +990,7 @@ def group_chat_view(request, sim_id):
 
             system_prompt = (
                 f"{personality_prompt}\n\n"
-                f"You are {agent.name}, a {agent.role}. "
+                f"{_describe_speaker(agent)}"
                 f"You are in a group conversation with a visitor and other characters. "
                 f"Respond in character. "
                 f"IMPORTANT: {_get_language_instruction(request)}"
