@@ -62,16 +62,23 @@ def tick_mortality_probability(
 ) -> float:
     """Scale the annual mortality probability to a single tick.
 
-    For small q (q < 0.1, typical for most ages), the linear
-    approximation `annual_q * dt` is accurate to better than 0.5%.
-    For large q (infant mortality pre-industrial q ~ 0.25), the exact
-    geometric conversion `1 - (1 - annual_q) ** dt` is used to avoid
-    underestimation.
+    The exact geometric conversion `1 - (1 - annual_q) ** dt`, at every
+    age: the probability of surviving `dt` years at a constant annual
+    hazard is `(1 - q) ** dt`.
+
+    A linear branch `annual_q * dt` used to apply below `q = 0.1`, declared
+    "accurate to better than 0.5%". Its relative error against the geometric
+    form is about `q / 2`, so the claim held only for `q` near 0.01: round 11
+    of the demography Plan 4 phase-6 gate measured an underestimate of up to
+    4.71% at 82 under the pre-industrial template and 4.96% under
+    `industrial`, and a spurious jump of about 5% between 82 and 83, where
+    `q` crossed 0.1 and the branch switched. Nothing is saved by the
+    approximation: one power is evaluated per agent per tick either way.
+    `annual_mortality_probability` caps `q` below 1, so `1 - q` stays
+    strictly positive.
     """
     annual_q = annual_mortality_probability(age, params)
     dt = (tick_duration_hours / 8760.0) * demography_acceleration
-    if annual_q < 0.1:
-        return annual_q * dt
     return 1.0 - (1.0 - annual_q) ** dt
 
 

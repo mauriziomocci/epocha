@@ -95,6 +95,28 @@ class TestTickMortalityProbability:
             )
             assert tick_q < annual_q, f"tick_q={tick_q} not < annual_q={annual_q} at age {age}"
 
+    def test_the_tick_probability_is_the_exact_geometric_conversion_at_every_age(self):
+        """No linear branch: `1 - (1 - q)^dt` at every age, for a daily tick.
+
+        Found by round 11 of the demography Plan 4 phase-6 gate. Below
+        `q = 0.1` the function used the linear `q * dt`, whose relative error
+        against the geometric form is about `q / 2`: measured with these
+        parameters up to 4.71% at 82, against an error the docstring and
+        whitepaper section 4.1.1 declared "better than 0.5%". The branch also
+        made the hazard jump by about 5% between 82 and 83, where `q`
+        crosses 0.1. Every age from 0 to 100 is checked, so the regression
+        cannot hide in the ages a sparser grid would skip.
+        """
+        dt = 24.0 / 8760.0
+        for age in range(0, 101):
+            annual_q = annual_mortality_probability(age, PRE_INDUSTRIAL_PARAMS)
+            tick_q = tick_mortality_probability(age, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=24)
+            expected = 1.0 - (1.0 - annual_q) ** dt
+            assert tick_q == pytest.approx(expected, rel=1e-12), (
+                f"age {age}: tick probability {tick_q} is not the geometric "
+                f"conversion {expected} of the annual {annual_q}"
+            )
+
     def test_geometric_branch_dt_one(self):
         """With annual_q=0.25 and dt=1.0 the geometric branch returns exactly 0.25.
 
