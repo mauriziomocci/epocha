@@ -20,6 +20,7 @@ import pytest
 
 from epocha.apps.demography.mortality import (
     HP_PARAM_KEYS,
+    UnderdeterminedFitError,
     annual_mortality_probability,
     fit_heligman_pollard,
     sample_death_cause,
@@ -376,6 +377,43 @@ class TestFitHeligmanPollard:
                 self.FIT_AGES,
                 [0.0] * len(self.FIT_AGES),
             )
+
+    @pytest.mark.parametrize("positive_ages", [1, 7])
+    def test_fewer_positive_ages_than_parameters_raise(self, positive_ages):
+        """Eight parameters need at least eight observed ages.
+
+        The ages observed at `q = 0` are left out of the fit, so a schedule
+        with fewer than eight positive values reaches `curve_fit` with more
+        unknowns than equations. With bounds it uses the trust-region solver,
+        which does not refuse that: round 16 of the Plan 4 phase-6 gate found
+        it returning an underdetermined parameter set as if it were a fit.
+        Seven positives is the edge; the other ages, at zero, keep the input
+        as long as a real schedule.
+        """
+        observed = [0.0] * len(self.FIT_AGES)
+        for age in range(positive_ages):
+            observed[age] = annual_mortality_probability(age, PRE_INDUSTRIAL_PARAMS)
+
+        with pytest.raises(UnderdeterminedFitError, match=f"{positive_ages} ages"):
+            fit_heligman_pollard(self.FIT_AGES, observed)
+
+    def test_eight_positive_ages_are_enough_to_fit(self):
+        """The edge of the guard: eight observed ages are fitted, not refused.
+
+        With as many ages as parameters the fit has no residual degree of
+        freedom, so scipy cannot estimate the covariance and says so; the
+        warning is the expected companion of the edge, not a defect.
+        """
+        from scipy.optimize import OptimizeWarning
+
+        observed = [0.0] * len(self.FIT_AGES)
+        for age in range(len(HP_PARAM_KEYS)):
+            observed[age] = annual_mortality_probability(age, PRE_INDUSTRIAL_PARAMS)
+
+        with pytest.warns(OptimizeWarning, match="Covariance"):
+            fitted = fit_heligman_pollard(self.FIT_AGES, observed)
+
+        assert set(fitted) == set(HP_PARAM_KEYS)
 
     def test_fitted_params_within_bounds(self, synthetic_q):
         """Fitted parameters satisfy the documented bounds: A>=0, H>=1.0.

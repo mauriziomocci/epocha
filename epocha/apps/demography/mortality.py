@@ -17,6 +17,11 @@ from collections.abc import Mapping
 
 HP_PARAM_KEYS = tuple("ABCDEFGH")
 
+
+class UnderdeterminedFitError(ValueError):
+    """Fewer observed ages than Heligman-Pollard parameters reach the fit."""
+
+
 # Upper bound on the annual mortality probability returned by
 # annual_mortality_probability. The geometric tick scaling at
 # tick_mortality_probability computes (1 - q_annual) ** dt, which requires
@@ -143,7 +148,9 @@ def fit_heligman_pollard(
 
     Uses scipy.optimize.curve_fit with the HP functional form. Returns
     a dict {A, B, C, D, E, F, G, H}. Raises RuntimeError if the fit
-    does not converge.
+    does not converge, and UnderdeterminedFitError when fewer than eight
+    ages have `q > 0`, since the eight parameters would then be
+    underdetermined.
 
     Calibration task (Plan 4) feeds this with q(x) columns from
     published life tables (Wrigley-Schofield 1981, HMD). Plan 1 only
@@ -190,7 +197,17 @@ def fit_heligman_pollard(
     lower = [0.0, 0.0, 0.0, 0.0, 0.1, 1.0, 0.0, 1.0]
     upper = [0.1, 0.5, 1.0, 0.05, 50.0, 50.0, 0.001, 1.5]
 
+    # Each observed age is one equation and each parameter one unknown. With
+    # bounds `curve_fit` runs the trust-region solver, which accepts more
+    # unknowns than equations and returns one of infinitely many parameter
+    # sets as if it were a fit (round 16 of the Plan 4 phase-6 gate).
     observed = ys > 0.0
+    observed_ages = int(np.count_nonzero(observed))
+    if observed_ages < len(HP_PARAM_KEYS):
+        raise UnderdeterminedFitError(
+            f"Heligman-Pollard fit needs at least {len(HP_PARAM_KEYS)} ages with q > 0, "
+            f"got {observed_ages} ages; the fit would be underdetermined."
+        )
     try:
         popt, _ = curve_fit(
             _hp_model,
