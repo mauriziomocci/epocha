@@ -9,9 +9,12 @@ known_first_party = ["epocha", "config"]
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py"]
-addopts = "-v --tb=short --strict-markers --ds=config.settings.test"
+# `-m "not network"` keeps the network-gated integration tests out of the
+# default run, CI included. Run them explicitly with `pytest -m network`: a
+# command-line `-m` replaces the one in addopts.
+addopts = "-v --tb=short --strict-markers --ds=config.settings.test -m 'not network'"
 markers = [
-    "slow: marks tests as slow (downloads bge-m3 model; skip with -m 'not slow')",
+    "network: needs the network and downloads the large intfloat/multilingual-e5-large embedding model on every run where FASTEMBED_CACHE_PATH is unset; deselected by default, run with -m network",
 ]
 
 [tool.ruff]
