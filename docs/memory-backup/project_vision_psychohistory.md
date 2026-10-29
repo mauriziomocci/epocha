@@ -33,3 +33,19 @@ that; a statistical Epocha with a few LLM protagonists can approach it.
   [[project-determinism-enumeration-pending]]), historical validation
   ([[project-validation-experiments-pending]]); then a structural-demographic
   model and ensemble runs.
+
+## Product principle (user, 2026-10-29)
+
+"Dobbiamo renderlo facilmente utilizzabile e comprensibile, ovviamente con
+parti di grande rigore scientifico ma anche narrativo." Epocha must be easy to
+use and to understand, with parts of great scientific rigour AND narrative
+parts. Read as layers of one product, never two products: a narrative layer
+anyone can read (one trajectory told as a story, every fact traceable to a
+recorded event), and a rigorous layer for whoever wants to check (ensemble
+distributions, uncertainty, methods, sources, reproducibility), reachable
+from the narrative by progressive disclosure. Usability is a requirement on
+the same level as rigour: the risk to avoid is an excellent scientific engine
+nobody can use. MiroFish is the reference for ease of use (documents -> world
+-> run -> report -> interview), taken as ideas and credited
+([[feedback-mirofish-ethics]]). Related: [[project-dashboard-redesign]],
+[[project-narrative-generator]].
