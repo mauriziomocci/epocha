@@ -12,7 +12,7 @@ applies the fixes between rounds and records the resolution. Round cap: 10
 
 Categories: INCORRECT, UNJUSTIFIED, INCONSISTENT, MISSING, VERIFIED.
 
-**Current verdict: NOT CONVERGED after round 1; round 2 pending.**
+**Current verdict: NOT CONVERGED after round 2; round 3 pending.**
 
 ## Round 1 (2026-10-29, 19:15-19:26, independent `critical-analyzer`)
 
@@ -40,3 +40,28 @@ Woods (2000) and Alter, Newton, Oeppen (2020).
 | R1-16 | VERIFIED | Citations (IUSSP, Rodriguez, Woods, Coale-Trussell via snippet) and code claims (`hadwiger` read only at `fertility.py:310`; flag at `fertility.py:298`, `orchestrator.py:364`; loader requires the flag). | none |
 
 **Verdict round 1: NOT CONVERGED** (0 INCORRECT, 5 UNJUSTIFIED, 5 INCONSISTENT, 4 MISSING). Fixes applied in the same pass; round 2 re-audits.
+
+## Round 2 (2026-10-29, 19:35-19:46, independent `critical-analyzer`)
+
+R1 statuses per the reviewer: R1-02 to R1-13 RESOLVED (R1-04 numbers only),
+R1-01 and R1-14 PARTIAL. Verified on this pass: the SC-005 widowhood bound
+(married indicator never above ever-married indicator, so the expected harness
+NRR is at most 1.916), Becker thresholds (340^0.1 = 1.791, e^8.986 = 7,990),
+the loader having only `UNIT` and `POSITIVE`, H = 4 "industrial transition" at
+whitepaper EN line 826, template e0 = 70.7.
+
+| # | Class | Finding (evidence) | Resolution |
+|---|---|---|---|
+| R2-01 | MISSING | SC-006 B outcome depends on the world: `compute_subsistence_threshold` returns 0 without a `ZoneEconomy`, so `becker_modulation` divides by 1e-6 and every agent above ~0.06 wealth gets factor 3.0. | SC-006 B world initialized through `economy.initialization.initialize_economy`, economy step running every tick; result declared valid only for that configuration and tick length; the zero-subsistence behaviour written into (N4) and D-MF-09. |
+| R2-02 | INCORRECT | Realized level is 5*M*sum_g n_g*E[m_BK given g], not M*E[m_BK] over all exposure (factor depends on age; exposure outside 20-49 has zero weight). | New quantity rho_BK = realized TMFR_20-49 / T_m, the n-weighted mean of group means, defined under (N1a); SC-006 B, D-MF-09, limitations, S5 and FAQ use it; the gate is abs(rho_BK - 1) > 0.10. |
+| R2-03 | INCONSISTENT | The SC-006 B error blocked nothing; 4.306 written into Table 7.2 unqualified. | The error blocks phase-6 closure until the user explicitly authorizes one of the two D-MF-09 paths; FR-006 labels 4.306 "at Becker factor 1, no mortality, no widowhood". |
+| R2-04 | INCONSISTENT | Two rules for the two no-data eras; 6.2 is position B applied offline. | D-MF-05 states one ordered rule: (i) inherit the level of the era whose fertility block the whitepaper declares identical (islamic, 6.7); (ii) otherwise keep the declared TFR, i.e. position B offline (industrial), inheriting all K5 defects, accepted with the reason written. Industrial set to the exact B value 6.22 (TFR0 3.997/3.976, NRR 1.868/1.858, rates 0.318/0.273/0.115, recomputed); WARNING and table updated. |
+| R2-05 | INCORRECT | SC-003 said (4.2) fails at 20 with 2.491; the code would compute f_H(20) = 0.241 (grid max 0.398). | SC-003 rewritten with the two real failure modes (0.241 against 0.343; 0.398 above the maximum). |
+| R2-06 | INCONSISTENT | Stale `_annual_base_rate`; stale 2.37. | Both replaced (`annual_base_rate`, 2.491). |
+| R2-07 | INCONSISTENT | 3.9845 rounds to 3.985. | Moot: industrial value now 6.22, TFR0 3.997 recomputed. |
+| R2-08 | INCONSISTENT | p > 1 already for dt > 0.973 with factor 3. | Rinvio 2: factor above 2.92 and dt above 0.973 years. |
+| R2-09 | MISSING | 8.995 must sum only the six 20-49 groups. | FR-001 states it; the 15-19 extension is a separate rule (otherwise 11.295). |
+| R2-10 | INCONSISTENT | For `true` the loader raises a type error before the range check. | US3 scenario 3 expects the type error for `true`, the interval for the numbers. |
+| R2-11 | MISSING | §11 bullet "Hadwiger ASFR is evaluated deterministically" not named. | Named in FR-006. |
+
+**Verdict round 2: NOT CONVERGED** (2 INCORRECT, 0 UNJUSTIFIED, 6 INCONSISTENT, 3 MISSING). Fixes applied in the same pass; round 3 re-audits.
