@@ -12,7 +12,7 @@ applies the fixes between rounds and records the resolution. Round cap: 10
 
 Categories: INCORRECT, UNJUSTIFIED, INCONSISTENT, MISSING, VERIFIED.
 
-**Current verdict: CONVERGED at round 5 (five wording and list fixes applied after it); round 6 verifies that delta.**
+**Current verdict: CONVERGED (round 5 full pass, round 6 delta verification), six rounds, all by independent `critical-analyzer` reviewers.**
 
 ## Round 1 (2026-10-29, 19:15-19:26, independent `critical-analyzer`)
 
@@ -124,3 +124,21 @@ rejection exists (`template_loader.py:307-310`). Every number recomputed again.
 | R5-05 | INCONSISTENT | 8 test lines are really 7; stale docstrings and the "six clauses" count not named. | Count corrected to 7 with the per-file list; `test_template_loader.py` docstring, `template_loader.py` module and `validate_template` docstrings and the whitepaper §6.2 clause count named; the exactly-one rule declared as the seventh clause. |
 
 **Verdict round 5: CONVERGED** (0 INCORRECT, 0 UNJUSTIFIED, 3 INCONSISTENT and 2 MISSING, all trivial wording or list fixes, applied above). Round 6 verifies only that delta.
+
+## Round 6 (2026-10-29, 20:28-20:32, independent `critical-analyzer`, delta only)
+
+Scope: the round-5 fixes in commit 64ac769. R5-01 to R5-05 all RESOLVED
+(README line 125 of both languages under `## Roadmap`; couples task T051 writes
+the key into §4.1.2; `template_loader.py:15,447` and whitepaper §6.2 EN 2463 /
+IT 2537 count six clauses; 7 test lines split 3/1/2/1; today's default
+confirmed at `fertility.py` and `orchestrator.py:364`). Not findings:
+`test_template_validation.py:7,10` counts six clauses for amendment A9, which
+keeps six; the build map's "six clauses" line is historical and inside the
+phase-4 search. When the loader docstring is updated, the seventh clause is
+attributed to this spec, not to A9.
+
+| # | Class | Finding (evidence) | Resolution |
+|---|---|---|---|
+| R6-01 | MISSING | The raise of `annual_base_rate` and `requires_couple_for_birth` on a section without exactly one block (FR-002) had no acceptance scenario or SC. | US3 scenario 4 and SC-007 now cover it. |
+
+**Verdict round 6: CONVERGED** (0 INCORRECT, 0 UNJUSTIFIED, 0 INCONSISTENT, 1 MISSING, minor, applied).
