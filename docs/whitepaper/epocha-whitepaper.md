@@ -2099,7 +2099,7 @@ Equation (4.38) cohesion delta per interval:
 
   cohesion_delta = cooperation_ratio · 0.10 − conflict_ratio · 0.15 − size_penalty · 0.02 + leader_effectiveness · 0.05
 
-where `cooperation_ratio` and `conflict_ratio` are the fractions of cooperative (help, socialize) and conflictual (argue, betray) member actions over the interval, `size_penalty = max(0, member_count − 5)`, and `leader_effectiveness = legitimacy − 0.5`.
+where `cooperation_ratio` and `conflict_ratio` are the fractions of cooperative (help, socialize) and conflictual (argue, betray) member actions over the interval, `size_penalty = max(0, member_count − 5)`, and `leader_effectiveness = legitimacy − 0.5`. A decision whose `target` is not a name (for example the arranged-marriage payload of a `pair_bond` decision, which is a dictionary) names no member and is ignored by the cohesion count.
 
 Equation (4.39) leadership emergence score:
 

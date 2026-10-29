@@ -1,6 +1,7 @@
 """Tests for the faction dynamics engine."""
 
 import itertools
+import json
 
 import pytest
 from django.conf import settings
@@ -200,6 +201,26 @@ class TestCohesionUpdate:
         update_group_cohesion(group, simulation, tick=10)
         group.refresh_from_db()
         assert group.cohesion < initial_cohesion
+
+    def test_a_non_string_target_does_not_stop_the_cohesion_update(
+        self, simulation, world, group_with_members
+    ):
+        group, marco, elena, carlo = group_with_members
+        # A dict target is the arranged-marriage payload the pair-bond
+        # resolver accepts; it names no member and must be ignored.
+        DecisionLog.objects.create(
+            simulation=simulation,
+            agent=marco,
+            tick=9,
+            input_context="",
+            output_decision=json.dumps(
+                {"action": "pair_bond", "target": {"for_child": "X", "match": "Y"}}
+            ),
+            llm_model="test",
+        )
+        update_group_cohesion(group, simulation, tick=10)
+        group.refresh_from_db()
+        assert 0.0 <= group.cohesion <= 1.0
 
     def test_cohesion_clamped_to_range(self, simulation, world, group_with_members):
         group, marco, elena, carlo = group_with_members

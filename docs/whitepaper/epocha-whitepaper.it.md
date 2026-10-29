@@ -2168,7 +2168,7 @@ Equazione (4.38) delta di coesione per intervallo:
 
   cohesion_delta = cooperation_ratio · 0.10 − conflict_ratio · 0.15 − size_penalty · 0.02 + leader_effectiveness · 0.05
 
-dove `cooperation_ratio` e `conflict_ratio` sono le frazioni di azioni cooperative (help, socialize) e conflittuali (argue, betray) dei membri sull'intervallo, `size_penalty = max(0, member_count − 5)`, e `leader_effectiveness = legitimacy − 0.5`.
+dove `cooperation_ratio` e `conflict_ratio` sono le frazioni di azioni cooperative (help, socialize) e conflittuali (argue, betray) dei membri sull'intervallo, `size_penalty = max(0, member_count − 5)`, e `leader_effectiveness = legitimacy − 0.5`. Una decisione il cui `target` non è un nome (per esempio il payload di matrimonio combinato di una decisione `pair_bond`, che è un dizionario) non nomina nessun membro ed è ignorata dal conteggio della coesione.
 
 Equazione (4.39) score di emergenza di leadership:
 
