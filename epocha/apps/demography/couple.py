@@ -222,6 +222,29 @@ def form_couple(
     )
 
 
+def seeks_a_partner_of_the_other_sex(agent) -> bool:
+    """Whether the agent's orientation admits a partner of the other sex.
+
+    The ONE orientation rule of the rule-based couple formation: the
+    founding pairing applies it, and the rule-based marriage market of the
+    couples spec applies the same one to both sides («orientamento
+    eterosessuale o bisessuale», FR-003). Heterosexual and bisexual agents
+    meet it; homosexual and asexual agents do not, because the pairing forms
+    the era's marriage between a man and a woman and no verified source
+    gives a schedule for the other cases. Round 15 of the Plan 4 phase-6
+    gate found the founding pairing admitting heterosexual founders only,
+    which excluded every bisexual one; written once here, the two paths
+    cannot drift apart again. The intent path is not gated by it: a
+    protagonist's declared intent stays the way any other couple can form.
+    """
+    from epocha.apps.agents.models import Agent
+
+    return agent.sexual_orientation in (
+        Agent.SexualOrientation.HETEROSEXUAL,
+        Agent.SexualOrientation.BISEXUAL,
+    )
+
+
 def meets_marriage_age(agent, template: dict, tick: int, tick_duration_hours: float) -> bool:
     """Whether the agent has reached the era's minimum age at marriage.
 

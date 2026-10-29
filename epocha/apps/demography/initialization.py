@@ -200,8 +200,9 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
     mechanism that forms couples later in the run, rather than by a second,
     parallel rule that would drift from it.
 
-    Eligibility is heterosexual orientation and `couple.meets_marriage_age`,
-    the one marriage-age rule the intent resolver applies too: the era
+    Eligibility is `couple.seeks_a_partner_of_the_other_sex`, the one
+    orientation rule, and `couple.meets_marriage_age`, the one marriage-age
+    rule the intent resolver applies too: the era
     template's own minimum ages, on the canonical age derived from
     `birth_tick`. This function used to apply its
     own copy of the rule, on the `age` column, while the intent path applied
@@ -220,6 +221,7 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
         form_couple,
         homogamy_score,
         meets_marriage_age,
+        seeks_a_partner_of_the_other_sex,
         stable_matching,
     )
     from epocha.apps.demography.models import Couple
@@ -243,14 +245,15 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
         .order_by("id")
     )
     tick_duration_hours = _tick_duration_hours(simulation)
-    # The pairing forms the era's legal marriage between a man and a woman,
-    # so a founder who is not heterosexual stays out of it, as the rule-based
-    # market of the couples spec keeps them out (gate decision D-29-22).
-    # Same-sex couples are not modelled by the shipped templates.
+    # The pairing forms the era's marriage between a man and a woman, so it
+    # admits the heterosexual and bisexual founders and keeps the homosexual
+    # and asexual ones out, as the rule-based market of the couples spec does
+    # (gate decision D-29-22, corrected by round 15). Same-sex couples are not
+    # modelled by the shipped templates.
     eligible = [
         a
         for a in living
-        if a.sexual_orientation == Agent.SexualOrientation.HETEROSEXUAL
+        if seeks_a_partner_of_the_other_sex(a)
         and meets_marriage_age(a, template, simulation.current_tick, tick_duration_hours)
     ]
     men = [a for a in eligible if a.gender == Agent.Gender.MALE]

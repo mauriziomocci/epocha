@@ -146,15 +146,17 @@ class TestInitialCouples:
         assert len(partnered) == len(set(partnered))
 
     @pytest.mark.parametrize(
-        "orientation", [Agent.SexualOrientation.HOMOSEXUAL, Agent.SexualOrientation.BISEXUAL]
+        "orientation", [Agent.SexualOrientation.HOMOSEXUAL, Agent.SexualOrientation.ASEXUAL]
     )
-    def test_only_heterosexual_founders_enter_the_pairing(self, sim_with_zone, orientation):
-        """The founding pairing forms the era's legal marriage between a man
-        and a woman, so a founder who is not heterosexual stays out of it, as
-        the rule-based market of the couples spec keeps them out (gate
-        decision D-29-22): a homosexual woman is never paired with a man.
-        The heterosexual woman of the fixture shows that the man was still
-        pairable."""
+    def test_a_founder_neither_heterosexual_nor_bisexual_stays_out_of_the_pairing(
+        self, sim_with_zone, orientation
+    ):
+        """The founding pairing forms the era's marriage between a man and a
+        woman, so it admits the founders whose orientation includes the other
+        sex and no one else (couples spec, FR-003 and the edge cases; gate
+        decisions D-29-22 and round 15 B1): a homosexual or asexual woman is
+        never paired with a man. The heterosexual woman of the fixture shows
+        that the man was still pairable."""
         sim, zone = sim_with_zone
         man = _agent(sim, zone, "Uomo", age=30, gender=Agent.Gender.MALE)
         excluded = _agent(
@@ -173,6 +175,44 @@ class TestInitialCouples:
         assert not active.filter(agent_a=excluded).exists()
         assert not active.filter(agent_b=excluded).exists()
         assert active.filter(agent_a__in=[man, partner], agent_b__in=[man, partner]).count() == 1
+
+    @pytest.mark.parametrize("bisexual_gender", [Agent.Gender.FEMALE, Agent.Gender.MALE])
+    def test_a_bisexual_founder_enters_the_pairing(self, sim_with_zone, bisexual_gender):
+        """A bisexual founder is paired like a heterosexual one, on either
+        side of the market, as the couples spec requires («orientamento
+        eterosessuale o bisessuale»). Round 15 found her excluded: the rule
+        admitted heterosexual founders only. One candidate per side, so the
+        only reason the couple can fail to form is her orientation."""
+        sim, zone = sim_with_zone
+        orientation = {
+            gender: (
+                Agent.SexualOrientation.BISEXUAL
+                if gender == bisexual_gender
+                else Agent.SexualOrientation.HETEROSEXUAL
+            )
+            for gender in (Agent.Gender.MALE, Agent.Gender.FEMALE)
+        }
+        man = _agent(
+            sim,
+            zone,
+            "Uomo",
+            age=30,
+            gender=Agent.Gender.MALE,
+            sexual_orientation=orientation[Agent.Gender.MALE],
+        )
+        woman = _agent(
+            sim,
+            zone,
+            "Donna",
+            age=28,
+            gender=Agent.Gender.FEMALE,
+            sexual_orientation=orientation[Agent.Gender.FEMALE],
+        )
+
+        initialization.initialize_demography(sim)
+
+        active = Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True)
+        assert active.filter(agent_a__in=[man, woman], agent_b__in=[man, woman]).count() == 1
 
     def test_agents_below_the_marriage_age_are_not_paired(self, sim_with_zone):
         """The era template's own minimum marriage ages, not an invented
