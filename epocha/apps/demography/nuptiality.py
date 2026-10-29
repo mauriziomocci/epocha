@@ -30,8 +30,11 @@ Assumptions of the model as used here:
 
 from __future__ import annotations
 
+import functools
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from scipy.integrate import quad
 from scipy.optimize import brentq
@@ -272,3 +275,37 @@ def location_from_observed_mean(observed_mean: float, scale: float, min_age: flo
             f"the reachable interval for scale {scale} and minimum age {min_age} "
             f"is [{reachable_low:.2f}, {reachable_high:.2f}]"
         ) from error
+
+
+@functools.lru_cache(maxsize=32)
+def schedule_for(
+    mean_age: float, sd_age: float, proportion: float, min_age: float
+) -> FirstMarriageSchedule:
+    """Build the schedule of an era from its historical parameters (cached).
+
+    mean_age is the OBSERVED mean age at first marriage (a template value),
+    from which the location u is solved by (R5). The solve costs a root
+    finder over numerical integrals, so the result is memoized per distinct
+    parameter tuple: the template loader calls this to validate a template,
+    and the marriage market calls it again at run time as a cache hit. The
+    32 entries are far above the number of eras (five at the time of writing).
+    """
+    location = location_from_observed_mean(mean_age, sd_age, min_age)
+    return FirstMarriageSchedule(location, sd_age, proportion, min_age)
+
+
+def first_marriage_schedule(couple_cfg: Mapping[str, Any]) -> FirstMarriageSchedule:
+    """Return the cached schedule described by a template's `couple` section.
+
+    Reads couple_cfg["first_marriage"]["mean_age_female"], ["sd_age_female"],
+    ["proportion_ever_married_female"] and couple_cfg["min_marriage_age_female"].
+    The dict is shared by the template loader cache across callers: it is
+    only read here, and the derived location is never written back into it.
+    """
+    first_marriage = couple_cfg["first_marriage"]
+    return schedule_for(
+        float(first_marriage["mean_age_female"]),
+        float(first_marriage["sd_age_female"]),
+        float(first_marriage["proportion_ever_married_female"]),
+        float(couple_cfg["min_marriage_age_female"]),
+    )

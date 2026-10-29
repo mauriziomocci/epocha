@@ -12,6 +12,7 @@ from epocha.apps.demography import nuptiality
 from epocha.apps.demography.nuptiality import (
     FirstMarriageSchedule,
     _standard_lower,
+    first_marriage_schedule,
     location_from_observed_mean,
     standard_cdf,
     standard_density,
@@ -157,3 +158,24 @@ class TestLocationFromObservedMean:
     def test_an_unreachable_mean_is_rejected_with_the_reachable_interval(self):
         with pytest.raises(ValueError, match=r"18\.78"):
             location_from_observed_mean(18.5, 5.5, 14)
+
+
+class TestSchedulePerEra:
+    christian_config = {
+        "min_marriage_age_female": 14,
+        "first_marriage": {
+            "mean_age_female": 25.5,
+            "sd_age_female": 5.5,
+            "proportion_ever_married_female": 0.88,
+        },
+    }
+
+    def test_the_schedule_of_an_era_has_the_location_derived_from_the_observed_mean(self):
+        schedule = first_marriage_schedule(self.christian_config)
+        assert schedule.location == pytest.approx(25.580, abs=1e-3)
+        assert (schedule.scale, schedule.proportion, schedule.min_age) == (5.5, 0.88, 14)
+
+    def test_two_calls_with_equal_inputs_share_one_schedule_object(self):
+        assert first_marriage_schedule(self.christian_config) is first_marriage_schedule(
+            dict(self.christian_config)
+        )
