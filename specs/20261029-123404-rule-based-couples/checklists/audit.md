@@ -246,3 +246,20 @@ Three secondary residuals, applied although none changes a conclusion:
 No INCORRECT or UNJUSTIFIED finding of substance is open.
 
 **Verdict round 12: CONVERGED.**
+
+## Post-convergence editorial amendment (2026-10-29, after round 12)
+
+Not a new audit round and not re-checked by the independent reviewer: the
+changes touch governance and headers only, no formula, parameter, requirement
+or criterion. Following the coordinator's update of 13:12 and the Epocha
+autonomy profile it relayed (`pe.autonomy = spec,schema,design,contract,publish`),
+the header now writes each API change as «CAMBIO DI CONTRATTO: ...» with the
+exact routes and field, FR-020 and FR-021 carry the same marker, and FR-020
+requires the serializer docstrings to document the change, because the project
+has no OpenAPI schema (no `drf-spectacular`, OpenAPI or Swagger reference in
+`config/`, `requirements/`, `docs/`). The template-schema and contract decisions
+are now Trinity-decidable and provisional instead of "awaiting the user"; the
+profile reached the author through the coordinator and should be confirmed by
+the Trinity before approval. The tracking issue is
+https://github.com/mauriziomocci/epocha/issues/19. The round cap of 13 set by
+Domenico is respected: the audit converged at round 12.
