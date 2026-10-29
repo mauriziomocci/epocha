@@ -625,3 +625,59 @@ class TestTheStateFeedsItsWards:
         for member in (bride, husband):
             member.refresh_from_db()
             assert member.consecutive_ticks_under_subsistence == 1, member.name
+
+
+class TestOneHouseholdOneCounter:
+    """The members of one household carry one counter.
+
+    The counter used to add the household's verdict to each person's OWN
+    previous value, so whoever joined a starving household -- a spouse at
+    marriage, a newborn, a minor anchored anew -- arrived at a count of
+    their own and the household's members disagreed on how long it had been
+    starving (phase-6 gate rows 20 and 33). Within ratified decision B1, a
+    starving household now continues from the longest count among its
+    members, and writes the same value to all of them; a fed household
+    resets every member to zero.
+    """
+
+    def test_a_marriage_continues_from_the_longer_count(self, sim_with_zone):
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.couple import form_couple
+
+        sim, zone = sim_with_zone
+        long_hungry = _agent(sim, zone, "Lungo", wealth=0.0, consecutive_ticks_under_subsistence=29)
+        newly_wed = _agent(
+            sim,
+            zone,
+            "Sposa",
+            wealth=0.0,
+            gender=Agent.Gender.FEMALE,
+            consecutive_ticks_under_subsistence=0,
+        )
+        form_couple(long_hungry, newly_wed, formed_at_tick=sim.current_tick)
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        for member in (long_hungry, newly_wed):
+            member.refresh_from_db()
+            assert member.consecutive_ticks_under_subsistence == 30, member.name
+
+    def test_a_newborn_joins_the_count_of_its_household(self, sim_with_zone):
+        from epocha.apps.demography import orchestrator
+
+        sim, zone = sim_with_zone
+        mother = _agent(
+            sim,
+            zone,
+            "Madre",
+            wealth=0.0,
+            gender=Agent.Gender.FEMALE,
+            consecutive_ticks_under_subsistence=10,
+        )
+        newborn = _agent(sim, zone, "Neonato", wealth=0.0, parent_agent=mother, **_of_age(sim, 0))
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        for member in (mother, newborn):
+            member.refresh_from_db()
+            assert member.consecutive_ticks_under_subsistence == 11, member.name

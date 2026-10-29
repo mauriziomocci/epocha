@@ -738,7 +738,10 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     The predicate is a HOUSEHOLD one: the household's combined wealth
     against the sum of its members' zone thresholds, with the household
     derived by `demography.context.household_keys` -- the same derivation the snapshot
-    reports average household size from, shared rather than copied.
+    reports average household size from, shared rather than copied. The
+    count is the household's too: a starving household writes the longest of
+    its members' previous counts plus one to every member, and a fed one
+    resets them all, so everyone under one roof carries the same value.
 
     The predicate is `context.starving_households`, and emergency flight
     asks its first condition through the same function. It did not always:
@@ -816,9 +819,19 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     # it rather than on their own account.
     starving = starving_households(living, ages, keys, thresholds, adulthood_age)
 
+    # ONE count per household, continued from the longest among its members.
+    # Adding the verdict to each person's own previous value let a spouse, a
+    # newborn or a newly anchored minor join a starving household at a count
+    # of their own (phase-6 gate rows 20 and 33), so the household's members
+    # disagreed on how long it had been hungry and flight read the decider's.
+    longest: dict[tuple[int, ...], int] = {}
     for agent in living:
-        under_subsistence = keys[agent.id] in starving
-        updated = agent.consecutive_ticks_under_subsistence + 1 if under_subsistence else 0
+        key = keys[agent.id]
+        longest[key] = max(longest.get(key, 0), agent.consecutive_ticks_under_subsistence)
+
+    for agent in living:
+        key = keys[agent.id]
+        updated = longest[key] + 1 if key in starving else 0
         if updated != agent.consecutive_ticks_under_subsistence:
             agent.consecutive_ticks_under_subsistence = updated
             changed.append(agent)
