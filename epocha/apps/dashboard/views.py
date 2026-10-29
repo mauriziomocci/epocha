@@ -529,6 +529,150 @@ def simulation_report_view(request, sim_id):
     return render(request, "dashboard/simulation_report.html", {"simulation": simulation})
 
 
+_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+
+def _attachment_context(uploaded_file) -> str:
+    """The text the model reads about a file the visitor attached.
+
+    A document of a supported format is handed over as its first 2,000
+    characters; an image or any other file is only named. The upload is
+    written to a temporary file because the parser reads from a path, and
+    the file is removed when the block closes (it used to be kept with
+    `delete=False` and never removed).
+    """
+    import tempfile
+
+    from epocha.apps.world.document_parser import SUPPORTED_EXTENSIONS, extract_text
+
+    name = uploaded_file.name
+    suffix = f".{name.rsplit('.', 1)[-1]}" if "." in name else ""
+    if suffix.lower() in SUPPORTED_EXTENSIONS:
+        with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+            for chunk in uploaded_file.chunks():
+                tmp.write(chunk)
+            tmp.flush()
+            extracted = extract_text(tmp.name)
+        return (
+            f"\n\n[The visitor hands you a document titled '{name}'."
+            f" Its content is:]\n{extracted[:2000]}"
+        )
+    if suffix.lower() in _IMAGE_EXTENSIONS:
+        return (
+            f"\n\n[The visitor shows you an image: {name}."
+            f" React to it based on the conversation context.]"
+        )
+    return f"\n\n[The visitor shows you a file: {name}]"
+
+
+def _memory_context(agent, simulation) -> str:
+    """The agent's five most relevant memories, as the system prompt lists them."""
+    from epocha.apps.agents.memory import get_relevant_memories
+
+    memories = get_relevant_memories(agent, current_tick=simulation.current_tick)
+    if not memories:
+        return ""
+    return "\n\nYour recent memories:\n" + "\n".join(f"- {m.content}" for m in memories[:5])
+
+
+def _events_context(agent, simulation) -> str:
+    """The three latest events, for the USER prompt, where the model pays most attention."""
+    recent_events = list(Event.objects.filter(simulation=simulation).order_by("-id")[:3])
+    if not recent_events:
+        return ""
+    return (
+        "\n\n[CONTEXT: "
+        + " ".join(f"{e.title} - {e.description}" for e in reversed(recent_events))
+        + f" — React to this as {agent.name}.]"
+    )
+
+
+def _chat_history_context(session) -> str:
+    """The prior messages the model re-reads, within the budget fixed above.
+
+    The latest message of the session is the one just sent, which the model
+    reads as its prompt, so it is left out of the history.
+    """
+    from epocha.apps.chat.models import ChatMessage
+
+    recent = list(
+        ChatMessage.objects.filter(session=session).order_by("-created_at")[:_CHAT_HISTORY_MESSAGES]
+    )
+    if len(recent) <= 1:
+        return ""
+    lines = []
+    for m in reversed(recent[1:]):
+        if m.role == "user":
+            label, limit = "Visitor", _MAX_USER_MSG_LENGTH
+        else:
+            label, limit = "You said", _MAX_AGENT_MSG_LENGTH
+        ellipsis = "..." if len(m.content) > limit else ""
+        lines.append(f"{label}: {m.content[:limit]}{ellipsis}")
+    return "\n\nPrevious conversation:\n" + "\n".join(lines)
+
+
+def _reply_as_agent(
+    request, simulation, agent, session, message, attachment_name="", file_context=""
+):
+    """Record the visitor's message, ask the model for the agent's reply, record it.
+
+    The one reply path of the private chat. The chat page and the JSON
+    endpoint of the dashboard panel used to carry a copy each, about 85
+    lines that differed only in the attachment (round 15 of the Plan 4
+    phase-6 gate); the history limits held on the page only because the
+    copy happened to match. Physical actions in the message have minor mood
+    effects; major changes still require Inject Event.
+    """
+    from django.utils import timezone
+
+    from epocha.apps.agents.personality import build_personality_prompt
+    from epocha.apps.chat.models import ChatMessage
+    from epocha.apps.llm_adapter.client import get_chat_llm_client
+
+    agent.refresh_from_db()
+    if not agent.is_alive:
+        return JsonResponse(
+            {
+                "role": "system",
+                "content": (
+                    f"{agent.name} is dead and cannot respond."
+                    " You can view their history in the Galactic Encyclopedia (Report)."
+                ),
+            }
+        )
+    attached = f" [Attached: {attachment_name}]" if attachment_name else ""
+    ChatMessage.objects.create(
+        session=session, role="user", content=message + attached, tick_at=simulation.current_tick
+    )
+    client = get_chat_llm_client()
+    system_prompt = _build_chat_system_prompt(
+        agent,
+        request,
+        build_personality_prompt(agent.personality),
+        _memory_context(agent, simulation),
+        _chat_history_context(session),
+    )
+    response = client.complete(
+        prompt=f"{message}{file_context}{_events_context(agent, simulation)} /no_think",
+        system_prompt=system_prompt,
+        temperature=0.8,
+        max_tokens=500,
+        simulation_id=simulation.id,
+    )
+    _apply_chat_mood_effects(agent, message)
+    ChatMessage.objects.create(
+        session=session, role="agent", content=response, tick_at=simulation.current_tick
+    )
+    return JsonResponse(
+        {
+            "role": "agent",
+            "content": response,
+            "time": timezone.now().strftime("%H:%M"),
+            "provider": client.get_provider_info(),
+        }
+    )
+
+
 @login_required(login_url="/login/")
 def chat_view(request, sim_id, agent_id):
     simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
@@ -536,163 +680,31 @@ def chat_view(request, sim_id, agent_id):
 
     from epocha.apps.chat.models import ChatMessage, ChatSession
 
-    # Get or create chat session
     session, _ = ChatSession.objects.get_or_create(
         simulation=simulation,
         user=request.user,
         agent=agent,
     )
 
-    # Handle AJAX chat messages (JSON or FormData with file)
+    # AJAX chat messages: JSON, or FormData carrying an optional file.
     if request.method == "POST" and request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        # Parse message and optional file from request
         if request.content_type and "multipart" in request.content_type:
             message = request.POST.get("message", "")
             uploaded_file = request.FILES.get("file")
         else:
-            data = json.loads(request.body)
-            message = data.get("message", "")
+            message = json.loads(request.body).get("message", "")
             uploaded_file = None
-
-        # Extract text from uploaded file
-        file_context = ""
-        if uploaded_file:
-            import tempfile
-
-            from epocha.apps.world.document_parser import SUPPORTED_EXTENSIONS, extract_text
-
-            suffix = (
-                f".{uploaded_file.name.rsplit('.', 1)[-1]}" if "." in uploaded_file.name else ""
-            )
-            if suffix.lower() in SUPPORTED_EXTENSIONS:
-                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                    for chunk in uploaded_file.chunks():
-                        tmp.write(chunk)
-                    tmp.flush()
-                    extracted = extract_text(tmp.name)
-                    file_context = (
-                        f"\n\n[The visitor hands you a document titled '{uploaded_file.name}'."
-                        f" Its content is:]\n{extracted[:2000]}"
-                    )
-            elif suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
-                file_context = (
-                    f"\n\n[The visitor shows you an image: {uploaded_file.name}."
-                    f" React to it based on the conversation context.]"
-                )
-            else:
-                file_context = f"\n\n[The visitor shows you a file: {uploaded_file.name}]"
-
-        if message.strip() or file_context:
-            # Check if agent is dead
-            agent.refresh_from_db()
-            if not agent.is_alive:
-                return JsonResponse(
-                    {
-                        "role": "system",
-                        "content": (
-                            f"{agent.name} is dead and cannot respond."
-                            " You can view their history in the Galactic Encyclopedia (Report)."
-                        ),
-                    }
-                )
-
-            # Save user message (include file reference if any)
-            save_content = message
-            if uploaded_file:
-                save_content += f" [Attached: {uploaded_file.name}]"
-            ChatMessage.objects.create(
-                session=session,
-                role="user",
-                content=save_content,
-                tick_at=simulation.current_tick,
-            )
-
-            from epocha.apps.agents.memory import get_relevant_memories
-            from epocha.apps.agents.personality import build_personality_prompt
-            from epocha.apps.llm_adapter.client import get_chat_llm_client
-
-            client = get_chat_llm_client()
-            personality_prompt = build_personality_prompt(agent.personality)
-            memories = get_relevant_memories(agent, current_tick=simulation.current_tick)
-            memory_text = ""
-            if memories:
-                memory_text = "\n\nYour recent memories:\n" + "\n".join(
-                    f"- {m.content}" for m in memories[:5]
-                )
-
-            # Include the most recent events — put in USER prompt for higher attention
-            recent_events = list(Event.objects.filter(simulation=simulation).order_by("-id")[:3])
-            events_context = ""
-            if recent_events:
-                events_context = (
-                    "\n\n[CONTEXT: "
-                    + " ".join(f"{e.title} - {e.description}" for e in reversed(recent_events))
-                    + f" — React to this as {agent.name}.]"
-                )
-
-            recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[
-                :_CHAT_HISTORY_MESSAGES
-            ]
-            chat_history = ""
-            if recent_chat.count() > 1:
-                msgs = list(reversed(recent_chat))
-                lines = []
-                for m in msgs[:-1]:
-                    if m.role == "user":
-                        text = m.content[:_MAX_USER_MSG_LENGTH]
-                        if len(m.content) > _MAX_USER_MSG_LENGTH:
-                            text += "..."
-                        lines.append(f"Visitor: {text}")
-                    else:
-                        text = m.content[:_MAX_AGENT_MSG_LENGTH]
-                        if len(m.content) > _MAX_AGENT_MSG_LENGTH:
-                            text += "..."
-                        lines.append(f"You said: {text}")
-                chat_history = "\n\nPrevious conversation:\n" + "\n".join(lines)
-
-            system_prompt = _build_chat_system_prompt(
-                agent,
-                request,
-                personality_prompt,
-                memory_text,
-                chat_history,
-            )
-
-            # Events go in the USER prompt where the model pays most attention
-            prompt_with_hint = f"{message}{file_context}{events_context} /no_think"
-
-            response = client.complete(
-                prompt=prompt_with_hint,
-                system_prompt=system_prompt,
-                temperature=0.8,
-                max_tokens=500,
-                simulation_id=simulation.id,
-            )
-
-            # Apply minor state effects from physical actions in chat
-            # This is lightweight — major changes still require Inject Event
-            _apply_chat_mood_effects(agent, message)
-
-            # Save agent response
-            ChatMessage.objects.create(
-                session=session,
-                role="agent",
-                content=response,
-                tick_at=simulation.current_tick,
-            )
-
-            from django.utils import timezone
-
-            return JsonResponse(
-                {
-                    "role": "agent",
-                    "content": response,
-                    "time": timezone.now().strftime("%H:%M"),
-                    "provider": client.get_provider_info(),
-                }
-            )
-
-        return JsonResponse({"role": "system", "content": "Empty message."})
+        if not message.strip() and not uploaded_file:
+            return JsonResponse({"role": "system", "content": "Empty message."})
+        return _reply_as_agent(
+            request,
+            simulation,
+            agent,
+            session,
+            message,
+            attachment_name=uploaded_file.name if uploaded_file else "",
+            file_context=_attachment_context(uploaded_file) if uploaded_file else "",
+        )
 
     # Load chat history for initial page render (include timestamps)
     chat_history = [
@@ -749,8 +761,8 @@ def chat_history_api(request, sim_id, agent_id):
 def chat_send_api(request, sim_id, agent_id):
     """Send a message to an agent and return the response as JSON.
 
-    Used by the integrated dashboard chat panel. Handles the same
-    logic as chat_view POST but as a standalone JSON endpoint.
+    Used by the integrated dashboard chat panel. It shares the reply path,
+    `_reply_as_agent`, with the chat page's POST and takes no attachment.
     """
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)
@@ -758,7 +770,7 @@ def chat_send_api(request, sim_id, agent_id):
     simulation = get_object_or_404(Simulation, id=sim_id, owner=request.user)
     agent = get_object_or_404(Agent, id=agent_id, simulation=simulation)
 
-    from epocha.apps.chat.models import ChatMessage, ChatSession
+    from epocha.apps.chat.models import ChatSession
 
     session, _ = ChatSession.objects.get_or_create(
         simulation=simulation,
@@ -771,111 +783,7 @@ def chat_send_api(request, sim_id, agent_id):
 
     if not message.strip():
         return JsonResponse({"role": "system", "content": "Empty message."})
-
-    # Check if agent is dead
-    agent.refresh_from_db()
-    if not agent.is_alive:
-        return JsonResponse(
-            {
-                "role": "system",
-                "content": (
-                    f"{agent.name} is dead and cannot respond."
-                    " You can view their history in the Galactic Encyclopedia (Report)."
-                ),
-            }
-        )
-
-    # Save user message
-    ChatMessage.objects.create(
-        session=session,
-        role="user",
-        content=message,
-        tick_at=simulation.current_tick,
-    )
-
-    from epocha.apps.agents.memory import get_relevant_memories
-    from epocha.apps.agents.personality import build_personality_prompt
-    from epocha.apps.llm_adapter.client import get_chat_llm_client
-
-    client = get_chat_llm_client()
-    personality_prompt = build_personality_prompt(agent.personality)
-    memories = get_relevant_memories(agent, current_tick=simulation.current_tick)
-    memory_text = ""
-    if memories:
-        memory_text = "\n\nYour recent memories:\n" + "\n".join(
-            f"- {m.content}" for m in memories[:5]
-        )
-
-    # Include the most recent events in user prompt for higher attention
-    recent_events = list(Event.objects.filter(simulation=simulation).order_by("-id")[:3])
-    events_context = ""
-    if recent_events:
-        events_context = (
-            "\n\n[CONTEXT: "
-            + " ".join(f"{e.title} - {e.description}" for e in reversed(recent_events))
-            + f" — React to this as {agent.name}.]"
-        )
-
-    recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[
-        :_CHAT_HISTORY_MESSAGES
-    ]
-    chat_history = ""
-    if recent_chat.count() > 1:
-        msgs = list(reversed(recent_chat))
-        lines = []
-        for m in msgs[:-1]:
-            if m.role == "user":
-                text = m.content[:_MAX_USER_MSG_LENGTH]
-                if len(m.content) > _MAX_USER_MSG_LENGTH:
-                    text += "..."
-                lines.append(f"Visitor: {text}")
-            else:
-                text = m.content[:_MAX_AGENT_MSG_LENGTH]
-                if len(m.content) > _MAX_AGENT_MSG_LENGTH:
-                    text += "..."
-                lines.append(f"You said: {text}")
-        chat_history = "\n\nPrevious conversation:\n" + "\n".join(lines)
-
-    system_prompt = _build_chat_system_prompt(
-        agent,
-        request,
-        personality_prompt,
-        memory_text,
-        chat_history,
-    )
-
-    # Events go in the USER prompt where the model pays most attention
-    prompt_with_hint = f"{message}{events_context} /no_think"
-
-    response = client.complete(
-        prompt=prompt_with_hint,
-        system_prompt=system_prompt,
-        temperature=0.8,
-        max_tokens=500,
-        simulation_id=simulation.id,
-    )
-
-    # Apply minor state effects from physical actions in chat
-    _apply_chat_mood_effects(agent, message)
-
-    # Save agent response
-    ChatMessage.objects.create(
-        session=session,
-        role="agent",
-        content=response,
-        tick_at=simulation.current_tick,
-    )
-
-    from django.utils import timezone
-
-    return JsonResponse(
-        {
-            "role": "agent",
-            "content": response,
-            "time": timezone.now().strftime("%H:%M"),
-            "provider": client.get_provider_info(),
-        }
-    )
+    return _reply_as_agent(request, simulation, agent, session, message)
 
 
 @login_required(login_url="/login/")
