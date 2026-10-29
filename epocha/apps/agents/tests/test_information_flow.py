@@ -1,13 +1,20 @@
 """Tests for the information flow propagation engine."""
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
-from django.core.exceptions import ImproperlyConfigured
 
 from epocha.apps.agents.information_flow import propagate_information
 from epocha.apps.agents.models import Agent, Memory, Relationship
 from epocha.apps.simulation.models import Event, Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import World
+
+# Repository root, the working directory from which `config.settings` imports.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 @pytest.fixture
@@ -513,6 +520,20 @@ class TestFirstHandMemoriesAndTheLifetimeOfTheNews:
         assert list(heard.values_list("agent__name", flat=True)) == ["Fuori"]
 
 
+def _boot_settings_with_decay(decay: str) -> subprocess.CompletedProcess:
+    """Import the shared settings in a fresh interpreter, as every web and
+    worker process does at boot, with the decay set in the environment."""
+    return subprocess.run(
+        [sys.executable, "-c", "import config.settings.base"],
+        cwd=_REPO_ROOT,
+        env={**os.environ, "EPOCHA_INFO_FLOW_RELIABILITY_DECAY": decay},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+
 @pytest.mark.django_db
 class TestReliabilityDecayDomain:
     """The per-hop reliability decay is read from the environment, and the
@@ -521,16 +542,22 @@ class TestReliabilityDecayDomain:
     the first-hand suppression window, derived from the three phases, no
     longer covers the life of the news (round 14 of the demography Plan 4
     phase-6 gate, NB-1). A decay outside the open interval is a
-    configuration error, refused where the value is read for propagation."""
+    configuration error, refused by the settings where the environment is
+    read, so that a bad value stops every web and worker process at boot,
+    before any tick and any paid LLM call."""
 
-    @pytest.mark.parametrize("decay", [1.0, 0.0, 1.5, -0.1])
-    def test_a_decay_outside_the_open_unit_interval_is_refused(
-        self, simulation, world, settings, decay
-    ):
-        settings.EPOCHA_INFO_FLOW_RELIABILITY_DECAY = decay
+    @pytest.mark.parametrize("decay", ["1.0", "0.0", "1.5", "-0.1"])
+    def test_a_decay_outside_the_open_unit_interval_stops_the_boot(self, decay):
+        booted = _boot_settings_with_decay(decay)
 
-        with pytest.raises(ImproperlyConfigured, match="EPOCHA_INFO_FLOW_RELIABILITY_DECAY"):
-            propagate_information(simulation, tick=1)
+        assert booted.returncode != 0
+        assert "ImproperlyConfigured" in booted.stderr
+        assert "EPOCHA_INFO_FLOW_RELIABILITY_DECAY" in booted.stderr
+
+    def test_a_decay_inside_the_open_unit_interval_boots(self):
+        booted = _boot_settings_with_decay("0.7")
+
+        assert booted.returncode == 0, booted.stderr
 
     def test_the_default_decay_propagates_and_decays_reliability(
         self, simulation, world, marco, elena, settings

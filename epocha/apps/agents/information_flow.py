@@ -25,7 +25,6 @@ import logging
 import math
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Q
 
 from epocha.apps.simulation.models import Event, Simulation
@@ -55,13 +54,16 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
     and from hearing of an origin whose event it lived first hand while that
     news can still be travelling.
 
+    The three relay phases run in this order through one loop: phase 1 writes
+    the memories that phase 2 and 3 deduplicate against at this tick. The
+    function exceeds the usual length because of this docstring and of the
+    comments that cite or qualify each parameter and phase, as the project's
+    scientific-method rule requires; its executable body is the three relay
+    queries, one relay loop and the public broadcast.
+
     Args:
         simulation: The Simulation instance whose agents are ticking.
         tick:       The current tick number.
-
-    Raises:
-        ImproperlyConfigured: if EPOCHA_INFO_FLOW_RELIABILITY_DECAY lies
-            outside the open interval (0, 1).
     """
     # Minimum emotional weight for a memory to propagate. Tunable design
     # parameter without empirical source. Prevents trivial observations from
@@ -72,14 +74,9 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
     # reproduction but did not quantify it as a specific geometric decay rate.
     # The value 0.7 produces 34% reliability after 3 hops and 17% after 5 hops.
     # The hop estimate that bounds phase 3, and the first-hand suppression
-    # window derived from it, hold only for 0 < decay < 1: at 1.0 every
-    # rumour reads as hop 0 and phase 3 never stops. The value comes from the
-    # environment, so a degenerate one is refused here rather than clamped.
+    # window derived from it, hold only for 0 < decay < 1; the settings
+    # refuse any other value at boot (config/settings/base.py).
     decay = getattr(settings, "EPOCHA_INFO_FLOW_RELIABILITY_DECAY", 0.7)
-    if not 0.0 < decay < 1.0:
-        raise ImproperlyConfigured(
-            f"EPOCHA_INFO_FLOW_RELIABILITY_DECAY must lie in the open interval (0, 1), got {decay}."
-        )
     max_hops = getattr(settings, "EPOCHA_INFO_FLOW_MAX_HOPS", 3)
     max_recipients = getattr(settings, "EPOCHA_INFO_FLOW_MAX_RECIPIENTS", 20)
 
@@ -91,16 +88,6 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
         emotional_weight__gte=threshold,
         is_active=True,
     ).select_related("agent", "origin_agent")
-    for memory in direct_memories:
-        _propagate_memory(
-            memory=memory,
-            simulation=simulation,
-            tick=tick,
-            target_source_type=Memory.SourceType.HEARSAY,
-            max_recipients=max_recipients,
-            decay=decay,
-            max_hops=max_hops,
-        )
 
     # Phase 2: hearsay from the previous tick -> rumor.
     # Phase 2 (hearsay -> rumor) does NOT enforce
@@ -119,16 +106,6 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
         tick_created=tick - 1,
         is_active=True,
     ).select_related("agent", "origin_agent")
-    for memory in hearsay_memories:
-        _propagate_memory(
-            memory=memory,
-            simulation=simulation,
-            tick=tick,
-            target_source_type=Memory.SourceType.RUMOR,
-            max_recipients=max_recipients,
-            decay=decay,
-            max_hops=max_hops,
-        )
 
     # Phase 3: rumors from the previous tick -> rumor (if within max_hops)
     rumor_memories = Memory.objects.filter(
@@ -137,21 +114,55 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
         tick_created=tick - 1,
         is_active=True,
     ).select_related("agent", "origin_agent")
-    for memory in rumor_memories:
-        current_hop = _estimate_hop(memory.reliability, decay)
-        if current_hop >= max_hops:
-            continue
-        _propagate_memory(
-            memory=memory,
-            simulation=simulation,
-            tick=tick,
-            target_source_type=Memory.SourceType.RUMOR,
-            max_recipients=max_recipients,
-            decay=decay,
-            max_hops=max_hops,
-        )
+    rumors_within_max_hops = (
+        memory for memory in rumor_memories if _estimate_hop(memory.reliability, decay) < max_hops
+    )
+
+    relay_phases = (
+        (direct_memories, Memory.SourceType.HEARSAY),
+        (hearsay_memories, Memory.SourceType.RUMOR),
+        (rumors_within_max_hops, Memory.SourceType.RUMOR),
+    )
+    for memories, target_source_type in relay_phases:
+        for memory in memories:
+            _propagate_memory(
+                memory=memory,
+                simulation=simulation,
+                tick=tick,
+                target_source_type=target_source_type,
+                max_recipients=max_recipients,
+                decay=decay,
+                max_hops=max_hops,
+            )
 
     # Phase 4: public events -> all living agents
+    events_broadcast = _broadcast_public_events(simulation, tick)
+
+    logger.debug(
+        "propagate_information: simulation=%s tick=%d direct=%d hearsay=%d rumor=%d events=%d",
+        simulation.pk,
+        tick,
+        direct_memories.count(),
+        hearsay_memories.count(),
+        rumor_memories.count(),
+        events_broadcast,
+    )
+
+
+def _broadcast_public_events(simulation: Simulation, tick: int) -> int:
+    """Give every living agent a PUBLIC memory of each event of this tick.
+
+    Public events bypass the social network: they reach every living agent
+    at the tick they happen, with full reliability, and need neither
+    distortion nor the belief filter.
+
+    Args:
+        simulation: The Simulation instance whose agents are ticking.
+        tick:       The current tick number.
+
+    Returns:
+        The number of public events broadcast.
+    """
     public_events = Event.objects.filter(simulation=simulation, tick=tick)
     living_agents = Agent.objects.filter(simulation=simulation, is_alive=True)
 
@@ -175,16 +186,7 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
                     "reliability": 1.0,
                 },
             )
-
-    logger.debug(
-        "propagate_information: simulation=%s tick=%d direct=%d hearsay=%d rumor=%d events=%d",
-        simulation.pk,
-        tick,
-        direct_memories.count(),
-        hearsay_memories.count(),
-        rumor_memories.count(),
-        public_events.count(),
-    )
+    return len(public_events)
 
 
 def _propagate_memory(
@@ -392,14 +394,14 @@ def _estimate_hop(reliability: float, decay: float) -> int:
 
     Args:
         reliability: Current reliability value of the memory (0.0 to 1.0).
-        decay:       Per-hop decay factor (0.0 < decay < 1.0).
+        decay:       Per-hop decay factor (0.0 < decay < 1.0), as the settings guarantee at boot.
 
     Returns:
         Estimated hop count as a non-negative integer. Returns 0 if reliability
-        is at maximum (1.0) or if decay is degenerate. Returns 99 if reliability
-        has decayed to zero, indicating the information is exhausted.
+        is at maximum (1.0). Returns 99 if reliability has decayed to zero,
+        indicating the information is exhausted.
     """
-    if reliability >= 1.0 or decay >= 1.0 or decay <= 0.0:
+    if reliability >= 1.0:
         return 0
     if reliability <= 0.0:
         return 99
