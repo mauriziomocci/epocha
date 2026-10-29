@@ -205,7 +205,8 @@ def load_template(name: str) -> dict[str, Any]:
         name: the template file name without the .json extension.
 
     Raises:
-        FileNotFoundError: template file does not exist.
+        FileNotFoundError: `name` is not one of the shipped templates, which
+            includes any name that is a path.
         ValueError: the template violates any clause of the A9 contract.
     """
     return _load_template_cached(name, str(TEMPLATES_DIR))
@@ -220,9 +221,18 @@ def _load_template_cached(name: str, templates_dir: str) -> dict[str, Any]:
     template read from a temporary directory poison the entry for the shipped
     one of the same name.
     """
+    # The name comes from `simulation.config`, which the simulation API lets
+    # its owner write, so it is checked against the shipped names before it
+    # touches a path: `../x` or an absolute path would otherwise read any JSON
+    # file the process can open (round 16 of the Plan 4 phase-6 gate). The
+    # shipped names are the folder's own listing, the one source
+    # `list_available_templates` also reads.
+    if name not in list_available_templates():
+        raise FileNotFoundError(
+            f"Demography template {name!r} is not a shipped template; "
+            f"available: {list_available_templates()}"
+        )
     path = Path(templates_dir) / f"{name}.json"
-    if not path.exists():
-        raise FileNotFoundError(f"Demography template not found: {path}")
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     validate_template(data, source=str(path))
