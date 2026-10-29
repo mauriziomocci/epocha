@@ -17,3 +17,21 @@
 | 7 | MISSING | The cited audit file did not exist | This file |
 
 **Verified by the reviewer**: the arithmetic (`3285 * 168 / 8760 == 63.0` exactly; edge 3285; two-division form `62.99999999999999` and edge 3286; daily edges 3650, 5840, 6570; weekly 522, 835); the SC-010 mutation turns both pin tests of T020 red while age and edge still agree, so the literal pins are not tautological; FR-001b's description of `_years_elapsed` and `_fewest_ticks_to_reach`; the round-6 characterization holds only for the old arithmetic; `run_demography_tick` returns before every step on a missing template; today's `_build_system_prompt` behaviour; the group chat reads the clock once per request; no change to any scientific model, threshold, source, API contract or data model.
+
+## Round 2 (2026-10-29, fix delta `4c0ef5d..5338073`)
+
+**Verdict: CONVERGED** (0 INCORRECT, 0 UNJUSTIFIED, 0 INCONSISTENT, 0 MISSING). The reviewer found all seven round-1 findings resolved and no new issue introduced by the fixes.
+
+| # | Round-1 finding | Status | Evidence checked by the reviewer |
+|---|---|---|---|
+| 1 | Unloadable template not tested red-first | RESOLVED | T022 tests precede its code; red on Plan 4 `decision.py` (`except FileNotFoundError: pass` keeps the actions; `logger.exception` logs at ERROR, not WARNING) |
+| 2 | Commit attributions | RESOLVED | `c1e8569` private chat only; `02a1d47` group chat; `430dfa6` WebSocket chat and the move of `describe_speaker` |
+| 3 | Default template name spelling | RESOLVED | Eleven production sites besides the one extracted into `template_name_of`, count exact |
+| 4 | T044 patch target | RESOLVED | `epocha.apps.llm_adapter.client.get_chat_llm_client` serves the group chat and the consumer, as `test_chat_prompt.py` already patches |
+| 5 | Two prompt builders | RESOLVED | Three builders, matching the first-draft code |
+| 6 | Warning count | RESOLVED | Callers of `_load_simulation_template` enumerated; spec and PD-03 agree |
+| 7 | Missing audit file | RESOLVED | This file |
+
+Note from the reviewer, not a finding: before T022 the new tests call `_build_system_prompt(agent, clock)` against the old signature `(agent)`, so their first red is a `TypeError`; after the signature change they still go red for the stated reason.
+
+**Final verdict of the delta audit: CONVERGED in 2 rounds.**

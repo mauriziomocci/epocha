@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-29
 
-**Status**: Draft (fase 2). Perimetro ridotto dalla decisione D-29-5 della Trinità. Audit avversariale **CONVERGED al round 8** (2026-10-29); emendata dopo il piano con la decisione D-29-35 (sezione «Chiarimenti»), con l'audit del delta in `checklists/delta-audit-d29-35.md`; resta l'approvazione del gate di fase 2 da parte della Trinità sotto la deroga D-29-3, con rapporto all'utente.
+**Status**: Draft (fase 2). Perimetro ridotto dalla decisione D-29-5 della Trinità. Audit avversariale **CONVERGED al round 8** (2026-10-29); emendata dopo il piano con la decisione D-29-35 (sezione «Chiarimenti»), con l'audit del delta **CONVERGED al round 2** in `checklists/delta-audit-d29-35.md`; resta l'approvazione del gate di fase 2 da parte della Trinità sotto la deroga D-29-3, con rapporto all'utente.
 
 **Input**: User description: "Comportamento degli agenti in base all'età lungo tutto il corso della vita, dal neonato all'anziano"
 
@@ -472,7 +472,7 @@ Il 2026-10-29, scrivendo il piano, ho trovato quattro punti in cui la spec non c
 - **Q-3, chat di gruppo.** Nel perimetro: `describe_speaker` serve già tre prompt, compreso quello della chat di gruppo (perimetro, User Story 3, FR-009, FR-010, SC-005).
 - **Q-4, frase superata.** Il frammento d'età è già in `chat/consumers.py` dal commit `430dfa6` del Plan 4 (nella chat di gruppo dal `02a1d47`), e la guardia D-29-4 è integrata nel ramo del Plan 4 dal merge `c1e8569`: ho corretto la sezione «Relazione con la guardia del Plan 4» e la premessa del «Perché».
 
-Nessuna delle quattro correzioni cambia il modello scientifico, le soglie o le fonti. L'audit avversariale del delta è registrato in `checklists/delta-audit-d29-35.md`.
+Nessuna delle quattro correzioni cambia il modello scientifico, le soglie o le fonti. L'audit avversariale del delta è registrato in `checklists/delta-audit-d29-35.md`: NOT CONVERGED al round 1 (quattro INCORRECT, tutti corretti), **CONVERGED al round 2**.
 
 ## Stato del gate
 
