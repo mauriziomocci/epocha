@@ -1063,3 +1063,52 @@ class TestTheBirthEventDescribesItsOwnBirth:
             assert event.tick == context.tick
         assert by_mother[dying.id].payload["mother_died_in_childbirth"] is True
         assert by_mother[survivor.id].payload["mother_died_in_childbirth"] is False
+
+
+class TestTheSqlFertileWindowAgreesWithTheAgeReader:
+    """`_fertile_window_filter` selects in SQL the agents whose
+    `age_in_years` lies in `[12, 50]`, so at its two edges the two must give
+    the same answer.
+
+    Round 16 of the Plan 4 phase-6 gate found two disagreements. Django sends
+    a float bound on an integer column as `int(x)`, which rounds toward zero,
+    so a negative bound was rounded up: at weekly ticks on tick 0 the bound
+    -625.71 became -625 and admitted an agent of 11.986 years. And the bound
+    `tick - 50 * ticks_per_year / acceleration`, computed with two divisions,
+    lost the agent of exactly 50.0 years at 100-hour ticks under
+    acceleration 0.1. Each case puts one agent on each side of the edge.
+    """
+
+    @pytest.mark.parametrize(
+        ("hours", "acceleration", "tick", "birth_ticks"),
+        [
+            pytest.param(168.0, 1.0, 0, [-625, -626], id="weekly-tick0-age12-edge"),
+            pytest.param(100.0, 0.1, 0, [-43800, -43801], id="100h-acc0.1-age50-edge"),
+            pytest.param(100.0, 0.1, 0, [-10511, -10512], id="100h-acc0.1-age12-edge"),
+        ],
+    )
+    def test_the_filter_admits_exactly_the_ages_in_the_window(
+        self, sim_with_zone, hours, acceleration, tick, birth_ticks
+    ):
+        sim, zone = sim_with_zone
+        agents = [
+            _agent(sim, zone, f"Edge{index}", birth_tick=birth_tick)
+            for index, birth_tick in enumerate(birth_ticks)
+        ]
+        expected = {
+            agent.id
+            for agent in agents
+            if orchestrator.FERTILE_AGE_MIN
+            <= orchestrator.age_in_years(agent, tick, hours, acceleration)
+            <= orchestrator.FERTILE_AGE_MAX
+        }
+        assert len(expected) == 1, "the case must put one agent on each side of the edge"
+
+        admitted = set(
+            Agent.objects.filter(
+                orchestrator._fertile_window_filter(tick, hours, acceleration),
+                simulation=sim,
+            ).values_list("id", flat=True)
+        )
+
+        assert admitted == expected

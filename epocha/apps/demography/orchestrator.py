@@ -40,6 +40,7 @@ Ordering rationale is recorded on each entry of `DEMOGRAPHY_STEPS`.
 from __future__ import annotations
 
 import logging
+import math
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -490,7 +491,17 @@ def age_in_years(agent: Any, tick: int, tick_duration_hours: float, acceleration
     """
     if agent.birth_tick is None:
         return float(agent.age or 0)
-    return (tick - agent.birth_tick) * tick_duration_hours * acceleration / HOURS_PER_YEAR
+    return _years_elapsed(tick - agent.birth_tick, tick_duration_hours, acceleration)
+
+
+def _years_elapsed(elapsed_ticks: int, tick_duration_hours: float, acceleration: float) -> float:
+    """Simulated years in `elapsed_ticks`, with the one division last.
+
+    The arithmetic of `age_in_years`, kept in one place so the SQL fertile
+    window in `_fertile_window_filter` inverts exactly the expression the
+    age reader evaluates instead of a re-derivation of it.
+    """
+    return elapsed_ticks * tick_duration_hours * acceleration / HOURS_PER_YEAR
 
 
 def _age_clock(simulation: Any, template: dict | None) -> tuple[float, float]:
@@ -1017,24 +1028,55 @@ def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: 
     world generation and never advances: an agent would stay fertile, or
     infertile, for the whole run regardless of how many ticks passed.
     `birth_tick` is the project's only source of ageing, and the window
-    inverts cleanly onto it -- age in years is
-    `(tick - birth_tick) / ticks_per_year * acceleration`, so the fertile
-    ages map to a closed interval of birth ticks -- which keeps the
-    selection one set-based query rather than one per living agent.
+    `FERTILE_AGE_MIN <= age_in_years <= FERTILE_AGE_MAX` inverts onto it as
+    a closed interval of integer birth ticks, which keeps the selection one
+    set-based query rather than one per living agent.
+
+    The bounds are integers computed here, never floats left to the ORM:
+    Django sends a float bound on an integer column as `int(x)`, which
+    rounds toward zero, so a negative bound was rounded up and at weekly
+    ticks on tick 0 admitted an agent of 11.986 years (round 16 of the Plan
+    4 phase-6 gate). Each bound is the elapsed-tick count at the edge, found
+    with `ceil` or `floor` of one quotient and then checked against
+    `_years_elapsed`, the age reader's own arithmetic: the quotient alone
+    differs from it by one float rounding, which lost the agent of exactly
+    50.0 years at 100-hour ticks under acceleration 0.1.
 
     Agents with a NULL `birth_tick` are excluded. The fertility module falls
     back to the frozen `age` column for them, and the initialization
     guarantees no living agent is left in that state; admitting them here
     would quietly reintroduce the frozen-age path this project is removing.
     """
-    ticks_per_year = HOURS_PER_YEAR / max(1e-9, tick_duration_hours)
-    scale = ticks_per_year / max(1e-9, acceleration)
-    oldest_fertile_birth_tick = tick - FERTILE_AGE_MAX * scale
-    youngest_fertile_birth_tick = tick - FERTILE_AGE_MIN * scale
+    youngest_elapsed = _fewest_ticks_to_reach(FERTILE_AGE_MIN, tick_duration_hours, acceleration)
+    oldest_elapsed = _most_ticks_within(FERTILE_AGE_MAX, tick_duration_hours, acceleration)
     return Q(
-        birth_tick__gte=oldest_fertile_birth_tick,
-        birth_tick__lte=youngest_fertile_birth_tick,
+        birth_tick__gte=tick - oldest_elapsed,
+        birth_tick__lte=tick - youngest_elapsed,
     )
+
+
+def _fewest_ticks_to_reach(years: float, tick_duration_hours: float, acceleration: float) -> int:
+    """The smallest elapsed-tick count whose `_years_elapsed` is at least `years`.
+
+    `_years_elapsed` is non-decreasing in the elapsed ticks, so the estimate
+    from one quotient is corrected by whole ticks until it is the edge.
+    """
+    elapsed = math.ceil(years * HOURS_PER_YEAR / (tick_duration_hours * acceleration))
+    while _years_elapsed(elapsed - 1, tick_duration_hours, acceleration) >= years:
+        elapsed -= 1
+    while _years_elapsed(elapsed, tick_duration_hours, acceleration) < years:
+        elapsed += 1
+    return elapsed
+
+
+def _most_ticks_within(years: float, tick_duration_hours: float, acceleration: float) -> int:
+    """The largest elapsed-tick count whose `_years_elapsed` is at most `years`."""
+    elapsed = math.floor(years * HOURS_PER_YEAR / (tick_duration_hours * acceleration))
+    while _years_elapsed(elapsed + 1, tick_duration_hours, acceleration) <= years:
+        elapsed += 1
+    while _years_elapsed(elapsed, tick_duration_hours, acceleration) > years:
+        elapsed -= 1
+    return elapsed
 
 
 def _load_simulation_template(simulation: Any, tick: int) -> dict | None:
