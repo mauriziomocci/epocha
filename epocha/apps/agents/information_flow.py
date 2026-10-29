@@ -186,7 +186,8 @@ def _propagate_memory(
     Finds all living agents connected to the transmitter via any Relationship
     (bidirectional lookup), then for each candidate:
     - Skips the origin agent (no echo back to source).
-    - Skips agents that already received information from the same origin this tick.
+    - Skips agents that already hold a memory from the same origin this tick,
+      first-hand or heard.
     - Applies distortion using the transmitter's personality.
     - Always updates the recipient's reputation score for the origin agent,
       regardless of whether the belief filter accepts or rejects the information.
@@ -219,12 +220,21 @@ def _propagate_memory(
         Q(agent_from=transmitter) | Q(agent_to=transmitter)
     ).select_related("agent_from", "agent_to")
 
-    # Gather already-informed agents (dedup): recipients who already have hearsay
-    # or rumor from this origin agent for this tick.
+    # Gather already-informed agents (dedup): recipients who already hold a
+    # memory from this origin agent for this tick, whether heard (hearsay,
+    # rumor) or lived first hand (direct). DIRECT joined the set at round 12
+    # of the demography Plan 4 phase-6 gate (F2): a household's flight writes
+    # a first-hand memory to every member with the decider as origin, and
+    # with only hearsay and rumor in the set the decider's memory reached the
+    # fleeing partner again as hearsay of her own flight.
     already_informed = set(
         Memory.objects.filter(
             agent__simulation=simulation,
-            source_type__in=[Memory.SourceType.HEARSAY, Memory.SourceType.RUMOR],
+            source_type__in=[
+                Memory.SourceType.DIRECT,
+                Memory.SourceType.HEARSAY,
+                Memory.SourceType.RUMOR,
+            ],
             origin_agent=origin,
             tick_created=tick,
         ).values_list("agent_id", flat=True)

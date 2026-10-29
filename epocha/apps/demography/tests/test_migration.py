@@ -2035,6 +2035,38 @@ class TestEmergencyFlightMovesTheHousehold:
         assert heard.count() == 1
 
     @pytest.mark.django_db
+    def test_the_partner_does_not_hear_of_her_own_flight(self, sim_with_zone):
+        """Round 12 of the phase-6 gate (F2): the partner who fled holds a
+        first-hand memory of the flight, and the hearsay dedup of
+        `information_flow._propagate_memory` looked only at hearsay and
+        rumor, so the decider's memory reached her again as hearsay of her
+        own flight. Whoever already remembers an origin's tick first hand
+        is already informed of it."""
+        from epocha.apps.agents.information_flow import propagate_information
+        from epocha.apps.agents.models import Relationship
+
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        decider = _make_agent(sim, zone, "Padre", age=40, wealth=0.0, gender=Agent.Gender.MALE)
+        partner = _make_agent(sim, zone, "Madre", age=38, wealth=0.0)
+        form_couple(decider, partner, formed_at_tick=1)
+        Relationship.objects.create(
+            agent_from=decider,
+            agent_to=partner,
+            relation_type="family",
+            strength=0.9,
+            sentiment=0.8,
+            since_tick=0,
+        )
+        _set_starvation_counters({decider.id: 30, partner.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+        propagate_information(sim, tick=50)
+
+        remembered = Memory.objects.filter(agent=partner, origin_agent=decider)
+        assert list(remembered.values_list("source_type", flat=True)) == [Memory.SourceType.DIRECT]
+
+    @pytest.mark.django_db
     def test_a_married_minor_stays_with_her_husband(self, sim_with_zone):
         """Her mother's household starves and flees; hers does not. Marriage
         outranks the guardian chain in `household_keys` (round 9, C2), so
