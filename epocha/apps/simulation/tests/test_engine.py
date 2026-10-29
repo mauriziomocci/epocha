@@ -237,3 +237,61 @@ class TestSimulationEngine:
         # Count only decision memories (prefix "I decided to"); the political cycle may
         # create stratification memories with a different prefix in the same ticks.
         assert Memory.objects.filter(agent=marco, content__startswith="I decided to").count() == 3
+
+
+@pytest.mark.django_db
+class TestSequentialPathExcludesMinors:
+    """The synchronous path honours the same exclusion as the Celery chord."""
+
+    @staticmethod
+    def _simulation_with_a_child_and_an_adult(user, *, demography):
+        sim = Simulation.objects.create(
+            name="SeqMinors",
+            seed=7,
+            owner=user,
+            status="running",
+            config={"demography_enabled": True} if demography else {},
+        )
+        world = World.objects.create(simulation=sim)
+        zone = Zone.objects.create(world=world, name="Village", zone_type="urban")
+        # The sequential path runs tick 1; the 24h tick makes a year 365 ticks.
+        ticks_per_year = 365
+        child = Agent.objects.create(
+            simulation=sim,
+            name="Bambino",
+            role="child",
+            personality={},
+            zone=zone,
+            age=3,
+            birth_tick=1 - 3 * ticks_per_year,
+        )
+        adult = Agent.objects.create(
+            simulation=sim,
+            name="Adulto",
+            role="farmer",
+            personality={},
+            zone=zone,
+            age=40,
+            birth_tick=1 - 40 * ticks_per_year,
+        )
+        return sim, child, adult
+
+    @patch("epocha.apps.simulation.engine.process_agent_decision")
+    def test_a_minor_gets_no_decision(self, mock_decision, user):
+        mock_decision.return_value = {"action": "rest"}
+        sim, child, adult = self._simulation_with_a_child_and_an_adult(user, demography=True)
+
+        SimulationEngine(sim).run_tick()
+
+        decided = [call.args[0].id for call in mock_decision.call_args_list]
+        assert decided == [adult.id]
+
+    @patch("epocha.apps.simulation.engine.process_agent_decision")
+    def test_without_demography_the_child_still_decides(self, mock_decision, user):
+        mock_decision.return_value = {"action": "rest"}
+        sim, child, adult = self._simulation_with_a_child_and_an_adult(user, demography=False)
+
+        SimulationEngine(sim).run_tick()
+
+        decided = {call.args[0].id for call in mock_decision.call_args_list}
+        assert decided == {child.id, adult.id}

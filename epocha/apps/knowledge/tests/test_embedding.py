@@ -25,8 +25,16 @@ class TestEmbedTextsMocked:
         assert results == []
 
 
-@pytest.mark.slow
+@pytest.mark.network
 class TestEmbedTextsReal:
+    """The real fastembed model, not a stub: opt-in, never in the default run.
+
+    Each run without a persistent `FASTEMBED_CACHE_PATH` downloads
+    intfloat/multilingual-e5-large from the network, and the throw-away test
+    containers discard the cache, so the default run made a large download
+    on every invocation. Run with `pytest -m network`.
+    """
+
     def test_real_model_produces_1024_dim_vectors(self):
         texts = ["The storming of the Bastille was a pivotal event."]
         results = embed_texts(texts)

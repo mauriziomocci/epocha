@@ -20,6 +20,7 @@ import pytest
 
 from epocha.apps.demography.mortality import (
     HP_PARAM_KEYS,
+    UnderdeterminedFitError,
     annual_mortality_probability,
     fit_heligman_pollard,
     sample_death_cause,
@@ -72,6 +73,33 @@ class TestAnnualMortalityProbability:
         assert q40 < q60, f"q(60)={q60} not > q(40)={q40}"
         assert q60 < q80, f"q(80)={q80} not > q(60)={q60}"
 
+    def test_q_is_held_over_each_year_of_age(self):
+        """`q_x` belongs to the completed age, so it does not move within a year.
+
+        HP `q_x` is the probability of dying between exact ages `x` and
+        `x + 1` (gate decision D-29-20): a newborn of three months and one of
+        eleven carry the same `q_0`, and the step to `q_1` happens at the
+        first birthday, not before.
+        """
+        for whole_age in (0, 1, 30):
+            q = annual_mortality_probability(whole_age, PRE_INDUSTRIAL_PARAMS)
+            for fraction in (0.25, 0.5, 0.999):
+                assert annual_mortality_probability(
+                    whole_age + fraction, PRE_INDUSTRIAL_PARAMS
+                ) == pytest.approx(q, rel=1e-12), f"q moved inside year {whole_age}"
+
+    def test_q0_is_the_formula_at_exact_age_zero(self):
+        """`q_0` is HP at `x = 0`, the hump term at its limit zero.
+
+        The odds are `A ** (B ** C) + D * 0 + G * H ** 0`. The former guard
+        `max(age, 0.01)` evaluated the infancy term at 0.01 instead, which
+        with `B = 0.017` gave 0.0247 instead of 0.0291.
+        """
+        p = PRE_INDUSTRIAL_PARAMS
+        odds = p["A"] ** (p["B"] ** p["C"]) + p["G"]
+        assert annual_mortality_probability(0, p) == pytest.approx(odds / (1.0 + odds), rel=1e-12)
+        assert annual_mortality_probability(0, p) == pytest.approx(0.0291, abs=5e-5)
+
 
 # ---------------------------------------------------------------------------
 # Task 23: tick_mortality_probability
@@ -94,6 +122,28 @@ class TestTickMortalityProbability:
                 age, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=4380
             )
             assert tick_q < annual_q, f"tick_q={tick_q} not < annual_q={annual_q} at age {age}"
+
+    def test_the_tick_probability_is_the_exact_geometric_conversion_at_every_age(self):
+        """No linear branch: `1 - (1 - q)^dt` at every age, for a daily tick.
+
+        Found by round 11 of the demography Plan 4 phase-6 gate. Below
+        `q = 0.1` the function used the linear `q * dt`, whose relative error
+        against the geometric form is about `q / 2`: measured with these
+        parameters up to 4.71% at 82, against an error the docstring and
+        whitepaper section 4.1.1 declared "better than 0.5%". The branch also
+        made the hazard jump by about 5% between 82 and 83, where `q`
+        crosses 0.1. Every age from 0 to 100 is checked, so the regression
+        cannot hide in the ages a sparser grid would skip.
+        """
+        dt = 24.0 / 8760.0
+        for age in range(0, 101):
+            annual_q = annual_mortality_probability(age, PRE_INDUSTRIAL_PARAMS)
+            tick_q = tick_mortality_probability(age, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=24)
+            expected = 1.0 - (1.0 - annual_q) ** dt
+            assert tick_q == pytest.approx(expected, rel=1e-12), (
+                f"age {age}: tick probability {tick_q} is not the geometric "
+                f"conversion {expected} of the annual {annual_q}"
+            )
 
     def test_geometric_branch_dt_one(self):
         """With annual_q=0.25 and dt=1.0 the geometric branch returns exactly 0.25.
@@ -280,18 +330,91 @@ class TestFitHeligmanPollard:
                 f"relative error={rel_err:.2%} > 5%"
             )
 
-    def test_degenerate_input_raises_runtime_error(self):
-        """Constant-zero q vector raises RuntimeError (fit cannot converge).
+    @pytest.mark.parametrize(
+        "template_name",
+        [
+            "pre_industrial_christian",
+            "pre_industrial_islamic",
+            "industrial",
+            "modern_democracy",
+            "sci_fi",
+        ],
+    )
+    def test_the_default_start_recovers_every_shipped_schedule(self, template_name):
+        """From the default `p0`, each shipped template's own `q(x)` comes back.
 
-        A vector of zeros is incompatible with the HP model (all parameters
-        would need to be zero, which is outside the A, H, G bounds or produces
-        a degenerate flat surface). scipy.optimize.curve_fit should not converge.
+        `sci_fi` carries `q` between 4.3e-6 and 8.3e-3 over ages 0-99. An unweighted fit of the
+        absolute residuals stops as soon as they are small in absolute
+        terms, which at those magnitudes is before the young ages fit at all:
+        round 15 of the Plan 4 phase-6 gate measured a maximum relative error
+        of 0.57 there, and 1.1e-5 under `modern_democracy`. The fit now
+        minimises the relative deviations `q_hat / q - 1`, which weigh every
+        age by its own magnitude.
         """
-        with pytest.raises(RuntimeError, match="Heligman-Pollard fit did not converge"):
+        from epocha.apps.demography.template_loader import load_template
+
+        params = load_template(template_name)["mortality"]["heligman_pollard"]
+        ages = list(range(0, 100))
+        observed = [annual_mortality_probability(age, params) for age in ages]
+
+        fitted = fit_heligman_pollard(ages, observed)
+
+        worst = max(
+            abs(annual_mortality_probability(age, fitted) - q) / q
+            for age, q in zip(ages, observed, strict=True)
+        )
+        assert worst < 1e-6, f"{template_name}: max relative error {worst:.2e}"
+
+    def test_a_zero_schedule_is_the_extreme_underdetermined_case(self):
+        """A schedule of zeros leaves no age with `q > 0` in the fit.
+
+        It is the limit of the case below, zero equations for eight unknowns,
+        and §6.3 documents one error for it. A separate guard used to raise
+        `RuntimeError` "did not converge" first, although no fit was ever
+        attempted (scoped review of the round-16 closure).
+        """
+        with pytest.raises(UnderdeterminedFitError, match="got 0 ages"):
             fit_heligman_pollard(
                 self.FIT_AGES,
                 [0.0] * len(self.FIT_AGES),
             )
+
+    @pytest.mark.parametrize("positive_ages", [1, 7])
+    def test_fewer_positive_ages_than_parameters_raise(self, positive_ages):
+        """Eight parameters need at least eight observed ages.
+
+        The ages observed at `q = 0` are left out of the fit, so a schedule
+        with fewer than eight positive values reaches `curve_fit` with more
+        unknowns than equations. With bounds it uses the trust-region solver,
+        which does not refuse that: round 16 of the Plan 4 phase-6 gate found
+        it returning an underdetermined parameter set as if it were a fit.
+        Seven positives is the edge; the other ages, at zero, keep the input
+        as long as a real schedule.
+        """
+        observed = [0.0] * len(self.FIT_AGES)
+        for age in range(positive_ages):
+            observed[age] = annual_mortality_probability(age, PRE_INDUSTRIAL_PARAMS)
+
+        with pytest.raises(UnderdeterminedFitError, match=f"{positive_ages} ages"):
+            fit_heligman_pollard(self.FIT_AGES, observed)
+
+    def test_eight_positive_ages_are_enough_to_fit(self):
+        """The edge of the guard: eight observed ages are fitted, not refused.
+
+        With as many ages as parameters the fit has no residual degree of
+        freedom, so scipy cannot estimate the covariance and says so; the
+        warning is the expected companion of the edge, not a defect.
+        """
+        from scipy.optimize import OptimizeWarning
+
+        observed = [0.0] * len(self.FIT_AGES)
+        for age in range(len(HP_PARAM_KEYS)):
+            observed[age] = annual_mortality_probability(age, PRE_INDUSTRIAL_PARAMS)
+
+        with pytest.warns(OptimizeWarning, match="Covariance"):
+            fitted = fit_heligman_pollard(self.FIT_AGES, observed)
+
+        assert set(fitted) == set(HP_PARAM_KEYS)
 
     def test_fitted_params_within_bounds(self, synthetic_q):
         """Fitted parameters satisfy the documented bounds: A>=0, H>=1.0.
@@ -308,3 +431,41 @@ class TestFitHeligmanPollard:
         # Additional bound checks consistent with curve_fit lower/upper
         assert fitted["D"] >= 0.0, f"D must be >= 0, got {fitted['D']}"
         assert fitted["G"] >= 0.0, f"G must be >= 0, got {fitted['G']}"
+
+
+# ---------------------------------------------------------------------------
+# The domain of the per-tick conversion: a tick of at most one simulated year
+# ---------------------------------------------------------------------------
+
+
+class TestTickLongerThanAYear:
+    """`dt` above one simulated year is rejected, not silently mis-compounded.
+
+    With `q` held over each year of age, the ticks of one year compound back
+    to exactly `q(x)` only while a tick fits inside a year of age: a tick of
+    `dt > 1` years spans two ages and charges both at the first one's `q`.
+    Round 15 of the Plan 4 phase-6 gate measured it: at yearly ticks under
+    acceleration 2, `l(2)` came out 0.9426 against the life table's 0.9662.
+    """
+
+    def test_a_tick_of_two_simulated_years_is_rejected(self):
+        from epocha.apps.demography.orchestrator import TickLongerThanAYearError
+
+        with pytest.raises(TickLongerThanAYearError, match="2.0"):
+            tick_mortality_probability(
+                30, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=8760, demography_acceleration=2.0
+            )
+
+    def test_a_tick_one_hour_longer_than_a_year_is_rejected(self):
+        from epocha.apps.demography.orchestrator import TickLongerThanAYearError
+
+        with pytest.raises(TickLongerThanAYearError):
+            tick_mortality_probability(30, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=8761)
+
+    def test_a_tick_of_exactly_one_simulated_year_is_admitted(self):
+        """The boundary belongs to the domain: half-year ticks at acceleration 2."""
+        tick_q = tick_mortality_probability(
+            30, PRE_INDUSTRIAL_PARAMS, tick_duration_hours=4380, demography_acceleration=2.0
+        )
+
+        assert tick_q == pytest.approx(annual_mortality_probability(30, PRE_INDUSTRIAL_PARAMS))

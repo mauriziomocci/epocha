@@ -248,5 +248,35 @@
   "migration": {
     "flight_trigger_ticks": 10,
     "adulthood_age": 18
+  },
+  "names": {
+    "male": [
+      "Luca",
+      "Marco",
+      "Andrea",
+      "Daniel",
+      "Noah",
+      "Liam",
+      "Mateo",
+      "Hugo",
+      "Nikola",
+      "Ivan",
+      "Omar",
+      "Kai"
+    ],
+    "female": [
+      "Sofia",
+      "Emma",
+      "Chiara",
+      "Nora",
+      "Alba",
+      "Mila",
+      "Iris",
+      "Lena",
+      "Zoe",
+      "Aya",
+      "Sara",
+      "Elif"
+    ]
   }
 }

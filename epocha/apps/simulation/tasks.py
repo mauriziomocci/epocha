@@ -45,11 +45,40 @@ def run_simulation_loop(simulation_id: int) -> None:
     # 1. Economy tick (fast, synchronous)
     run_economy(simulation)
 
-    # 2. Build chord of agent tasks
-    from epocha.apps.agents.tasks import process_agent_turn
+    # 2. Demography tick (synchronous, and BEFORE the chord on purpose).
+    #
+    # The block is a set-based mutation of tick state, like the economy and
+    # unlike the per-agent decisions. Running it here means the agents
+    # deciding at tick T see the population tick T actually has: the dead are
+    # dead, the newborns exist, the estates are settled, the forced moves have
+    # happened. Running it after the chord would have every agent decide
+    # against a population one tick stale.
+    #
+    # A consequence worth stating rather than discovering: an agent who dies
+    # in the demography block is not in this tick's chord header, because the
+    # header is built below, after the block. That is the correct reading of
+    # "whoever dies at T does not act at T".
+    #
+    # The block returns immediately when the simulation has not opted in, so
+    # simulations without demography keep their exact previous query count.
+    from epocha.apps.demography.orchestrator import run_demography_tick
 
+    run_demography_tick(simulation, tick)
+
+    # 3. Build chord of agent tasks
+    from epocha.apps.agents.tasks import process_agent_turn
+    from epocha.apps.demography.orchestrator import minor_agent_ids
+
+    # Minors are not called to the decision loop: a newborn must not choose
+    # `move_to` and leave its household alone (the guarantee
+    # `coordinate_family_migration` documents). Read AFTER the demography
+    # block, so a child born this tick is already in the population. The
+    # predicate is demography's; an empty set when the simulation has not
+    # opted in keeps the chord exactly as it was.
     agent_ids = list(
-        Agent.objects.filter(simulation=simulation, is_alive=True).values_list("id", flat=True)
+        Agent.objects.filter(simulation=simulation, is_alive=True)
+        .exclude(id__in=minor_agent_ids(simulation, tick))
+        .values_list("id", flat=True)
     )
 
     if not agent_ids:

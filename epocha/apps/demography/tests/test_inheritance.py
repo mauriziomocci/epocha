@@ -88,11 +88,12 @@ step) sets it, not this function.
 
 Also covers the SC-004 era coverage gate (Plan 3, T041, Phase 8 closure):
 all five era templates drive BOTH the inheritance path
-(`process_inheritance_batch`) and the migration path
-(`coordinate_family_migration`, `evaluate_emergency_flight`) without
-error, each asserted against era-appropriate outcomes -- estate tax rate,
-succession rule signature, adulthood_age, and flight_trigger_ticks --
-never merely "does not raise".
+(`process_inheritance_batch`) and the migration path (the household
+`context.household_keys` derives and `coordinate_family_migration` moves,
+and the flight decision `_resolve_flight_decision`) without error, each
+asserted against era-appropriate outcomes -- estate tax rate, succession
+rule signature, adulthood_age, and flight_trigger_ticks -- never merely
+"does not raise".
 """
 
 from __future__ import annotations
@@ -109,6 +110,7 @@ import pytest
 from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent, Memory, Relationship
+from epocha.apps.demography.context import household_keys
 from epocha.apps.demography.couple import form_couple
 from epocha.apps.demography.inheritance import (
     DEFAULT_ERA_MEAN,
@@ -129,10 +131,11 @@ from epocha.apps.demography.inheritance import (
     transfer_loans_as_lender,
 )
 from epocha.apps.demography.migration import (
+    _resolve_flight_decision,
     coordinate_family_migration,
-    evaluate_emergency_flight,
 )
 from epocha.apps.demography.models import Couple, DemographyEvent
+from epocha.apps.demography.orchestrator import age_in_years
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.economy.models import Currency, Loan
@@ -1477,7 +1480,16 @@ class TestApplySocialInheritanceClarkRegression:
         father = _make_agent(sim, zone, "Father", social_class="elite", education_level=0.9)
         child = _make_agent(sim, zone, "Child")
 
-        rng = get_seeded_rng(sim, tick=sim.current_tick, phase="inheritance")
+        # A fixed stream, not one derived from the simulation. `get_seeded_rng`
+        # mixes `simulation.id` into the seed, and that id is the database
+        # sequence: it moves whenever another test file creates more rows
+        # before this one. This assertion is on a SAMPLED outcome, so a
+        # different stream can legitimately land outside the interval and
+        # turn the test red for a reason that has nothing to do with the
+        # code under test -- which is exactly what happened when this branch
+        # added new fixtures. Pinning the stream keeps the property being
+        # asserted and removes the dependency on suite ordering.
+        rng = random.Random(20260827)
         apply_social_inheritance(child, mother, father, template, zone_class_mean=4.0, rng=rng)
 
         assert child.social_class in _TEST_VALID_SAMPLED_CLASS_LABELS
@@ -2141,7 +2153,14 @@ class TestApplyInheritanceAtBirthEndToEnd:
         )
         child = _make_agent(sim, zone, "Child")
 
-        apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
+        apply_inheritance_at_birth(
+            child,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            get_seeded_rng(sim, sim.current_tick, phase="inheritance"),
+        )
 
         for name in SCALAR_HERITABLE_TRAITS:
             value = getattr(child, name)
@@ -2166,6 +2185,19 @@ class TestApplyInheritanceAtBirthDeterminism:
     """SC-003: identical simulation seed and tick reproduce an identical
     child state bit for bit -- proof that the fixed step order feeds all
     three inheritance mechanisms from a single continuous RNG stream.
+
+    HOW THIS IS PROVEN, AND WHY IT CHANGED (Plan 4, SC-006): the property
+    is that ONE run, replayed from the same seed and tick, produces the
+    same child. Until Plan 4 this test proved it by applying the pipeline
+    to TWO DIFFERENT children in the same tick and asserting they came out
+    identical -- which held only because the function re-derived its stream
+    internally from `(simulation, tick, "inheritance")` and consumed a draw
+    count independent of the parents. That is the Plan 4 defect, and the
+    test was asserting it as a desirable property: in a live tick it means
+    every newborn receives the same sex, the same orientation and the same
+    trait residuals. The replay is now expressed as a replay -- the same
+    child fixture, two streams derived identically -- so it proves
+    repeatability without requiring two children to collide.
 
     SCOPE, STATED HONESTLY (phase-6 audit round 1, T046, M-1 test
     remediation): this test calls `apply_inheritance_at_birth` twice in
@@ -2204,8 +2236,22 @@ class TestApplyInheritanceAtBirthDeterminism:
         child_a = _make_agent(sim, zone, "ChildA")
         child_b = _make_agent(sim, zone, "ChildB")
 
-        apply_inheritance_at_birth(child_a, mother, father, sim, sim.current_tick)
-        apply_inheritance_at_birth(child_b, mother, father, sim, sim.current_tick)
+        apply_inheritance_at_birth(
+            child_a,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            get_seeded_rng(sim, sim.current_tick, phase="inheritance"),
+        )
+        apply_inheritance_at_birth(
+            child_b,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            get_seeded_rng(sim, sim.current_tick, phase="inheritance"),
+        )
 
         for name in SCALAR_HERITABLE_TRAITS:
             assert getattr(child_a, name) == getattr(child_b, name), name
@@ -2218,6 +2264,27 @@ class TestApplyInheritanceAtBirthDeterminism:
         assert child_a.wealth == child_b.wealth == 0.0
         assert child_a.zone == child_b.zone == mother.zone
 
+        # The half that separates replay from the defect it used to certify.
+        # Everything above holds whether the function consumes the stream it
+        # is handed or quietly re-derives its own from
+        # `(simulation, tick, "inheritance")` -- the two are the same
+        # sequence at the same offset. Advancing the stream before the third
+        # call makes them different sequences, so a function reading its
+        # argument produces a different child and one deriving internally
+        # produces the same one. Without this the test is green on the
+        # defect and on the fix alike, which is what it was.
+        child_c = _make_agent(sim, zone, "ChildC")
+        advanced = get_seeded_rng(sim, sim.current_tick, phase="inheritance")
+        advanced.random()
+        apply_inheritance_at_birth(child_c, mother, father, sim, sim.current_tick, advanced)
+        assert any(
+            getattr(child_c, name) != getattr(child_a, name) for name in SCALAR_HERITABLE_TRAITS
+        ), (
+            "a child born off an advanced stream is identical to one born off "
+            "the stream's start: the function is not reading the rng it was "
+            "given"
+        )
+
 
 class TestApplyInheritanceAtBirthEmptyZoneGuard:
     """A zone with zero living agents does not raise, and the zone-mean
@@ -2229,21 +2296,16 @@ class TestApplyInheritanceAtBirthEmptyZoneGuard:
     (_UNKNOWN_CLASS_FALLBACK_RANK, the "working" rank = 3) rather than only
     asserting "no exception raised".
 
-    Since A3 the rule is no longer deterministic. `apply_inheritance_at_birth`
-    builds its own rng, so the innovation is silenced at the seam where that
-    rng is made rather than by passing one in -- the criterion is the FALLBACK
-    MEAN reaching the arithmetic, not the draw layered on top of it.
+    Since A3 the rule is no longer deterministic, so the innovation is
+    silenced by handing the function a noiseless stream -- the criterion is
+    the FALLBACK MEAN reaching the arithmetic, not the draw layered on top of
+    it. Until Plan 4 that had to be done by monkeypatching `get_seeded_rng`
+    inside the module, because the function derived its own stream; now the
+    stream is a parameter and the stub goes in through the front door.
     """
 
     @pytest.mark.django_db
-    def test_empty_zone_falls_back_to_working_rank_mean(self, sim_with_zone, monkeypatch):
-        import epocha.apps.demography.inheritance as inheritance_module
-
-        monkeypatch.setattr(
-            inheritance_module,
-            "get_seeded_rng",
-            lambda simulation, tick, phase: _NoGaussianNoise(0),
-        )
+    def test_empty_zone_falls_back_to_working_rank_mean(self, sim_with_zone):
         sim, populated_zone = sim_with_zone
         empty_zone = Zone.objects.create(
             world=populated_zone.world,
@@ -2275,7 +2337,14 @@ class TestApplyInheritanceAtBirthEmptyZoneGuard:
         mother.zone = empty_zone
         child = _make_agent(sim, populated_zone, "Child")
 
-        apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
+        apply_inheritance_at_birth(
+            child,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            _NoGaussianNoise(0),
+        )
 
         # clark_regression: child_rank = 0.7*parent_rank + 0.3*zone_class_mean.
         # father.social_class = "middle" -> parent_rank = 2. Empty-zone
@@ -2322,7 +2391,14 @@ class TestApplyInheritanceAtBirthNoPersistence:
         original_wealth = child.wealth
         assert original_wealth == 100.0
 
-        apply_inheritance_at_birth(child, mother, father, sim, sim.current_tick)
+        apply_inheritance_at_birth(
+            child,
+            mother,
+            father,
+            sim,
+            sim.current_tick,
+            get_seeded_rng(sim, sim.current_tick, phase="inheritance"),
+        )
 
         # In-memory mutation happened...
         assert child.wealth == 0.0
@@ -4127,9 +4203,11 @@ class TestTransferLoansAsLenderQueryBudget:
 # wardship statale). L'orfano riceve comunque la sua eredità direttamente;
 # il caretaker amministra ma non possiede gli asset."
 #
-# The treasury-subsistence flow itself is Plan 4's per-tick orchestrator
-# job and is NOT asserted here -- only the state-ward flag this function is
-# responsible for (a "state_ward" entry appended to Agent.conditions) is.
+# The ward's subsistence is NOT asserted here: no treasury transfer exists
+# for it, and Plan 4 treats a state-ward minor as provided for in the
+# household subsistence predicate (`context.starving_households`). Only
+# the state-ward flag this function is responsible for (a "state_ward"
+# entry appended to Agent.conditions) is asserted.
 #
 # `assign_orphan_caretaker` does not exist yet (implemented in T025); the
 # import above therefore fails at collection time with "cannot import name
@@ -4141,7 +4219,30 @@ class TestTransferLoansAsLenderQueryBudget:
 # an orphaned minor before calling this function -- no test here exercises
 # adulthood, aliveness, or "still has a living parent" guards on `minor`
 # itself; those are explicitly out of scope for T024 per the task
-# description.
+# description. The CANDIDATES' adulthood is this function's own rule
+# (row 45), so every relative below is born `_ADULT_BIRTH_TICK` plus a
+# small offset that keeps the original birth order, and the minor is born
+# at the fixture's current tick.
+
+# Ticks per year under the fixture's world (`World.tick_duration_hours`
+# default 24.0) and every shipped template's `acceleration` of 1.0: the
+# divisor `orchestrator.age_in_years` applies to `tick - birth_tick`.
+_TICKS_PER_YEAR = 365
+
+
+# Thirty years before the fixture's `current_tick`: an adult under every
+# shipped template, whose `migration.adulthood_age` is 16 or 18.
+_ADULT_BIRTH_TICK = -30 * _TICKS_PER_YEAR
+
+
+def _assign_caretaker(minor, sim):
+    """`assign_orphan_caretaker` at the fixture's current tick, under
+    `pre_industrial_christian` (adulthood at 16) on the fixture's 24-hour
+    world -- the inputs every direct call in this section shares.
+    """
+    return assign_orphan_caretaker(
+        minor, sim.current_tick, load_template("pre_industrial_christian"), 24.0
+    )
 
 
 def _make_other_zone(world, name="OtherZone"):
@@ -4170,29 +4271,41 @@ class TestAssignOrphanCaretakerSameZoneKinshipPriority:
     @pytest.mark.django_db
     def test_same_zone_sibling_beats_same_zone_grandparent_and_aunt_uncle(self, sim_with_zone):
         sim, zone = sim_with_zone
-        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100)
         mother = _make_agent(
-            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+            sim,
+            zone,
+            "Mother",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
         )
-        _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
-        sibling = _make_agent(sim, zone, "Sibling", parent_agent=mother, birth_tick=5)
+        _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=_ADULT_BIRTH_TICK - 58)
+        sibling = _make_agent(
+            sim, zone, "Sibling", parent_agent=mother, birth_tick=_ADULT_BIRTH_TICK + 5
+        )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == sibling
 
     @pytest.mark.django_db
     def test_same_zone_grandparent_beats_same_zone_aunt_uncle_when_no_sibling(self, sim_with_zone):
         sim, zone = sim_with_zone
-        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100)
         mother = _make_agent(
-            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+            sim,
+            zone,
+            "Mother",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
         )
-        _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
+        _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=_ADULT_BIRTH_TICK - 58)
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == grandparent
 
@@ -4206,14 +4319,23 @@ class TestAssignOrphanCaretakerSameZoneKinshipPriority:
         """
         sim, zone = sim_with_zone
         other_zone = _make_other_zone(zone.world)
-        grandparent = _make_agent(sim, other_zone, "Grandparent", birth_tick=-100)
-        mother = _make_agent(
-            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        grandparent = _make_agent(
+            sim, other_zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100
         )
-        aunt = _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
+        mother = _make_agent(
+            sim,
+            zone,
+            "Mother",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
+        )
+        aunt = _make_agent(
+            sim, zone, "Aunt", parent_agent=grandparent, birth_tick=_ADULT_BIRTH_TICK - 58
+        )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == aunt
 
@@ -4229,14 +4351,21 @@ class TestAssignOrphanCaretakerStageOneBeatsStageTwo:
     def test_same_zone_grandparent_beats_other_zone_sibling(self, sim_with_zone):
         sim, zone = sim_with_zone
         other_zone = _make_other_zone(zone.world)
-        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100)
         mother = _make_agent(
-            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+            sim,
+            zone,
+            "Mother",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
         )
-        _make_agent(sim, other_zone, "Sibling", parent_agent=mother, birth_tick=5)
+        _make_agent(
+            sim, other_zone, "Sibling", parent_agent=mother, birth_tick=_ADULT_BIRTH_TICK + 5
+        )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == grandparent
 
@@ -4249,15 +4378,26 @@ class TestAssignOrphanCaretakerStageOneBeatsStageTwo:
         """
         sim, zone = sim_with_zone
         other_zone = _make_other_zone(zone.world)
-        grandparent = _make_agent(sim, other_zone, "Grandparent", birth_tick=-100)
-        mother = _make_agent(
-            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        grandparent = _make_agent(
+            sim, other_zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100
         )
-        aunt = _make_agent(sim, zone, "Aunt", parent_agent=grandparent, birth_tick=-58)
-        _make_agent(sim, other_zone, "Sibling", parent_agent=mother, birth_tick=5)
+        mother = _make_agent(
+            sim,
+            zone,
+            "Mother",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
+        )
+        aunt = _make_agent(
+            sim, zone, "Aunt", parent_agent=grandparent, birth_tick=_ADULT_BIRTH_TICK - 58
+        )
+        _make_agent(
+            sim, other_zone, "Sibling", parent_agent=mother, birth_tick=_ADULT_BIRTH_TICK + 5
+        )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == aunt
 
@@ -4271,14 +4411,23 @@ class TestAssignOrphanCaretakerStageTwoAnyZonePriority:
     def test_other_zone_sibling_beats_other_zone_grandparent(self, sim_with_zone):
         sim, zone = sim_with_zone
         other_zone = _make_other_zone(zone.world)
-        grandparent = _make_agent(sim, other_zone, "Grandparent", birth_tick=-100)
-        mother = _make_agent(
-            sim, other_zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+        grandparent = _make_agent(
+            sim, other_zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100
         )
-        sibling = _make_agent(sim, other_zone, "Sibling", parent_agent=mother, birth_tick=5)
+        mother = _make_agent(
+            sim,
+            other_zone,
+            "Mother",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
+        )
+        sibling = _make_agent(
+            sim, other_zone, "Sibling", parent_agent=mother, birth_tick=_ADULT_BIRTH_TICK + 5
+        )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == sibling
 
@@ -4288,13 +4437,20 @@ class TestAssignOrphanCaretakerStageTwoAnyZonePriority:
     ):
         sim, zone = sim_with_zone
         other_zone = _make_other_zone(zone.world)
-        grandparent = _make_agent(sim, other_zone, "Grandparent", birth_tick=-100)
+        grandparent = _make_agent(
+            sim, other_zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100
+        )
         mother = _make_agent(
-            sim, other_zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+            sim,
+            other_zone,
+            "Mother",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
         )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == grandparent
 
@@ -4303,15 +4459,15 @@ class TestAssignOrphanCaretakerNoLivingRelativeStateWard:
     """No living relative anywhere (neither zone): returns None,
     `caretaker_agent` stays None, and "state_ward" is appended to
     `Agent.conditions` -- the flag mechanism the design spec calls
-    "flaggato" ahead of the treasury covering subsistence (Plan 4's
-    per-tick job, not asserted here).
+    "flaggato". The ward's subsistence belongs to the household predicate,
+    not to this function, and is not asserted here.
     """
 
     @pytest.mark.django_db
     def test_no_living_relative_returns_none_and_flags_state_ward(self, sim_with_zone):
         sim, zone = sim_with_zone
-        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
-        father = _make_agent(sim, zone, "Father", is_alive=False, birth_tick=-60)
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=_ADULT_BIRTH_TICK - 60)
+        father = _make_agent(sim, zone, "Father", is_alive=False, birth_tick=_ADULT_BIRTH_TICK - 60)
         minor = _make_agent(
             sim,
             zone,
@@ -4322,7 +4478,7 @@ class TestAssignOrphanCaretakerNoLivingRelativeStateWard:
             birth_tick=10,
         )
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker is None
         assert minor.caretaker_agent is None
@@ -4331,7 +4487,7 @@ class TestAssignOrphanCaretakerNoLivingRelativeStateWard:
     @pytest.mark.django_db
     def test_state_ward_flag_is_appended_not_overwriting_existing_conditions(self, sim_with_zone):
         sim, zone = sim_with_zone
-        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=_ADULT_BIRTH_TICK - 60)
         minor = _make_agent(
             sim,
             zone,
@@ -4342,7 +4498,7 @@ class TestAssignOrphanCaretakerNoLivingRelativeStateWard:
             conditions=["chronic_illness"],
         )
 
-        assign_orphan_caretaker(minor, tick=sim.current_tick)
+        _assign_caretaker(minor, sim)
 
         assert minor.conditions == ["chronic_illness", "state_ward"]
 
@@ -4356,18 +4512,20 @@ class TestAssignOrphanCaretakerDeterministicTiebreak:
     @pytest.mark.django_db
     def test_lower_birth_tick_sibling_wins_regardless_of_creation_order(self, sim_with_zone):
         sim, zone = sim_with_zone
-        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=_ADULT_BIRTH_TICK - 60)
         # Created in reverse birth_tick order: the younger sibling gets the
         # LOWER id, so a naive "first created" or "lowest id" selection
         # would wrongly pick it instead of the older (lower birth_tick)
         # sibling.
         younger_sibling = _make_agent(
-            sim, zone, "YoungerSibling", parent_agent=mother, birth_tick=20
+            sim, zone, "YoungerSibling", parent_agent=mother, birth_tick=_ADULT_BIRTH_TICK + 20
         )
-        older_sibling = _make_agent(sim, zone, "OlderSibling", parent_agent=mother, birth_tick=5)
+        older_sibling = _make_agent(
+            sim, zone, "OlderSibling", parent_agent=mother, birth_tick=_ADULT_BIRTH_TICK + 5
+        )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == older_sibling
         # Self-check: id order is the opposite of birth_tick order, so this
@@ -4377,12 +4535,16 @@ class TestAssignOrphanCaretakerDeterministicTiebreak:
     @pytest.mark.django_db
     def test_equal_birth_tick_lower_id_wins(self, sim_with_zone):
         sim, zone = sim_with_zone
-        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
-        first_sibling = _make_agent(sim, zone, "FirstSibling", parent_agent=mother, birth_tick=5)
-        second_sibling = _make_agent(sim, zone, "SecondSibling", parent_agent=mother, birth_tick=5)
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=_ADULT_BIRTH_TICK - 60)
+        first_sibling = _make_agent(
+            sim, zone, "FirstSibling", parent_agent=mother, birth_tick=_ADULT_BIRTH_TICK + 5
+        )
+        second_sibling = _make_agent(
+            sim, zone, "SecondSibling", parent_agent=mother, birth_tick=_ADULT_BIRTH_TICK + 5
+        )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == first_sibling
         assert first_sibling.id < second_sibling.id  # self-check
@@ -4398,14 +4560,26 @@ class TestAssignOrphanCaretakerDeadRelativesSkipped:
         self, sim_with_zone
     ):
         sim, zone = sim_with_zone
-        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100)
         mother = _make_agent(
-            sim, zone, "Mother", parent_agent=grandparent, is_alive=False, birth_tick=-60
+            sim,
+            zone,
+            "Mother",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
         )
-        _make_agent(sim, zone, "DeadSibling", parent_agent=mother, birth_tick=5, is_alive=False)
+        _make_agent(
+            sim,
+            zone,
+            "DeadSibling",
+            parent_agent=mother,
+            birth_tick=_ADULT_BIRTH_TICK + 5,
+            is_alive=False,
+        )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == grandparent
 
@@ -4413,13 +4587,18 @@ class TestAssignOrphanCaretakerDeadRelativesSkipped:
     def test_only_relative_anywhere_is_dead_yields_none_and_flags_state_ward(self, sim_with_zone):
         sim, zone = sim_with_zone
         other_zone = _make_other_zone(zone.world)
-        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=_ADULT_BIRTH_TICK - 60)
         _make_agent(
-            sim, other_zone, "DeadSibling", parent_agent=mother, birth_tick=5, is_alive=False
+            sim,
+            other_zone,
+            "DeadSibling",
+            parent_agent=mother,
+            birth_tick=_ADULT_BIRTH_TICK + 5,
+            is_alive=False,
         )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker is None
         assert "state_ward" in minor.conditions
@@ -4436,11 +4615,13 @@ class TestAssignOrphanCaretakerNoPersistence:
     @pytest.mark.django_db
     def test_successful_assignment_is_not_persisted_to_database(self, sim_with_zone):
         sim, zone = sim_with_zone
-        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
-        sibling = _make_agent(sim, zone, "Sibling", parent_agent=mother, birth_tick=5)
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=_ADULT_BIRTH_TICK - 60)
+        sibling = _make_agent(
+            sim, zone, "Sibling", parent_agent=mother, birth_tick=_ADULT_BIRTH_TICK + 5
+        )
         minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == sibling
         # The in-memory instance IS mutated by the call...
@@ -4462,15 +4643,22 @@ class TestAssignOrphanCaretakerOwnershipFixMiss1:
     @pytest.mark.django_db
     def test_call_does_not_transfer_wealth_between_orphan_and_caretaker(self, sim_with_zone):
         sim, zone = sim_with_zone
-        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=-60)
-        sibling = _make_agent(sim, zone, "Sibling", parent_agent=mother, birth_tick=5, wealth=100.0)
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=_ADULT_BIRTH_TICK - 60)
+        sibling = _make_agent(
+            sim,
+            zone,
+            "Sibling",
+            parent_agent=mother,
+            birth_tick=_ADULT_BIRTH_TICK + 5,
+            wealth=100.0,
+        )
         minor = _make_agent(
             sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10, wealth=500.0
         )
         minor_wealth_before = minor.wealth
         sibling_wealth_before = sibling.wealth
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == sibling
         assert minor.wealth == minor_wealth_before
@@ -4488,13 +4676,13 @@ class TestAssignOrphanCaretakerKinshipDefinitions:
     @pytest.mark.django_db
     def test_half_sibling_via_other_parent_agent_counts_as_sibling(self, sim_with_zone):
         sim, zone = sim_with_zone
-        father = _make_agent(sim, zone, "Father", is_alive=False, birth_tick=-60)
+        father = _make_agent(sim, zone, "Father", is_alive=False, birth_tick=_ADULT_BIRTH_TICK - 60)
         half_sibling = _make_agent(
-            sim, zone, "HalfSibling", other_parent_agent=father, birth_tick=5
+            sim, zone, "HalfSibling", other_parent_agent=father, birth_tick=_ADULT_BIRTH_TICK + 5
         )
         minor = _make_agent(sim, zone, "Minor", other_parent_agent=father, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == half_sibling
 
@@ -4505,15 +4693,74 @@ class TestAssignOrphanCaretakerKinshipDefinitions:
         the minor's `other_parent_agent` (father) side, not `parent_agent`.
         """
         sim, zone = sim_with_zone
-        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=-100)
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100)
         father = _make_agent(
-            sim, zone, "Father", parent_agent=grandparent, is_alive=False, birth_tick=-60
+            sim,
+            zone,
+            "Father",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
         )
         minor = _make_agent(sim, zone, "Minor", other_parent_agent=father, age=10, birth_tick=10)
 
-        caretaker = assign_orphan_caretaker(minor, tick=sim.current_tick)
+        caretaker = _assign_caretaker(minor, sim)
 
         assert caretaker == grandparent
+
+
+class TestAssignOrphanCaretakerCandidateMustBeAnAdult:
+    """Row 45: a relative below the era's `migration.adulthood_age` is no
+    candidate at any rung, on the canonical age over `birth_tick` -- the
+    `age` column is set to an adult value here precisely so that reading
+    it instead would pass the sibling.
+    """
+
+    @pytest.mark.django_db
+    def test_minor_sibling_is_skipped_for_an_adult_grandparent(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        grandparent = _make_agent(sim, zone, "Grandparent", birth_tick=_ADULT_BIRTH_TICK - 100)
+        mother = _make_agent(
+            sim,
+            zone,
+            "Mother",
+            parent_agent=grandparent,
+            is_alive=False,
+            birth_tick=_ADULT_BIRTH_TICK - 60,
+        )
+        _make_agent(
+            sim,
+            zone,
+            "MinorSibling",
+            parent_agent=mother,
+            age=30,
+            birth_tick=sim.current_tick - 14 * _TICKS_PER_YEAR,
+        )
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = _assign_caretaker(minor, sim)
+
+        assert caretaker == grandparent
+
+    @pytest.mark.django_db
+    def test_sibling_on_the_day_of_adulthood_qualifies(self, sim_with_zone):
+        """The threshold is inclusive, as in `couple.meets_marriage_age`:
+        exactly 16 years under `pre_industrial_christian` is adult.
+        """
+        sim, zone = sim_with_zone
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, birth_tick=_ADULT_BIRTH_TICK)
+        sibling = _make_agent(
+            sim,
+            zone,
+            "Sibling",
+            parent_agent=mother,
+            birth_tick=sim.current_tick - 16 * _TICKS_PER_YEAR,
+        )
+        minor = _make_agent(sim, zone, "Minor", parent_agent=mother, age=10, birth_tick=10)
+
+        caretaker = _assign_caretaker(minor, sim)
+
+        assert caretaker == sibling
 
 
 # ---------------------------------------------------------------------------
@@ -4808,6 +5055,49 @@ class TestGenerateMourningMemoriesNoPropagation:
         generate_mourning_memories(deceased, tick=sim.current_tick)
 
         assert not Memory.objects.filter(agent=zone_mate, origin_agent=deceased).exists()
+
+
+class TestTheWidowIsNotToldOfHerOwnLoss:
+    """Round 13 of the phase-6 gate (R13-1): the mourning memory is first
+    hand with the deceased as origin, and the propagation it enters carries
+    the death back toward the widow for as long as the news travels. The
+    widow already knows; hearsay or rumor of her own husband's death is an
+    echo, not news.
+    """
+
+    @pytest.mark.django_db
+    def test_the_widow_holds_only_her_first_hand_memory_while_the_news_travels(self, sim_with_zone):
+        """Triangle: the widow and two friends who know each other, none of
+        them tied to the deceased. With the default three hops a tick-50
+        death is retold at ticks 50, 51 and 52; the widow must hold the one
+        first-hand memory throughout."""
+        from epocha.apps.agents.information_flow import propagate_information
+
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Marito", is_alive=False)
+        widow = _make_agent(sim, zone, "Vedova")
+        form_couple(deceased, widow, formed_at_tick=1)
+        first = _make_agent(sim, zone, "Prima")
+        second = _make_agent(sim, zone, "Seconda")
+        for one, other in ((widow, first), (widow, second), (first, second)):
+            Relationship.objects.create(
+                agent_from=one,
+                agent_to=other,
+                relation_type=Relationship.RelationType.FRIENDSHIP,
+                strength=0.5,
+                sentiment=0.5,
+                since_tick=0,
+            )
+
+        generate_mourning_memories(deceased, tick=50)
+        for tick in range(50, 54):
+            propagate_information(sim, tick=tick)
+
+        assert Memory.objects.filter(
+            agent=first, origin_agent=deceased, source_type=Memory.SourceType.RUMOR, tick_created=52
+        ).exists(), "the death did not travel to the last hop: the witness proves nothing"
+        remembered = Memory.objects.filter(agent=widow, origin_agent=deceased)
+        assert list(remembered.values_list("source_type", flat=True)) == [Memory.SourceType.DIRECT]
 
 
 class TestGenerateMourningMemoriesNoSaveOnDeceased:
@@ -5496,7 +5786,7 @@ class TestProcessInheritanceBatchOrphanCaretaker:
             parent_agent=mother,
             other_parent_agent=father,
             wealth=0.0,
-            birth_tick=-100,
+            birth_tick=_ADULT_BIRTH_TICK,
         )
         minor = _make_agent(
             sim,
@@ -5513,6 +5803,224 @@ class TestProcessInheritanceBatchOrphanCaretaker:
 
         persisted_minor = Agent.objects.get(id=minor.id)
         assert persisted_minor.caretaker_agent_id == sibling.id
+
+
+class TestProcessInheritanceBatchCaretakerMustBeAnAdult:
+    """Row 45: a caretaker is an adult. Three siblings aged 14, 10 and 6,
+    orphaned in the same batch with no adult relative anywhere, used to
+    become each other's caretakers in a cycle -- the eldest cared for by
+    the middle one, both younger ones by the eldest. None of them may be
+    chosen: each becomes a state ward.
+    """
+
+    @pytest.mark.django_db
+    def test_orphaned_minor_siblings_never_care_for_each_other(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+
+        mother = _make_agent(sim, zone, "Mother", is_alive=False, wealth=0.0, age=40)
+        father = _make_agent(sim, zone, "Father", is_alive=False, wealth=0.0, age=42)
+        siblings = [
+            _make_agent(
+                sim,
+                zone,
+                f"Sibling{years}",
+                parent_agent=mother,
+                other_parent_agent=father,
+                wealth=0.0,
+                age=years,
+                birth_tick=tick - years * _TICKS_PER_YEAR,
+            )
+            for years in (14, 10, 6)
+        ]
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[mother, father])
+
+        for sibling in siblings:
+            persisted = Agent.objects.get(id=sibling.id)
+            assert persisted.caretaker_agent_id is None
+            assert "state_ward" in persisted.conditions
+
+
+class TestProcessInheritanceBatchReplacesADeadCaretaker:
+    """Row 44: the death of a caretaker leaves its dependents without one.
+    The orphan below is the deceased grandmother's GRANDCHILD, so it is in
+    none of her heir categories; it is reached through `dependents`, the
+    reverse of its own `caretaker_agent`, and is given a new adult
+    caretaker, or the state-ward flag when no adult relative is left.
+    """
+
+    def _orphan_in_grandmothers_care(self, sim, zone, tick):
+        grandmother = _make_agent(
+            sim,
+            zone,
+            "Grandmother",
+            wealth=0.0,
+            age=60,
+            birth_tick=_ADULT_BIRTH_TICK - 30 * _TICKS_PER_YEAR,
+        )
+        mother = _make_agent(
+            sim,
+            zone,
+            "Mother",
+            parent_agent=grandmother,
+            is_alive=False,
+            wealth=0.0,
+            birth_tick=_ADULT_BIRTH_TICK,
+        )
+        orphan = _make_agent(
+            sim,
+            zone,
+            "Orphan",
+            parent_agent=mother,
+            caretaker_agent=grandmother,
+            wealth=0.0,
+            age=10,
+            birth_tick=tick - 10 * _TICKS_PER_YEAR,
+        )
+        return grandmother, orphan
+
+    @pytest.mark.django_db
+    def test_orphan_of_a_dead_caretaker_gets_an_adult_relative(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        grandmother, orphan = self._orphan_in_grandmothers_care(sim, zone, tick)
+        aunt = _make_agent(
+            sim, zone, "Aunt", parent_agent=grandmother, wealth=0.0, birth_tick=_ADULT_BIRTH_TICK
+        )
+        grandmother.is_alive = False
+        grandmother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[grandmother])
+
+        persisted = Agent.objects.get(id=orphan.id)
+        assert persisted.caretaker_agent_id == aunt.id
+        assert "state_ward" not in persisted.conditions
+
+    @pytest.mark.django_db
+    def test_orphan_of_a_dead_caretaker_with_no_adult_relative_is_a_state_ward(
+        self, sim_with_government
+    ):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        grandmother, orphan = self._orphan_in_grandmothers_care(sim, zone, tick)
+        grandmother.is_alive = False
+        grandmother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[grandmother])
+
+        persisted = Agent.objects.get(id=orphan.id)
+        assert persisted.caretaker_agent_id is None
+        assert "state_ward" in persisted.conditions
+
+    @pytest.mark.django_db
+    def test_a_dependent_who_comes_of_age_that_day_needs_no_caretaker(self, sim_with_government):
+        """A minor is younger than `migration.adulthood_age`; on the birthday
+        itself the dependent is an adult, as `context.household_keys` reads
+        her, and is neither given a caretaker nor flagged a state ward.
+        Round 12 of the phase-6 gate found the boundary unpinned: the
+        mutation of `<` into `<=` in the minority test survived."""
+        from epocha.apps.demography.template_loader import load_template
+
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        adulthood_age = load_template("industrial")["migration"]["adulthood_age"]
+        grandmother, orphan = self._orphan_in_grandmothers_care(sim, zone, tick)
+        # Daily ticks at acceleration 1.0: a year is exactly 365 of them, so
+        # this birth tick lands the canonical age on the threshold itself.
+        orphan.birth_tick = tick - adulthood_age * _TICKS_PER_YEAR
+        orphan.age = adulthood_age
+        orphan.save(update_fields=["birth_tick", "age"])
+        grandmother.is_alive = False
+        grandmother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[grandmother])
+
+        persisted = Agent.objects.get(id=orphan.id)
+        assert "state_ward" not in persisted.conditions
+        assert persisted.caretaker_agent_id == grandmother.id
+
+
+class TestProcessInheritanceBatchKeepsALivingCaretaker:
+    """A minor's guardians are its parents AND its current caretaker: a
+    child of the deceased whose caretaker is alive keeps that caretaker,
+    even when an adult sibling would rank first on the kinship ladder. The
+    data model allows a caretaker beside a recorded parent (design spec
+    field note: parents "both dead, or migrated away"), so the case is a
+    state the rows can hold, whichever path wrote it.
+    """
+
+    @pytest.mark.django_db
+    def test_minor_with_a_living_caretaker_is_not_reassigned(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        mother = _make_agent(sim, zone, "Mother", wealth=0.0, age=40, birth_tick=_ADULT_BIRTH_TICK)
+        caretaker = _make_agent(sim, zone, "Caretaker", wealth=0.0, birth_tick=_ADULT_BIRTH_TICK)
+        _make_agent(
+            sim, zone, "AdultSibling", parent_agent=mother, wealth=0.0, birth_tick=_ADULT_BIRTH_TICK
+        )
+        minor = _make_agent(
+            sim,
+            zone,
+            "Minor",
+            parent_agent=mother,
+            caretaker_agent=caretaker,
+            wealth=0.0,
+            age=10,
+            birth_tick=tick - 10 * _TICKS_PER_YEAR,
+        )
+        mother.is_alive = False
+        mother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[mother])
+
+        assert Agent.objects.get(id=minor.id).caretaker_agent_id == caretaker.id
+
+
+class TestProcessInheritanceBatchMinorityReadsTheCanonicalAge:
+    """The caretaker pass decides who is a minor on the age derived from
+    `birth_tick`, never on the `Agent.age` column, which is only a cache
+    the mortality step refreshes. Each case below gives the column the
+    opposite answer to `birth_tick`; the pass must follow `birth_tick`.
+    """
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("cached_age", "years_since_birth", "expects_caretaker"),
+        [(30, 10, True), (10, 30, False)],
+        ids=["stale-adult-column-on-a-child", "stale-child-column-on-an-adult"],
+    )
+    def test_minority_follows_birth_tick_not_the_age_column(
+        self, sim_with_government, cached_age, years_since_birth, expects_caretaker
+    ):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        mother = _make_agent(sim, zone, "Mother", wealth=0.0, birth_tick=_ADULT_BIRTH_TICK)
+        adult_sibling = _make_agent(
+            sim, zone, "AdultSibling", parent_agent=mother, wealth=0.0, birth_tick=_ADULT_BIRTH_TICK
+        )
+        child = _make_agent(
+            sim,
+            zone,
+            "Child",
+            parent_agent=mother,
+            wealth=0.0,
+            age=cached_age,
+            birth_tick=tick - years_since_birth * _TICKS_PER_YEAR,
+        )
+        mother.is_alive = False
+        mother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[mother])
+
+        expected = adult_sibling.id if expects_caretaker else None
+        assert Agent.objects.get(id=child.id).caretaker_agent_id == expected
 
 
 class TestProcessInheritanceBatchLoanTransfer:
@@ -6089,8 +6597,9 @@ class TestGetSeededRngSimulationIdCoupling:
 # ---------------------------------------------------------------------------
 # Era coverage gate (Plan 3, T041, SC-004, Phase 8 closure). All five era
 # templates must drive BOTH the inheritance path
-# (`process_inheritance_batch`) and the migration path
-# (`coordinate_family_migration`, `evaluate_emergency_flight`) without
+# (`process_inheritance_batch`) and the migration path (the household
+# `context.household_keys` derives and `coordinate_family_migration`
+# moves, and the flight decision `_resolve_flight_decision`) without
 # error, each producing era-appropriate outcomes -- not merely "does not
 # raise", the weakest possible criterion and unfit for the last gate
 # before the audit.
@@ -6268,10 +6777,15 @@ class TestEraCoverageSC004:
                 inheritable / 3, abs=_CONSERVATION_TOLERANCE
             )
 
-        # --- MIGRATION PATH, part 1: coordinate_family_migration reads
-        # this era's adulthood_age (16 vs 18) -- a 17-year-old is an adult
-        # under the 16-eras and a minor under the 18-eras, so the SAME
-        # fixture discriminates every era's own declared value.
+        # --- MIGRATION PATH, part 1: the household reads this era's
+        # adulthood_age (16 vs 18) -- a 17-year-old is an adult under the
+        # 16-eras and a minor under the 18-eras, so the SAME fixture
+        # discriminates every era's own declared value. The era value
+        # enters through `context.household_keys`, which derives the
+        # members `coordinate_family_migration` then moves: the members are
+        # derived here exactly as `process_emergency_flight` derives them,
+        # never listed by hand, or the assertion below would only echo the
+        # list this test wrote.
         target_zone = Zone.objects.create(
             world=zone.world,
             name=f"{era_name}Target",
@@ -6280,7 +6794,19 @@ class TestEraCoverageSC004:
             center=Point(250, 250),
         )
         family_head = _make_agent(sim, zone, f"{era_name}FamilyHead")
-        teenager = _make_agent(sim, zone, f"{era_name}Teenager", parent_agent=family_head, age=17)
+        # `birth_tick` set to agree with `age`: `context.household_keys`
+        # reads the canonical age derived from `birth_tick` (round 10 of the
+        # phase-6 gate), and this file's `_make_agent` defaults `birth_tick`
+        # to 0, which would make a seventeen-year-old a newborn by that
+        # reading and a minor under every era.
+        teenager = _make_agent(
+            sim,
+            zone,
+            f"{era_name}Teenager",
+            parent_agent=family_head,
+            age=17,
+            birth_tick=50 - 17 * 365,
+        )
 
         # Fix M-1 (phase-6 audit round 1, T046) -- TEST REMEDIATION: a
         # seeded rng is passed here (T038-added, KEYWORD-only-in-practice
@@ -6293,9 +6819,25 @@ class TestEraCoverageSC004:
         # `_scatter_location_in_zone` documents for `rng=None` -- the
         # scatter path added for I-12 in FIX BLOCK C (block "migration.py
         # half") had zero coverage from this file.
+        living = list(Agent.objects.filter(simulation=sim, is_alive=True).order_by("id"))
+        ages = [
+            age_in_years(
+                agent,
+                50,
+                zone.world.tick_duration_hours or 24.0,
+                float(template.get("acceleration", 1.0)),
+            )
+            for agent in living
+        ]
+        keys = household_keys(living, ages, sim, adulthood_age=float(adulthood_age))
+        members = [
+            agent
+            for agent in living
+            if keys[agent.id] == keys[family_head.id] and agent.id != family_head.id
+        ]
         rng = get_seeded_rng(sim, tick=50, phase="migration")
         household = coordinate_family_migration(
-            family_head, target_zone, tick=50, template=template, rng=rng
+            family_head, target_zone, tick=50, rng=rng, members=members
         )
 
         teenager.refresh_from_db()
@@ -6320,7 +6862,7 @@ class TestEraCoverageSC004:
                 "did instead"
             )
 
-        # --- MIGRATION PATH, part 2: evaluate_emergency_flight reads this
+        # --- MIGRATION PATH, part 2: _resolve_flight_decision reads this
         # era's flight_trigger_ticks (30/30/20/10/5) -- a fixed
         # consecutive_ticks_under_subsistence=15 clears the trigger for
         # sci_fi/modern_democracy but not for the other three, so the
@@ -6349,13 +6891,18 @@ class TestEraCoverageSC004:
             },
         }
 
-        flight_target = evaluate_emergency_flight(
+        # Condition 1 (the household is starving) is the caller's answer
+        # from `context.starving_households` and is covered in
+        # test_migration.py; it is held true here so that only the era's
+        # trigger decides.
+        _, flight_target = _resolve_flight_decision(
             starving_agent,
             sim,
-            tick=50,
-            template=template,
-            zone_stats=flight_zone_stats,
-            consecutive_ticks_under_subsistence=15,
+            50,
+            template,
+            flight_zone_stats,
+            15,
+            under_subsistence=True,
         )
 
         if flight_trigger_ticks <= 15:
