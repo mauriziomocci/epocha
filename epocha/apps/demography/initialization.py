@@ -200,9 +200,10 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
     mechanism that forms couples later in the run, rather than by a second,
     parallel rule that would drift from it.
 
-    Eligibility is `couple.meets_marriage_age`, the one marriage-age rule the
-    intent resolver applies too: the era template's own minimum ages, on the
-    canonical age derived from `birth_tick`. This function used to apply its
+    Eligibility is heterosexual orientation and `couple.meets_marriage_age`,
+    the one marriage-age rule the intent resolver applies too: the era
+    template's own minimum ages, on the canonical age derived from
+    `birth_tick`. This function used to apply its
     own copy of the rule, on the `age` column, while the intent path applied
     none -- round 9 of the Plan 4 phase-6 gate. Agents already in an active
     couple are skipped so a repeated call cannot double-pair anyone.
@@ -242,10 +243,15 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
         .order_by("id")
     )
     tick_duration_hours = _tick_duration_hours(simulation)
+    # The pairing forms the era's legal marriage between a man and a woman,
+    # so a founder who is not heterosexual stays out of it, as the rule-based
+    # market of the couples spec keeps them out (gate decision D-29-22).
+    # Same-sex couples are not modelled by the shipped templates.
     eligible = [
         a
         for a in living
-        if meets_marriage_age(a, template, simulation.current_tick, tick_duration_hours)
+        if a.sexual_orientation == Agent.SexualOrientation.HETEROSEXUAL
+        and meets_marriage_age(a, template, simulation.current_tick, tick_duration_hours)
     ]
     men = [a for a in eligible if a.gender == Agent.Gender.MALE]
     women = [a for a in eligible if a.gender == Agent.Gender.FEMALE]

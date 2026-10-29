@@ -145,6 +145,35 @@ class TestInitialCouples:
             partnered += [couple.agent_a_id, couple.agent_b_id]
         assert len(partnered) == len(set(partnered))
 
+    @pytest.mark.parametrize(
+        "orientation", [Agent.SexualOrientation.HOMOSEXUAL, Agent.SexualOrientation.BISEXUAL]
+    )
+    def test_only_heterosexual_founders_enter_the_pairing(self, sim_with_zone, orientation):
+        """The founding pairing forms the era's legal marriage between a man
+        and a woman, so a founder who is not heterosexual stays out of it, as
+        the rule-based market of the couples spec keeps them out (gate
+        decision D-29-22): a homosexual woman is never paired with a man.
+        The heterosexual woman of the fixture shows that the man was still
+        pairable."""
+        sim, zone = sim_with_zone
+        man = _agent(sim, zone, "Uomo", age=30, gender=Agent.Gender.MALE)
+        excluded = _agent(
+            sim,
+            zone,
+            "Esclusa",
+            age=28,
+            gender=Agent.Gender.FEMALE,
+            sexual_orientation=orientation,
+        )
+        partner = _agent(sim, zone, "Compagna", age=28, gender=Agent.Gender.FEMALE)
+
+        initialization.initialize_demography(sim)
+
+        active = Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True)
+        assert not active.filter(agent_a=excluded).exists()
+        assert not active.filter(agent_b=excluded).exists()
+        assert active.filter(agent_a__in=[man, partner], agent_b__in=[man, partner]).count() == 1
+
     def test_agents_below_the_marriage_age_are_not_paired(self, sim_with_zone):
         """The era template's own minimum marriage ages, not an invented
         threshold."""
