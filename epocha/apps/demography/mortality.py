@@ -152,9 +152,11 @@ def fit_heligman_pollard(
     ages have `q > 0`, since the eight parameters would then be
     underdetermined.
 
-    Calibration task (Plan 4) feeds this with q(x) columns from
-    published life tables (Wrigley-Schofield 1981, HMD). Plan 1 only
-    tests the algorithm against synthetic data.
+    The template mortality recalibration, an open work item (demography
+    Plan 4 closed without it), is meant to feed this with q(x) columns
+    from published life tables (Wrigley-Schofield 1981, HMD). The shipped
+    template values were never produced by this fit, and the tests only
+    exercise the algorithm against synthetic data.
 
     The residuals are relative, `q_hat / q - 1`, the objective commonly
     attributed to Heligman and Pollard (1980), not verified against the

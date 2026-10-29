@@ -145,8 +145,8 @@ def becker_modulation(
     """Scale baseline ASFR by Becker (1991) economic signals.
 
     Design inspired by Becker (1991) and Jones & Tertilt (2008). All
-    coefficients are provisional seed values; calibration deferred to
-    Plan 4 using synthetic shock tests.
+    coefficients are provisional seed values; their calibration is not yet
+    scheduled (debt B2-07): demography Plan 4 closed without performing it.
 
     Args:
         agent: the candidate mother. Her `wealth` and `education_level` are
