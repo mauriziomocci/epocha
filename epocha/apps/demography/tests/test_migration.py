@@ -194,6 +194,22 @@ def _set_starvation_counters(ticks_by_agent_id: dict) -> None:
         Agent.objects.filter(pk=agent_id).update(consecutive_ticks_under_subsistence=ticks)
 
 
+def _befriend(one, other):
+    """A friendship strong enough that each believes what the other tells
+    (acceptance above `EPOCHA_INFO_FLOW_BELIEF_THRESHOLD` at every hop), so
+    the news travels as full hearsay and rumor, never as a weak rumor."""
+    from epocha.apps.agents.models import Relationship
+
+    Relationship.objects.create(
+        agent_from=one,
+        agent_to=other,
+        relation_type="friendship",
+        strength=0.5,
+        sentiment=0.5,
+        since_tick=0,
+    )
+
+
 def _make_zone_at(world, x, y, name):
     """A `Zone` whose `center` sits at the exact grid coordinates `(x,
     y)` -- for `compute_distance_cost` tests, where the center-to-center
@@ -2101,6 +2117,66 @@ class TestEmergencyFlightMovesTheHousehold:
         process_emergency_flight(sim, tick=50)
         propagate_information(sim, tick=50)
 
+        remembered = Memory.objects.filter(agent=partner, origin_agent=decider)
+        assert list(remembered.values_list("source_type", flat=True)) == [Memory.SourceType.DIRECT]
+
+    @pytest.mark.django_db
+    def test_the_partner_is_not_told_of_her_own_flight_the_next_tick(self, sim_with_zone):
+        """Round 13 of the phase-6 gate (R13-1): the round-12 dedup matched a
+        first-hand memory on the current tick only. The partner's own flight
+        memory reaches her friend as hearsay at tick 50; at tick 51 the
+        friend's hearsay became a rumor, and the partner, whose first-hand
+        memory dates from tick 50, heard of her own flight as a rumor. The
+        witness of round 12 ran one propagation and could not see it."""
+        from epocha.apps.agents.information_flow import propagate_information
+
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        decider = _make_agent(sim, zone, "Padre", age=40, wealth=0.0, gender=Agent.Gender.MALE)
+        partner = _make_agent(sim, zone, "Madre", age=38, wealth=0.0)
+        form_couple(decider, partner, formed_at_tick=1)
+        friend = _make_agent(sim, zone, "Amica", age=35)
+        _befriend(partner, friend)
+        _set_starvation_counters({decider.id: 30, partner.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+        propagate_information(sim, tick=50)
+        propagate_information(sim, tick=51)
+
+        assert Memory.objects.filter(
+            agent=friend, origin_agent=decider, source_type=Memory.SourceType.HEARSAY
+        ).exists(), "the flight never left the household: the witness proves nothing"
+        remembered = Memory.objects.filter(agent=partner, origin_agent=decider)
+        assert list(remembered.values_list("source_type", flat=True)) == [Memory.SourceType.DIRECT]
+
+    @pytest.mark.django_db
+    def test_the_partner_is_not_told_of_her_own_flight_while_it_travels(self, sim_with_zone):
+        """The same over the whole propagation lifetime of a first-hand
+        event: with the default three hops the last rumor of a tick-50 event
+        is written at tick 52. In a triangle (partner, two friends who know
+        each other) a friend holds a tick-51 rumor at tick 52, so a window
+        one tick shorter than the lifetime lets the flight back to her."""
+        from epocha.apps.agents.information_flow import propagate_information
+
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        decider = _make_agent(sim, zone, "Padre", age=40, wealth=0.0, gender=Agent.Gender.MALE)
+        partner = _make_agent(sim, zone, "Madre", age=38, wealth=0.0)
+        form_couple(decider, partner, formed_at_tick=1)
+        first = _make_agent(sim, zone, "Prima", age=35)
+        second = _make_agent(sim, zone, "Seconda", age=36)
+        _befriend(partner, first)
+        _befriend(partner, second)
+        _befriend(first, second)
+        _set_starvation_counters({decider.id: 30, partner.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+        for tick in range(50, 54):
+            propagate_information(sim, tick=tick)
+
+        assert Memory.objects.filter(
+            agent=first, origin_agent=decider, source_type=Memory.SourceType.RUMOR, tick_created=52
+        ).exists(), "the flight did not travel to the last hop: the witness proves nothing"
         remembered = Memory.objects.filter(agent=partner, origin_agent=decider)
         assert list(remembered.values_list("source_type", flat=True)) == [Memory.SourceType.DIRECT]
 

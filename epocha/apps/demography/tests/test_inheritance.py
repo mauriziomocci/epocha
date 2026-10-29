@@ -5057,6 +5057,49 @@ class TestGenerateMourningMemoriesNoPropagation:
         assert not Memory.objects.filter(agent=zone_mate, origin_agent=deceased).exists()
 
 
+class TestTheWidowIsNotToldOfHerOwnLoss:
+    """Round 13 of the phase-6 gate (R13-1): the mourning memory is first
+    hand with the deceased as origin, and the propagation it enters carries
+    the death back toward the widow for as long as the news travels. The
+    widow already knows; hearsay or rumor of her own husband's death is an
+    echo, not news.
+    """
+
+    @pytest.mark.django_db
+    def test_the_widow_holds_only_her_first_hand_memory_while_the_news_travels(self, sim_with_zone):
+        """Triangle: the widow and two friends who know each other, none of
+        them tied to the deceased. With the default three hops a tick-50
+        death is retold at ticks 50, 51 and 52; the widow must hold the one
+        first-hand memory throughout."""
+        from epocha.apps.agents.information_flow import propagate_information
+
+        sim, zone = sim_with_zone
+        deceased = _make_agent(sim, zone, "Marito", is_alive=False)
+        widow = _make_agent(sim, zone, "Vedova")
+        form_couple(deceased, widow, formed_at_tick=1)
+        first = _make_agent(sim, zone, "Prima")
+        second = _make_agent(sim, zone, "Seconda")
+        for one, other in ((widow, first), (widow, second), (first, second)):
+            Relationship.objects.create(
+                agent_from=one,
+                agent_to=other,
+                relation_type=Relationship.RelationType.FRIENDSHIP,
+                strength=0.5,
+                sentiment=0.5,
+                since_tick=0,
+            )
+
+        generate_mourning_memories(deceased, tick=50)
+        for tick in range(50, 54):
+            propagate_information(sim, tick=tick)
+
+        assert Memory.objects.filter(
+            agent=first, origin_agent=deceased, source_type=Memory.SourceType.RUMOR, tick_created=52
+        ).exists(), "the death did not travel to the last hop: the witness proves nothing"
+        remembered = Memory.objects.filter(agent=widow, origin_agent=deceased)
+        assert list(remembered.values_list("source_type", flat=True)) == [Memory.SourceType.DIRECT]
+
+
 class TestGenerateMourningMemoriesNoSaveOnDeceased:
     """The function creates NEW `Memory` rows (persistence of new rows is
     this function's job -- precedent: `transfer_loans_as_lender` persists

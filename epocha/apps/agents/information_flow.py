@@ -50,7 +50,9 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
 
     Each propagation step applies personality-driven distortion (transmitter)
     and a belief filter (recipient + relationship). Deduplication prevents an
-    agent from receiving the same origin information more than once per tick.
+    agent from receiving the same origin information more than once per tick,
+    and from hearing of an origin whose event it lived first hand while that
+    news can still be travelling.
 
     Args:
         simulation: The Simulation instance whose agents are ticking.
@@ -186,8 +188,9 @@ def _propagate_memory(
     Finds all living agents connected to the transmitter via any Relationship
     (bidirectional lookup), then for each candidate:
     - Skips the origin agent (no echo back to source).
-    - Skips agents that already hold a memory from the same origin this tick,
-      first-hand or heard.
+    - Skips agents that already heard the same origin this tick, and agents
+      that lived an event of the same origin first hand while its news can
+      still be travelling (the last max(max_hops, 2) - 1 ticks and this one).
     - Applies distortion using the transmitter's personality.
     - Always updates the recipient's reputation score for the origin agent,
       regardless of whether the belief filter accepts or rejects the information.
@@ -220,23 +223,37 @@ def _propagate_memory(
         Q(agent_from=transmitter) | Q(agent_to=transmitter)
     ).select_related("agent_from", "agent_to")
 
-    # Gather already-informed agents (dedup): recipients who already hold a
-    # memory from this origin agent for this tick, whether heard (hearsay,
-    # rumor) or lived first hand (direct). DIRECT joined the set at round 12
-    # of the demography Plan 4 phase-6 gate (F2): a household's flight writes
-    # a first-hand memory to every member with the decider as origin, and
-    # with only hearsay and rumor in the set the decider's memory reached the
-    # fleeing partner again as hearsay of her own flight.
+    # Gather already-informed agents (dedup): recipients who already heard
+    # this origin at this tick (hearsay, rumor), and recipients who lived an
+    # event of this origin first hand (direct) recently enough that its news
+    # may still be travelling. A first-hand memory names someone else as
+    # origin when a household flees (every member, origin the decider) or a
+    # death is mourned (origin the deceased); matched on this tick only, as
+    # at round 12 of the demography Plan 4 phase-6 gate, it let the news come
+    # back to the fleeing partner or the widow one hop later (round 13,
+    # R13-1).
+    #
+    # The window is the lifetime of the news, read off the three phases of
+    # `propagate_information`: an event first hand at tick t is retold at t
+    # by phase 1, at t + 1 by phase 2 whatever `max_hops` says, and later by
+    # phase 3 only while `_estimate_hop` is below `max_hops`, which for a
+    # reliability <= 1.0 it never underestimates; so its last retelling is
+    # at t + max(max_hops, 2) - 1. A first-hand memory older than that
+    # belongs to news that has stopped, and fresh news of the same origin
+    # reaches its holder.
+    first_hand_window = max(max_hops, 2) - 1
     already_informed = set(
         Memory.objects.filter(
+            Q(
+                source_type__in=[Memory.SourceType.HEARSAY, Memory.SourceType.RUMOR],
+                tick_created=tick,
+            )
+            | Q(
+                source_type=Memory.SourceType.DIRECT,
+                tick_created__range=(tick - first_hand_window, tick),
+            ),
             agent__simulation=simulation,
-            source_type__in=[
-                Memory.SourceType.DIRECT,
-                Memory.SourceType.HEARSAY,
-                Memory.SourceType.RUMOR,
-            ],
             origin_agent=origin,
-            tick_created=tick,
         ).values_list("agent_id", flat=True)
     )
 
