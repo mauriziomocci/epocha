@@ -25,6 +25,7 @@ import logging
 import math
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Q
 
 from epocha.apps.simulation.models import Event, Simulation
@@ -57,6 +58,10 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
     Args:
         simulation: The Simulation instance whose agents are ticking.
         tick:       The current tick number.
+
+    Raises:
+        ImproperlyConfigured: if EPOCHA_INFO_FLOW_RELIABILITY_DECAY lies
+            outside the open interval (0, 1).
     """
     # Minimum emotional weight for a memory to propagate. Tunable design
     # parameter without empirical source. Prevents trivial observations from
@@ -66,7 +71,15 @@ def propagate_information(simulation: Simulation, tick: int) -> None:
     # Bartlett (1932) documented information degradation through serial
     # reproduction but did not quantify it as a specific geometric decay rate.
     # The value 0.7 produces 34% reliability after 3 hops and 17% after 5 hops.
+    # The hop estimate that bounds phase 3, and the first-hand suppression
+    # window derived from it, hold only for 0 < decay < 1: at 1.0 every
+    # rumour reads as hop 0 and phase 3 never stops. The value comes from the
+    # environment, so a degenerate one is refused here rather than clamped.
     decay = getattr(settings, "EPOCHA_INFO_FLOW_RELIABILITY_DECAY", 0.7)
+    if not 0.0 < decay < 1.0:
+        raise ImproperlyConfigured(
+            f"EPOCHA_INFO_FLOW_RELIABILITY_DECAY must lie in the open interval (0, 1), got {decay}."
+        )
     max_hops = getattr(settings, "EPOCHA_INFO_FLOW_MAX_HOPS", 3)
     max_recipients = getattr(settings, "EPOCHA_INFO_FLOW_MAX_RECIPIENTS", 20)
 
@@ -237,10 +250,11 @@ def _propagate_memory(
     # `propagate_information`: an event first hand at tick t is retold at t
     # by phase 1, at t + 1 by phase 2 whatever `max_hops` says, and later by
     # phase 3 only while `_estimate_hop` is below `max_hops`, which for a
-    # reliability <= 1.0 it never underestimates; so its last retelling is
-    # at t + max(max_hops, 2) - 1. A first-hand memory older than that
-    # belongs to news that has stopped, and fresh news of the same origin
-    # reaches its holder.
+    # reliability <= 1.0 and a decay in (0, 1), the domain
+    # `propagate_information` enforces, it never underestimates; so its last
+    # retelling is at t + max(max_hops, 2) - 1. A first-hand memory older
+    # than that belongs to news that has stopped, and fresh news of the same
+    # origin reaches its holder.
     first_hand_window = max(max_hops, 2) - 1
     already_informed = set(
         Memory.objects.filter(

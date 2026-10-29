@@ -1,6 +1,7 @@
 """Tests for the information flow propagation engine."""
 
 import pytest
+from django.core.exceptions import ImproperlyConfigured
 
 from epocha.apps.agents.information_flow import propagate_information
 from epocha.apps.agents.models import Agent, Memory, Relationship
@@ -510,3 +511,42 @@ class TestFirstHandMemoriesAndTheLifetimeOfTheNews:
 
         heard = Memory.objects.filter(origin_agent=marco, source_type="hearsay")
         assert list(heard.values_list("agent__name", flat=True)) == ["Fuori"]
+
+
+@pytest.mark.django_db
+class TestReliabilityDecayDomain:
+    """The per-hop reliability decay is read from the environment, and the
+    hop estimate that bounds phase 3 is defined only for 0 < decay < 1: at
+    1.0 `_estimate_hop` returns 0 for every rumour, phase 3 never stops and
+    the first-hand suppression window, derived from the three phases, no
+    longer covers the life of the news (round 14 of the demography Plan 4
+    phase-6 gate, NB-1). A decay outside the open interval is a
+    configuration error, refused where the value is read for propagation."""
+
+    @pytest.mark.parametrize("decay", [1.0, 0.0, 1.5, -0.1])
+    def test_a_decay_outside_the_open_unit_interval_is_refused(
+        self, simulation, world, settings, decay
+    ):
+        settings.EPOCHA_INFO_FLOW_RELIABILITY_DECAY = decay
+
+        with pytest.raises(ImproperlyConfigured, match="EPOCHA_INFO_FLOW_RELIABILITY_DECAY"):
+            propagate_information(simulation, tick=1)
+
+    def test_the_default_decay_propagates_and_decays_reliability(
+        self, simulation, world, marco, elena, settings
+    ):
+        settings.EPOCHA_INFO_FLOW_RELIABILITY_DECAY = 0.7
+        _close_friends(marco, elena)
+        Memory.objects.create(
+            agent=marco,
+            content="I travelled to the coast.",
+            emotional_weight=0.8,
+            source_type="direct",
+            tick_created=1,
+            origin_agent=marco,
+        )
+
+        propagate_information(simulation, tick=1)
+
+        heard = Memory.objects.get(agent=elena, origin_agent=marco)
+        assert heard.reliability == pytest.approx(0.7)

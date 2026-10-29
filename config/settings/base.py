@@ -162,7 +162,11 @@ EPOCHA_INFO_FLOW_PROPAGATION_THRESHOLD = env.float(
 )
 
 # Reliability decay factor per hop in the communication chain.
-# Source: Bartlett (1932) serial reproduction experiments show ~30% detail loss per step.
+# Tunable design parameter: Bartlett (1932) documents degradation through serial
+# reproduction qualitatively, without prescribing a per-step rate (whitepaper §4.4).
+# Domain: the open interval (0, 1); propagate_information refuses any other value
+# with ImproperlyConfigured, since the hop estimate that bounds rumour propagation
+# is undefined outside it.
 EPOCHA_INFO_FLOW_RELIABILITY_DECAY = env.float("EPOCHA_INFO_FLOW_RELIABILITY_DECAY", default=0.7)
 
 # Maximum hops before information stops propagating.
