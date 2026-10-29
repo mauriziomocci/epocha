@@ -1730,3 +1730,162 @@ conclusa sulla normale troncata, che è ciò che il codice implementa
 un'impronta del testo italiano, quindi un ricalcolo delle impronte dopo una
 modifica al solo italiano la rende verde senza traduzione. Segnalato dalla
 sessione del sito pubblico.
+
+### Remediation del round 11 (2026-10-29)
+
+**Chi ha deciso, e con quale stato.** L'utente era assente in mattinata e ha
+delegato le decisioni alla Trinità. Le decisioni sono registrate nel diario
+del giorno (`Diario/2026/10/2026-10-29/decisioni.md`): D-29-1 e D-29-2, prese
+da Domenico dopo le posizioni di Matteo verificate sul codice, sono
+**provvisorie fino alla conferma dell'utente**; D-29-4, sui minori nel ciclo
+decisionale, è stata confermata dall'utente alle 10:20.
+
+**Il pattern, nominato da Domenico.** Dal B1 la nozione di nucleo si propaga
+ai consumatori uno per round: round 8, 9, 10 e, al round 11, R1, R3 e N1.
+Un altro round senza enumerazione avrebbe rifatto il ciclo. Per questo
+D-29-1 ha messo **prima la tabella dei lettori** e poi una remediation sola:
+53 punti che leggono appartenenza, zona, patrimonio, età o contatore, per
+ciascuno l'unità che serve (persona o nucleo) e quella letta, con la riga di
+codice citata. Esito: 34 corretti, 12 difettosi (4 sono R1, 8 nuovi), 7 non
+chiari. La tabella, scritta a `2ae7d99`, è copiata nella cartella del diario
+come `epocha-person-household-table.md`.
+
+**Che cosa è stato corretto**, ogni volta con il testimone rosso prima:
+
+- **R2** (`81bcf2b`): `tick_mortality_probability` converte la probabilità
+  annua in forma geometrica a ogni età; la sottostima misurata con la
+  funzione di produzione arrivava al 4,71% a 82 anni nei due template
+  pre-industriali. Il testimone controlla ogni età da 0 a 100 su un tick
+  giornaliero; il §4.1.1 perde la dichiarazione dello 0,5% e la frase falsa
+  sui neonati.
+- **R3** (`81bcf2b`): il §4.1.5 non chiama più individuale la condizione (1).
+- **R4, variante (b)** (`2049636`, `0623b94`): in
+  `context.starving_households` il bisogno di un membro conta zero quando è
+  pupillo dello Stato, minorenne sull'età canonica e nucleo di sé solo. Il
+  docstring di `assign_orphan_caretaker` non afferma più un trasferimento
+  dalla tesoreria che nessun codice fa, e la spec lo elenca fra ciò che il
+  Plan 4 non consegna.
+- **Righe 20 e 33, contatore di nucleo** (`487a33a`): un nucleo affamato
+  scrive a ogni membro il massimo dei contatori precedenti più uno, un nucleo
+  sfamato azzera tutti; la condizione 2 non dipende più dall'id del decisore
+  (N1). Nessuna query nuova: le guardie restano a 36 e 44.
+- **Memoria della fuga** (`15cedd9`): la scrive ogni membro spostato, con il
+  decisore come `origin_agent`, dentro lo stesso `bulk_create`; un testimone
+  fissa che la deduplica per origine e tick di `information_flow` fa arrivare
+  la fuga una volta sola a un vicino che conosce tutto il nucleo.
+- **Codice morto, righe 10 e 12** (`a2b399e`): cancellati
+  `evaluate_emergency_flight` e `_household_members_of`; `members` diventa
+  argomento obbligatorio di `coordinate_family_migration`.
+- **Righe 44 e 45, il tutore** (`15f8454`, `a10098e`, `69ff5e5`): ogni
+  candidato tutore deve essere adulto per la soglia dell'era sull'età
+  canonica, i dipendenti di un tutore morto sono riassegnati, e la minore età
+  dell'orfano si decide anch'essa sull'età canonica e non sulla colonna `age`.
+- **Riga 30** (`6cdb4ea`): rinviata, con un test che fissa l'invariante che
+  la generazione del mondo dà una zona a ogni agente.
+- **D-29-4, minori fuori dal ciclo decisionale** (`7e9c9c6`, `a7d21a5`):
+  `minor_agent_ids`, predicato della demografia sull'età canonica, esclude i
+  minori dal chord Celery e dal percorso sequenziale di `SimulationEngine`.
+  L'età entra nel prompt della chat privata e di quella di gruppo
+  (`6c21973`, `02a1d47`). Il ruolo `child` congelato a vita resta un difetto
+  noto del work item sul comportamento per età (D-29-5).
+- **Le uguaglianze di costo** (`ea385c6`): ora contano a zero eventi vitali.
+  Il rosso dipendeva dalla chiave primaria: con due simulazioni in più create
+  prima, la guardia del raddoppio leggeva 45 query a cinque coppie e 50 a
+  dieci.
+
+**L'integrazione.** Quattro pacchetti, quattro merge `--no-ff` senza
+conflitti (`3abe2ac`, `6f65b7c`, `f4f3dfd`, `c1e8569`), poi sei commit di
+rifinitura (`da13c69`, `69ff5e5`, `d4ac1d0`, `807f9ba`, `02a1d47`,
+`3fca95f`). Suite intera a `3fca95f`: **1801 verdi**; `ruff check` e `ruff
+format --check` puliti su 343 file. Cancello meccanico: nessuna funzione
+nuova sopra soglia, ma i debiti preesistenti sono cresciuti:
+`process_emergency_flight` è a C901 23 e 101 istruzioni, e sono cresciuti
+anche `run_starvation_counter_step`, `run_tick`, `run_simulation_loop` e
+`group_chat_view`.
+
+**Parcheggiato per l'utente**, e dichiarato nel §4.1.5 in entrambe le lingue
+(`e9a09b4`): R1, perché la mappa dell'origine per membro nel payload
+`MIGRATION` cambia il contratto di un evento consegnato; la riga 9,
+l'orizzonte di Sjaastad del solo decisore, perché una regola di nucleo cambia
+il modello di decisione di un modulo convergente. **Parcheggiato tecnico**:
+nella chat di gruppo l'età legge il mondo una volta per ogni agente che
+risponde, cioè una query in più per chiamata al modello.
+
+---
+
+## Round 12: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation del round 11 (HEAD `cb60316`) e prima di
+lanciare il round 12.**
+
+**Ambito: `git diff develop..HEAD` per intero**, 101 commit e 81 file, per la
+regola del round 8, che i round 9, 10 e 11 hanno confermato.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **La completezza della tabella persona/nucleo.** È il primo bersaglio
+   perché la remediation si regge su di essa: un lettore mancato riapre il
+   ciclo. Cerca un punto che legge appartenenza, zona, patrimonio, età o
+   contatore e che la tabella non elenca, soprattutto nel codice entrato
+   oggi, scritto dopo la tabella (`2ae7d99`): `minor_agent_ids` e i suoi due
+   chiamanti, `_assign_caretakers_to_unguarded_minors`, il ramo del pupillo
+   in `starving_households`, il prompt delle due chat.
+2. **Le correzioni di oggi, sui loro bordi.** R4: le quattro condizioni del
+   predicato (il flag, la minore età, la chiave di nucleo di sé solo, il
+   giorno esatto della maggiore età). Il contatore a massimo più uno dopo un
+   matrimonio, una nascita, una maggiore età, una separazione e una morte.
+   La memoria della fuga per ogni membro spostato e la propagazione del
+   sentito dire. La riassegnazione del tutore e il filtro dell'adulto.
+   `minor_agent_ids` con la demografia spenta, con `birth_tick` nullo, in
+   un'era senza template, e l'esclusione nel chord e nel percorso
+   sequenziale.
+3. **I due modi in cui il ramo legge l'età.** L'età canonica deriva da
+   `birth_tick`; la colonna `age` è una cache. `annuity_for_agent`
+   (`migration.py:683`) e l'ordine dal più anziano di
+   `process_inheritance_batch` (`inheritance.py:3523`) leggono ancora la
+   colonna, ed è dichiarato. Verifica che nessun altro lettore sia scivolato
+   da una forma all'altra, e che dove le due divergono nessuno dei due
+   lettori dichiarati cambi un esito.
+4. **I test che dipendono dalla chiave primaria della simulazione.**
+   `get_seeded_rng` la mescola nel seme. Il round 10 ne ha chiusi due, oggi
+   le quattro uguaglianze di `test_demography_cost.py`; cerca ogni uguaglianza esatta su conteggi di query, nascite o
+   morti in una fixture che non forza gli stream vitali.
+5. **Le dichiarazioni di R1 e della riga 9 nel §4.1.5**, e ogni frase dei
+   whitepaper aggiunta oggi, contro il codice. In particolare: il §4.1.5 dice
+   che le condizioni (2) e (3) leggono il contatore del decisore, che con
+   `487a33a` è diventato il contatore del nucleo; la frase deve restare vera
+   e non fuorviante.
+
+### Il terreno ereditato
+
+Il verdetto del round 11 non elenca il terreno che ha lasciato fuori, quindi
+lo eredito dal suo criterio: `inheritance.py` oltre il diff, `template_loader.py`
+oltre lo schema della coppia, `truncated_moments.py`, `clark_calibration.py`,
+la parte volontaria di `migration.py`, `fertility.py` oltre
+`_effective_age_in_years`, le cifre end-to-end non ri-misurate, e di
+`mortality.py` tutto ciò che non è la conversione al tick corretta da R2.
+Fra i test aggiunti oggi non trovo un testimone per le due mutazioni
+sopravvissute del round 11, il decisore «mai un dipendente» (M7) e l'ordine
+dei dipendenti dal più anziano (M10). **Scegli e dichiara**, come ai round
+precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+La remediation di oggi tocca nove moduli di produzione in tre app, cambia la
+regola del contatore, aggiunge un ramo al predicato condiviso, toglie i
+minori dal ciclo decisionale e cancella due funzioni. È stata scritta in
+quattro pacchetti paralleli e integrata dal coordinatore, quindi il confine
+fra i pacchetti è il posto dove un difetto è più probabile: l'integrazione
+di oggi lo ha già mostrato una volta, con `test_inheritance.py` rotto dalla
+cancellazione fatta in un altro pacchetto (`da13c69`). Se il round non produce nulla delle tre classi,
+il verdetto deve dire quali lettori ha aggiunto o escluso dalla tabella,
+quali percorsi ha verificato e che cosa ha lasciato fuori.
