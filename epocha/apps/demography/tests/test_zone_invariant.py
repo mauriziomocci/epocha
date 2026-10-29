@@ -53,12 +53,9 @@ class TestGeneratedAgentsAreZoned:
     # Both LLM boundaries are stubbed: the generator's own client, and the
     # enrichment pipeline, which builds a second client and calls Wikipedia.
     # Neither decides zone placement, which is the generator's own loop.
-    @patch(
-        "epocha.apps.world.generator.enrich_simulation_agents",
-        return_value={"classified": 0, "researched": 0, "enriched": 0},
-    )
+    @pytest.mark.usefixtures("no_enrichment")
     @patch("epocha.apps.world.generator.get_llm_client")
-    def test_every_generated_agent_has_a_zone(self, mock_get_client, _mock_enrich, simulation):
+    def test_every_generated_agent_has_a_zone(self, mock_get_client, simulation):
         mock_client = MagicMock()
         mock_client.complete.return_value = _LLM_WORLD
         mock_get_client.return_value = mock_client

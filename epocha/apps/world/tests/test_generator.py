@@ -92,22 +92,9 @@ def simulation(user):
     return Simulation.objects.create(name="GenTest", seed=42, owner=user)
 
 
-@pytest.fixture(autouse=True)
-def no_enrichment():
-    """Keep the enrichment pipeline out of these tests.
-
-    `generate_world_from_prompt` ends by calling `enrich_simulation_agents`,
-    which builds its own client through `enrichment.get_llm_client` and may
-    query Wikipedia: patching `generator.get_llm_client` does not reach it.
-    Until round 16 of the Plan 4 phase-6 gate these tests sent one real
-    classification request per run with the developer's key; blanking the
-    keys in the test settings made them fail at client construction instead.
-    """
-    with patch(
-        "epocha.apps.world.generator.enrich_simulation_agents",
-        return_value={"classified": 0, "researched": 0, "enriched": 0},
-    ) as mock:
-        yield mock
+# The enrichment pipeline builds its own LLM client: see `no_enrichment`
+# in the root conftest.
+pytestmark = pytest.mark.usefixtures("no_enrichment")
 
 
 @pytest.mark.django_db
