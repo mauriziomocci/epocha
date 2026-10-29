@@ -50,6 +50,12 @@ The dashboard is served at `http://localhost:8000/dashboard/` after migrations c
 docker compose -f docker-compose.local.yml exec web pytest --cov=epocha -v
 ```
 
+The default run never reaches the network. The tests marked `network`, which download the multilingual embedding model, are deselected by `addopts` in `pyproject.toml` and run only when asked for with `pytest -m network`.
+
+### Configuration constraints
+
+Two settings are refused rather than tolerated. `EPOCHA_INFO_FLOW_RELIABILITY_DECAY` must lie in the open interval (0, 1): any other value stops every web and worker process at boot with `ImproperlyConfigured`, before any tick and any paid LLM call. The era template named by `demography_template` in a simulation's config must be one of the templates shipped in `epocha/apps/demography/templates/` (`pre_industrial_christian`, `pre_industrial_islamic`, `industrial`, `modern_democracy`, `sci_fi`); any other name, a path such as `../x` included, is refused by `template_loader.load_template` with the not-shipped error before it is turned into a file path.
+
 ### LLM provider
 
 Default: a local OpenAI-compatible server such as LM Studio. Configure via environment variable:
@@ -104,7 +110,7 @@ docs/                  Specs, plans, whitepaper, memory backup
 | Factions (Olson 1965; Festinger 1950; Judge 2002; Baumeister 2001; Hackman 2002) | yes | yes (CONVERGED 2026-05-16 round 2) |
 | Knowledge Graph | yes | scientific audit pending |
 | Demography Plan 3 (Inheritance + Migration) | yes — merged | yes (CONVERGED 2026-08-05 round 4) |
-| Demography Plan 4 (Initialisation + Engine integration) | yes — on its feature branch, phase-6 gate in progress | code gate in progress |
+| Demography Plan 4 (Initialisation + Engine integration) | yes — on its feature branch, awaiting the merge | yes (phase-6 code gate CONVERGED 2026-10-29 round 16) |
 | Historical validation campaign (execution) | not yet | n/a |
 | Economy financial markets (Spec 3) | not yet | n/a |
 
@@ -112,9 +118,11 @@ The Knowledge Graph is the only module still awaiting its first scientific audit
 
 ## Roadmap
 
-Highest priority is the adversarial scientific audit of the Knowledge Graph, the one module left in whitepaper §8 and the gating item before calibration and validation can close. Six clusters have already converged and been promoted to Methods: reputation on round 2 (2026-05-12) as §4.3, the rumor cluster — information flow, distortion, belief filter, affinity — on round 2 (2026-05-16) as §4.4, the political cluster — government, government types, institutions, stratification, election — on round 2 (2026-05-16) as §4.5, movement on round 2 (2026-05-16) as §4.6, factions on round 2 (2026-05-16) as §4.7, and the economy base layer on round 12 of its first audit (2026-07-16) as §4.8.
+Six clusters have converged and been promoted to Methods: reputation on round 2 (2026-05-12) as §4.3, the rumor cluster — information flow, distortion, belief filter, affinity — on round 2 (2026-05-16) as §4.4, the political cluster — government, government types, institutions, stratification, election — on round 2 (2026-05-16) as §4.5, movement on round 2 (2026-05-16) as §4.6, factions on round 2 (2026-05-16) as §4.7, and the economy base layer on round 12 of its first audit (2026-07-16) as §4.8. The Knowledge Graph is the one module left in whitepaper §8.
 
-Demography Plan 3 (inheritance + migration) is merged, and Plan 4 has wired the audited §4.1 models into the live tick loop and seeded the starting population from the era template; its phase-6 code gate is in progress on the feature branch. The historical validation campaign it once bundled is a separate work item and has not been run. Then the economy financial markets (Spec 3, not yet drafted) and the execution of the validation experiments. Full list in whitepaper §9; current status per phase in the [build map](docs/build-map/epocha-build-map.html).
+Demography Plan 3 (inheritance + migration) is merged. Plan 4 wires the audited §4.1 models into the live tick loop and seeds the starting population from the era template; its phase-6 code gate converged on round 16 (2026-10-29) and the branch awaits the merge. The gate was reopened once, for a mortality defect: the wiring passed the continuous age to the Heligman-Pollard schedule, so a newborn spent its first year on `q(0.02)`, `q(0.04)`, … and infant mortality came out 0.0083 against `q(0) = 0.0291` at weekly ticks. `q(x)` is now read at the completed integer age and held over the whole year of age (whitepaper §4.1), so results produced before this fix are not comparable with later ones.
+
+The order of the next work was agreed on 2026-10-29. First, rule-based couple formation (Coale and McNeil 1972), the prerequisite of every validation, because in the pre-industrial eras a birth needs a couple and after initialisation couples form today only from LLM intents: its spec is approved and implementation has started on branch `20261029-123404-rule-based-couples`. Second, marital fertility in the eras that require a couple, before any validation: the Hadwiger schedule is a rate over all women, and applied to married women alone it gives a TFR (total fertility rate, the children a woman would bear over her fertile life) of 2.394 against the whitepaper's reference range of 4.5-6.5. Third, the first historical validation, England 1700-1750 against Wrigley and Schofield (1981) for mortality, fertility and age at marriage; it cites the published values only, because the machine-readable data behind them are distributed under terms not compatible with Apache-2.0. Fourth, one data-grounded report of that validation. Everything else stays on the [build map](docs/build-map/epocha-build-map.html), unopened until the first validation result exists: the Knowledge Graph audit, the economy financial markets (Spec 3), the dashboard driven by the API, the agents' context and chat coherence, the feasibility study for scale to billions of agents, the structural-demographic model with ensemble runs. The one exception is life-course behaviour by age, whose spec is approved and whose implementation starts after the Plan 4 merge. Full list in whitepaper §9.
 
 ## Contributing
 
