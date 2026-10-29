@@ -88,9 +88,9 @@ step) sets it, not this function.
 
 Also covers the SC-004 era coverage gate (Plan 3, T041, Phase 8 closure):
 all five era templates drive BOTH the inheritance path
-(`process_inheritance_batch`) and the migration path
-(`coordinate_family_migration`, `evaluate_emergency_flight`) without
-error, each asserted against era-appropriate outcomes -- estate tax rate,
+(`process_inheritance_batch`) and the migration path (the household
+`context.household_keys` derives and `coordinate_family_migration` moves,
+and the flight decision `_resolve_flight_decision`) without error, each asserted against era-appropriate outcomes -- estate tax rate,
 succession rule signature, adulthood_age, and flight_trigger_ticks --
 never merely "does not raise".
 """
@@ -128,11 +128,13 @@ from epocha.apps.demography.inheritance import (
     resolve_heirs,
     transfer_loans_as_lender,
 )
+from epocha.apps.demography.context import household_keys
 from epocha.apps.demography.migration import (
+    _resolve_flight_decision,
     coordinate_family_migration,
-    evaluate_emergency_flight,
 )
 from epocha.apps.demography.models import Couple, DemographyEvent
+from epocha.apps.demography.orchestrator import age_in_years
 from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.economy.models import Currency, Loan
@@ -6482,8 +6484,9 @@ class TestGetSeededRngSimulationIdCoupling:
 # ---------------------------------------------------------------------------
 # Era coverage gate (Plan 3, T041, SC-004, Phase 8 closure). All five era
 # templates must drive BOTH the inheritance path
-# (`process_inheritance_batch`) and the migration path
-# (`coordinate_family_migration`, `evaluate_emergency_flight`) without
+# (`process_inheritance_batch`) and the migration path (the household
+# `context.household_keys` derives and `coordinate_family_migration`
+# moves, and the flight decision `_resolve_flight_decision`) without
 # error, each producing era-appropriate outcomes -- not merely "does not
 # raise", the weakest possible criterion and unfit for the last gate
 # before the audit.
@@ -6661,10 +6664,15 @@ class TestEraCoverageSC004:
                 inheritable / 3, abs=_CONSERVATION_TOLERANCE
             )
 
-        # --- MIGRATION PATH, part 1: coordinate_family_migration reads
-        # this era's adulthood_age (16 vs 18) -- a 17-year-old is an adult
-        # under the 16-eras and a minor under the 18-eras, so the SAME
-        # fixture discriminates every era's own declared value.
+        # --- MIGRATION PATH, part 1: the household reads this era's
+        # adulthood_age (16 vs 18) -- a 17-year-old is an adult under the
+        # 16-eras and a minor under the 18-eras, so the SAME fixture
+        # discriminates every era's own declared value. The era value
+        # enters through `context.household_keys`, which derives the
+        # members `coordinate_family_migration` then moves: the members are
+        # derived here exactly as `process_emergency_flight` derives them,
+        # never listed by hand, or the assertion below would only echo the
+        # list this test wrote.
         target_zone = Zone.objects.create(
             world=zone.world,
             name=f"{era_name}Target",
@@ -6673,12 +6681,11 @@ class TestEraCoverageSC004:
             center=Point(250, 250),
         )
         family_head = _make_agent(sim, zone, f"{era_name}FamilyHead")
-        # `birth_tick` set to agree with `age`: household membership reads
-        # the canonical age from `birth_tick` since `coordinate_family_
-        # migration` derives the household with `context.household_keys`
-        # (round 10 of the phase-6 gate), and this file's `_make_agent`
-        # defaults `birth_tick` to 0, which would make a seventeen-year-old
-        # a newborn by that reading and a minor under every era.
+        # `birth_tick` set to agree with `age`: `context.household_keys`
+        # reads the canonical age derived from `birth_tick` (round 10 of the
+        # phase-6 gate), and this file's `_make_agent` defaults `birth_tick`
+        # to 0, which would make a seventeen-year-old a newborn by that
+        # reading and a minor under every era.
         teenager = _make_agent(
             sim,
             zone,
@@ -6699,9 +6706,25 @@ class TestEraCoverageSC004:
         # `_scatter_location_in_zone` documents for `rng=None` -- the
         # scatter path added for I-12 in FIX BLOCK C (block "migration.py
         # half") had zero coverage from this file.
+        living = list(Agent.objects.filter(simulation=sim, is_alive=True).order_by("id"))
+        ages = [
+            age_in_years(
+                agent,
+                50,
+                zone.world.tick_duration_hours or 24.0,
+                float(template.get("acceleration", 1.0)),
+            )
+            for agent in living
+        ]
+        keys = household_keys(living, ages, sim, adulthood_age=float(adulthood_age))
+        members = [
+            agent
+            for agent in living
+            if keys[agent.id] == keys[family_head.id] and agent.id != family_head.id
+        ]
         rng = get_seeded_rng(sim, tick=50, phase="migration")
         household = coordinate_family_migration(
-            family_head, target_zone, tick=50, template=template, rng=rng
+            family_head, target_zone, tick=50, rng=rng, members=members
         )
 
         teenager.refresh_from_db()
@@ -6726,7 +6749,7 @@ class TestEraCoverageSC004:
                 "did instead"
             )
 
-        # --- MIGRATION PATH, part 2: evaluate_emergency_flight reads this
+        # --- MIGRATION PATH, part 2: _resolve_flight_decision reads this
         # era's flight_trigger_ticks (30/30/20/10/5) -- a fixed
         # consecutive_ticks_under_subsistence=15 clears the trigger for
         # sci_fi/modern_democracy but not for the other three, so the
@@ -6755,13 +6778,18 @@ class TestEraCoverageSC004:
             },
         }
 
-        flight_target = evaluate_emergency_flight(
+        # Condition 1 (the household is starving) is the caller's answer
+        # from `context.starving_households` and is covered in
+        # test_migration.py; it is held true here so that only the era's
+        # trigger decides.
+        _, flight_target = _resolve_flight_decision(
             starving_agent,
             sim,
-            tick=50,
-            template=template,
-            zone_stats=flight_zone_stats,
-            consecutive_ticks_under_subsistence=15,
+            50,
+            template,
+            flight_zone_stats,
+            15,
+            under_subsistence=True,
         )
 
         if flight_trigger_ticks <= 15:
