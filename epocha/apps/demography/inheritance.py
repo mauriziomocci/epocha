@@ -3228,23 +3228,34 @@ def _assign_caretakers_to_unguarded_minors(
     guardians is alive: a child whose caretaker survives, or who still has a
     living parent, is left alone by the same test, with no rule of its own.
 
-    The minority test reads the `age` column, the cache of `birth_tick` the
-    mortality step refreshes at the start of the same tick (see the comment
-    there in `orchestrator.run_mortality_step`).
+    The minority test is `orchestrator.age_in_years` against the era's
+    `migration.adulthood_age`, the age derived from `birth_tick` that
+    `assign_orphan_caretaker` applies to the caretaker and
+    `context.household_keys` to the household, never the `Agent.age`
+    column, which is only a cache.
 
     Query cost, per batch and never per population: 1 query for the
-    dependents, 1 for the living guardians (none when no candidate is a
-    minor), 1 for the world's tick length and 1 `bulk_update` (both skipped
-    when nobody is reassigned), plus `assign_orphan_caretaker`'s own
-    up-to-4 queries per reassigned minor.
+    dependents, 1 for the world's tick length (skipped when there is no
+    candidate), 1 for the living guardians (skipped when no candidate is a
+    minor) and 1 `bulk_update` (skipped when nobody is reassigned), plus
+    `assign_orphan_caretaker`'s own up-to-4 queries per reassigned minor.
     """
     from epocha.apps.agents.models import Agent
-    from epocha.apps.demography.orchestrator import _tick_duration_hours
+    from epocha.apps.demography.orchestrator import _tick_duration_hours, age_in_years
 
     dependents = Agent.objects.filter(caretaker_agent_id__in=deceased_ids, is_alive=True)
     candidates = {dependent.id: dependent for dependent in dependents} | children
+    if not candidates:
+        return
+
+    tick_duration_hours = _tick_duration_hours(simulation)
+    acceleration = float(template.get("acceleration", 1.0))
     adulthood_age = template["migration"]["adulthood_age"]
-    minors = [minor for _, minor in sorted(candidates.items()) if minor.age < adulthood_age]
+    minors = [
+        minor
+        for _, minor in sorted(candidates.items())
+        if age_in_years(minor, tick, tick_duration_hours, acceleration) < adulthood_age
+    ]
     if not minors:
         return
 
@@ -3260,7 +3271,6 @@ def _assign_caretakers_to_unguarded_minors(
     if not unguarded:
         return
 
-    tick_duration_hours = _tick_duration_hours(simulation)
     for minor in unguarded:
         assign_orphan_caretaker(minor, tick, template, tick_duration_hours)
     Agent.objects.bulk_update(unguarded, ["caretaker_agent", "conditions"])

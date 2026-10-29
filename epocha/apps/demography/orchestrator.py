@@ -510,12 +510,13 @@ def run_mortality_step(
     dead: list[Any] = []
     # `Agent.age` is a cache of `birth_tick`, and this is where it is
     # refreshed. `birth_tick` remains the canonical source and the only one
-    # that advances by itself, but the column is READ by two paths that this
-    # work item made live and that are not ours to rewrite:
+    # that advances by itself, but the column is still READ by
     # `annuity_for_agent(agent.age, ...)` inside the third condition of
-    # emergency flight, and `child.age >= adulthood_age` in the caretaker
-    # pass. Left stale, every agent born in the run carried age 0 for life --
-    # the longest working horizon the model admits, and permanent minority.
+    # emergency flight, and by the oldest-first order in which
+    # `process_inheritance_batch` settles a tick's deaths. Left stale, every
+    # agent born in the run carried age 0 for life -- the longest working
+    # horizon the model admits. The caretaker pass no longer reads it: its
+    # minority test is `age_in_years`, like every other age threshold.
     # Refreshed here because this step already derives the age of every
     # living agent for the hazard, so the value costs nothing extra; only the
     # rows whose stored value actually moved are written, and they go in one

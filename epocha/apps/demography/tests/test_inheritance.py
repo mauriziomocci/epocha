@@ -5910,6 +5910,47 @@ class TestProcessInheritanceBatchKeepsALivingCaretaker:
         assert Agent.objects.get(id=minor.id).caretaker_agent_id == caretaker.id
 
 
+class TestProcessInheritanceBatchMinorityReadsTheCanonicalAge:
+    """The caretaker pass decides who is a minor on the age derived from
+    `birth_tick`, never on the `Agent.age` column, which is only a cache
+    the mortality step refreshes. Each case below gives the column the
+    opposite answer to `birth_tick`; the pass must follow `birth_tick`.
+    """
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("cached_age", "years_since_birth", "expects_caretaker"),
+        [(30, 10, True), (10, 30, False)],
+        ids=["stale-adult-column-on-a-child", "stale-child-column-on-an-adult"],
+    )
+    def test_minority_follows_birth_tick_not_the_age_column(
+        self, sim_with_government, cached_age, years_since_birth, expects_caretaker
+    ):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        mother = _make_agent(sim, zone, "Mother", wealth=0.0, birth_tick=_ADULT_BIRTH_TICK)
+        adult_sibling = _make_agent(
+            sim, zone, "AdultSibling", parent_agent=mother, wealth=0.0, birth_tick=_ADULT_BIRTH_TICK
+        )
+        child = _make_agent(
+            sim,
+            zone,
+            "Child",
+            parent_agent=mother,
+            wealth=0.0,
+            age=cached_age,
+            birth_tick=tick - years_since_birth * _TICKS_PER_YEAR,
+        )
+        mother.is_alive = False
+        mother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[mother])
+
+        expected = adult_sibling.id if expects_caretaker else None
+        assert Agent.objects.get(id=child.id).caretaker_agent_id == expected
+
+
 class TestProcessInheritanceBatchLoanTransfer:
     """Composition: the batch calls `transfer_loans_as_lender` per
     deceased, observable as the reassigned `Loan.lender`.
