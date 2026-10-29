@@ -508,6 +508,12 @@ progetto. Saranno promossi a Metodi (Capitolo 4) quando quell'audit
 convergerà; la descrizione architetturale qui è sufficiente per seguire il
 resto del documento ma non è di livello Metodi.
 
+Una scrittura del `config` di una simulazione tramite l'API REST sostituisce
+l'intero oggetto, `PATCH` compresa: il client che vuole conservare una chiave,
+comprese le cinque che l'economia scrive alla creazione, la rimanda insieme
+alla scrittura, come documenta il docstring di
+`epocha/apps/simulation/serializers.py::SimulationSerializer`.
+
 ## 3.3 Contratti di integrazione cross-modulo (treasury, subsistence, outlook)
 
 Tre funzioni esplicite formano la superficie di contratto fra demografia e
