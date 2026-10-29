@@ -1080,6 +1080,15 @@ class TestTheSqlFertileWindowAgreesWithTheAgeReader:
     `tick - 50 * ticks_per_year / acceleration`, computed with two divisions,
     lost the agent of exactly 50.0 years at 100-hour ticks under
     acceleration 0.1. Each case puts one agent on each side of the edge.
+
+    The last two cases are the ones where the quotient's estimate is off by
+    one tick and `_corrected_edge` must take a step: at 3-hour ticks under
+    acceleration 0.1 the quotient for 50 years is 1459999.9999999998, floored
+    one tick short of the agent of exactly 50.0 years; under acceleration 0.3
+    the quotient for 12 years is 116800.00000000001, ceiled one tick past the
+    agent of exactly 12.0 years. The scoped review of the round-16 closure
+    measured every demography test green with `_EDGE_CORRECTION_STEPS = 0`:
+    no case reached a correction step until these.
     """
 
     @pytest.mark.parametrize(
@@ -1088,6 +1097,8 @@ class TestTheSqlFertileWindowAgreesWithTheAgeReader:
             pytest.param(168.0, 1.0, 0, [-625, -626], id="weekly-tick0-age12-edge"),
             pytest.param(100.0, 0.1, 0, [-43800, -43801], id="100h-acc0.1-age50-edge"),
             pytest.param(100.0, 0.1, 0, [-10511, -10512], id="100h-acc0.1-age12-edge"),
+            pytest.param(3.0, 0.1, 0, [-1460000, -1460001], id="3h-acc0.1-age50-corrected"),
+            pytest.param(3.0, 0.3, 0, [-116800, -116799], id="3h-acc0.3-age12-corrected"),
         ],
     )
     def test_the_filter_admits_exactly_the_ages_in_the_window(
