@@ -2803,8 +2803,10 @@ def transfer_loans_as_lender(
 # ---------------------------------------------------------------------------
 
 
-def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
-    """Assign `minor.caretaker_agent` to the nearest living relative, or
+def assign_orphan_caretaker(
+    minor: Any, tick: int, template: dict, tick_duration_hours: float
+) -> Any | None:
+    """Assign `minor.caretaker_agent` to the nearest living adult relative, or
     flag state wardship when none exists (design spec Sezione 5, "Gestione
     orfani (fix MISS-1)").
 
@@ -2858,13 +2860,20 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
     else. Wealth transfer, if any, already happened earlier in the death
     pipeline via `distribute_estate`; this function never re-opens it.
 
-    NO ADULTHOOD REQUIREMENT ON THE CARETAKER: the design spec is silent
-    on whether a chosen caretaker must itself be an adult. This
-    implementation imposes none -- a minor sibling can be selected as
-    caretaker if it is the nearest living relative. Flagged here
-    explicitly for the phase-6 adversarial audit rather than silently
-    assumed; resolving it either way is a scientific/design decision, not
-    an implementation default this function should invent.
+    THE CARETAKER IS AN ADULT: every candidate, at every rung and in both
+    stages, must have reached the era's `migration.adulthood_age` -- the
+    same threshold that makes the orphan a minor in the first place. The
+    design spec (Sezione 5, "Gestione orfani") lists the sibling rung
+    without an age, and an earlier version of this function read that
+    literally: three orphaned siblings aged 14, 10 and 6 became each
+    other's caretakers in a cycle, children administering children's
+    estates. This rule fills that gap rather
+    than contradicting the spec: a guardian who is a minor is no guardian,
+    and an orphan with no adult relative is exactly the state-ward case
+    the spec already defines. The age is `orchestrator.age_in_years` over
+    `birth_tick`, the canonical clock the rest of the subsystem reads
+    (`couple.meets_marriage_age` takes the same two inputs for the same
+    reason), so it carries the era's `acceleration` too.
 
     NO-SAVE CONTRACT (module-wide, matches `distribute_estate`'s "WITHOUT
     persisting" contract, T021): this function mutates the passed `minor`
@@ -2878,14 +2887,8 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
     other is `migration.py`'s `process_emergency_flight`). Neither module
     decides tick ordering -- that is the orchestrator's job -- so every
     input this function needs is passed explicitly rather than read from
-    module-level state. `tick` is accepted for exactly this reason (API
-    symmetry with the rest of the Plan 4 orchestrator surface, which
-    threads `tick` through every step) but currently plays NO
-    computational role inside this function -- there is no tick-dependent
-    branch here today. Documented honestly rather than inventing a use
-    for it: a future caller (e.g. one that logs a `DemographyEvent` at
-    the moment of assignment) may need it, but that is out of this
-    function's scope.
+    module-level state: `tick`, `template` and `tick_duration_hours` are
+    exactly the three inputs the adulthood test above needs.
 
     EDGE CASE, untested by design (out of this task's scope): if `minor`
     has no recorded zone (`zone_id is None`), stage 1 is skipped entirely
@@ -2899,13 +2902,15 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
             primary key). The caller (the Plan 4 death orchestrator)
             guarantees `minor` is an orphaned minor -- this function does
             not itself verify age or parental death.
-        tick: the current simulation tick, passed through for orchestrator
-            API symmetry (decision D3). See the docstring section above --
-            it has no computational effect in this implementation.
+        tick: the current simulation tick, the "now" of every candidate's
+            age.
+        template: the era template; `migration.adulthood_age` and
+            `acceleration` are read.
+        tick_duration_hours: hours per tick of the simulation's world.
 
     Returns:
-        The chosen caretaker `Agent`, or `None` when no living relative
-        exists anywhere (the state-ward case).
+        The chosen caretaker `Agent`, or `None` when no living adult
+        relative exists anywhere (the state-ward case).
 
     Query cost contract (bounded, independent of population size -- this
     runs once per newly-orphaned minor, and the Plan 4 orchestrator will
@@ -2919,6 +2924,13 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
     rather than scanning the population.
     """
     from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.orchestrator import age_in_years
+
+    adulthood_age = template["migration"]["adulthood_age"]
+    acceleration = float(template.get("acceleration", 1.0))
+
+    def _is_adult(agent: Any) -> bool:
+        return age_in_years(agent, tick, tick_duration_hours, acceleration) >= adulthood_age
 
     def _sort_key(agent: Any) -> tuple[int, int]:
         birth_tick = agent.birth_tick if agent.birth_tick is not None else 0
@@ -2938,9 +2950,12 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
     aunts_uncles_raw = _resolve_aunts_uncles(grandparent_ids, parent_ids)
     aunts_uncles = sorted((agent for agent in aunts_uncles_raw if agent.is_alive), key=_sort_key)
 
-    # Kinship rungs in priority order -- each pool is already living-only
-    # and sorted ascending by (birth_tick, id).
-    kinship_pools = (siblings, grandparents, aunts_uncles)
+    # Kinship rungs in priority order -- each pool is living-only, sorted
+    # ascending by (birth_tick, id), and narrowed here to adults.
+    kinship_pools = tuple(
+        [agent for agent in pool if _is_adult(agent)]
+        for pool in (siblings, grandparents, aunts_uncles)
+    )
 
     def _first_match(zone_id: int | None) -> Any | None:
         for pool in kinship_pools:
@@ -3301,7 +3316,8 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     collected during the loop above -- NOT a population-wide scan -- so
     the cost is bounded by this batch's own deaths, never by total
     population size. A candidate is actually orphaned and gets
-    `assign_orphan_caretaker(child, tick)` called on it (T025's own
+    `assign_orphan_caretaker(child, tick, template, tick_duration_hours)`
+    called on it (T025's own
     contract: mutates `child` in memory only, never saves) when ALL of:
     it does not already have a `caretaker_agent`; it is a minor
     (`child.age < template["migration"]["adulthood_age"]`); and NEITHER
@@ -3435,6 +3451,7 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     from epocha.apps.agents.models import Agent
     from epocha.apps.demography.couple import dissolve_on_death
     from epocha.apps.demography.models import DemographyEvent
+    from epocha.apps.demography.orchestrator import _tick_duration_hours
     from epocha.apps.demography.template_loader import load_template
     from epocha.apps.economy.models import Currency
     from epocha.apps.world.government import add_to_treasury
@@ -3580,6 +3597,7 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
         # ASSIGNMENT section for why. Bounded to this batch's own
         # children, never a population-wide scan.
         if orphan_candidates:
+            tick_duration_hours = _tick_duration_hours(simulation)
             parent_ids_to_check = set()
             for child in orphan_candidates.values():
                 if child.parent_agent_id:
@@ -3610,7 +3628,7 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
                 )
                 if has_living_parent:
                     continue
-                assign_orphan_caretaker(child, tick)
+                assign_orphan_caretaker(child, tick, template, tick_duration_hours)
                 minors_to_update.append(child)
 
             if minors_to_update:
