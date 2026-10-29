@@ -8,7 +8,7 @@
 
 **Data model**: no database field and no migration. The `couple` section of the era templates changes as FR-012, FR-013, FR-015 and FR-016 state; `max_protagonists` lives in the existing `Simulation.config` JSON field.
 
-**Prerequisite**: phase 5 starts only after the Plan 4 branch (`20260826-144432-demography-plan4-wiring`, reopened by D-29-20 for mortality evaluated at continuous ages) is merged into `develop`. Every code reference in this plan was verified on the Plan 4 head `d8cd817` on 2026-10-29; the preflight tasks T003 and T004 re-verify them on the realigned tree.
+**Prerequisite**: phase 5 starts only after the Plan 4 branch (`20260826-144432-demography-plan4-wiring`, reopened by D-29-20 for mortality evaluated at continuous ages, fixed in `0e83df4`) is merged into `develop`. Every code reference in this plan was verified on the Plan 4 head `d8cd817` on 2026-10-29; the preflight tasks T003 and T004 re-verify them on the realigned tree.
 
 ## Summary
 
