@@ -287,19 +287,20 @@ def _avg_household_size(
     simulation: Any,
     adulthood_age: float,
 ) -> float:
-    """Living agents divided by households.
+    """Living agents divided by the number of distinct households.
 
-    A household is a couple with the minors in its care, or a single adult.
-    The model has no household entity, so it is derived: partners share one,
-    a MINOR child -- younger than the era template's `migration.adulthood_age`,
-    the same threshold household migration coordination uses -- belongs to
-    its living parent's, and everyone else is their own. The age test is
-    load-bearing: without it a sixty-year-old files under his
-    eighty-five-year-old father's roof, and the series overstates household
-    size by exactly the adult children of living parents. Stating the
-    derivation matters because "household" is the unit historical sources
-    report, and a different derivation would produce a different series that
-    looks equally plausible.
+    The model has no household entity, so households come from
+    `context.household_keys`, the derivation the starvation counter also
+    uses: an active couple shares one; a minor outside an active couple
+    (younger than `adulthood_age`, the era template's
+    `migration.adulthood_age`) joins the household of its first living
+    guardian in the order `parent_agent`, `other_parent_agent`,
+    `caretaker_agent`, following the chain while that guardian is itself such
+    a minor; everyone else is their own. The full rules live in that helper's
+    docstring. Returns 0.0 when nobody is alive. Stating the derivation
+    matters because "household" is the unit historical sources report, and a
+    different derivation would produce a different series that looks equally
+    plausible.
     """
     from epocha.apps.demography.context import household_keys
 
