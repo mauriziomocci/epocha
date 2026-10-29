@@ -13,7 +13,7 @@ def test_a_non_negative_integer_is_a_valid_budget(value):
     assert is_valid_max_protagonists(value) is True
 
 
-@pytest.mark.parametrize("value", [-1, True, False, 2.5, "5", None])
+@pytest.mark.parametrize("value", [-1, True, False, 2.5, 5.0, "5", None])
 def test_anything_else_is_not_a_valid_budget(value):
     assert is_valid_max_protagonists(value) is False
 
@@ -23,13 +23,15 @@ def _simulation(config):
 
 
 def test_an_absent_key_gives_the_default_without_logging(caplog):
-    assert max_protagonists(_simulation({})) == 30
+    with caplog.at_level(logging.DEBUG):
+        assert max_protagonists(_simulation({})) == 30
     assert caplog.records == []
 
 
 def test_a_valid_value_is_returned_as_it_is(caplog):
-    assert max_protagonists(_simulation({"max_protagonists": 5})) == 5
-    assert max_protagonists(_simulation({"max_protagonists": 0})) == 0
+    with caplog.at_level(logging.DEBUG):
+        assert max_protagonists(_simulation({"max_protagonists": 5})) == 5
+        assert max_protagonists(_simulation({"max_protagonists": 0})) == 0
     assert caplog.records == []
 
 
@@ -40,7 +42,7 @@ def test_an_invalid_value_gives_the_default_and_one_error(value, caplog):
     assert len(caplog.records) == 1
     record = caplog.records[0]
     assert record.levelno == logging.ERROR
-    assert "7" in record.getMessage()
+    assert "Simulation 7 " in record.getMessage()
     assert repr(value) in record.getMessage()
 
 

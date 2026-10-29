@@ -175,7 +175,7 @@ class TestMaxProtagonistsValidation:
             name="Cfg", seed=1, owner=user, config=dict(ECONOMY_CONFIG)
         )
 
-    @pytest.mark.parametrize("value", [-1, None, True, 2.5])
+    @pytest.mark.parametrize("value", [-1, None, True, 2.5, 5.0])
     def test_a_patch_with_an_invalid_value_answers_400_and_changes_nothing(
         self, authenticated_client, simulation, value
     ):
@@ -188,7 +188,25 @@ class TestMaxProtagonistsValidation:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == MAX_PROTAGONISTS_BODY
         simulation.refresh_from_db()
-        assert "max_protagonists" not in simulation.config
+        assert simulation.config == ECONOMY_CONFIG
+
+    @pytest.mark.parametrize("value", [-1, None, True, 2.5, 5.0])
+    def test_a_put_with_an_invalid_value_answers_the_same_400(
+        self, authenticated_client, simulation, value
+    ):
+        url = f"/api/v1/simulations/{simulation.id}/"
+        body = {
+            "name": "Cfg",
+            "seed": 1,
+            "config": {**ECONOMY_CONFIG, "max_protagonists": value},
+        }
+
+        response = authenticated_client.put(url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == MAX_PROTAGONISTS_BODY
+        simulation.refresh_from_db()
+        assert simulation.config == ECONOMY_CONFIG
 
     def test_a_post_with_an_invalid_value_answers_the_same_400(self, authenticated_client):
         response = authenticated_client.post(
