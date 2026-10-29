@@ -2292,6 +2292,19 @@ lingue, riferimenti di riga compresi.
   documenta il degrado senza prescrivere un tasso; e i riferimenti di riga a
   `information_flow.py` nei due whitepaper seguono lo spostamento delle
   righe.
+  La review in Matteo mode del delta di chiusura ha poi spostato la
+  guardia: dentro `propagate_information` scattava solo dopo la fase degli
+  agenti, già pagata in chiamate al LLM, e nel percorso a chord l'eccezione
+  di `finalize_tick` lasciava la simulazione RUNNING. Il decadimento è un
+  ingresso dell'ambiente, quindi ora lo giudica solo `config/settings/base.py`,
+  accanto a `env.float`, e un valore fuori da `(0, 1)` ferma ogni processo
+  web e worker all'avvio. La guardia nella funzione e il ramo di
+  `_estimate_hop` che riconduceva a 0 un decadimento degenere sono stati
+  tolti, perché l'unico chiamante passa il valore delle impostazioni e
+  nessun test lo sostituisce con uno degenere. I testimoni avviano le
+  impostazioni in un interprete nuovo: 1,0, 0,0, 1,5 e -0,1 fermano l'avvio
+  con `ImproperlyConfigured`, 0,7 lo lascia passare; le stesse tre mutazioni
+  di prima, più una che rifiuta sempre, sono tutte uccise.
 - **NB-2.** La suite intera è stata rilanciata a `a6b64d4`, dopo il
   ricalcolo delle impronte che al round 13 era avvenuto durante la corsa:
   **1818 verdi**, 3 avvisi, in 504,04 secondi. La riserva del round 13
@@ -2317,8 +2330,9 @@ testimone per scelta dichiarata.
   netta dello snapshot), con le righe 8 e 16 che la stessa origine per
   membro correggerebbe. Era parcheggiato perché la mappa dell'origine per
   membro cambia il contratto di un evento consegnato. La decisione
-  dell'utente del 2026-10-29, per cui il contratto delle API di Epocha può
-  cambiare finché non esiste un client esterno, toglie quel blocco, ma la
+  dell'utente in chat del 2026-10-29 (registro D-29-13 del diario), per cui
+  il contratto delle API di Epocha può cambiare finché non esiste un client
+  esterno, toglie quel blocco, ma la
   correzione resta una decisione separata, da prendere con un work item suo.
 - **La riga 9**, l'orizzonte di Sjaastad letto sul solo decisore: una regola
   di nucleo cambierebbe il modello di decisione di un modulo convergente, ed
