@@ -287,9 +287,14 @@ Project memory lives in two locations that must stay in sync:
 
 After every significant work session:
 ```bash
-cp ~/.claude/projects/-Users-mauriziomocci-Documents-workspace-Opensource-epocha/memory/*.md docs/memory-backup/
+SRC=~/.claude/projects/-Users-mauriziomocci-Documents-workspace-Opensource-epocha/memory
+PRIVATE=(feedback_master_rules_apply.md feedback_personal_projects_git_any_hour.md feedback_api_contract_may_change.md)
+rsync -a "${PRIVATE[@]/#/--exclude=}" "$SRC"/*.md docs/memory-backup/
+grep -v -F "${PRIVATE[@]/#/-e}" "$SRC/MEMORY.md" > docs/memory-backup/MEMORY.md
 git add docs/memory-backup/ && git commit -m "docs: sync memory backup" && git push
 ```
+
+The `PRIVATE` list stays out of the backup, together with its lines in `MEMORY.md`, because this is a public repository and those memories record the owner's working rules, which name company work; a new memory of that kind is added to the list before the next sync (the command works in zsh and bash).
 
 When setting up on a new machine:
 ```bash
