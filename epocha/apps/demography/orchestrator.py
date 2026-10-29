@@ -464,18 +464,32 @@ def _age_clock(simulation: Any, template: dict | None) -> tuple[float, float]:
     return _tick_duration_hours(simulation), acceleration
 
 
-def current_age_in_years(agent: Any) -> float:
-    """The agent's age at its simulation's current tick, for display.
+def current_age_clock(simulation: Any) -> tuple[int, float, float]:
+    """The simulation's current tick with the two inputs `age_in_years`
+    needs to read an age at it: `(tick, tick_duration_hours, acceleration)`.
 
-    The one entry point for callers outside the tick loop (the dashboard
-    chat), so that they format an age without owning its formula: it runs
-    through `age_in_years`, hence through `birth_tick` and not through the
-    frozen `Agent.age` column. Costs one read of the simulation's world.
+    Costs one read of the simulation's world. A caller describing many
+    agents of one simulation reads it once and passes it to each
+    `describe_speaker` call: the clock belongs to the simulation, not to
+    the agent, and reading it per agent made the group chat issue one
+    world query per speaker (round 13 of the Plan 4 phase-6 gate, N-c).
     """
-    simulation = agent.simulation
     template = _load_simulation_template(simulation, simulation.current_tick)
     tick_duration_hours, acceleration = _age_clock(simulation, template)
-    return age_in_years(agent, simulation.current_tick, tick_duration_hours, acceleration)
+    return simulation.current_tick, tick_duration_hours, acceleration
+
+
+def current_age_in_years(agent: Any, clock: tuple[int, float, float] | None = None) -> float:
+    """The agent's age at its simulation's current tick, for display.
+
+    The one entry point for callers outside the tick loop (the chat
+    channels), so that they format an age without owning its formula: it
+    runs through `age_in_years`, hence through `birth_tick` and not through
+    the frozen `Agent.age` column. `clock` is `current_age_clock` of the
+    agent's simulation; omitted, it is read here.
+    """
+    tick, tick_duration_hours, acceleration = clock or current_age_clock(agent.simulation)
+    return age_in_years(agent, tick, tick_duration_hours, acceleration)
 
 
 # Below this age the chat prompts count months: a ten-month-old and a
@@ -484,7 +498,7 @@ def current_age_in_years(agent: Any) -> float:
 _AGE_IN_MONTHS_BELOW_YEARS = 2
 
 
-def describe_age(agent: Any) -> str:
+def describe_age(agent: Any, clock: tuple[int, float, float] | None = None) -> str:
     """The agent's age in words for a chat prompt: completed years, or
     completed months below two years, from `current_age_in_years`.
 
@@ -492,19 +506,20 @@ def describe_age(agent: Any) -> str:
     that the dashboard (private and group chat) and the WebSocket consumer
     word it the same way without one presentation app importing another.
     """
-    years = current_age_in_years(agent)
+    years = current_age_in_years(agent, clock)
     if years < _AGE_IN_MONTHS_BELOW_YEARS:
         months = int(years * 12)
         return f"{months} month{'s' if months != 1 else ''}"
     return f"{int(years)} years"
 
 
-def describe_speaker(agent: Any) -> str:
+def describe_speaker(agent: Any, clock: tuple[int, float, float] | None = None) -> str:
     """The opening of every chat prompt, in every channel: who the agent is
     and how old, so a newborn does not answer like an adult (D-29-4).
-    Reads `agent.simulation` (and its world) once, for the age."""
+    Without `clock` (see `current_age_clock`) it reads `agent.simulation`
+    and its world once, for the age."""
     return (
-        f"You are {agent.name}, a {agent.role}, {describe_age(agent)} old. "
+        f"You are {agent.name}, a {agent.role}, {describe_age(agent, clock)} old. "
         f"Speak and react as a person of that age would. "
     )
 

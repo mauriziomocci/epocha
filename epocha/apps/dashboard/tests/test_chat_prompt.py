@@ -121,3 +121,47 @@ def test_the_group_chat_prompt_states_each_agents_age(sim):
     system_prompt = llm.complete.call_args.kwargs["system_prompt"]
     assert "You are Pietro, a child, 10 months old." in system_prompt
     assert "as a person of that age would" in system_prompt
+
+
+def test_the_group_chat_reads_the_age_clock_once_per_request(sim):
+    """Round 13 of the phase-6 gate (N-c): each speaker's age went through
+    `current_age_in_years`, which reads the simulation's world for the tick
+    length, so a group of N agents cost N reads of the same row. The clock
+    is the simulation's, not the agent's: one read per request."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from django.db import connection
+    from django.test import Client
+    from django.test.utils import CaptureQueriesContext
+
+    speakers = [
+        Agent.objects.create(
+            simulation=sim,
+            name=name,
+            role="farmer",
+            location=Point(1, 1),
+            birth_tick=CURRENT_TICK - 30 * int(TICKS_PER_YEAR),
+        )
+        for name in ("Primo", "Secondo", "Terzo")
+    ]
+    llm = MagicMock()
+    llm.complete.return_value = "..."
+    client = Client()
+    client.force_login(sim.owner)
+
+    with (
+        patch("epocha.apps.llm_adapter.client.get_chat_llm_client", return_value=llm),
+        CaptureQueriesContext(connection) as queries,
+    ):
+        response = client.post(
+            f"/simulations/{sim.id}/group-chat/",
+            data=json.dumps({"message": "Hello", "agent_ids": [a.id for a in speakers]}),
+            content_type="application/json",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+
+    assert response.status_code == 200
+    assert llm.complete.call_count == len(speakers)
+    world_reads = [q["sql"] for q in queries.captured_queries if '"world_world"' in q["sql"]]
+    assert len(world_reads) == 1

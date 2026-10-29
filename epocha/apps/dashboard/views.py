@@ -20,7 +20,7 @@ from django.views.decorators.http import require_POST
 
 from epocha.apps.agents.models import Agent, DecisionLog, Group, Memory, Relationship
 from epocha.apps.dashboard.formatters import format_decision_text
-from epocha.apps.demography.orchestrator import describe_speaker
+from epocha.apps.demography.orchestrator import current_age_clock, describe_speaker
 from epocha.apps.llm_adapter.models import LLMRequest
 from epocha.apps.simulation.models import Event, Simulation, SimulationSnapshot
 from epocha.apps.users.models import User
@@ -897,13 +897,10 @@ def group_chat_view(request, sim_id):
         from epocha.apps.llm_adapter.client import get_chat_llm_client
 
         client = get_chat_llm_client()
-        # `select_related` because `describe_speaker` reads each agent's
-        # simulation for its age.
-        agents = list(
-            Agent.objects.filter(
-                id__in=agent_ids, simulation=simulation, is_alive=True
-            ).select_related("simulation")
-        )
+        agents = list(Agent.objects.filter(id__in=agent_ids, simulation=simulation, is_alive=True))
+        # One clock for every speaker: it belongs to the simulation, and
+        # reading it per agent cost one world query per speaker.
+        age_clock = current_age_clock(simulation)
 
         # Gather recent events
         recent_events = Event.objects.filter(
@@ -963,7 +960,7 @@ def group_chat_view(request, sim_id):
 
             system_prompt = (
                 f"{personality_prompt}\n\n"
-                f"{describe_speaker(agent)}"
+                f"{describe_speaker(agent, age_clock)}"
                 f"You are in a group conversation with a visitor and other characters. "
                 f"Respond in character. "
                 f"IMPORTANT: {_get_language_instruction(request)}"
