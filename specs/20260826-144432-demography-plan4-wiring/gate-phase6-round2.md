@@ -2370,3 +2370,156 @@ porta `b5be0e2b62aa1cc2119f3d66418461eb9e92ea66`, e va riscritta con l'hash
 del commit di merge in un commit successivo al merge stesso, perché quell'hash
 non esiste prima. Insieme al pin, la build map passa il Plan 4 a fatto e
 viene ripubblicata sullo stesso URL.
+
+### Riapertura del gate (D-29-20)
+
+**2026-10-29, dopo la chiusura del round 14.** Il gate è riaperto per un
+difetto di classe 1, cioè di correttezza nel codice di produzione, trovato
+dalla rimisura della spec delle coppie e registrato come D-29-20 nel diario.
+
+**Il difetto, M1.** `orchestrator.mortality_probability_for` passava a
+`tick_mortality_probability` l'età continua `age_in_years`, dal cablaggio di
+`f130fb1` (2026-08-27). Il `q_x` di Heligman-Pollard è invece la probabilità
+di morire fra le età esatte `x` e `x + 1`, la grandezza della tavola di
+mortalità (Preston, Heuveline e Guillot 2001, cap. 3; pagina non
+verificata). Valutato a età frazionarie, un neonato passava il primo anno su
+`q(0,02)`, `q(0,04)`, … su una curva che scende da 0,022 a 0,0069 nei primi sei mesi. Ho
+riprodotto il difetto componendo le probabilità per tick che il passo usa
+davvero, sul template pre-industriale: la probabilità realizzata di morte nel
+primo anno `1q0` era 0,0084 a tick giornalieri, 0,0083 settimanali, 0,0077
+mensili e 0,0049 annuali, contro il `q(0)` di 0,0247 che il codice dichiarava.
+Il revisore aveva stimato 0,0087 e 0,0093; le mie cifre sono quelle del codice,
+misurate.
+
+La remediation ha trovato altri due difetti sullo stesso percorso. Il primo
+è la guardia `max(age, 0.01)` in `_hp_components`, presente dal primo commit
+del modulo, `59174fd`, senza commento e senza fonte (`git log -S` la porta lì
+e alla spec del 2026-04-18, che la trascrive senza motivo). Spostava l'età di
+tutti e tre i termini, mentre l'unica cosa da proteggere era il logaritmo
+della gobba accidentale, come mostra il ramo `if x > 0` rimasto morto sotto
+la guardia. Con il `B = 0,017` pre-industriale lo spostamento di 0,01 vale il
+59% del parametro che fissa la mortalità infantile, e portava `q(0)` da
+0,0291, il valore della formula a età esatta 0 con la gobba al suo limite
+zero, a 0,0247. **Ho scelto 0,0291**: è il valore del modello, e
+`fit_heligman_pollard` ora fitta attraverso la stessa funzione, così un
+insieme di parametri fittato riproduce nella simulazione il proprio `q(x)`.
+Il secondo è l'età letta alla CHIUSURA dell'intervallo del tick: il passo del
+tick `t` decide la morte nell'intervallo dal tick `t − 1`, ma leggeva l'età al
+tick `t`, quindi il tick di un compleanno era caricato del `q` dell'anno dopo.
+A tick annuali nessun neonato incontrava mai `q(0)`.
+
+**M2 (D-29-22).** `form_initial_couples` filtrava i fondatori per solo
+genere, quindi una donna omosessuale poteva essere abbinata a un uomo. Il
+caso non si raggiunge oggi, perché il campo vale `HETEROSEXUAL` per difetto e
+la generazione del mondo non lo imposta, ma la regola era sbagliata.
+
+**Perché è sfuggito a quattordici round: il testimone puntuale.** Ogni test
+della mortalità fissava una funzione a un'età e a un tick, e verificava quel
+valore. Nessun test seguiva una coorte attraverso un anno intero di tick,
+quindi nessuno misurava la grandezza che il whitepaper dichiara, cioè la
+probabilità realizzata sull'intervallo d'età. È lo stesso schema che il
+round 14 aveva già nominato per la propagazione delle notizie («ogni
+testimone deve far girare la propagazione per tutta la vita della notizia,
+non per un tick»), e non è stato esteso agli altri moduli che integrano nel
+tempo una quantità per tick.
+
+**La remediation.**
+
+- **`0e83df4`**, M1. `_hp_components` legge la scheda all'età compiuta
+  `floor(age)` e la tiene per l'anno d'età; la guardia a 0,01 è tolta e la
+  gobba vale zero a età 0; `exposure_age` in `orchestrator.py` legge l'età
+  all'inizio dell'intervallo del tick, per l'azzardo e per la causa;
+  `fit_heligman_pollard` fitta attraverso `annual_mortality_probability`.
+  Testimoni, tutti visti rossi prima della correzione: una coorte seedata di
+  5 000 neonati per 52 tick settimanali con il solo passo di mortalità
+  realizzava 55 morti (0,0110) contro un atteso di 0,0246 ± 0,0072 (`α` =
+  0,001 sull'errore standard binomiale) e ora ne realizza 150 (0,0300) contro
+  0,0290 ± 0,0078; la composizione esatta dei tick del primo anno a 24, 730,
+  4 380 e 8 760 ore dava 0,0290, 0,0271, 0,0171 e 0,0049 con la sola età
+  intera, e ora dà `q(0)` a 1e-9; due test unitari fissano `q` costante
+  dentro l'anno d'età e `q(0) = 0,0291`. Dopo la correzione `1q0 = 0,0291` a
+  tick giornalieri, mensili e annuali e 0,0296 settimanali (i 53 tick che si
+  aprono prima del primo compleanno coprono 1,016 anni); `l(25) = 0,930`, lo
+  0,9297 della tavola per età intere, contro 0,951-0,956 di prima. La cifra
+  fissata nell'end-to-end passa da 5 morti a 4 (86 agenti diventano 89 invece
+  di 88), con il motivo scritto nel test; le guardie di costo restano verdi
+  senza cifre mosse. §4.1.1 e §4.1.0 nelle due lingue dicono la convenzione,
+  le cifre prima e dopo, e che i risultati precedenti non sono confrontabili.
+- **`d6db09d`**, M2. L'eleggibilità del fondatore richiede l'orientamento
+  eterosessuale oltre all'età al matrimonio; un test parametrizzato su
+  omosessuale e bisessuale, rosso prima, mostra la fondatrice esclusa non
+  abbinata e l'uomo abbinato alla donna eterosessuale. §4.1.3 lo descrive
+  nelle due lingue.
+
+**I lettori dell'età continua.** Ho controllato con `grep` tutti i lettori di
+`age_in_years` in `demography` e nelle altre app. Le soglie
+(`meets_marriage_age`, la minorità di `inheritance.py`, `minor_agent_ids`,
+`household_keys` in `migration.py` e nel contatore di sussistenza, il
+backfill di `initialization.py`) confrontano l'età con un numero intero, e
+per un intero `n` vale `age >= n` se e solo se `floor(age) >= n`, quindi
+l'età continua dà lo stesso esito. La piramide e il TFR della snapshot usano
+già `int(age)`; l'età media resta continua, perché è una media. La fertilità
+di Hadwiger resta continua per scelta: è una scheda continua dell'età, non
+una probabilità annua fra età intere. Fuori da `demography` nessuna app legge
+l'età per una grandezza per età intere.
+
+## Round 15: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation della riapertura (codice a `d6db09d`) e
+prima di lanciarlo.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola del round 8.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **La convenzione di M1.** Verifica che `floor(age)` e `exposure_age`
+   insieme diano `1q0 = q(0)` e `l(x)` della tavola per età intere a ogni
+   lunghezza del tick, comprese quelle che non dividono l'anno, e sotto un
+   `acceleration` diverso da 1; che la causa di morte sia campionata alla
+   stessa età dell'azzardo; che il fondatore al primo tick dopo
+   l'inizializzazione sia caricato della sua età scritta e non di quella
+   precedente; che `floor` non perda un anno dove `age_in_years` restituisce
+   62,999… per 63. Ogni testimone segue una coorte o compone i tick di un
+   intervallo d'età, non un tick solo.
+2. **La guardia tolta.** Rifai il calcolo di `q(0)` a età esatta 0, verifica
+   che nessun altro percorso valuti `ln 0`, e che `fit_heligman_pollard`,
+   ora attraverso `annual_mortality_probability` e il suo tetto a 0,999,
+   converga e rispetti i bound come prima.
+3. **Ogni lettore di un'età intera.** Rifai la ricerca dei lettori di
+   `age_in_years` e di `Agent.age` in tutte le app, e per ciascuno decidi se
+   la grandezza è per età intere o continua; contesta la mia
+   classificazione dove non regge.
+4. **M2.** L'esclusione dei fondatori non eterosessuali, e se un altro
+   percorso di formazione delle coppie in questo ramo abbina per solo
+   genere.
+5. **Le frasi scritte oggi** in §4.1.0, §4.1.1 e §4.1.3, contro il codice e
+   contro le misure di questo documento, nelle due lingue.
+
+### Il terreno ereditato
+
+Resta quello del round 14, salvo `mortality.py`, che entra per intero.
+**Scegli e dichiara**, come ai round precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+Il difetto di oggi è sfuggito perché ogni testimone guardava un punto e
+nessuno una traiettoria, e il criterio lo corregge solo per la mortalità.
+Altre quantità del ramo si integrano nel tempo a partire da un valore per
+tick, la fertilità su un'età fertile, le soglie di Malthus, il contatore di
+sussistenza, e io non ho seguito nessuna di esse per un intervallo intero:
+se una di loro ha lo stesso difetto di lettura, il round può non vederlo
+finché non la segue. Inoltre la scelta di 0,0291 cambia una cifra del modello
+e non solo del codice; se un lettore del §4.1.1 o un test fuori da
+`demography` dipende da 0,0247, il round deve trovarlo. Se il round non
+produce nulla delle tre classi, il verdetto deve dire quali lunghezze del
+tick e quali accelerazioni ha esercitato, quali lettori dell'età ha
+classificato e che cosa ha lasciato fuori.
