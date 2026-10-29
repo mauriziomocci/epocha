@@ -938,6 +938,8 @@ function stable_matching(P, R, score_fn):                     (4.7)
 
 L'equazione (4.7) è l'algoritmo canonico di accettazione differita di Gale e Shapley (1962, Teoremi 1 e 2): l'esistenza di un abbinamento stabile è garantita, il risultato è proposer-optimal, e la complessità è `O(|P|·|R|)` nel caso peggiore. L'implementazione in `couple.py:98-150` è una trascrizione diretta della forma da manuale, con un adattamento Epocha-specifico: quando `|P| ≠ |R|`, il lato più piccolo è completamente abbinato e il lato più grande ha un residuo non abbinato, che è l'esito demograficamente realistico (alcuni adulti restano single).
 
+**Quale lato propone.** L'abbinamento fondatore passa gli uomini come lato proponente (`form_initial_couples` in `initialization.py`, `stable_matching(men, women, score)`), quindi l'abbinamento fondatore è quello stabile ottimo per gli uomini. Il mercato a regole della spec delle coppie (ramo `20261029-123404-rule-based-couples`, non ancora mergiato) fa invece proporre le donne, e il suo abbinamento è quindi ottimo per le donne. L'FR-014 di questo work item chiede solo che l'inizializzazione crei coppie fondatrici e non fissa il lato, quindi oggi i due meccanismi non concordano su questo punto; la scelta è registrata qui invece che risolta, e il work item delle coppie è il luogo dove allineare l'abbinamento fondatore al suo mercato.
+
 Il meccanismo di runtime è un risolutore tick+1 sulle entry `DecisionLog` scritte al tick precedente. La struttura a due passaggi richiesta dalla semantica del matrimonio combinato di Goode (1963) è:
 
 ```

@@ -896,6 +896,8 @@ function stable_matching(P, R, score_fn):                     (4.7)
 
 Equation (4.7) is the canonical deferred-acceptance algorithm of Gale and Shapley (1962, Theorems 1 and 2): existence of a stable matching is guaranteed, the result is proposer-optimal, and complexity is `O(|P|·|R|)` in the worst case. The implementation in `couple.py:98-150` is a direct transcription of the textbook form, with one Epocha-specific adaptation: when `|P| ≠ |R|`, the smaller side is fully matched and the larger side has an unmatched residual, which is the demographically realistic outcome (some adults remain single).
 
+**Which side proposes.** The founding pairing passes the men as the proposing side (`form_initial_couples` in `initialization.py`, `stable_matching(men, women, score)`), so the founding matching is the stable matching optimal for the men. The rule-based market of the couples spec (branch `20261029-123404-rule-based-couples`, not merged) has the women propose instead, which makes its matching optimal for the women. FR-014 of this work item asks only that the initialization create founding couples and does not fix the side, so the two mechanisms currently disagree on it; the choice is recorded here rather than resolved, and the couples work item is the place to align the founding pairing with its market.
+
 The runtime mechanism is a tick+1 resolver over `DecisionLog` entries authored at the previous tick. The two-pass structure required by the Goode (1963) arranged-marriage semantics is:
 
 ```
