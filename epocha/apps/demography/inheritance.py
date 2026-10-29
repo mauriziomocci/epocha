@@ -2799,7 +2799,8 @@ def transfer_loans_as_lender(
 # viene flaggato e Government.government_treasury copre la sua
 # sussistenza (modellando il wardship statale). L'orfano riceve comunque
 # la sua eredità direttamente; il caretaker amministra ma non possiede gli
-# asset."
+# asset." The treasury clause of that quote is not a transfer in the code:
+# see STATE WARD FLAG in `assign_orphan_caretaker`'s docstring.
 # ---------------------------------------------------------------------------
 
 
@@ -2839,18 +2840,22 @@ def assign_orphan_caretaker(
     minor's own two recorded parents; aunt/uncle means a living child
     (either FK) of a grandparent, excluding the minor's own parents.
 
-    STATE WARD FLAG: when no living relative exists in either stage, this
-    function returns None, leaves `minor.caretaker_agent` at None, and
-    appends the string `"state_ward"` to `minor.conditions`. `conditions`
+    STATE WARD FLAG: when no living adult relative exists in either
+    stage, this function returns None, sets `minor.caretaker_agent` to
+    None (clearing the link to a dead caretaker, when that is how the
+    minor got here), and appends the string `"state_ward"` to
+    `minor.conditions`. `conditions`
     (an existing `Agent` JSONField list, normally used for diseases and
     disabilities) is reused as the flag carrier because the plan is
     constrained to zero migrations (SC-005) and this field is otherwise
     unused for the minor at this point -- adding a dedicated boolean field
-    would require a migration this plan does not authorize. The treasury
-    actually covering the ward's subsistence (`Government.
-    government_treasury`) is NOT this function's job: it is the per-tick
-    job of the Plan 4 orchestrator, which reads the `"state_ward"` flag
-    every tick that follows. Only the flag itself is set here.
+    would require a migration this plan does not authorize. Only the flag
+    is set here. The spec's treasury clause ("Government.government_
+    treasury copre la sua sussistenza") is NOT implemented as a transfer:
+    no code moves treasury money to a ward. Demography Plan 4 instead
+    treats a state-ward minor as provided for in the household
+    subsistence predicate, `context.starving_households`, which owns that
+    rule.
 
     FIX MISS-1 (why this function exists at all): a caretaker only
     ADMINISTERS the minor's estate; the minor keeps direct ownership of

@@ -4200,9 +4200,11 @@ class TestTransferLoansAsLenderQueryBudget:
 # wardship statale). L'orfano riceve comunque la sua eredità direttamente;
 # il caretaker amministra ma non possiede gli asset."
 #
-# The treasury-subsistence flow itself is Plan 4's per-tick orchestrator
-# job and is NOT asserted here -- only the state-ward flag this function is
-# responsible for (a "state_ward" entry appended to Agent.conditions) is.
+# The ward's subsistence is NOT asserted here: no treasury transfer exists
+# for it, and Plan 4 treats a state-ward minor as provided for in the
+# household subsistence predicate (`context.starving_households`). Only
+# the state-ward flag this function is responsible for (a "state_ward"
+# entry appended to Agent.conditions) is asserted.
 #
 # `assign_orphan_caretaker` does not exist yet (implemented in T025); the
 # import above therefore fails at collection time with "cannot import name
@@ -4454,8 +4456,8 @@ class TestAssignOrphanCaretakerNoLivingRelativeStateWard:
     """No living relative anywhere (neither zone): returns None,
     `caretaker_agent` stays None, and "state_ward" is appended to
     `Agent.conditions` -- the flag mechanism the design spec calls
-    "flaggato" ahead of the treasury covering subsistence (Plan 4's
-    per-tick job, not asserted here).
+    "flaggato". The ward's subsistence belongs to the household predicate,
+    not to this function, and is not asserted here.
     """
 
     @pytest.mark.django_db
