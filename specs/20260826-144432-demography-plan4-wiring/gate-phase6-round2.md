@@ -1889,3 +1889,173 @@ di oggi lo ha già mostrato una volta, con `test_inheritance.py` rotto dalla
 cancellazione fatta in un altro pacchetto (`da13c69`). Se il round non produce nulla delle tre classi,
 il verdetto deve dire quali lettori ha aggiunto o escluso dalla tabella,
 quali percorsi ha verificato e che cosa ha lasciato fuori.
+
+### Verdetto round 12: NOT CONVERGED
+
+Un revisore, ambito `develop..HEAD` per intero a `d7db42a`. Tre rilievi
+bloccanti, due di classe 1 introdotti dalla remediation del round 11 e uno di
+classe 3.
+
+- **F1, classe 1, da `2049636`.** Il ramo del pupillo in
+  `context.starving_households` controllava «ancoraggio senza partner»
+  (`key == (agent.id,)`) e non «solo nel suo nucleo», e il `continue`
+  scartava la ricchezza della pupilla insieme al suo bisogno. Riprodotto: una
+  pupilla di quindici anni con patrimonio 100, soglia 10,0 a testa, e un
+  figlio di sei mesi con 0; il nucleo veniva contato come il solo bambino,
+  affamato, ed entrambi i contatori salivano fino a `TRAPPED_CRISIS`. La
+  decisione D-29-2 dice che il bisogno conta zero quando il membro è pupillo,
+  minorenne e **solo** nel suo nucleo.
+- **F2, classe 1, da `15cedd9`.** La partner in fuga riceveva una memoria
+  `DIRECT` di prima mano della fuga e anche una copia `HEARSAY` della propria
+  fuga, perché la deduplica di `information_flow._propagate_memory` cercava in
+  `already_informed` solo sentito dire e voci.
+- **F3, classe 3.** Le righe 8 e 16 della tabella dei lettori non erano né
+  corrette né dichiarate: `build_migration_outlook` prezza salario, distanza e
+  insieme raggiungibile dalla sola zona del decisore, quindi un nucleo diviso
+  può «fuggire» nella zona dove una parte di esso abita già; il denominatore
+  della fuga di massa è ricostruito sulla zona del decisore.
+
+**Non bloccanti**, da correggere nello stesso giro: N1, nessun testimone del
+giorno esatto della maggiore età in `_assign_caretakers_to_unguarded_minors`
+(la mutazione `<` in `<=` sopravviveva); N3, la guardia di costo sulle nascite
+non forzava lo stream della mortalità; N4, il terzo canale di chat
+(`chat/consumers.py`) costruiva il prompt senza l'età; N6, la frase della
+riga 9 nel §4.1.5 non era più vera dopo `487a33a`; N7, il docstring di
+`process_emergency_flight` descriveva ancora il predicato individuale; M10,
+l'ordine dei dipendenti dal più anziano nel payload `MIGRATION` senza
+testimone. **Da registrare, non da correggere**: N5, le elezioni fanno votare
+i neonati; N8, il tetto malthusiano morbido non è monotono vicino al tetto;
+M7, giudicata equivalente negli stati raggiungibili.
+
+**Confermato dal round**: le altre correzioni del giorno reggono. Su 23
+mutazioni, 20 sono state uccise dai testimoni; nessun lettore dell'età è
+scivolato dalla forma canonica (`birth_tick`) alla colonna `age` o viceversa
+oltre ai due dichiarati.
+
+### Remediation del round 12
+
+Ogni correzione con il testimone rosso visto prima e poi verde; ogni
+testimone nuovo è stato controllato per mutazione da un backup, poi
+ripristinato dal backup.
+
+- **F1** (`d24191b`): il bisogno della pupilla conta zero solo se il suo
+  nucleo ha un membro solo, contato sulle chiavi di nucleo; la sua ricchezza
+  conta sempre. Testimone rosso: la madre pupilla di quindici anni con dieci
+  soglie e il figlio di sei mesi non sono affamati, e nessuna fuga né crisi
+  segue. Un secondo testimone, la stessa madre con una soglia e mezza, cade
+  sotto la mutazione che toglie la condizione del nucleo di uno; la mutazione
+  che azzera la ricchezza della pupilla fa cadere il primo. I quattro
+  testimoni di R4 restano verdi. Una conseguenza ora dichiarata: una pupilla
+  sola con ricchezza negativa resta affamata, perché la cura dello Stato
+  azzera il bisogno e non copre un debito. Il §4.1.0 dice, in entrambe le
+  lingue, ciò che il codice fa, e il paragrafo sull'eredità non dice più che
+  il predicato considera «provveduto» ogni pupillo.
+- **F2** (`62b8dfd`): `already_informed` include le memorie `DIRECT` della
+  stessa origine e dello stesso tick. Testimone rosso: dopo la fuga di un
+  nucleo e `propagate_information`, la partner possiede una sola memoria di
+  quella fuga, quella di prima mano (prima: `['direct', 'hearsay']`). Il
+  §4.4.1 e il §4.1.5 aggiornati in entrambe le lingue; il §4.4.1 dichiara che
+  la deduplica si basa su origine e tick e non sul contenuto, e che questo
+  vale ora anche per le memorie di prima mano.
+- **F3** (`7b4cacb`): una frase nel §4.1.5, nelle due lingue, accanto alla
+  dichiarazione di R1, dichiara le righe 8 e 16 come in attesa dell'utente
+  insieme a R1, la cui origine per membro le correggerebbe.
+- **N1** (`f7f7518`): un dipendente che compie la maggiore età il giorno
+  stesso non riceve tutore né annotazione di pupillo; la mutazione `<` in
+  `<=` ora cade.
+- **N3** (`f7f7518`): la guardia sulle nascite forza anche lo stream della
+  mortalità a zero morti, come le altre guardie di costo.
+- **N4** (`430dfa6`): `describe_age` e `describe_speaker` passano dalla
+  dashboard a `demography/orchestrator.py`, accanto a `current_age_in_years`,
+  l'età canonica di cui sono la sola formulazione; la dashboard (chat privata
+  e di gruppo) e `chat/consumers.py` li importano, quindi nessuna app di
+  presentazione importa l'altra. Testimone rosso sul consumer WebSocket: il
+  prompt dice «You are Pietro, a child, 10 months old.».
+- **N6 e N7** (`7b4cacb`): il §4.1.5 dice che la condizione (2)
+  legge il contatore del nucleo e non dipende più da chi decide, che solo la
+  condizione (3), l'orizzonte di Sjaastad, dipende dal decisore, e che
+  l'ancoraggio può essere un minore; il docstring e il commento di
+  `process_emergency_flight` dicono lo stesso e non descrivono più il
+  predicato individuale.
+- **M10** (`f7f7518`): un testimone fissa nel payload `MIGRATION` l'ordine
+  partner, poi figli dal più anziano, con figli creati dal più giovane così
+  che l'ordine per id sia l'inverso; la mutazione che ordina per id cade.
+
+**Registrato per l'utente, non corretto.** N5: `run_election`
+(`world/election.py`, `voter_list`) fa votare ogni agente vivo, neonati
+compresi; appartiene alla spec del comportamento per età e attende quella.
+N8: `fertility.malthusian_soft_ceiling` scende linearmente a zero fra l'80% e
+il 100% del tetto e risale al `floor_ratio` sopra il tetto, quindi con
+`floor_ratio` 0,1 e tetto 500 il fattore vale 0,01 a 499 e 0,1 a 500; è una
+decisione di modello per l'utente. M7: il decisore «mai un dipendente»
+giudicato equivalente negli stati raggiungibili, nessun testimone aggiunto.
+
+**L'integrazione.** Suite intera a `430dfa6`, con la build map aggiornata nell'albero: **1807 verdi**, zero rossi; `ruff check`
+e `ruff format --check` puliti su 343 file; la guardia bilingue della build map, dopo il ricalcolo delle impronte, dà 9 verdi.
+
+---
+
+## Round 13: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation del round 12 (codice a `430dfa6`) e prima di
+lanciarlo.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola del round 8,
+che i round dal 9 al 12 hanno confermato.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **Le correzioni F1 e F2 sui loro bordi.** F1: la pupilla sola, la pupilla
+   con un figlio, la pupilla sposata, la pupilla il giorno della maggiore età,
+   la pupilla con ricchezza negativa, e la pupilla il cui figlio è a sua volta
+   affidato a un tutore. F2: la deduplica ora include le memorie di prima
+   mano; verifica che non spenga una propagazione che deve avvenire, per
+   esempio il lutto (`generate_mourning_memories`, origine il defunto) o la
+   crisi da intrappolamento, e che un vicino che conosce tutto il nucleo
+   senta della fuga ancora una volta sola.
+2. **Ogni altro lettore dell'appartenenza al nucleo.** Il round 12 ha trovato
+   F1 in un lettore che deduceva il nucleo dall'ancoraggio invece di contarne
+   i membri. Cerca ogni punto che usa `key == (agent.id,)`, la lunghezza della
+   chiave o il partner come prova di essere soli, in `context.py`,
+   `migration.py`, `orchestrator.py`, `snapshot.py` e `inheritance.py`.
+3. **Ogni altro lettore della deduplica delle memorie.** `already_informed`,
+   il `get_or_create` degli eventi pubblici, la deduplica dei destinatari del
+   lutto, la memoria aggregata della crisi e la finestra di
+   `_CONCERN_DEDUP_TICKS` in `economy/banking.py`: per ciascuno, quale chiave
+   usa e se una memoria di prima mano la soddisfa o no.
+4. **Il percorso dell'età nei tre canali di chat**, ora che la frase vive in
+   `demography/orchestrator.py`: nessun canale costruisce più l'apertura per
+   conto suo, e nessuna app di presentazione importa l'altra.
+5. **Le frasi dei whitepaper scritte oggi** nei §4.1.0, §4.1.5 e §4.4.1,
+   contro il codice, nelle due lingue.
+
+### Il terreno ereditato
+
+Resta quello del round 12: `inheritance.py` oltre il diff,
+`template_loader.py` oltre lo schema della coppia, `truncated_moments.py`,
+`clark_calibration.py`, la parte volontaria di `migration.py`, `fertility.py`
+oltre `_effective_age_in_years`, le cifre end-to-end non ri-misurate, e di
+`mortality.py` tutto ciò che non è la conversione al tick. M7 resta senza
+testimone per scelta dichiarata. **Scegli e dichiara**, come ai round
+precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+Le due correzioni bloccanti di oggi sono piccole, ma toccano due predicati
+condivisi: il predicato di sussistenza, che il contatore di fame e la fuga
+d'emergenza leggono insieme, e la deduplica delle memorie, che ogni
+propagazione attraversa. Un predicato condiviso corretto per un caso può
+cambiarne un altro che nessun testimone guarda, ed è esattamente ciò che è
+successo al round 11 con il ramo del pupillo. Se il round non produce nulla
+delle tre classi, il verdetto deve dire quali lettori dell'appartenenza e
+della deduplica ha verificato, quali percorsi ha esercitato e che cosa ha
+lasciato fuori.
