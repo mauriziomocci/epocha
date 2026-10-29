@@ -8,6 +8,7 @@ state.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from epocha.apps.economy.market import SUBSISTENCE_NEED_PER_AGENT
@@ -241,22 +242,32 @@ def starving_households(
     THE STATE FEEDS ITS WARDS. A minor that `assign_orphan_caretaker` found
     no living relative for carries `"state_ward"` in `conditions`, and the
     design spec (2026-04-18, `caretaker_agent`) makes the state the implicit
-    caretaker. A ward who is still a minor and still a household of one is
-    therefore no household that eats on its own, and is left out of the
-    tally: round 11 of the phase-6 gate measured an eight-year-old with
-    nothing to her name starving as her own household and fleeing alone.
-    The three conditions are each load-bearing. The flag is never cleared,
-    so the age ends wardship; and a married ward has a household of her
-    own, which feeds her. The state's care costs no treasury debit -- a
-    declared limit of whitepaper §4.1.0 -- and a minor with no living
-    guardian and no flag is not covered.
+    caretaker. The need of a ward who is still a minor and the only member
+    of her household therefore counts zero: round 11 of the phase-6 gate
+    measured an eight-year-old with nothing to her name starving as her own
+    household and fleeing alone. Only the NEED is zeroed, never the wealth,
+    and only in a household of one -- counted on the keys, not read off the
+    anchor, because a ward with a child of her own is an anchor without a
+    partner and heads a household of two. Round 12 measured the first
+    version of this branch, which tested the anchor and dropped the ward
+    altogether, starving a fifteen-year-old ward with ten thresholds to her
+    name together with her six-month-old child. The three conditions are
+    each load-bearing. The flag is never cleared, so the age ends wardship;
+    a married ward, or a ward with a child, has a household that eats from
+    what its members own. A lone ward with negative wealth still starves,
+    since a debt is not covered by the state's care. That care costs no
+    treasury debit -- a declared limit of whitepaper §4.1.0 -- and a minor
+    with no living guardian and no flag is not covered.
     """
+    household_size = Counter(keys[agent.id] for agent in living)
     wealth: dict[tuple[int, ...], float] = {}
     need: dict[tuple[int, ...], float] = {}
     for agent, age in zip(living, ages, strict=True):
         key = keys[agent.id]
-        if key == (agent.id,) and age < adulthood_age and "state_ward" in agent.conditions:
-            continue
         wealth[key] = wealth.get(key, 0.0) + agent.wealth
-        need[key] = need.get(key, 0.0) + threshold_by_zone[agent.zone_id]
+        fed_by_the_state = (
+            household_size[key] == 1 and age < adulthood_age and "state_ward" in agent.conditions
+        )
+        member_need = 0.0 if fed_by_the_state else threshold_by_zone[agent.zone_id]
+        need[key] = need.get(key, 0.0) + member_need
     return {key for key, total in wealth.items() if total < need[key]}

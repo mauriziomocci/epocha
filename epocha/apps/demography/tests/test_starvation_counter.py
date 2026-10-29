@@ -626,6 +626,93 @@ class TestTheStateFeedsItsWards:
             member.refresh_from_db()
             assert member.consecutive_ticks_under_subsistence == 1, member.name
 
+    def test_a_ward_mother_feeds_her_child_from_her_own_purse(self, sim_with_zone):
+        """The state's care covers the ward's NEED, never her wealth, and only
+        while she is alone: a ward with a child of her own heads a household
+        of two, which eats from what its members own.
+
+        Found by round 12 of the phase-6 gate (F1): the branch tested "anchor
+        without a partner" instead of "alone in the household" and dropped
+        the ward from the tally altogether, wealth included. A fifteen-year-old
+        ward with ten thresholds to her name and a six-month-old child with
+        nothing were then a household of the child alone, starving, and both
+        counters rose to a trapped crisis."""
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.context import compute_subsistence_threshold
+        from epocha.apps.demography.migration import process_emergency_flight
+        from epocha.apps.demography.models import DemographyEvent
+
+        sim, zone = sim_with_zone
+        threshold = compute_subsistence_threshold(sim, zone)
+        mother = _agent(
+            sim,
+            zone,
+            "PupillaMadre",
+            wealth=threshold * 10,
+            conditions=["state_ward"],
+            gender=Agent.Gender.FEMALE,
+            **_of_age(sim, 15),
+        )
+        child = _agent(
+            sim,
+            zone,
+            "Neonato",
+            wealth=0.0,
+            parent_agent=mother,
+            age=0,
+            birth_tick=int(sim.current_tick - 182),
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        for member in (mother, child):
+            member.refresh_from_db()
+            assert member.consecutive_ticks_under_subsistence == 0, member.name
+
+        # Past the trigger by hand: condition 1 of the flight path asks the
+        # same predicate, so the household is fed and nothing may follow.
+        Agent.objects.filter(pk__in=[mother.pk, child.pk]).update(
+            consecutive_ticks_under_subsistence=30
+        )
+        process_emergency_flight(sim, sim.current_tick + 1)
+
+        assert not DemographyEvent.objects.filter(simulation=sim).exists()
+
+    def test_a_ward_mother_who_covers_one_threshold_and_a_half_starves(self, sim_with_zone):
+        """The other side of the same rule: in a household of two the ward's
+        need counts like anyone's. Her purse covers one threshold and a half,
+        enough for the child alone and short of the two the household needs,
+        so zeroing her need outside a household of one would feed them."""
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.context import compute_subsistence_threshold
+
+        sim, zone = sim_with_zone
+        threshold = compute_subsistence_threshold(sim, zone)
+        mother = _agent(
+            sim,
+            zone,
+            "PupillaPovera",
+            wealth=threshold * 1.5,
+            conditions=["state_ward"],
+            gender=Agent.Gender.FEMALE,
+            **_of_age(sim, 15),
+        )
+        child = _agent(
+            sim,
+            zone,
+            "Neonata",
+            wealth=0.0,
+            parent_agent=mother,
+            age=0,
+            birth_tick=int(sim.current_tick - 182),
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        for member in (mother, child):
+            member.refresh_from_db()
+            assert member.consecutive_ticks_under_subsistence == 1, member.name
+
 
 class TestOneHouseholdOneCounter:
     """The members of one household carry one counter.
