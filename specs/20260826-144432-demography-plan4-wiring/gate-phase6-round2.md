@@ -2823,3 +2823,72 @@ esposto e ruotato.
 
 Segue una revisione mirata del codice nuovo di questa chiusura, cioè dei sei
 commit qui sopra, prima della chiusura del work item.
+
+### Revisione ristretta della chiusura
+
+**2026-10-29, sul delta `73385af..5e23a4f`.** La revisione mirata dei sei
+commit di chiusura ha trovato un difetto bloccante, di gravità S2, e quattro
+S3; nello stesso passaggio ho chiuso anche un difetto fuori dal delta, per la
+regola di non lasciare bug noti. Li chiudo tutti, uno per commit, ognuno con il
+testimone visto rosso prima della correzione.
+
+- **`555923c`, S2 bloccante, una regressione di `f6648c5`.** Le due ricerche
+  del confine della finestra fertile in SQL non avevano limite: con
+  `tick_duration_hours * acceleration` minore o uguale a zero non finivano
+  mai. Prima della correzione `_fertile_window_filter(0, -24.0, 1.0)` restava
+  appeso (l'ho interrotto con un allarme a 3 secondi), con zero ore sollevava
+  `ZeroDivisionError` e con NaN una `ValueError` generica; il vecchio
+  `max(1e-9, ...)` nascondeva la stessa configurazione, e
+  `World.tick_duration_hours` si modifica dall'admin. Ora `years_per_tick` è
+  l'unico punto che valida l'orologio: solleva la nuova `NonPositiveTickError`,
+  sorella di `TickLongerThanAYearError`, quando `dt` è zero, negativo o NaN
+  (NaN prima passava, perché `nan > 1` è falso), e la finestra fertile la
+  chiama prima delle ricerche. Le due ricerche condividono `_corrected_edge`,
+  limitata a due passi di correzione; un terzo passo solleva `AssertionError`
+  come violazione di invariante. Una scansione su tick da 1 a 8 760 ore e
+  undici accelerazioni con `dt <= 1` misura al massimo un passo (38 ricerche
+  su 243 276). I dieci testimoni girano sotto un allarme a 5 secondi, così un
+  blocco fallisce invece di fermare la suite; erano rossi 10 su 10, e quello
+  del terzo passo con `TimeoutError`. §4.1.1 lo dice nelle due lingue. Il
+  vincolo sul database resta fuori per la decisione D-29-29 ed è in build map
+  come voce non aperta.
+- **`1821d8d`, S3.** Un nome di template che non è una stringa, una lista o un
+  oggetto letti dal JSON di `simulation.config`, sollevava `TypeError` alla
+  cache, fuori dai rami `FileNotFoundError` e `ValueError` dei chiamanti, e
+  interrompeva il tick. Ora `load_template` controlla il tipo prima della cache
+  e solleva la stessa `FileNotFoundError` dell'elenco dei nomi, costruita da un
+  solo helper. I due casi, lista e dizionario, erano rossi con
+  `TypeError: unhashable type`. Nello stesso commit ho corretto la docstring di
+  `_load_template_cached`, che diceva `templates_dir` «altrimenti inutilizzato»
+  mentre il file viene letto proprio da lì.
+- **`52c5278`, S3.** `fit_heligman_pollard` aveva due guardie per lo stesso
+  ingresso: una scheda tutta a zero incontrava la più vecchia e sollevava
+  `RuntimeError` «did not converge» senza che nessun fit fosse tentato, contro
+  il §6.3 che documenta `UnderdeterminedFitError`. Ho cancellato la guardia
+  vecchia; il testimone, che ora chiede l'errore documentato con «got 0 ages»,
+  era rosso con il `RuntimeError`. §6.3 perde la frase sul `RuntimeError` nelle
+  due lingue.
+- **`03d3d28`, S3.** La fixture `no_enrichment` era copiata in
+  `world/tests/test_generator.py` e in `tests/test_integration.py`, e
+  `demography/tests/test_zone_invariant.py` sostituiva lo stesso bersaglio con
+  un decoratore. Le due cartelle di test sono sorelle, quindi il conftest più
+  stretto che le copre è quello alla radice: la fixture vive lì, non autouse,
+  e ogni modulo la richiede per nome. Togliendo la richiesta da
+  `test_generator.py` cinque dei suoi sei test tornano rossi.
+- **`f668ad3`, fuori dal delta.** `knowledge/tests/test_embedding.py::TestEmbedTextsReal`
+  scaricava intfloat/multilingual-e5-large dalla rete a ogni corsa, perché
+  `FASTEMBED_CACHE_PATH` non è impostata e i container usa e getta perdono la
+  cache; lo faceva anche la CI. Il marcatore `slow`, che nominava ancora
+  bge-m3, diventa `network`, registrato con il motivo nella descrizione ed
+  escluso dalla corsa predefinita con `-m 'not network'`; si lancia con
+  `pytest -m network`. Non è uno skip che nasconde un rosso: è un test di
+  integrazione che richiede la rete, eseguibile a richiesta. In build map
+  traccio come voce non aperta il cambio di pooling di multilingual-e5-large in
+  fastembed, da CLS a media, e la deriva degli embedding del Knowledge Graph
+  che ne può venire (§8.1).
+
+**Suite intera:** 1879 verdi, 3 esclusi (i test di rete), 2 warning, in 402,03
+secondi, nel container usa e getta del progetto isolato `epocha-tests`. Dopo la
+corsa ho cambiato solo un commento e una docstring di `orchestrator.py`, e
+`test_orchestrator_birth.py` con la guardia bilingue della build map è passato
+intero (47 verdi). Ruff check e format puliti.
