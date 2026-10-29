@@ -797,12 +797,8 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     ages = [
         age_in_years(agent, context.tick, tick_duration_hours, acceleration) for agent in living
     ]
-    keys = household_keys(
-        living,
-        ages,
-        context.simulation,
-        adulthood_age=float(context.template["migration"]["adulthood_age"]),
-    )
+    adulthood_age = float(context.template["migration"]["adulthood_age"])
+    keys = household_keys(living, ages, context.simulation, adulthood_age=adulthood_age)
 
     thresholds: dict[Any, float] = {}
     changed: list[Any] = []
@@ -818,7 +814,7 @@ def run_starvation_counter_step(context: DemographyTickContext) -> None:
     # Aggregated per household, then applied to each of its members: a
     # household feeds itself or it does not, and its dependants starve with
     # it rather than on their own account.
-    starving = starving_households(living, keys, thresholds)
+    starving = starving_households(living, ages, keys, thresholds, adulthood_age)
 
     for agent in living:
         under_subsistence = keys[agent.id] in starving

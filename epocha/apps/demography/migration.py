@@ -1508,19 +1508,17 @@ def process_emergency_flight(
             age_in_years(agent, tick, world.tick_duration_hours or 24.0, acceleration)
             for agent in agents
         ]
-        keys = household_keys(
-            agents,
-            ages,
-            simulation,
-            adulthood_age=float(template["migration"]["adulthood_age"]),
-        )
+        adulthood_age = float(template["migration"]["adulthood_age"])
+        keys = household_keys(agents, ages, simulation, adulthood_age=adulthood_age)
         starving = starving_households(
             agents,
+            ages,
             keys,
             {
                 zone_id: entry["subsistence_threshold"]
                 for zone_id, entry in zone_stats["zones"].items()
             },
+            adulthood_age,
         )
         members_by_key: dict[tuple[int, ...], list] = defaultdict(list)
         for agent in agents:
