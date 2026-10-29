@@ -2,7 +2,13 @@
 
 from rest_framework import serializers
 
+from epocha.apps.agents.deliberation import is_valid_max_protagonists
+
 from .models import Event, Simulation
+
+MAX_PROTAGONISTS_ERROR = (
+    "Must be a whole number of 0 or more; omit the key to use the default of 30."
+)
 
 
 class SimulationSerializer(serializers.ModelSerializer):
@@ -24,6 +30,20 @@ class SimulationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "owner", "current_tick", "created_at", "updated_at"]
+
+    def validate_config(self, value):
+        """Reject an invalid ``max_protagonists`` at the API boundary (FR-020).
+
+        The error is a dict keyed by the config key so that DRF nests it under
+        ``config`` in the response body. Other keys stay unvalidated, as before.
+        """
+        if (
+            isinstance(value, dict)
+            and "max_protagonists" in value
+            and not is_valid_max_protagonists(value["max_protagonists"])
+        ):
+            raise serializers.ValidationError({"max_protagonists": [MAX_PROTAGONISTS_ERROR]})
+        return value
 
 
 class SimulationCreateExpressSerializer(serializers.Serializer):

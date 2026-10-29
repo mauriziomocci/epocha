@@ -143,3 +143,49 @@ class TestExpressEndpoint:
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         sim = Simulation.objects.first()
         assert sim.status == "error"
+
+
+MAX_PROTAGONISTS_BODY = {
+    "config": {
+        "max_protagonists": [
+            "Must be a whole number of 0 or more; omit the key to use the default of 30."
+        ]
+    }
+}
+
+
+@pytest.mark.django_db
+class TestMaxProtagonistsValidation:
+    """FR-020: max_protagonists is validated at the API boundary (D-RBC-09)."""
+
+    @pytest.fixture
+    def simulation(self, user):
+        # Keys the economy writes at creation: a client must send them back.
+        config = {"production_config": {"alpha": 1}, "credit_config": {"rate": 0.05}}
+        return Simulation.objects.create(name="Cfg", seed=1, owner=user, config=config)
+
+    @pytest.mark.parametrize("value", [-1, None, True, 2.5])
+    def test_a_patch_with_an_invalid_value_answers_400_and_changes_nothing(
+        self, authenticated_client, simulation, value
+    ):
+        url = f"/api/v1/simulations/{simulation.id}/"
+        config = authenticated_client.get(url).json()["config"]
+        config["max_protagonists"] = value
+
+        response = authenticated_client.patch(url, {"config": config}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == MAX_PROTAGONISTS_BODY
+        simulation.refresh_from_db()
+        assert "max_protagonists" not in simulation.config
+
+    def test_a_post_with_an_invalid_value_answers_the_same_400(self, authenticated_client):
+        response = authenticated_client.post(
+            "/api/v1/simulations/",
+            {"name": "Bad", "seed": 1, "config": {"max_protagonists": -1}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == MAX_PROTAGONISTS_BODY
+        assert not Simulation.objects.filter(name="Bad").exists()
