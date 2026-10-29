@@ -1145,11 +1145,13 @@ def process_emergency_flight(
 
     `Agent.consecutive_ticks_under_subsistence` now exists, maintained once
     per tick by the demography orchestrator's counter step on the SAME
-    predicate this path consumes: wealth against
-    `compute_subsistence_threshold` for the agent's zone. The value is read
-    from each agent row already loaded by the per-agent loop below, so the
-    read costs no query of its own, and a caller can no longer disagree
-    with the store about who is starving.
+    predicate this path consumes: `context.starving_households`, the
+    household's combined wealth against the sum of its members' zone
+    thresholds, never one agent's wealth against her own zone's. Every
+    member of a household carries the same value (the counter step writes
+    the household's count to all of them), and it is read from the agent
+    rows already loaded below, so the read costs no query of its own and a
+    caller can no longer disagree with the store about who is starving.
 
     PER-HOUSEHOLD STEPS (round 10 of the phase-6 gate). The unit of the
     decision is the household as `context.household_keys` defines it --
@@ -1157,14 +1159,18 @@ def process_emergency_flight(
     living agent in the world's zones. Households are taken in the order of
     their lowest-id member (deterministic, this module's convention), and
     each is decided ONCE, by its decider: the anchor, meaning the lower id
-    of a couple or the single adult, never a dependent.
+    of a couple, otherwise the member with no living guardian -- an adult,
+    or more rarely a minor such as a state ward with a child of her own --
+    and never a dependent.
     1. Resolve `(meets_preconditions, target_zone)` via the private
        `_resolve_flight_decision` core.
        Condition 1 is the HOUSEHOLD's -- combined wealth against the
        members' combined zone thresholds, through
        `context.starving_households`, the predicate the starvation counter
-       uses -- and conditions 2 and 3 read the decider's counter and the
-       decider's Sjaastad horizon.
+       uses. Condition 2 reads the decider's counter, which is the
+       household's, so it does not depend on who decides; condition 3 reads
+       the decider's Sjaastad horizon alone, which does (whitepaper §4.1.5,
+       phase-6 gate row 9).
     2. `target_zone is not None` -> FLEE: `coordinate_family_migration`
        moves every other member, handed the list already derived (called
        BEFORE mutating the decider's zone, so `payload["from_zone"]` reads
@@ -1542,9 +1548,10 @@ def process_emergency_flight(
             decided.add(key)
             members = members_by_key[key]
             # The decider is the household's anchor -- the lower id of a
-            # couple, or the single adult -- never a dependent: it is the
-            # decider's counter and Sjaastad horizon that conditions 2 and 3
-            # read. A partner outside the zoned population leaves the other.
+            # couple, otherwise the member with no living guardian, who can
+            # be a minor -- never a dependent: condition 2 reads its counter,
+            # which is the household's, and condition 3 its Sjaastad horizon.
+            # A partner outside the zoned population leaves the other.
             decider = min(
                 (member for member in members if member.id in key),
                 key=lambda member: member.id,
