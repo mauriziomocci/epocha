@@ -409,6 +409,10 @@ work item **non** consegna:
   uno stato strutturalmente impossibile sarebbe verde per costruzione. Il
   debito resta tracciato per gli oggetti `Simulation` non salvati costruiti in
   codice.
+- l'**addebito sulla tesoreria** della sussistenza del pupillo dello Stato:
+  il pupillo minorenne e solo è escluso dal conto di `starving_households`
+  senza alcun costo per `Government.government_treasury`, e il minore senza
+  tutore vivo e senza annotazione `"state_ward"` non è coperto (§4.1.0).
 
 Tutto il resto resta tracciato dove già è tracciato; FR-017 impone che al merge
 il whitepaper non contenga più frasi che il merge stesso rende false.

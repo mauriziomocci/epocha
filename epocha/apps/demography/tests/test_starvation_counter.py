@@ -1,8 +1,8 @@
 """Tests for the persisted starvation counter (spec FR-011, FR-012, SC-003).
 
-`evaluate_emergency_flight` takes `consecutive_ticks_under_subsistence` as an
-explicit argument because no such field existed in the schema; Plan 3 left the
-obligation in writing. Without that storage the emergency-flight module is dead
+Plan 3's emergency-flight trigger took `consecutive_ticks_under_subsistence`
+as an explicit argument because no such field existed in the schema, and left
+the obligation in writing. Without that storage the emergency-flight module is dead
 code in a live run: with the default empty mapping every agent evaluates to
 "does not meet preconditions" and the path never fires.
 
@@ -498,3 +498,186 @@ class TestFlightReadsThePersistedCounter:
         process_emergency_flight(sim, sim.current_tick + 1)
 
         assert not DemographyEvent.objects.filter(simulation=sim).exists()
+
+
+def _of_age(sim, years):
+    """The `age` and `birth_tick` pair for an agent `years` old by the
+    canonical age, at the fixture's daily ticks."""
+    return {"age": years, "birth_tick": int(sim.current_tick - years * 365)}
+
+
+class TestTheStateFeedsItsWards:
+    """A minor with no living guardian is the state's ward, and the state is
+    the implicit caretaker (design spec 2026-04-18, `caretaker_agent`): it
+    feeds the ward, so the ward's subsistence need does not fall on the
+    ward's own empty purse.
+
+    Found by round 11 of the phase-6 gate (R4): `assign_orphan_caretaker`
+    flags `"state_ward"` and nothing read the flag, so an eight-year-old
+    with nothing to her name was a starving household of one, decided for
+    herself, and fled alone. The rule is decided by the Trinity (variant b):
+    the need counts zero while the flag is set, the member is a minor by the
+    era's `migration.adulthood_age`, and the household is the ward alone. No
+    treasury is debited; that limit is declared in whitepaper §4.1.0.
+    """
+
+    def test_a_state_ward_never_starves_nor_flees_alone(self, sim_with_zone):
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.migration import process_emergency_flight
+        from epocha.apps.demography.models import DemographyEvent
+
+        sim, zone = sim_with_zone
+        ward = _agent(
+            sim, zone, "Pupilla", wealth=0.0, conditions=["state_ward"], **_of_age(sim, 8)
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        ward.refresh_from_db()
+        assert ward.consecutive_ticks_under_subsistence == 0
+
+        # Past the trigger by hand, as if a counter had run wild: the flight
+        # path asks condition 1 through the same predicate, so neither a
+        # flight nor a trapped crisis may follow.
+        Agent.objects.filter(pk=ward.pk).update(consecutive_ticks_under_subsistence=30)
+        process_emergency_flight(sim, sim.current_tick + 1)
+
+        assert not DemographyEvent.objects.filter(simulation=sim).exists()
+
+    def test_a_former_ward_who_came_of_age_starves_like_anyone(self, sim_with_zone):
+        """The flag is never cleared, so the age test is what ends wardship."""
+        from epocha.apps.demography import orchestrator
+
+        sim, zone = sim_with_zone
+        grown = _agent(
+            sim, zone, "ExPupillo", wealth=0.0, conditions=["state_ward"], **_of_age(sim, 20)
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        grown.refresh_from_db()
+        assert grown.consecutive_ticks_under_subsistence == 1
+
+    def test_wardship_ends_on_the_day_of_adulthood(self, sim_with_zone):
+        """A minor is younger than `adulthood_age`; on the birthday itself
+        the ward is an adult, like `household_keys` reads her."""
+        from epocha.apps.demography import orchestrator
+
+        sim, zone = sim_with_zone
+        context = _context(sim)
+        adulthood_age = context.template["migration"]["adulthood_age"]
+        # Daily ticks make a year exactly 365 of them (`HOURS_PER_YEAR`
+        # 8760), so this birth tick lands the age on the threshold itself.
+        birthday = _agent(
+            sim,
+            zone,
+            "Maggiorenne",
+            wealth=0.0,
+            conditions=["state_ward"],
+            age=adulthood_age,
+            birth_tick=int(context.tick - adulthood_age * 365),
+        )
+
+        orchestrator.run_starvation_counter_step(context)
+
+        birthday.refresh_from_db()
+        assert birthday.consecutive_ticks_under_subsistence == 1
+
+    def test_an_unflagged_minor_alone_is_not_covered(self, sim_with_zone):
+        """The declared limit: the state feeds the wards it knows of. A minor
+        with no living guardian and no flag -- a founder generated young, or
+        a child whose guardian left the zoned population -- starves as a
+        household of one."""
+        from epocha.apps.demography import orchestrator
+
+        sim, zone = sim_with_zone
+        alone = _agent(sim, zone, "Solo", wealth=0.0, **_of_age(sim, 8))
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        alone.refresh_from_db()
+        assert alone.consecutive_ticks_under_subsistence == 1
+
+    def test_a_married_ward_eats_from_her_couple(self, sim_with_zone):
+        """Marriage makes a household, and the household feeds its members:
+        the state's care is for the ward alone. The husband's purse covers
+        one threshold and a half, short of the two the couple needs."""
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.context import compute_subsistence_threshold
+        from epocha.apps.demography.couple import form_couple
+
+        sim, zone = sim_with_zone
+        threshold = compute_subsistence_threshold(sim, zone)
+        bride = _agent(
+            sim,
+            zone,
+            "Sposa",
+            wealth=0.0,
+            conditions=["state_ward"],
+            gender=Agent.Gender.FEMALE,
+            **_of_age(sim, 15),
+        )
+        husband = _agent(sim, zone, "Marito", wealth=threshold * 1.5, **_of_age(sim, 20))
+        form_couple(bride, husband, formed_at_tick=1)
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        for member in (bride, husband):
+            member.refresh_from_db()
+            assert member.consecutive_ticks_under_subsistence == 1, member.name
+
+
+class TestOneHouseholdOneCounter:
+    """The members of one household carry one counter.
+
+    The counter used to add the household's verdict to each person's OWN
+    previous value, so whoever joined a starving household -- a spouse at
+    marriage, a newborn, a minor anchored anew -- arrived at a count of
+    their own and the household's members disagreed on how long it had been
+    starving (phase-6 gate rows 20 and 33). Within ratified decision B1, a
+    starving household now continues from the longest count among its
+    members, and writes the same value to all of them; a fed household
+    resets every member to zero.
+    """
+
+    def test_a_marriage_continues_from_the_longer_count(self, sim_with_zone):
+        from epocha.apps.demography import orchestrator
+        from epocha.apps.demography.couple import form_couple
+
+        sim, zone = sim_with_zone
+        long_hungry = _agent(sim, zone, "Lungo", wealth=0.0, consecutive_ticks_under_subsistence=29)
+        newly_wed = _agent(
+            sim,
+            zone,
+            "Sposa",
+            wealth=0.0,
+            gender=Agent.Gender.FEMALE,
+            consecutive_ticks_under_subsistence=0,
+        )
+        form_couple(long_hungry, newly_wed, formed_at_tick=sim.current_tick)
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        for member in (long_hungry, newly_wed):
+            member.refresh_from_db()
+            assert member.consecutive_ticks_under_subsistence == 30, member.name
+
+    def test_a_newborn_joins_the_count_of_its_household(self, sim_with_zone):
+        from epocha.apps.demography import orchestrator
+
+        sim, zone = sim_with_zone
+        mother = _agent(
+            sim,
+            zone,
+            "Madre",
+            wealth=0.0,
+            gender=Agent.Gender.FEMALE,
+            consecutive_ticks_under_subsistence=10,
+        )
+        newborn = _agent(sim, zone, "Neonato", wealth=0.0, parent_agent=mother, **_of_age(sim, 0))
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        for member in (mother, newborn):
+            member.refresh_from_db()
+            assert member.consecutive_ticks_under_subsistence == 11, member.name

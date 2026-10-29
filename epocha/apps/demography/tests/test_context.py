@@ -234,7 +234,7 @@ class TestStarvingHouseholds:
     def _member(agent_id, wealth, zone_id=1):
         from types import SimpleNamespace
 
-        return SimpleNamespace(id=agent_id, wealth=wealth, zone_id=zone_id)
+        return SimpleNamespace(id=agent_id, wealth=wealth, zone_id=zone_id, conditions=[])
 
     def test_the_threshold_is_the_line_itself_not_below_it(self):
         """Wealth exactly equal to the members' combined threshold feeds the
@@ -246,7 +246,7 @@ class TestStarvingHouseholds:
         short = [self._member(3, 6.0), self._member(4, 3.0)]
         keys = {1: (1, 2), 2: (1, 2), 3: (3, 4), 4: (3, 4)}
 
-        starving = starving_households(fed + short, keys, {1: 5.0})
+        starving = starving_households(fed + short, [40.0] * 4, keys, {1: 5.0}, 16.0)
 
         assert starving == {(3, 4)}
 
@@ -258,5 +258,5 @@ class TestStarvingHouseholds:
         members = [self._member(1, 8.0, zone_id=1), self._member(2, 0.0, zone_id=2)]
         keys = {1: (1, 2), 2: (1, 2)}
 
-        assert starving_households(members, keys, {1: 2.0, 2: 7.0}) == {(1, 2)}
-        assert starving_households(members, keys, {1: 2.0, 2: 5.0}) == set()
+        assert starving_households(members, [40.0] * 2, keys, {1: 2.0, 2: 7.0}, 16.0) == {(1, 2)}
+        assert starving_households(members, [40.0] * 2, keys, {1: 2.0, 2: 5.0}, 16.0) == set()

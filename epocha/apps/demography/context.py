@@ -216,8 +216,10 @@ def household_keys(
 
 def starving_households(
     living: list,
+    ages: list[float],
     keys: dict[int, tuple[int, ...]],
     threshold_by_zone: dict,
+    adulthood_age: float,
 ) -> set[tuple[int, ...]]:
     """The keys of the households that cannot feed themselves this tick.
 
@@ -232,12 +234,29 @@ def starving_households(
 
     `threshold_by_zone` maps each member's `zone_id` to its threshold and is
     read strictly: a member whose zone the caller did not price is a
-    caller's error, not a zero.
+    caller's error, not a zero. `ages` runs parallel to `living`, on the
+    canonical age `household_keys` reads, and `adulthood_age` is the era's
+    `migration.adulthood_age`.
+
+    THE STATE FEEDS ITS WARDS. A minor that `assign_orphan_caretaker` found
+    no living relative for carries `"state_ward"` in `conditions`, and the
+    design spec (2026-04-18, `caretaker_agent`) makes the state the implicit
+    caretaker. A ward who is still a minor and still a household of one is
+    therefore no household that eats on its own, and is left out of the
+    tally: round 11 of the phase-6 gate measured an eight-year-old with
+    nothing to her name starving as her own household and fleeing alone.
+    The three conditions are each load-bearing. The flag is never cleared,
+    so the age ends wardship; and a married ward has a household of her
+    own, which feeds her. The state's care costs no treasury debit -- a
+    declared limit of whitepaper §4.1.0 -- and a minor with no living
+    guardian and no flag is not covered.
     """
     wealth: dict[tuple[int, ...], float] = {}
     need: dict[tuple[int, ...], float] = {}
-    for agent in living:
+    for agent, age in zip(living, ages, strict=True):
         key = keys[agent.id]
+        if key == (agent.id,) and age < adulthood_age and "state_ward" in agent.conditions:
+            continue
         wealth[key] = wealth.get(key, 0.0) + agent.wealth
         need[key] = need.get(key, 0.0) + threshold_by_zone[agent.zone_id]
     return {key for key, total in wealth.items() if total < need[key]}
