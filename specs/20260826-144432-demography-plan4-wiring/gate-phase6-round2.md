@@ -2234,3 +2234,125 @@ che nessun testimone tocca, il round può non vederlo. Se il round non
 produce nulla delle tre classi, il verdetto deve dire quali scrittori di
 memorie ha verificato, quali combinazioni di `max_hops` e di affidabilità ha
 esercitato e che cosa ha lasciato fuori.
+
+### Verdetto round 14: CONVERGED
+
+Ambito `develop..HEAD` per intero a `a6b64d4`, secondo il criterio scritto
+prima del lancio. Nessun rilievo delle tre classi bloccanti.
+
+**Che cosa il round ha verificato.** La finestra della correzione R13-1 è
+stata ricavata di nuovo dalle tre fasi di `propagate_information` e coincide
+con `max(max_hops, 2) - 1`: la fase 2 racconta a `t + 1` senza guardare
+`max_hops`, la fase 3 si ferma quando `_estimate_hop` raggiunge `max_hops`, e
+quella stima non scende sotto l'hop vero per affidabilità non superiori a
+1,0. Gli echi sono stati cercati con diciotto sonde che fanno girare la
+propagazione per tutta la vita della notizia e oltre, `max_hops + 6` tick,
+non per un tick solo: quindici sulla fuga d'emergenza, con `max_hops` 1, 2,
+3, 4 e 6 per forza dei legami 0,5, 0,9 e 0,05, la partner dentro una cerchia
+di cinque amiche e il decisore legato a una di loro; tre sul lutto, con
+`max_hops` 1, 3 e 5, la vedova e il figlio dentro la stessa cerchia. In tutte
+e diciotto chi ha vissuto l'evento possiede la sola memoria di prima mano,
+`[('direct', 50)]`. Gli scrittori di memorie `DIRECT` con un'origine altrui
+restano due, la fuga (`migration.py`, origine il decisore) e il lutto
+(`inheritance.py`, origine il defunto): l'ho ricontrollato in chiusura su
+ogni costruzione di `Memory` di produzione, e le altre memorie di prima mano
+(economia, motore, stratificazione, fazioni) hanno come origine chi le
+possiede o nessuna, mentre crisi, governo ed elezioni scrivono memorie
+`PUBLIC`. Le mutazioni del round sulla finestra in `information_flow.py` e
+sull'orologio dell'età nella chat di gruppo sono state uccise e i file
+ripristinati dai backup, come riporta l'auditor; non le ho rieseguite io.
+L'orologio di N-c dà la stessa frase sui tre canali; le frasi dei §4.1.0,
+§4.1.5 e §4.4.1 scritte al round 13 corrispondono al codice nelle due
+lingue, riferimenti di riga compresi.
+
+**Due rilievi non bloccanti, chiusi in chiusura.**
+
+- **NB-1, preesistente al ramo.** `EPOCHA_INFO_FLOW_RELIABILITY_DECAY`
+  (`config/settings/base.py`) si legge dall'ambiente e non era validato, e
+  il dominio `0 < decay < 1` stava solo in un docstring. Con `decay = 1.0`
+  `_estimate_hop` restituisce 0 per ogni rumour, la fase 3 non si ferma mai e
+  l'eco di prima mano torna: la sonda con decadimento 1,0 ha riprodotto la
+  vedova che riceve voci della morte del marito ai tick dal 53 al 57. Non è
+  di classe 1 perché il valore predefinito, 0,7, è nel dominio. Chiuso con
+  `50ec629`: `propagate_information` solleva `ImproperlyConfigured` quando il
+  decadimento cade fuori dall'intervallo aperto `(0, 1)`, nel punto in cui il
+  valore viene letto per la propagazione, senza ricondurlo nell'intervallo.
+  Nel repository non esisteva un modo già usato per validare un'impostazione,
+  quindi la guardia è nuova e sta in tre righe dentro la funzione che legge
+  il valore. I testimoni: quattro casi rifiutati, 1,0, 0,0, 1,5 e -0,1, visti
+  rossi prima della guardia, e un caso verde, 0,7, che propaga con
+  affidabilità 0,7. Tre mutazioni, tutte uccise: togliere la guardia (cadono
+  i quattro casi), allargarla a `<= 1` (cade 1,0), allargarla a `>= 0` (cade
+  0,0); il file è stato ripristinato dal backup e confrontato con `cmp`. Il
+  commento sulla finestra in `_propagate_memory`, il commento
+  dell'impostazione e la frase del §4.4.1 nelle due lingue dichiarano ora il
+  dominio. Nello stesso commit il commento dell'impostazione smette di
+  attribuire a Bartlett (1932) una perdita del 30% per passo, che
+  contraddiceva il modulo e la tabella dei parametri del §4.4, dove Bartlett
+  documenta il degrado senza prescrivere un tasso; e i riferimenti di riga a
+  `information_flow.py` nei due whitepaper seguono lo spostamento delle
+  righe.
+- **NB-2.** La suite intera è stata rilanciata a `a6b64d4`, dopo il
+  ricalcolo delle impronte che al round 13 era avvenuto durante la corsa:
+  **1818 verdi**, 3 avvisi, in 504,04 secondi. La riserva del round 13
+  («la suite non è stata rilanciata per intero dopo quel ricalcolo») è
+  quindi sciolta.
+
+**Che cosa il round ha lasciato fuori, per scelta dichiarata.** Il terreno
+ereditato del round 13, cioè `inheritance.py` oltre il diff,
+`template_loader.py` oltre lo schema della coppia, `truncated_moments.py`,
+`clark_calibration.py`, la parte volontaria di `migration.py`, `fertility.py`
+oltre `_effective_age_in_years` e di `mortality.py` tutto ciò che non è la
+conversione al tick; le cifre end-to-end, non ri-misurate; i valori del
+decadimento diversi da 0,7 e da 1,0, perché le sonde hanno esercitato solo
+questi due e la guardia di NB-1 rende 1,0 irraggiungibile. M7 resta senza
+testimone per scelta dichiarata.
+
+## Chiusura
+
+**Da registrare per l'utente, non corretti in questo ramo.**
+
+- **R1**, il nucleo diviso fra due zone attribuito per intero alla zona del
+  decisore (payload `MIGRATION`, numeratore della fuga di massa, migrazione
+  netta dello snapshot), con le righe 8 e 16 che la stessa origine per
+  membro correggerebbe. Era parcheggiato perché la mappa dell'origine per
+  membro cambia il contratto di un evento consegnato. La decisione
+  dell'utente del 2026-10-29, per cui il contratto delle API di Epocha può
+  cambiare finché non esiste un client esterno, toglie quel blocco, ma la
+  correzione resta una decisione separata, da prendere con un work item suo.
+- **La riga 9**, l'orizzonte di Sjaastad letto sul solo decisore: una regola
+  di nucleo cambierebbe il modello di decisione di un modulo convergente, ed
+  è una decisione di modello per l'utente.
+- **N5**, `run_election` (`world/election.py`, `voter_list`) fa votare ogni
+  agente vivo, neonati compresi; appartiene alla spec del comportamento per
+  età, approvata il 2026-10-29 e con il lavoro dopo il merge.
+- **N8**, `fertility.malthusian_soft_ceiling` non è monotono vicino al tetto
+  (con `floor_ratio` 0,1 e tetto 500 vale 0,01 a 499 e 0,1 a 500); è una
+  decisione di modello per l'utente.
+- **L'alternativa non presa a R13-1**: conservare sulla `Memory` il tick, o
+  l'identità, dell'evento distinguerebbe due eventi della stessa origine e
+  toglierebbe la soppressione larga dichiarata nel §4.4.1, per cui chi ha
+  vissuto un evento di un'origine non sente di altri eventi della stessa
+  origine finché la notizia del primo viaggia. È una modifica di schema, e
+  la decisione spetta all'utente.
+
+**`tasks.md`.** L'unico task aperto era T038, la suite intera verde e la
+review in Matteo mode dell'intero diff del ramo prima del gate di fase 6. La
+review dell'intero diff è il round 14, CONVERGED; la suite intera è quella
+riportata qui sotto. T038 è spuntato, e i 38 task su 38 sono chiusi.
+
+**L'integrazione.** Suite intera a `50ec629`, con nell'albero la build map
+aggiornata e ricalcolata nelle impronte prima della corsa, il backup delle
+memorie e questo documento: **1823 verdi**, 3 avvisi, zero rossi, in 521,31
+secondi; i cinque test in più rispetto ai 1818 di `a6b64d4` sono quelli della
+guardia di NB-1. `ruff check .` e `ruff format --check .` puliti su 343 file.
+La guardia bilingue della build map dà 9 verdi.
+
+**Verdetto sul merge: il ramo è pronto per il merge in `develop`**, che
+spetta all'utente con `--no-ff`. Al merge, e non prima, si fa il pin
+`frozen-at-commit` dei due whitepaper: l'intestazione di
+`docs/whitepaper/epocha-whitepaper.md` e di `epocha-whitepaper.it.md` oggi
+porta `b5be0e2b62aa1cc2119f3d66418461eb9e92ea66`, e va riscritta con l'hash
+del commit di merge in un commit successivo al merge stesso, perché quell'hash
+non esiste prima. Insieme al pin, la build map passa il Plan 4 a fatto e
+viene ripubblicata sullo stesso URL.
