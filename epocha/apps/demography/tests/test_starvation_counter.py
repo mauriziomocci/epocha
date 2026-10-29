@@ -1,8 +1,8 @@
 """Tests for the persisted starvation counter (spec FR-011, FR-012, SC-003).
 
-`evaluate_emergency_flight` takes `consecutive_ticks_under_subsistence` as an
-explicit argument because no such field existed in the schema; Plan 3 left the
-obligation in writing. Without that storage the emergency-flight module is dead
+Plan 3's emergency-flight trigger took `consecutive_ticks_under_subsistence`
+as an explicit argument because no such field existed in the schema, and left
+the obligation in writing. Without that storage the emergency-flight module is dead
 code in a live run: with the default empty mapping every agent evaluates to
 "does not meet preconditions" and the path never fires.
 

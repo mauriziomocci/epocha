@@ -29,20 +29,17 @@ queries -- the N+1 risk the task explicitly flags, since Plan 4 will call
 this once per agent, per tick.
 
 Also covers `coordinate_family_migration` (Plan 3, T035, Mincer 1978):
-moving a decider's partner and minor children into the decider's target
-zone in the same tick, as the single persisting orchestrator entry point
-for family coordination.
+moving the household members its caller derived into the decider's target
+zone in the same tick, as the single persisting entry point for family
+coordination.
 
-Also covers `evaluate_emergency_flight` (Plan 3, T036/T037, user story 5,
+Also covers `_resolve_flight_decision` (Plan 3, T036/T037, user story 5,
 O'Rourke 1994 / Simon 1955): the three-condition trapped-vs-flight
-trigger (fix I-5), and the SIGNATURE CHANGE (user-approved, 2026-07-20)
-that threads `consecutive_ticks_under_subsistence` in as an explicit
-argument rather than reading or deriving it -- see
-`evaluate_emergency_flight`'s own docstring for the full account of why.
+decision (fix I-5), with condition 1 answered by the caller.
 
 Also covers `process_emergency_flight` (Plan 3, T038/T039, user story 5
-closing task): the whole-population orchestrator driving
-`evaluate_emergency_flight` over every living agent, executing forced
+closing task): the whole-population orchestrator deciding every
+household once, executing forced
 flight via `coordinate_family_migration`, emitting `TRAPPED_CRISIS` with
 its MISS-3 co-zone memory propagation, and emitting `MASS_FLIGHT` above
 the 30% threshold -- see `TestProcessEmergencyFlight*`'s own module-level
@@ -65,13 +62,13 @@ from epocha.apps.demography.migration import (
     EMERGENCY_FLIGHT_MEMORY_WEIGHT,
     TRAPPED_CRISIS_MEMORY_WEIGHT,
     ZONE_WAGE_WINDOW_TICKS,
+    _resolve_flight_decision,
     build_migration_outlook,
     compute_distance_cost,
     compute_expected_gain,
     compute_zone_unemployment,
     compute_zone_wage,
     coordinate_family_migration,
-    evaluate_emergency_flight,
     process_emergency_flight,
 )
 from epocha.apps.demography.models import DemographyEvent
@@ -978,14 +975,6 @@ class TestBuildMigrationOutlook:
 # ---------------------------------------------------------------------------
 
 
-def _minimal_template():
-    """The minimal template slice coordinate_family_migration reads --
-    mirrors `test_inheritance.py`'s own `_heir_template` pattern of
-    isolating tests from unrelated template sections.
-    """
-    return {"migration": {"adulthood_age": 16}}
-
-
 class TestCoordinateFamilyMigration:
     """coordinate_family_migration: partner and minor children follow the
     decider into `target_zone` in the same tick (Mincer 1978), as a
@@ -993,31 +982,17 @@ class TestCoordinateFamilyMigration:
     """
 
     @pytest.mark.django_db
-    def test_partner_moves_with_the_agent(self, sim_with_zone):
+    def test_the_members_are_the_callers_to_supply(self, sim_with_zone):
+        """The household is `context.household_keys`, derived once per tick
+        by the caller that holds the whole population. A fallback that
+        derives it here again had no production caller and cost three reads,
+        one of them population-sized, so `members` is required."""
         sim, zone = sim_with_zone
-        world = zone.world
-        target_zone = _make_other_zone(world)
+        target_zone = _make_other_zone(zone.world)
         agent = _make_agent(sim, zone, "Agent")
-        partner = _make_agent(sim, zone, "Partner")
-        form_couple(agent, partner, formed_at_tick=1)
 
-        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
-
-        partner.refresh_from_db()
-        assert partner.zone_id == target_zone.id
-
-    @pytest.mark.django_db
-    def test_minor_child_moves_with_the_agent(self, sim_with_zone):
-        sim, zone = sim_with_zone
-        world = zone.world
-        target_zone = _make_other_zone(world)
-        agent = _make_agent(sim, zone, "Agent")
-        minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10)
-
-        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
-
-        minor_child.refresh_from_db()
-        assert minor_child.zone_id == target_zone.id
+        with pytest.raises(TypeError, match="members"):
+            coordinate_family_migration(agent, target_zone, tick=50)
 
     @pytest.mark.django_db
     def test_movers_location_falls_back_to_target_zone_center_without_rng_fix_i12(
@@ -1044,7 +1019,7 @@ class TestCoordinateFamilyMigration:
         form_couple(agent, partner, formed_at_tick=1)
         minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10)
 
-        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
+        coordinate_family_migration(agent, target_zone, tick=50, members=[partner, minor_child])
 
         partner.refresh_from_db()
         minor_child.refresh_from_db()
@@ -1075,9 +1050,7 @@ class TestCoordinateFamilyMigration:
         form_couple(agent, partner, formed_at_tick=1)
 
         rng = get_seeded_rng(sim, tick=50, phase="migration")
-        coordinate_family_migration(
-            agent, target_zone, tick=50, template=_minimal_template(), rng=rng
-        )
+        coordinate_family_migration(agent, target_zone, tick=50, rng=rng, members=[partner])
 
         partner.refresh_from_db()
         dx = partner.location.x - target_zone.center.x
@@ -1113,80 +1086,14 @@ class TestCoordinateFamilyMigration:
         form_couple(agent_b, partner_b, formed_at_tick=1)
 
         rng_one = get_seeded_rng(sim, tick=50, phase="migration")
-        coordinate_family_migration(
-            agent_a, target_zone, tick=50, template=_minimal_template(), rng=rng_one
-        )
+        coordinate_family_migration(agent_a, target_zone, tick=50, rng=rng_one, members=[partner_a])
         rng_two = get_seeded_rng(sim, tick=50, phase="migration")
-        coordinate_family_migration(
-            agent_b, target_zone, tick=50, template=_minimal_template(), rng=rng_two
-        )
+        coordinate_family_migration(agent_b, target_zone, tick=50, rng=rng_two, members=[partner_b])
 
         partner_a.refresh_from_db()
         partner_b.refresh_from_db()
         assert partner_a.location.x == pytest.approx(partner_b.location.x)
         assert partner_a.location.y == pytest.approx(partner_b.location.y)
-
-    @pytest.mark.django_db
-    def test_adult_child_does_not_move(self, sim_with_zone):
-        sim, zone = sim_with_zone
-        world = zone.world
-        target_zone = _make_other_zone(world)
-        agent = _make_agent(sim, zone, "Agent")
-        adult_child = _make_agent(sim, zone, "AdultChild", parent_agent=agent, age=20)
-
-        result = coordinate_family_migration(
-            agent, target_zone, tick=50, template=_minimal_template()
-        )
-
-        adult_child.refresh_from_db()
-        assert adult_child.zone_id == zone.id  # unchanged
-        assert adult_child.id not in result
-
-    @pytest.mark.django_db
-    def test_dead_partner_is_excluded(self, sim_with_zone):
-        sim, zone = sim_with_zone
-        world = zone.world
-        target_zone = _make_other_zone(world)
-        agent = _make_agent(sim, zone, "Agent")
-        dead_partner = _make_agent(sim, zone, "DeadPartner", is_alive=False)
-        form_couple(agent, dead_partner, formed_at_tick=1)
-
-        result = coordinate_family_migration(
-            agent, target_zone, tick=50, template=_minimal_template()
-        )
-
-        dead_partner.refresh_from_db()
-        assert dead_partner.zone_id == zone.id  # unchanged
-        assert dead_partner.id not in result
-
-    @pytest.mark.django_db
-    def test_dead_minor_child_is_excluded(self, sim_with_zone):
-        sim, zone = sim_with_zone
-        world = zone.world
-        target_zone = _make_other_zone(world)
-        agent = _make_agent(sim, zone, "Agent")
-        dead_child = _make_agent(sim, zone, "DeadChild", parent_agent=agent, age=10, is_alive=False)
-
-        result = coordinate_family_migration(
-            agent, target_zone, tick=50, template=_minimal_template()
-        )
-
-        dead_child.refresh_from_db()
-        assert dead_child.zone_id == zone.id  # unchanged
-        assert dead_child.id not in result
-
-    @pytest.mark.django_db
-    def test_no_active_couple_yields_no_partner_in_household(self, sim_with_zone):
-        sim, zone = sim_with_zone
-        world = zone.world
-        target_zone = _make_other_zone(world)
-        agent = _make_agent(sim, zone, "Agent")
-
-        result = coordinate_family_migration(
-            agent, target_zone, tick=50, template=_minimal_template()
-        )
-
-        assert result == []
 
     @pytest.mark.django_db
     def test_return_value_matches_household_members_in_the_event_payload(self, sim_with_zone):
@@ -1199,14 +1106,14 @@ class TestCoordinateFamilyMigration:
         minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10)
 
         result = coordinate_family_migration(
-            agent, target_zone, tick=50, template=_minimal_template()
+            agent, target_zone, tick=50, members=[partner, minor_child]
         )
 
         event = DemographyEvent.objects.get(
             simulation=sim, event_type=DemographyEvent.EventType.MIGRATION, primary_agent=agent
         )
-        assert set(result) == {partner.id, minor_child.id}
-        assert set(event.payload["household_members"]) == set(result)
+        assert result == [partner.id, minor_child.id]
+        assert event.payload["household_members"] == result
 
     @pytest.mark.django_db
     def test_single_migration_event_has_the_documented_payload_shape(self, sim_with_zone):
@@ -1217,7 +1124,7 @@ class TestCoordinateFamilyMigration:
         partner = _make_agent(sim, zone, "Partner")
         form_couple(agent, partner, formed_at_tick=1)
 
-        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
+        coordinate_family_migration(agent, target_zone, tick=50, members=[partner])
 
         events = DemographyEvent.objects.filter(
             simulation=sim, event_type=DemographyEvent.EventType.MIGRATION, primary_agent=agent
@@ -1246,7 +1153,7 @@ class TestCoordinateFamilyMigration:
         agent = _make_agent(sim, zone, "Agent")
         minor_child = _make_agent(sim, zone, "MinorChild", parent_agent=agent, age=10)
 
-        coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
+        coordinate_family_migration(agent, target_zone, tick=50, members=[minor_child])
 
         assert not DecisionLog.objects.filter(agent=minor_child).exists()
         assert (
@@ -1263,9 +1170,7 @@ class TestCoordinateFamilyMigration:
         target_zone = _make_other_zone(world)
         agent = _make_agent(sim, zone, "Agent")
 
-        result = coordinate_family_migration(
-            agent, target_zone, tick=50, template=_minimal_template()
-        )
+        result = coordinate_family_migration(agent, target_zone, tick=50, members=[])
 
         assert result == []
         assert not DemographyEvent.objects.filter(
@@ -1280,33 +1185,21 @@ class TestCoordinateFamilyMigration:
         agent = _make_agent(sim, zone, "Agent")
         partner = _make_agent(sim, zone, "Partner")
         form_couple(agent, partner, formed_at_tick=1)
-        for i in range(5):
-            _make_agent(sim, zone, f"MinorChild{i}", parent_agent=agent, age=10)
+        children = [
+            _make_agent(sim, zone, f"MinorChild{i}", parent_agent=agent, age=10) for i in range(5)
+        ]
 
-        # active_couple_for (1) + partner fetch (1) + minor-children fetch
-        # (1) + bulk_update (1) + event create (1) = 5, bounded regardless
-        # of how many minor children exist.
-        with django_assert_num_queries(5):
-            coordinate_family_migration(agent, target_zone, tick=50, template=_minimal_template())
+        # bulk_update (1) + event create (1) = 2, whatever the household size.
+        with django_assert_num_queries(2):
+            coordinate_family_migration(agent, target_zone, tick=50, members=[partner, *children])
 
 
 # ---------------------------------------------------------------------------
-# evaluate_emergency_flight (Plan 3, T036/T037, user story 5). O'Rourke,
+# _resolve_flight_decision (Plan 3, T036/T037, user story 5). O'Rourke,
 # K.H. (1994) grounds forced, survival-driven migration (the Irish
 # Famine as the calibration target); Simon, H.A. (1955) grounds bounded
 # rationality -- below a survival threshold, deliberation itself is
 # bypassed, not merely accelerated.
-#
-# SIGNATURE CHANGE (user-approved, 2026-07-20, recorded in the handoff's
-# decisions section -- see evaluate_emergency_flight's own docstring for
-# the full account): `consecutive_ticks_under_subsistence` does not exist
-# anywhere in the schema (verified exhaustively by the coordinator -- no
-# `Agent` field, no per-agent wealth history, `PopulationSnapshot` is
-# simulation-aggregated, not per-agent). It is threaded in as an explicit
-# argument, never read off `agent` and never derived -- Plan 4 owns
-# creating the storage and feeding it; until it does, this function
-# cannot fire in a live run, consistent with demography not being wired
-# into the tick loop yet.
 #
 # The subsistence threshold fixture below (GoodCategory + ZoneEconomy)
 # mirrors the exact pattern already established in
@@ -1332,16 +1225,16 @@ def _make_subsistence_threshold_of_five(sim, zone):
 
 
 def _flight_template(flight_trigger_ticks=30):
-    """Minimal synthetic template slice, mirrors this file's own
-    `_minimal_template` pattern for `coordinate_family_migration`.
-    """
+    """The one template slice `_resolve_flight_decision` reads."""
     return {"migration": {"flight_trigger_ticks": flight_trigger_ticks}}
 
 
-class TestEvaluateEmergencyFlight:
-    """evaluate_emergency_flight: fires ONLY when all three conditions
+class TestResolveFlightDecision:
+    """_resolve_flight_decision: fires ONLY when all three conditions
     hold simultaneously (fix I-5's third condition is what separates
-    flight from the trapped case T038/T039 will handle).
+    flight from the trapped case). Condition 1 arrives as
+    `under_subsistence`, answered by the tick of the household through
+    `context.starving_households`, whose boundary `test_context.py` pins.
     """
 
     @pytest.mark.django_db
@@ -1349,70 +1242,6 @@ class TestEvaluateEmergencyFlight:
         sim, zone = sim_with_zone
         world = zone.world
         other_zone = _make_zone_at(world, 50, 50, "OtherZone")  # same center: 0 distance cost
-        _make_subsistence_threshold_of_five(sim, zone)
-        agent = _make_agent(sim, zone, "Agent", wealth=4.0)  # below the 5.0 threshold
-
-        zone_stats = {
-            "world": world,
-            "government_stability": 0.5,
-            "zones": {
-                zone.id: {"zone": zone, "wage": 50.0, "unemployment": 0.1},
-                other_zone.id: {"zone": other_zone, "wage": 90.0, "unemployment": 0.0},
-            },
-        }
-
-        target = evaluate_emergency_flight(
-            agent,
-            sim,
-            tick=50,
-            template=_flight_template(30),
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=30,
-        )
-
-        assert target == other_zone
-
-    @pytest.mark.django_db
-    def test_does_not_fire_when_wealth_is_not_below_threshold(self, sim_with_zone):
-        """Two of three: ticks-under-subsistence and a positive-gain zone
-        both hold, but wealth is NOT below the subsistence threshold.
-        """
-        sim, zone = sim_with_zone
-        world = zone.world
-        other_zone = _make_zone_at(world, 50, 50, "OtherZone")
-        _make_subsistence_threshold_of_five(sim, zone)
-        agent = _make_agent(sim, zone, "Agent", wealth=10.0)  # above the 5.0 threshold
-
-        zone_stats = {
-            "world": world,
-            "government_stability": 0.5,
-            "zones": {
-                zone.id: {"zone": zone, "wage": 50.0, "unemployment": 0.1},
-                other_zone.id: {"zone": other_zone, "wage": 90.0, "unemployment": 0.0},
-            },
-        }
-
-        target = evaluate_emergency_flight(
-            agent,
-            sim,
-            tick=50,
-            template=_flight_template(30),
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=30,
-        )
-
-        assert target is None
-
-    @pytest.mark.django_db
-    def test_does_not_fire_when_ticks_under_subsistence_is_below_the_trigger(self, sim_with_zone):
-        """Two of three: wealth-below-threshold and a positive-gain zone
-        both hold, but consecutive_ticks_under_subsistence has not yet
-        reached the template's flight_trigger_ticks.
-        """
-        sim, zone = sim_with_zone
-        world = zone.world
-        other_zone = _make_zone_at(world, 50, 50, "OtherZone")
-        _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
         zone_stats = {
@@ -1424,14 +1253,80 @@ class TestEvaluateEmergencyFlight:
             },
         }
 
-        target = evaluate_emergency_flight(
+        target = _resolve_flight_decision(
             agent,
             sim,
-            tick=50,
-            template=_flight_template(30),
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=29,  # one short of the trigger
+            50,
+            _flight_template(30),
+            zone_stats,
+            30,
+            under_subsistence=True,
+        )[1]
+
+        assert target == other_zone
+
+    @pytest.mark.django_db
+    def test_does_not_fire_when_wealth_is_not_below_threshold(self, sim_with_zone):
+        """Two of three: ticks-under-subsistence and a positive-gain zone
+        both hold, but the household is NOT under subsistence -- and then
+        the preconditions are not met either, so this is not the trapped
+        case.
+        """
+        sim, zone = sim_with_zone
+        world = zone.world
+        other_zone = _make_zone_at(world, 50, 50, "OtherZone")
+        agent = _make_agent(sim, zone, "Agent", wealth=10.0)
+
+        zone_stats = {
+            "world": world,
+            "government_stability": 0.5,
+            "zones": {
+                zone.id: {"zone": zone, "wage": 50.0, "unemployment": 0.1},
+                other_zone.id: {"zone": other_zone, "wage": 90.0, "unemployment": 0.0},
+            },
+        }
+
+        decision = _resolve_flight_decision(
+            agent,
+            sim,
+            50,
+            _flight_template(30),
+            zone_stats,
+            30,
+            under_subsistence=False,
         )
+
+        assert decision == (False, None)
+
+    @pytest.mark.django_db
+    def test_does_not_fire_when_ticks_under_subsistence_is_below_the_trigger(self, sim_with_zone):
+        """Two of three: wealth-below-threshold and a positive-gain zone
+        both hold, but consecutive_ticks_under_subsistence has not yet
+        reached the template's flight_trigger_ticks.
+        """
+        sim, zone = sim_with_zone
+        world = zone.world
+        other_zone = _make_zone_at(world, 50, 50, "OtherZone")
+        agent = _make_agent(sim, zone, "Agent", wealth=4.0)
+
+        zone_stats = {
+            "world": world,
+            "government_stability": 0.5,
+            "zones": {
+                zone.id: {"zone": zone, "wage": 50.0, "unemployment": 0.1},
+                other_zone.id: {"zone": other_zone, "wage": 90.0, "unemployment": 0.0},
+            },
+        }
+
+        target = _resolve_flight_decision(
+            agent,
+            sim,
+            50,
+            _flight_template(30),
+            zone_stats,
+            29,  # one short of the trigger
+            under_subsistence=True,
+        )[1]
 
         assert target is None
 
@@ -1451,7 +1346,6 @@ class TestEvaluateEmergencyFlight:
         world = zone.world
         other_zone_a = _make_zone_at(world, 50, 50, "OtherZoneA")
         other_zone_b = _make_zone_at(world, 50, 50, "OtherZoneB")
-        _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
         zone_stats = {
@@ -1466,14 +1360,15 @@ class TestEvaluateEmergencyFlight:
             },
         }
 
-        target = evaluate_emergency_flight(
+        target = _resolve_flight_decision(
             agent,
             sim,
-            tick=50,
-            template=_flight_template(30),
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=30,
-        )
+            50,
+            _flight_template(30),
+            zone_stats,
+            30,
+            under_subsistence=True,
+        )[1]
 
         assert target is None
 
@@ -1484,7 +1379,6 @@ class TestEvaluateEmergencyFlight:
         low_gain_zone = _make_zone_at(world, 50, 50, "LowGainZone")
         best_gain_zone = _make_zone_at(world, 50, 50, "BestGainZone")
         mid_gain_zone = _make_zone_at(world, 50, 50, "MidGainZone")
-        _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
         zone_stats = {
@@ -1503,14 +1397,15 @@ class TestEvaluateEmergencyFlight:
             },
         }
 
-        target = evaluate_emergency_flight(
+        target = _resolve_flight_decision(
             agent,
             sim,
-            tick=50,
-            template=_flight_template(30),
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=30,
-        )
+            50,
+            _flight_template(30),
+            zone_stats,
+            30,
+            under_subsistence=True,
+        )[1]
 
         assert target == best_gain_zone
 
@@ -1536,7 +1431,6 @@ class TestEvaluateEmergencyFlight:
         ordered_pair = sorted([higher_id_zone, lower_id_zone], key=lambda z: z.id)
         expected_winner = ordered_pair[0]
 
-        _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
         zone_stats = {
@@ -1549,14 +1443,15 @@ class TestEvaluateEmergencyFlight:
             },
         }
 
-        target = evaluate_emergency_flight(
+        target = _resolve_flight_decision(
             agent,
             sim,
-            tick=50,
-            template=_flight_template(30),
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=30,
-        )
+            50,
+            _flight_template(30),
+            zone_stats,
+            30,
+            under_subsistence=True,
+        )[1]
 
         assert target == expected_winner
 
@@ -1573,7 +1468,6 @@ class TestEvaluateEmergencyFlight:
         sim, zone = sim_with_zone
         world = zone.world
         other_zone = _make_zone_at(world, 50, 50, "OtherZone")
-        _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
         zone_stats = {
@@ -1591,56 +1485,27 @@ class TestEvaluateEmergencyFlight:
         modern_template = load_template("modern_democracy")
         assert modern_template["migration"]["flight_trigger_ticks"] == 10  # self-check
 
-        target_under_industrial = evaluate_emergency_flight(
+        target_under_industrial = _resolve_flight_decision(
             agent,
             sim,
-            tick=50,
-            template=industrial_template,
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=15,
-        )
-        target_under_modern = evaluate_emergency_flight(
+            50,
+            industrial_template,
+            zone_stats,
+            15,
+            under_subsistence=True,
+        )[1]
+        target_under_modern = _resolve_flight_decision(
             agent,
             sim,
-            tick=50,
-            template=modern_template,
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=15,
-        )
+            50,
+            modern_template,
+            zone_stats,
+            15,
+            under_subsistence=True,
+        )[1]
 
         assert target_under_industrial is None
         assert target_under_modern == other_zone
-
-    @pytest.mark.django_db
-    def test_wealth_exactly_at_threshold_does_not_fire(self, sim_with_zone):
-        """Boundary: "wealth BELOW threshold" is a strict `<` -- wealth
-        exactly equal to the threshold does not qualify.
-        """
-        sim, zone = sim_with_zone
-        world = zone.world
-        other_zone = _make_zone_at(world, 50, 50, "OtherZone")
-        _make_subsistence_threshold_of_five(sim, zone)
-        agent = _make_agent(sim, zone, "Agent", wealth=5.0)  # exactly the threshold
-
-        zone_stats = {
-            "world": world,
-            "government_stability": 0.5,
-            "zones": {
-                zone.id: {"zone": zone, "wage": 50.0, "unemployment": 0.1},
-                other_zone.id: {"zone": other_zone, "wage": 90.0, "unemployment": 0.0},
-            },
-        }
-
-        target = evaluate_emergency_flight(
-            agent,
-            sim,
-            tick=50,
-            template=_flight_template(30),
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=30,
-        )
-
-        assert target is None
 
     @pytest.mark.django_db
     def test_ticks_exactly_at_trigger_fires(self, sim_with_zone):
@@ -1651,7 +1516,6 @@ class TestEvaluateEmergencyFlight:
         sim, zone = sim_with_zone
         world = zone.world
         other_zone = _make_zone_at(world, 50, 50, "OtherZone")
-        _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
         zone_stats = {
@@ -1663,14 +1527,15 @@ class TestEvaluateEmergencyFlight:
             },
         }
 
-        target = evaluate_emergency_flight(
+        target = _resolve_flight_decision(
             agent,
             sim,
-            tick=50,
-            template=_flight_template(30),
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=30,  # exactly the trigger
-        )
+            50,
+            _flight_template(30),
+            zone_stats,
+            30,  # exactly the trigger
+            under_subsistence=True,
+        )[1]
 
         assert target == other_zone
 
@@ -1678,7 +1543,6 @@ class TestEvaluateEmergencyFlight:
     def test_returns_none_when_no_reachable_zone_exists(self, sim_with_zone):
         sim, zone = sim_with_zone
         world = zone.world
-        _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
         zone_stats = {
@@ -1689,30 +1553,28 @@ class TestEvaluateEmergencyFlight:
             },
         }
 
-        target = evaluate_emergency_flight(
+        target = _resolve_flight_decision(
             agent,
             sim,
-            tick=50,
-            template=_flight_template(30),
-            zone_stats=zone_stats,
-            consecutive_ticks_under_subsistence=30,
-        )
+            50,
+            _flight_template(30),
+            zone_stats,
+            30,
+            under_subsistence=True,
+        )[1]
 
         assert target is None
 
     @pytest.mark.django_db
-    def test_query_count_is_bounded(self, sim_with_zone, django_assert_num_queries):
-        """Per PREFLIGHT point 6: this will be driven over the whole
-        population by T039, so the per-agent call must add no zone-
-        aggregate queries -- the only queries here come from
-        `compute_subsistence_threshold`'s own cost (a ZoneEconomy get
-        plus a GoodCategory fetch), never from re-deriving anything
-        `zone_stats` already carries.
+    def test_the_decision_issues_no_query(self, sim_with_zone, django_assert_num_queries):
+        """Per PREFLIGHT point 6: this runs once per household per tick, so
+        it must read nothing `zone_stats` does not already carry. Condition
+        1 arrives answered and condition 3 is `build_migration_outlook`, a
+        zero-query call (T034), so the whole decision costs nothing.
         """
         sim, zone = sim_with_zone
         world = zone.world
         other_zone = _make_zone_at(world, 50, 50, "OtherZone")
-        _make_subsistence_threshold_of_five(sim, zone)
         agent = _make_agent(sim, zone, "Agent", wealth=4.0)
 
         zone_stats = {
@@ -1724,14 +1586,15 @@ class TestEvaluateEmergencyFlight:
             },
         }
 
-        with django_assert_num_queries(2):
-            evaluate_emergency_flight(
+        with django_assert_num_queries(0):
+            _resolve_flight_decision(
                 agent,
                 sim,
-                tick=50,
-                template=_flight_template(30),
-                zone_stats=zone_stats,
-                consecutive_ticks_under_subsistence=30,
+                50,
+                _flight_template(30),
+                zone_stats,
+                30,
+                under_subsistence=True,
             )
 
 
@@ -1757,9 +1620,8 @@ class TestEvaluateEmergencyFlight:
 # rolling window the design's own "fugge entro flight_trigger_ticks"
 # wording describes. The threshold itself is STRICT: `> 0.30`, not `>=`.
 #
-# TRAPPED-VS-FLIGHT EXPOSURE: `process_emergency_flight` calls the same
-# private `_resolve_flight_decision` helper `evaluate_emergency_flight`
-# itself delegates to (see that helper's own docstring), getting BOTH
+# TRAPPED-VS-FLIGHT EXPOSURE: `process_emergency_flight` calls the
+# private `_resolve_flight_decision` (see its docstring), getting BOTH
 # `meets_preconditions` (conditions 1+2) and `target_zone` (the flight
 # decision) from ONE call -- trapped is exactly `meets_preconditions and
 # target_zone is None`.
@@ -2064,6 +1926,53 @@ class TestEmergencyFlightMovesTheHousehold:
         ]
 
     @pytest.mark.django_db
+    def test_an_adult_child_decides_alone_and_stays(self, sim_with_zone):
+        """Design spec: "I figli adulti decidono indipendentemente". A fed
+        adult son is his own household, so his parent's flight leaves him."""
+        sim, zone = sim_with_zone
+        other_zone = _flight_world(sim, zone)
+        parent = _make_agent(sim, zone, "Genitore", age=50, wealth=0.0)
+        son = _make_agent(sim, zone, "FiglioAdulto", age=20, wealth=100.0, parent_agent=parent)
+        _set_starvation_counters({parent.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+
+        parent.refresh_from_db()
+        son.refresh_from_db()
+        assert parent.zone_id == other_zone.id
+        assert son.zone_id == zone.id
+        event = DemographyEvent.objects.get(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+        )
+        assert event.payload["household_members"] == []
+
+    @pytest.mark.django_db
+    def test_the_dead_do_not_move(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        other_zone = _flight_world(sim, zone)
+        widow = _make_agent(sim, zone, "Vedova", age=40, wealth=0.0)
+        late_husband = _make_agent(
+            sim, zone, "Marito", wealth=0.0, gender=Agent.Gender.MALE, is_alive=False
+        )
+        form_couple(widow, late_husband, formed_at_tick=1)
+        dead_child = _make_agent(
+            sim, zone, "FiglioMorto", age=10, wealth=0.0, parent_agent=widow, is_alive=False
+        )
+        _set_starvation_counters({widow.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+
+        widow.refresh_from_db()
+        assert widow.zone_id == other_zone.id
+        for dead in (late_husband, dead_child):
+            dead.refresh_from_db()
+            assert dead.zone_id == zone.id, f"{dead.name} moved after death"
+        event = DemographyEvent.objects.get(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+        )
+        assert event.payload["household_members"] == []
+
+    @pytest.mark.django_db
     def test_a_married_minor_stays_with_her_husband(self, sim_with_zone):
         """Her mother's household starves and flees; hers does not. Marriage
         outranks the guardian chain in `household_keys` (round 9, C2), so
@@ -2204,25 +2113,6 @@ class TestEmergencyFlightMovesTheHousehold:
             "flight should cost its two writes, and the household must not be "
             "derived again per flight"
         )
-
-
-class TestCoordinateFamilyMigrationUsesTheHouseholdDerivation:
-    """Called without an explicit member list, `coordinate_family_migration`
-    derives the household with `household_keys` -- the one definition --
-    rather than rebuilding partner plus own children by hand."""
-
-    @pytest.mark.django_db
-    def test_a_ward_follows_her_caretaker(self, sim_with_zone):
-        sim, zone = sim_with_zone
-        target_zone = _make_other_zone(zone.world)
-        guardian = _make_agent(sim, zone, "Tutore", age=40)
-        ward = _make_agent(sim, zone, "Pupilla", age=10, caretaker_agent=guardian)
-
-        result = coordinate_family_migration(
-            guardian, target_zone, tick=50, template=_minimal_template()
-        )
-
-        assert result == [ward.id]
 
 
 class TestProcessEmergencyFlightTrapped:

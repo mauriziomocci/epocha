@@ -14,8 +14,9 @@ work item has been punished for four times, so the two consumers are pinned
 against each other here.
 
 The two are `fertility.becker_modulation`, which consumes the horizon
-continuously through a logarithm, and `migration.evaluate_emergency_flight`,
-which applies the threshold 1. They must divide by, and compare against, the
+continuously through a logarithm, and `migration.process_emergency_flight`,
+which applies the threshold 1 to the household through
+`context.starving_households`. They must divide by, and compare against, the
 SAME zone-scoped quantity: `compute_subsistence_threshold(simulation, zone)`.
 """
 
@@ -28,13 +29,14 @@ from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.demography.context import compute_subsistence_threshold
 from epocha.apps.demography.fertility import becker_modulation
-from epocha.apps.demography.migration import evaluate_emergency_flight
-from epocha.apps.economy.models import GoodCategory, ZoneEconomy
+from epocha.apps.demography.migration import process_emergency_flight
+from epocha.apps.demography.models import DemographyEvent
+from epocha.apps.economy.models import Currency, GoodCategory, ZoneEconomy
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import Government, World, Zone
 
-from .test_inheritance import _make_agent
+from .test_migration import _make_agent, _make_wage, _set_starvation_counters
 
 SEED_COEFFS = {
     "beta_0": 0.0,
@@ -79,6 +81,31 @@ def sim_with_zone(db):
     # the choice.
     ZoneEconomy.objects.create(zone=zone, market_prices={"FOOD": 7.3})
     return sim, zone
+
+
+def _paying_zone(sim, zone):
+    """Make flight INTO `zone` pay: a solvent worker there drew a wage this
+    tick, so the zone offers a positive expected gain. Without a destination
+    a starving agent is trapped and a fed one stays, and the two outcomes
+    could not be told apart by where the agent ends up."""
+    currency = Currency.objects.create(
+        simulation=sim, code="LVR", name="Livre", symbol="L", total_supply=50_000.0
+    )
+    worker = _make_agent(sim, zone, "Worker", role="", wealth=10_000.0)
+    _make_wage(sim, currency, worker, tick=sim.current_tick, amount=250.0)
+
+
+def _flee_from_the_stored_counter(sim, agents):
+    """Run the tick's flight step with every agent past the trigger; return
+    the ids of the agents who fled."""
+    trigger = 30  # pre_industrial_christian, the simulation's default era
+    _set_starvation_counters({agent.id: trigger for agent in agents})
+    process_emergency_flight(sim, tick=sim.current_tick)
+    return set(
+        DemographyEvent.objects.filter(
+            simulation=sim, event_type=DemographyEvent.EventType.MIGRATION
+        ).values_list("primary_agent_id", flat=True)
+    )
 
 
 @pytest.mark.django_db
@@ -129,11 +156,10 @@ class TestBothConsumersDivideByTheSameThreshold:
         """
         sim, zone = sim_with_zone
         threshold = compute_subsistence_threshold(sim, zone)
-        template = {"migration": {"flight_trigger_ticks": 1}}
-        # A second, better-paying zone at the same centre: a triggered agent
-        # gets a destination back, an untriggered one gets None. Without it
-        # both cases return None -- trapped and not-starving are the same
-        # value -- and the test could not tell them apart.
+        # A second, better-paying zone: a triggered agent flees there, an
+        # untriggered one stays. Without it both stay -- trapped and
+        # not-starving look the same from the zone -- and the test could
+        # not tell them apart.
         better = Zone.objects.create(
             world=zone.world,
             name="BetterZone",
@@ -141,27 +167,14 @@ class TestBothConsumersDivideByTheSameThreshold:
             boundary=Polygon.from_bbox((0, 0, 100, 100)),
             center=Point(50, 50),
         )
-        zone_stats = {
-            "world": zone.world,
-            "government_stability": 0.7,
-            "zones": {
-                zone.id: {"zone": zone, "wage": 10.0, "unemployment": 0.1},
-                better.id: {"zone": better, "wage": 90.0, "unemployment": 0.0},
-            },
-        }
+        _paying_zone(sim, better)
 
-        starving = _make_agent(sim, zone, "Starving", wealth=threshold * 0.999, age=30)
-        fed = _make_agent(sim, zone, "Fed", wealth=threshold * 1.001, age=30)
+        starving = _make_agent(sim, zone, "Starving", wealth=threshold * 0.999)
+        fed = _make_agent(sim, zone, "Fed", wealth=threshold * 1.001)
 
-        starving_destination = evaluate_emergency_flight(
-            starving, sim, 10, template, zone_stats, consecutive_ticks_under_subsistence=5
-        )
-        fed_destination = evaluate_emergency_flight(
-            fed, sim, 10, template, zone_stats, consecutive_ticks_under_subsistence=5
-        )
-        assert starving_destination is not None
-        assert starving_destination.id == better.id
-        assert fed_destination is None
+        assert _flee_from_the_stored_counter(sim, [starving, fed]) == {starving.id}
+        starving.refresh_from_db()
+        assert starving.zone_id == better.id
 
     def test_the_two_consumers_read_the_same_zone_scoped_value(self, sim_with_zone, monkeypatch):
         """The threshold is per zone, and both must ask for the SAME zone.
@@ -169,8 +182,9 @@ class TestBothConsumersDivideByTheSameThreshold:
         A consumer resolving it for a different zone -- or resolving a
         simulation-wide constant -- would still pass the boundary tests above
         in a single-zone fixture. This one puts the agent in a zone whose
-        threshold DIFFERS from the other zone's, records every call, and
-        compares the arguments.
+        threshold DIFFERS from the other zone's, records fertility's call
+        and compares its arguments, and gives the agent a wealth between the
+        two thresholds, so the flight verdict says which one was read.
 
         The two-zone construction is load-bearing and was missing from the
         first version, which the phase-6 audit killed by measurement: with
@@ -205,27 +219,31 @@ class TestBothConsumersDivideByTheSameThreshold:
 
         monkeypatch.setattr(context_module, "compute_subsistence_threshold", spy)
 
-        agent = _make_agent(sim, other, "Both", wealth=1.0, age=30)
+        # Between the two thresholds: starving where the agent lives, fed by
+        # the price of the zone next door.
+        agent = _make_agent(sim, other, "Both", wealth=10.0)
+        assert (
+            compute_subsistence_threshold(sim, zone)
+            < agent.wealth
+            < compute_subsistence_threshold(sim, other)
+        ), "the agent's wealth must separate the two zones' thresholds"
         becker_modulation(agent, SEED_COEFFS)
-        template = {"migration": {"flight_trigger_ticks": 1}}
-        zone_stats = {
-            "world": zone.world,
-            "government_stability": 0.7,
-            "zones": {
-                zone.id: {"zone": zone, "wage": 10.0, "unemployment": 0.1},
-                other.id: {"zone": other, "wage": 10.0, "unemployment": 0.1},
-            },
-        }
-        evaluate_emergency_flight(
-            agent, sim, 10, template, zone_stats, consecutive_ticks_under_subsistence=5
+
+        # ABSOLUTE, not relative. Agreement between two consumers is not
+        # enough -- a mutant moving BOTH to `world.zones.first()`, which is
+        # not the agent's zone here, would agree with itself. The pair must
+        # be the AGENT'S.
+        assert seen == [(sim.id, other.id)], (
+            f"fertility must resolve the AGENT's zone {other.id}: {seen!r}"
         )
 
-        assert len(seen) >= 2, f"both consumers must resolve the threshold; saw {seen!r}"
-        # ABSOLUTE, not relative. `len(set(seen)) == 1` only says the two
-        # agree with each other, and a mutant moving BOTH to
-        # `world.zones.first()` -- which is not the agent's zone here --
-        # satisfied it. The pair must be the AGENT'S.
-        assert set(seen) == {(sim.id, other.id)}, (
-            f"the consumers must resolve the AGENT's zone {other.id}, not merely "
-            f"agree with each other: {seen!r}"
+        # The flight consumer prices every zone once per tick, so its calls
+        # cannot be read the same way; its verdict is what discriminates. A
+        # destination makes the verdict visible: priced at its own zone the
+        # agent starves and flees to `zone`, priced at `zone` it is fed and
+        # stays.
+        monkeypatch.undo()
+        _paying_zone(sim, zone)
+        assert _flee_from_the_stored_counter(sim, [agent]) == {agent.id}, (
+            "the flight path priced the agent at a zone other than its own"
         )
