@@ -2722,3 +2722,104 @@ ogni obiettivo ragionevole converge. Se il round non produce nulla delle
 tre classi, il verdetto deve dire quali percorsi di formazione delle
 coppie, quali conversioni di tempo e quali lettori dell'età ha esercitato,
 e che cosa ha lasciato fuori.
+
+### Verdetto round 16: CONVERGED
+
+**2026-10-29, codice a `488cc74`.** Il round non ha trovato nessuna delle
+tre classi bloccanti. Ha attaccato i sei punti del criterio con script di
+sola lettura: una scansione esaustiva di `age_in_years` con il giro di
+andata e ritorno del backfill e la finestra fertile in SQL; un confronto fra
+residui relativi e assoluti del fit su schede rumorose, con il caso limite
+di pochi punti; una sonda su che cosa sostituisce davvero il patch del test
+del consumer della chat; la suite intera, 1858 verdi in 655 secondi. Ha
+nominato sei difetti non bloccanti, e li chiudo tutti invece di rinviarli,
+uno per commit, ognuno con il testimone visto rosso prima della correzione.
+
+- **`73385af`, sicurezza e costo.** `chat/tests/test_consumers.py` sostituiva
+  `get_llm_client`, ma il consumer chiama `get_chat_llm_client`: ogni corsa
+  della suite mandava una richiesta vera, con la chiave di chat
+  dell'utente, a un'API esterna a pagamento, e secondo il round 16 i
+  tentativi ripetuti sul limite di frequenza (`providers/openai.py:184-192`)
+  spiegano il timeout osservato al round 15. Il test
+  ora sostituisce `get_chat_llm_client`, risponde il testo del finto
+  modello e controlla che la tabella `LLMRequest` resti vuota, perché un
+  fornitore vero scrive una riga per ogni chiamata, fallite comprese; con
+  il vecchio bersaglio e un endpoint di chat finto e irraggiungibile era
+  rosso, `assert 1 == 0`. In più `config/settings/test.py` azzera le due
+  chiavi, il modello di chat e i due base URL, così `OpenAIProvider` non si
+  costruisce affatto senza patch. La guardia in
+  `llm_adapter/tests/test_client.py` era rossa su entrambi i fornitori
+  prima dell'azzeramento, e riduce il confronto a un booleano perché pytest
+  stamperebbe la chiave. Cercando altri percorsi verso la rete ne ho
+  trovato un secondo: cinque dei sei test di
+  `world/tests/test_generator.py` sostituivano `generator.get_llm_client`
+  ma non l'arricchimento, che costruisce il suo client in `enrichment.py`
+  e chiamava il fornitore principale a ogni corsa; con le chiavi azzerate
+  erano rossi tutti e cinque con `IndexError` alla costruzione del
+  client, e ora una fixture sostituisce `enrich_simulation_agents` come già
+  fa `test_zone_invariant.py`. La prima corsa della suite intera ne ha
+  trovati altri due per la stessa via, i test end-to-end di
+  `tests/test_integration.py`, rossi con un 500 alla creazione Express e con
+  `KeyError: 'simulation_id'`; hanno ora la stessa fixture. L'unico altro codice di rete,
+  `agents/research.py` verso Wikipedia e DuckDuckGo, è raggiunto solo
+  dall'arricchimento, e i suoi test sostituiscono `requests.get`.
+- **`89c3df2`, sicurezza, preesistente.** `load_template` univa a un percorso
+  il nome del template letto da `simulation.config`, che l'API lascia
+  scrivere (`simulation/serializers.py:19`), e il tick lo raggiunge a ogni
+  corsa: `../` o un percorso assoluto leggevano qualsiasi JSON. Ora il punto
+  unico, `_load_template_cached`, legge solo un nome di
+  `list_available_templates`, cioè l'elenco della cartella, e solleva
+  `FileNotFoundError` altrimenti, l'errore che i chiamanti già distinguono.
+  I due test di fuga, con un template valido piazzato fuori dalla cartella,
+  erano rossi con «DID NOT RAISE»; quello del nome sconosciuto sollevava già
+  `FileNotFoundError` ed era rosso solo sul messaggio. §6.2 lo dice nelle
+  due lingue.
+- **`f6648c5`, finestra fertile in SQL.** Django manda un limite float su una
+  colonna intera come `int(x)`, che arrotonda verso lo zero, quindi un
+  limite negativo saliva: a tick settimanali sul tick 0 il limite -625,71
+  diventava -625 e ammetteva un'agente di 11,986 anni. E il limite calcolato
+  con due divisioni perdeva l'agente di 50,0 anni esatti a tick di 100 ore
+  con accelerazione 0,1. Ora i limiti sono interi: il numero di tick
+  trascorsi al confine viene da `ceil` o `floor` di un solo quoziente ed è
+  poi verificato contro `_years_elapsed`, l'aritmetica di `age_in_years`
+  estratta in un solo punto. Il testimone parametrizzato sui tre confini
+  passa dal database ed era rosso 3 su 3; una scansione su tick da 1 a 8 760
+  ore e undici accelerazioni non trova nessun disaccordo. Ho corretto anche
+  la docstring, che descriveva ancora la formula con due divisioni.
+- **`a93eed1`, fit sottodeterminato.** Con meno di otto età a `q > 0`
+  `fit_heligman_pollard` restituiva senza protestare uno fra infiniti
+  insiemi di parametri, perché con i bound `curve_fit` usa il risolutore
+  trust-region, che accetta più incognite che equazioni. Ora solleva
+  `UnderdeterminedFitError`, una `ValueError`; i due casi a una e a sette
+  età erano rossi con «DID NOT RAISE», e il confine a otto età resta
+  fittato. §6.3 lo dice nelle due lingue.
+- **`b522076`, N3 dichiarato e non provato.** La docstring del test diceva
+  che il file temporaneo dell'allegato è rimosso, ma nessuna asserzione lo
+  controllava. Un test nuovo registra il percorso che il parser riceve e
+  controlla che non esista più dopo la risposta; con la mutazione che
+  rimetteva `delete=False` era rosso, poi ho ripristinato `views.py` con
+  `cmp`.
+- **`15f8747`, il lato che propone.** L'abbinamento fondatore fa proporre gli
+  uomini (`initialization.py`, `stable_matching(men, women, score)`),
+  mentre il mercato a regole della spec delle coppie fa proporre le donne.
+  L'FR-014 non fissa il lato. Nessun cambio di codice: §4.1.3 lo registra
+  nelle due lingue e rimanda l'allineamento al work item delle coppie.
+
+**Suite intera:** 1870 verdi, 4 warning, in 803,41 secondi, nel container
+usa e getta del progetto isolato `epocha-tests`, sull'albero dei sei commit
+salvo una riga: il quarto warning veniva dal nuovo test del confine a otto
+età, dove scipy non può stimare la covarianza senza gradi di libertà
+residui, e il test ora lo dichiara con `pytest.warns`; dopo quella modifica
+`test_mortality.py` è passato intero (26 verdi). La prima corsa, prima delle
+due fixture di `tests/test_integration.py` e delle impronte della build map,
+aveva dato 3 rossi, tutti e tre chiusi qui. Ruff check e format puliti.
+
+**Una conseguenza da portare all'utente.** Durante la prova rossa della
+guardia, prima che il confronto fosse ridotto a un booleano, pytest ha
+stampato nel mio output il valore di `EPOCHA_CHAT_LLM_API_KEY` letto
+dall'ambiente del container. Il valore non è finito in nessun file del
+repository, ma è passato dalla trascrizione della sessione: va considerato
+esposto e ruotato.
+
+Segue una revisione mirata del codice nuovo di questa chiusura, cioè dei sei
+commit qui sopra, prima della chiusura del work item.
