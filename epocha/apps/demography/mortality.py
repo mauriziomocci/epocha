@@ -148,6 +148,16 @@ def fit_heligman_pollard(
     Calibration task (Plan 4) feeds this with q(x) columns from
     published life tables (Wrigley-Schofield 1981, HMD). Plan 1 only
     tests the algorithm against synthetic data.
+
+    The residuals are relative, `q_hat / q - 1`, the objective commonly
+    attributed to Heligman and Pollard (1980), not verified against the
+    paper: passing `sigma = q` to
+    `curve_fit` weighs every age by its own magnitude. Unweighted absolute
+    residuals let the old ages dominate and stop the optimizer once the
+    young ages are small in absolute terms; round 15 of the Plan 4 phase-6
+    gate measured a maximum relative error of 0.57 on `sci_fi`'s own
+    schedule, whose `q` spans 4.3e-6 to 8.3e-3 over ages 0-99. An age observed at `q = 0` has
+    no relative deviation and is left out of the fit.
     """
     import numpy as np
     from scipy.optimize import curve_fit
@@ -180,12 +190,14 @@ def fit_heligman_pollard(
     lower = [0.0, 0.0, 0.0, 0.0, 0.1, 1.0, 0.0, 1.0]
     upper = [0.1, 0.5, 1.0, 0.05, 50.0, 50.0, 0.001, 1.5]
 
+    observed = ys > 0.0
     try:
         popt, _ = curve_fit(
             _hp_model,
-            xs,
-            ys,
+            xs[observed],
+            ys[observed],
             p0=p0,
+            sigma=ys[observed],
             bounds=(lower, upper),
             maxfev=10_000,
         )

@@ -329,6 +329,41 @@ class TestFitHeligmanPollard:
                 f"relative error={rel_err:.2%} > 5%"
             )
 
+    @pytest.mark.parametrize(
+        "template_name",
+        [
+            "pre_industrial_christian",
+            "pre_industrial_islamic",
+            "industrial",
+            "modern_democracy",
+            "sci_fi",
+        ],
+    )
+    def test_the_default_start_recovers_every_shipped_schedule(self, template_name):
+        """From the default `p0`, each shipped template's own `q(x)` comes back.
+
+        `sci_fi` carries `q` between 4.3e-6 and 8.3e-3 over ages 0-99. An unweighted fit of the
+        absolute residuals stops as soon as they are small in absolute
+        terms, which at those magnitudes is before the young ages fit at all:
+        round 15 of the Plan 4 phase-6 gate measured a maximum relative error
+        of 0.57 there, and 1.1e-5 under `modern_democracy`. The fit now
+        minimises the relative deviations `q_hat / q - 1`, which weigh every
+        age by its own magnitude.
+        """
+        from epocha.apps.demography.template_loader import load_template
+
+        params = load_template(template_name)["mortality"]["heligman_pollard"]
+        ages = list(range(0, 100))
+        observed = [annual_mortality_probability(age, params) for age in ages]
+
+        fitted = fit_heligman_pollard(ages, observed)
+
+        worst = max(
+            abs(annual_mortality_probability(age, fitted) - q) / q
+            for age, q in zip(ages, observed, strict=True)
+        )
+        assert worst < 1e-6, f"{template_name}: max relative error {worst:.2e}"
+
     def test_degenerate_input_raises_runtime_error(self):
         """Constant-zero q vector raises RuntimeError (fit cannot converge).
 
