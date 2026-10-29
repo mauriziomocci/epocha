@@ -79,3 +79,23 @@ class TestFirstMarriageSchedule:
 
     def test_almost_no_mass_lies_below_the_minimum_age(self):
         assert self.schedule.cdf(14) < 1e-5
+
+    def test_the_hazard_is_the_density_over_the_survival(self):
+        density = self.schedule.density(25)
+        survival = 1 - self.schedule.cdf(25)
+        assert self.schedule.hazard(25) == pytest.approx(density / survival, abs=1e-9)
+
+    def test_the_hazard_tends_to_alpha_over_scale_in_the_far_right_tail(self):
+        # With C = 1 both the density and the survival vanish, but their
+        # ratio does not: the tail decays as exp(-alpha z), so h -> alpha / b.
+        # The lower-incomplete-gamma survival keeps it finite at age 200.
+        everyone_marries = FirstMarriageSchedule(25.5, 5.5, 1.0, 14)
+        assert everyone_marries.hazard(200.0) == pytest.approx(
+            nuptiality.STANDARD_ALPHA / 5.5, abs=1e-6
+        )
+
+    def test_the_hazard_is_zero_without_a_zero_division_when_the_survival_underflows(self):
+        # At age 5000 exp(-beta (z - mu)) underflows to 0, so the survival of
+        # an everyone-marries schedule is exactly 0.0 (FR-002).
+        everyone_marries = FirstMarriageSchedule(25.5, 5.5, 1.0, 14)
+        assert everyone_marries.hazard(5000.0) == 0.0

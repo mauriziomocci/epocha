@@ -149,3 +149,18 @@ class FirstMarriageSchedule:
     def cdf(self, x: float) -> float:
         """Cumulative share married by age x, F(x) of (R2)."""
         return self.proportion * standard_cdf((x - self.location) / self.scale)
+
+    def hazard(self, x: float) -> float:
+        """Hazard of first marriage at age x for a never-married woman (R3).
+
+        h(x) = f(x) / (1 - F(x)), the single-decrement hazard. The survival
+        1 - F(x) is computed as (1 - C) + C * P(alpha / beta, y), with P the
+        lower incomplete gamma, so it does not cancel to zero by
+        subtraction when F(x) is close to 1. Returns 0.0 where the survival
+        is not positive (FR-002), instead of dividing by zero.
+        """
+        z = (x - self.location) / self.scale
+        survival = (1.0 - self.proportion) + self.proportion * _standard_lower(z)
+        if survival <= 0.0:
+            return 0.0
+        return self.density(x) / survival
