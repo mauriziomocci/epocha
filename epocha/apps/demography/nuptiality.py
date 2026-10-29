@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import math
 
+from scipy.special import gammainc, gammaincc
+
 # Standardized Coale-McNeil density (mean 0, variance 1), Rodriguez and
 # Trussell (1980) as reported by Kaneko (2003, eq. 2). The values are
 # rounded to three decimals in the source: with them the normalizing
@@ -68,3 +70,47 @@ def standard_density(z: float) -> float:
         return 0.0
     constant = STANDARD_BETA / math.gamma(STANDARD_ALPHA / STANDARD_BETA)
     return constant * math.exp(-STANDARD_ALPHA * (z - STANDARD_MU) - math.exp(t))
+
+
+def _incomplete_gamma_argument(z: float) -> float | None:
+    """Return y = exp(-beta (z - mu)), or None where it would overflow."""
+    t = -STANDARD_BETA * (z - STANDARD_MU)
+    if t > _EXP_OVERFLOW_GUARD:
+        return None
+    return math.exp(t)
+
+
+def standard_cdf(z: float) -> float:
+    """Standardized first-marriage CDF G_s(z) (R1a), in closed form.
+
+    G_s(z) = Q(alpha / beta, exp(-beta (z - mu)))
+
+    with Q the regularized upper incomplete gamma function
+    (scipy.special.gammaincc). Derivation (an original step, checked
+    numerically against the integral of (R1) in the tests): in the integral
+    of g_s(t) from -inf to z substitute y = exp(-beta (t - mu)). Then
+    exp(-alpha (t - mu)) = y ** (alpha / beta) and dt = -dy / (beta y), so
+    g_s(t) dt = -y ** (alpha / beta - 1) exp(-y) dy / Gamma(alpha / beta),
+    and t from -inf to z is y from +inf down to exp(-beta (z - mu)). The
+    integral is therefore Gamma(alpha / beta, y) / Gamma(alpha / beta) = Q.
+
+    Returns 0.0 where y would overflow (far left of the support).
+    """
+    y = _incomplete_gamma_argument(z)
+    if y is None:
+        return 0.0
+    return float(gammaincc(STANDARD_ALPHA / STANDARD_BETA, y))
+
+
+def _standard_lower(z: float) -> float:
+    """Complement 1 - G_s(z) as the regularized LOWER incomplete gamma P.
+
+    P(alpha / beta, y) equals 1 - Q(alpha / beta, y) but is computed
+    directly, so a survival term built from it does not cancel when G_s(z)
+    is close to 1 (first-marriage hazard (R3)). Returns 1.0 where y would
+    overflow.
+    """
+    y = _incomplete_gamma_argument(z)
+    if y is None:
+        return 1.0
+    return float(gammainc(STANDARD_ALPHA / STANDARD_BETA, y))

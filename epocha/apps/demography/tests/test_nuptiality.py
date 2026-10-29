@@ -9,7 +9,7 @@ import pytest
 from scipy.integrate import quad
 
 from epocha.apps.demography import nuptiality
-from epocha.apps.demography.nuptiality import standard_density
+from epocha.apps.demography.nuptiality import _standard_lower, standard_cdf, standard_density
 
 # Integration window for the standardized density: the left tail is below
 # 1e-12 at z = -6 and the right tail below 1e-9 at z = 20, so the window
@@ -38,3 +38,21 @@ class TestStandardDensity:
 
     def test_far_left_of_the_support_the_density_is_zero_without_overflow(self):
         assert standard_density(-50.0) == 0.0
+
+
+class TestStandardCdf:
+    # 20 points evenly spaced on [-3, 6], the range where the schedule has mass.
+    _POINTS = [-3.0 + 9.0 * i / 19 for i in range(20)]
+
+    def test_the_closed_form_matches_the_numerical_integral_of_the_density(self):
+        for z in self._POINTS:
+            numerical, _ = quad(standard_density, _LOW, z)
+            assert standard_cdf(z) == pytest.approx(numerical, abs=1e-5)
+
+    def test_the_upper_and_lower_incomplete_gamma_sum_to_one(self):
+        for z in self._POINTS:
+            assert standard_cdf(z) + _standard_lower(z) == pytest.approx(1.0, abs=1e-12)
+
+    def test_far_left_of_the_support_the_cdf_is_zero_and_the_lower_part_one(self):
+        assert standard_cdf(-50.0) == 0.0
+        assert _standard_lower(-50.0) == 1.0
