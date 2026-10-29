@@ -33,6 +33,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from scipy.integrate import quad
 from scipy.special import gammainc, gammaincc
 
 # Standardized Coale-McNeil density (mean 0, variance 1), Rodriguez and
@@ -50,6 +51,13 @@ STANDARD_MU = -0.805
 # before, so beyond this exponent the function returns the limit instead of
 # raising OverflowError.
 _EXP_OVERFLOW_GUARD = 700.0
+
+# Upper end of the observation window over which a historical mean age at
+# first marriage is read, in years (upper bound of R5, same as SC-002). It is
+# a modelling choice fixed by the spec, tunable heuristic, not verified against
+# the observation window of any one source: Wrigley et al. (1997) is cited for
+# the mean values, not for this ceiling.
+OBSERVATION_CEILING_AGE = 50.0
 
 
 def standard_density(z: float) -> float:
@@ -191,3 +199,30 @@ class FirstMarriageSchedule:
         if x < self.min_age:
             return 0.0
         return 1.0 - math.exp(-self.hazard(x) * years_per_tick)
+
+
+def truncated_mean(
+    location: float,
+    scale: float,
+    min_age: float,
+    upper: float = OBSERVATION_CEILING_AGE,
+) -> float:
+    """Mean age at first marriage OBSERVED on [min_age, upper] (left side of R5).
+
+    E[X | m <= X <= upper] = integral_m^upper x g_s((x - u)/b)/b dx
+                             / [G_s((upper - u)/b) - G_s((m - u)/b)]
+
+    The proportion C cancels in the ratio, so the result depends only on the
+    location u, the scale b and the window. A historical mean age is an
+    average over observed marriages, hence over this window, while u is the
+    mean of the untruncated distribution; the two differ (u = 25.5 gives
+    25.42 on [14, 50]). The numerator is integrated by scipy.integrate.quad,
+    the denominator uses the closed-form CDF (R1a).
+    """
+    numerator, _ = quad(
+        lambda x: x * standard_density((x - location) / scale) / scale, min_age, upper
+    )
+    denominator = standard_cdf((upper - location) / scale) - standard_cdf(
+        (min_age - location) / scale
+    )
+    return numerator / denominator

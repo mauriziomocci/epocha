@@ -14,6 +14,7 @@ from epocha.apps.demography.nuptiality import (
     _standard_lower,
     standard_cdf,
     standard_density,
+    truncated_mean,
 )
 
 # Integration window for the standardized density: the left tail is below
@@ -122,3 +123,11 @@ class TestConditioningOnTheMinimumAge:
         dt = 168 / 8760
         expected = 1 - math.exp(-self.christian.hazard(25) * dt)
         assert self.christian.tick_probability(25, dt) == pytest.approx(expected, abs=1e-12)
+
+
+class TestTruncatedMean:
+    def test_the_observed_window_mean_is_below_the_location(self):
+        # With u = 25.5 the mean of the schedule on [14, 50] is 25.42, not 25.5
+        # (spec, section "Dal valore storico a u"): the left tail cut at 14
+        # weighs more than the right tail cut at 50.
+        assert truncated_mean(25.5, 5.5, 14) == pytest.approx(25.421, abs=1e-3)
