@@ -12,7 +12,7 @@ applies the fixes between rounds and records the resolution. Round cap: 10
 
 Categories: INCORRECT, UNJUSTIFIED, INCONSISTENT, MISSING, VERIFIED.
 
-**Current verdict: NOT CONVERGED after round 3; round 4 pending.**
+**Current verdict: NOT CONVERGED after round 4; round 5 pending.**
 
 ## Round 1 (2026-10-29, 19:15-19:26, independent `critical-analyzer`)
 
@@ -86,3 +86,23 @@ Every table number recomputed with the real `nuptiality.py`, `mortality.py` and
 | R3-08 | INCONSISTENT | Header said the Trinity "can approve" under the profile, later text says the profile must be verified. | Header aligned: profile as transmitted by the coordinator, not read in chat, verified by the Trinity before approval. |
 
 **Verdict round 3: NOT CONVERGED** (1 INCORRECT, 0 UNJUSTIFIED, 5 INCONSISTENT, 2 MISSING). Fixes applied in the same pass; round 4 re-audits.
+
+## Round 4 (2026-10-29, 20:03-20:14, independent `critical-analyzer`)
+
+All eight R3 findings RESOLVED per the reviewer (avoid_conception enforced at
+`simulation/engine.py:331-342`, sole caller of `set_avoid_conception_flag`;
+variance of rho_BK confirmed; `initialize_economy` default `pre_industrial` at
+`economy/initialization.py:34-37`; silent default template confirmed; 2.3631
+mutation value; e0 70.74). Every table number recomputed from fresh copies.
+
+| # | Class | Finding (evidence) | Resolution |
+|---|---|---|---|
+| R4-01 | INCORRECT | D-MF-03 claimed about thirty test lines use `require_couple_for_birth`; measured 8 test lines in 4 files and 4 code lines (2 outside the loader). That count was the cost argument against deriving the flag from the block. | D-MF-03 re-argued and reversed: the key leaves all five templates and the schema; a public predicate `requires_couple_for_birth` (presence of `marital`) replaces the two reads; the loader admits exactly one of `marital` / `hadwiger`; a template still carrying the old key is rejected as unknown (US3 scenario 2). The impossible state is no longer representable. FR-002, FR-003, FR-004, FR-005 (8-line count), US3, (N4), header, architecture, alternatives and FAQ updated. |
+| R4-02 | MISSING | Woods (2000) lists Ig series for England from 1551-75 and England and Wales 1851-1931 and age-specific marital schedules against a British standard; rule (ii) of D-MF-05 assumed no data. | Parameter table states the source exists and was not read beyond pp. 8-9; not used now because Ig is relative to the Hutterite standard whose age schedule is unverified; the "transition lowers marital fertility" premise declared unverified for England and Wales 1841-1900; reading assigned to the validation work item (rinvio 4). |
+| R4-03 | INCONSISTENT | Enforcement point of the avoid_conception guard is `simulation/engine.py`, not `agents/decision.py`. | Cited `engine.py` as enforcement and `decision.py` as the prompt filter. |
+| R4-04 | INCONSISTENT | Weekly maximum 0.0066 only at Becker factor 1. | "a fattore di Becker 1" added, with 0.0197 at the 3.0 cap. |
+| R4-05 | MISSING | SC-002 did not fix the age convention of the marriage hazard (mid-tick gives 4.2946). | Both hazards evaluated at the age at the start of the tick; the mid-tick value written as the reason the convention is part of the test. |
+| R4-06 | INCONSISTENT | Wood (1994) row omitted its use in D-MF-04. | Row updated. |
+| R4-07 | MISSING | BIRTH events are written only when the newborn survives, biasing SC-006 rates by 0.9944. | Expected rates in SC-006 A and the realized TMFR of B scaled by 1 - 0.008*0.7 = 0.9944. |
+
+**Verdict round 4: NOT CONVERGED** (1 INCORRECT, 0 UNJUSTIFIED, 3 INCONSISTENT, 3 MISSING). Fixes applied in the same pass; round 5 re-audits.
