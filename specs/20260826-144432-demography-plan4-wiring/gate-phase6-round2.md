@@ -2059,3 +2059,178 @@ successo al round 11 con il ramo del pupillo. Se il round non produce nulla
 delle tre classi, il verdetto deve dire quali lettori dell'appartenenza e
 della deduplica ha verificato, quali percorsi ha esercitato e che cosa ha
 lasciato fuori.
+
+### Verdetto round 13: NOT CONVERGED
+
+Ambito `develop..HEAD` per intero, secondo il criterio scritto prima del
+lancio. Un rilievo bloccante, di classe 1 e di classe 3 insieme.
+
+- **R13-1, classe 1 e classe 3, da `15cedd9` e dal cablaggio del lutto.**
+  La correzione F2 del round 12 metteva in `already_informed` le memorie
+  `DIRECT` della stessa origine solo sul tick corrente. Due memorie di prima
+  mano nominano come origine qualcuno diverso da chi le possiede: la fuga
+  (ogni membro, origine il decisore) e il lutto (`generate_mourning_memories`,
+  origine il defunto). Riprodotto: una coppia, la partner con un'amica,
+  contatori a 30; `process_emergency_flight(tick=50)`,
+  `propagate_information(50)`, `propagate_information(51)`, e la partner
+  possiede `('direct', 50, ...)` e anche `('rumor', 51, ...)` della stessa
+  fuga; lo stesso per una vedova dopo `generate_mourning_memories(defunto, 50)`
+  e due propagazioni. È anche di classe 3, perché il §4.1.5 dichiarava che un
+  membro fuggito non riceve mai come sentito dire la propria fuga, e la causa
+  per cui due round di fila l'hanno mancata è la stessa: i testimoni facevano
+  girare una sola propagazione.
+
+**Non bloccanti**, da correggere nello stesso giro: N-a, nessun testimone
+della regola dichiarata «una pupilla sola con ricchezza negativa resta
+affamata» (`context.py`), e la mutazione che scarta la ricchezza della
+pupilla sopravviveva a tutti i 24 test di `test_starvation_counter.py`; N-c,
+la chat di gruppo in `dashboard/views.py` leggeva il mondo una volta per
+agente, attraverso `describe_speaker`, `current_age_in_years` e `_world_of`;
+N-d, sul percorso legacy dell'economia, senza `ZoneEconomy`, ogni soglia vale
+0 e `world/economy.py:104` addebita a un bambino 3 contro un reddito di 2,
+quindi una pupilla sola muore di fame dopo un tick. **Da registrare, non da
+correggere**: N-b, la soppressione per stessa origine è accettabile, e la
+query della fase 1 in `information_flow.py` non ha `order_by`, già nel
+backlog del determinismo (memoria `project_determinism_enumeration_pending.md`);
+N-e, nota di gusto: la formulazione del prompt vive in un modulo di dominio.
+
+### Remediation del round 13
+
+Ogni correzione ha il testimone visto rosso prima e verde dopo; ogni
+testimone nuovo è stato controllato per mutazione da un backup, poi
+ripristinato dal backup e confrontato con `cmp`.
+
+- **R13-1** (`91ade95`): `already_informed` contiene chi ha già sentito la
+  stessa origine al tick corrente (`HEARSAY`, `RUMOR`) e chi ha una memoria
+  `DIRECT` della stessa origine con `tick_created` fra
+  `tick - (max(max_hops, 2) - 1)` e `tick`. La finestra è la vita della
+  notizia, letta nel codice e non stimata: la fase 1 racconta al tick `t`
+  dell'evento, la fase 2 a `t + 1` senza controllare `max_hops`
+  (`information_flow.py:92-118`), la fase 3 solo finché
+  `_estimate_hop` resta sotto `max_hops` (`if current_hop >= max_hops:
+  continue`, `information_flow.py:129-130`), e quella stima non scende mai
+  sotto l'hop vero per affidabilità non superiori a 1,0. L'ultimo racconto
+  cade quindi a `t + max(max_hops, 2) - 1`, cioè `t + 2` con il valore
+  predefinito 3. La formula del mandato, `tick - max_hops`, è più larga di un
+  tick: sopprimerebbe una notizia nuova della stessa origine quando la
+  vecchia ha già smesso di viaggiare, e la mutazione che la applica cade.
+  Testimoni rossi prima della correzione: la partner su due tick (con
+  un'amica), la partner su tutta la vita della notizia (in un triangolo di
+  amiche, che porta una voce del tick 51 fino a lei al tick 52), la vedova
+  su tutta la vita della notizia nello stesso triangolo, e i bordi della
+  finestra per `max_hops` 1, 3 e 5 (dentro soppresso, un tick prima no). Un
+  sesto testimone misura la vita della notizia lungo una catena di dieci
+  agenti per gli stessi tre valori, così la finestra non può scostarsi dalle
+  fasi senza che lo si veda. Sei mutazioni, tutte uccise: il confronto sul
+  solo tick corrente (sei test cadono), la finestra senza `max(..., 2)`
+  (cade il bordo con `max_hops` 1), la finestra di un tick più corta (cadono
+  i due testimoni di vita intera e i bordi), la formula del mandato (cadono
+  i bordi con 3 e 5), la finestra senza limite inferiore (cadono i bordi), e
+  la fase 3 con `>` invece di `>=` (cadono la misura della vita e i due
+  testimoni di vita intera). Il §4.4.1, in entrambe le lingue, dichiara la
+  soppressione più larga: chi ha vissuto di prima mano un evento di
+  un'origine non sente di nessun altro evento della stessa origine finché la
+  notizia del primo viaggia, due tick dopo l'evento con il valore
+  predefinito; il §4.1.5 dice che un membro fuggito non riceve la notizia
+  della propria fuga né come sentito dire né come rumour, ed è ora vero.
+  **L'alternativa non presa**: un campo sulla `Memory` che identifichi
+  l'evento distinguerebbe due eventi della stessa origine e toglierebbe la
+  soppressione larga; è una modifica di schema, quindi una decisione
+  dell'utente, ed è nominata nel §4.4.1 come tale.
+- **N-a** (`68b8958`): `test_a_lone_ward_in_debt_still_starves`, una pupilla
+  di otto anni con patrimonio -5 sola nel suo nucleo vede il contatore salire
+  a 1. La mutazione che azzera la ricchezza della pupilla insieme al suo
+  bisogno ora fa cadere questo test, e solo questo.
+- **N-c** (`84237f2`): `current_age_clock(simulation)` restituisce
+  `(tick, tick_duration_hours, acceleration)`; `current_age_in_years`,
+  `describe_age` e `describe_speaker` lo accettano come argomento facoltativo,
+  e `group_chat_view` lo calcola una volta per richiesta. Testimone rosso:
+  tre interlocutori producevano tre letture di `world_world`, ora una. La
+  mutazione che torna a `describe_speaker(agent)` fa cadere il testimone. La
+  chat privata e il consumer WebSocket restano sul percorso di un solo
+  agente, una lettura.
+- **N-d** (`68b8958`): verificato con una sonda temporanea, poi rimossa:
+  una pupilla di ruolo `child` con patrimonio 0, senza `Currency` né
+  `ZoneEconomy`, è a -1,0 dopo `run_economy` e ha il contatore a 1 dopo il
+  passo del contatore. Dichiarato nel §4.1.0, nelle due lingue, e nel
+  docstring di `compute_subsistence_threshold`; il percorso è deprecato e non
+  è stato riprogettato.
+
+**Registrato, non corretto.** N-b e N-e come sopra. Inoltre, fuori dal
+mandato e già dichiarato dal docstring di `propagate_information`: la
+deduplica del sentito dire e delle voci resta per tick, quindi un'amica che
+ha sentito della fuga al tick 50 la risente come voce al tick 51 da
+un'altra amica; è la regola «una volta per tick» del modello originale del
+§4.4, non un'eco su chi ha vissuto l'evento.
+
+**L'integrazione.** Suite intera a `84237f2`, con la build map aggiornata
+nell'albero: **1818 test**: la corsa intera ha dato 1817 verdi e un rosso, `test_no_fingerprint_is_stale`, perché avevo modificato la build map durante la corsa e prima del ricalcolo delle impronte; dopo il ricalcolo la guardia bilingue dà 9 verdi, quindi zero rossi noti, ma la suite non è stata rilanciata per intero dopo quel ricalcolo; `ruff check` e `ruff format --check` puliti su
+343 file. La build map porta il round 13 nella punta e, fra i lavori non ancora
+aperti, «Contesto degli agenti: ambientazione del mondo Express e coerenza della
+chat», le due segnalazioni dell'utente del 2026-10-29 sulla simulazione 4, da
+aprire dopo il merge del Plan 4.
+
+---
+
+## Round 14: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation del round 13 (codice a `84237f2`) e prima di
+lanciarlo.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola del round 8,
+che i round dal 9 al 13 hanno confermato.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **La correzione R13-1 su tutta la vita della notizia.** Rifai la
+   derivazione della finestra dalle tre fasi di `propagate_information` e
+   confrontala con `max(max_hops, 2) - 1`: la fase 2 che non guarda
+   `max_hops`, la fase 3 e `_estimate_hop`, i rumour deboli del filtro di
+   credenza, un'affidabilità di partenza sotto 1,0, un `decay` degenere.
+   Ogni testimone deve far girare la propagazione per tutta la vita della
+   notizia, non per un tick: è la ragione per cui i round 12 e 13 hanno
+   mancato lo stesso difetto.
+2. **Ogni memoria `DIRECT` la cui origine non è chi la possiede.** Oggi sono
+   due, la fuga (`migration.py`, origine il decisore) e il lutto
+   (`inheritance.py`, origine il defunto). Cerca se ce ne sono altre, e per
+   ciascuna verifica che chi la possiede non riceva l'evento come sentito
+   dire o voce, e che la soppressione più larga non spenga una notizia che
+   deve arrivare, per esempio la crisi da intrappolamento, che è `PUBLIC`.
+3. **L'orologio dell'età di N-c.** `current_age_clock` è la sola lettura del
+   mondo per la chat di gruppo; i tre canali producono la stessa frase per
+   lo stesso agente, con l'orologio passato o letto sul posto.
+4. **Le frasi dei whitepaper scritte oggi** nei §4.1.0, §4.1.5 e §4.4.1,
+   contro il codice, nelle due lingue, riferimenti di riga compresi.
+
+### Il terreno ereditato
+
+Resta quello del round 13, con la deduplica per tick del sentito dire
+registrata sopra: `inheritance.py` oltre il diff, `template_loader.py` oltre
+lo schema della coppia, `truncated_moments.py`, `clark_calibration.py`, la
+parte volontaria di `migration.py`, `fertility.py` oltre
+`_effective_age_in_years`, le cifre end-to-end non ri-misurate, e di
+`mortality.py` tutto ciò che non è la conversione al tick. M7 resta senza
+testimone per scelta dichiarata. **Scegli e dichiara**, come ai round
+precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+La correzione di oggi allarga un predicato condiviso da ogni propagazione,
+e lo allarga di proposito: chi ha vissuto un evento di un'origine non sente
+di altri eventi della stessa origine per due tick. Il criterio cerca gli
+echi sui due soli scrittori di memorie di prima mano con un'origine altrui
+che conosco oggi; se un terzo esiste e io non l'ho trovato, o se la
+finestra dedotta dalle fasi è sbagliata per una combinazione di parametri
+che nessun testimone tocca, il round può non vederlo. Se il round non
+produce nulla delle tre classi, il verdetto deve dire quali scrittori di
+memorie ha verificato, quali combinazioni di `max_hops` e di affidabilità ha
+esercitato e che cosa ha lasciato fuori.
