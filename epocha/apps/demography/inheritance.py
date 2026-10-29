@@ -3204,6 +3204,63 @@ def generate_mourning_memories(deceased: Any, tick: int) -> None:
 ESTATE_TAX_CURRENCY_FALLBACK_CODE = "USD"
 
 
+def _assign_caretakers_to_unguarded_minors(
+    simulation: Any, tick: int, template: dict, children: dict[int, Any], deceased_ids: set[int]
+) -> None:
+    """Give a caretaker to every minor this batch left with no living
+    guardian, and persist it.
+
+    A minor's guardians are its two recorded parents and its
+    `caretaker_agent` -- the same three agents `context.household_keys`
+    anchors a minor through. The candidates are `children` (the deceased's
+    own children, collected by the caller) plus the deceased's `dependents`,
+    the living agents whose `caretaker_agent` is one of `deceased_ids`. The
+    second set is row 44: a caretaker is often not a parent, so an orphan in
+    its grandmother's care is her grandchild, outside every heir category,
+    and her death used to leave it pointing at a dead caretaker for the rest
+    of the run, never re-read. A candidate gets
+    `assign_orphan_caretaker` when it is a minor and NONE of its three
+    guardians is alive: a child whose caretaker survives, or who still has a
+    living parent, is left alone by the same test, with no rule of its own.
+
+    The minority test reads the `age` column, the cache of `birth_tick` the
+    mortality step refreshes at the start of the same tick (see the comment
+    there in `orchestrator.run_mortality_step`).
+
+    Query cost, per batch and never per population: 1 query for the
+    dependents, 1 for the living guardians (none when no candidate is a
+    minor), 1 for the world's tick length and 1 `bulk_update` (both skipped
+    when nobody is reassigned), plus `assign_orphan_caretaker`'s own
+    up-to-4 queries per reassigned minor.
+    """
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.orchestrator import _tick_duration_hours
+
+    dependents = Agent.objects.filter(caretaker_agent_id__in=deceased_ids, is_alive=True)
+    candidates = {dependent.id: dependent for dependent in dependents} | children
+    adulthood_age = template["migration"]["adulthood_age"]
+    minors = [minor for _, minor in sorted(candidates.items()) if minor.age < adulthood_age]
+    if not minors:
+        return
+
+    def _guardian_ids(minor: Any) -> set[int]:
+        guardians = (minor.parent_agent_id, minor.other_parent_agent_id, minor.caretaker_agent_id)
+        return {guardian_id for guardian_id in guardians if guardian_id is not None}
+
+    all_guardian_ids = set().union(*(_guardian_ids(minor) for minor in minors))
+    living_guardian_ids = set(
+        Agent.objects.filter(id__in=all_guardian_ids, is_alive=True).values_list("id", flat=True)
+    )
+    unguarded = [minor for minor in minors if not _guardian_ids(minor) & living_guardian_ids]
+    if not unguarded:
+        return
+
+    tick_duration_hours = _tick_duration_hours(simulation)
+    for minor in unguarded:
+        assign_orphan_caretaker(minor, tick, template, tick_duration_hours)
+    Agent.objects.bulk_update(unguarded, ["caretaker_agent", "conditions"])
+
+
 def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) -> None:
     """Settle every death in `deceased_agents` for this `tick`: dissolve
     couples, settle each estate, transfer loans, generate mourning
@@ -3311,31 +3368,24 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     CARETAKER ASSIGNMENT COMES LAST, AFTER EVERY DECEASED ABOVE IS FULLY
     PROCESSED (settled ordering decision): a minor orphaned by the LAST
     death in the batch must still be caught, and the "does this candidate
-    still have a living parent" check must see the batch's FINAL
-    aliveness state, not a partial one. Scoped to `heirs["children"]`
-    collected during the loop above -- NOT a population-wide scan -- so
-    the cost is bounded by this batch's own deaths, never by total
-    population size. A candidate is actually orphaned and gets
-    `assign_orphan_caretaker(child, tick, template, tick_duration_hours)`
-    called on it (T025's own
-    contract: mutates `child` in memory only, never saves) when ALL of:
-    it does not already have a `caretaker_agent`; it is a minor
-    (`child.age < template["migration"]["adulthood_age"]`); and NEITHER
-    of its own two recorded parents is still alive (checked with ONE
-    query across every candidate's parent ids, never per-candidate).
-    `assign_orphan_caretaker` itself still costs its own documented
-    up-to-4-query search PER actual orphan (inherent to reusing that pure
-    resolver rather than reimplementing its kinship ladder here) -- see
-    QUERY BUDGET below.
+    still have a living guardian" check must see the batch's FINAL
+    aliveness state, not a partial one. The candidates are
+    `heirs["children"]` collected during the loop above plus every
+    deceased's `dependents` -- NOT a population-wide scan -- so the cost
+    is bounded by this batch's own deaths, never by total population size.
+    `_assign_caretakers_to_unguarded_minors` owns the rule and its cost:
+    a minor gets a caretaker when none of its parents and none of its
+    current caretaker is alive.
 
     FAMILY-TOPOLOGY SCOPE (ratified 2026-07-20, logged for the phase-6
-    audit as an open question, NOT a defect to fix here): orphan
-    candidates are `heirs["children"]` ONLY -- the deceased's OWN
-    grandchildren are never candidates, because `resolve_heirs` has no
-    category that reaches two generations down (`extended_family` reaches
-    the deceased's own grandparents' lineage, never descendants of the
-    deceased's own children). This is a property of the CONVERGED design,
-    not something this task is scoped to change.
+    audit as an open question, NOT a defect to fix here): the deceased's
+    OWN grandchildren are never heir-derived candidates, because
+    `resolve_heirs` has no category that reaches two generations down
+    (`extended_family` reaches the deceased's own grandparents' lineage,
+    never descendants of the deceased's own children). A grandchild IN THE
+    DECEASED'S CARE is nonetheless reached, through `dependents` (row 44);
+    one whose caretaker is someone else still has a living guardian and
+    needs none.
 
     WEALTH CREDITING AND ZEROING (T028's persistence pin): after the full
     per-deceased loop, every deceased's wealth is set to exactly 0.0 and
@@ -3411,12 +3461,12 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     `transfer_loans_as_lender`'s own cost (up to 2) +
     `generate_mourning_memories`'s own cost (up to 5). PLUS, once for the
     whole batch (not per deceased): 1 query to resolve the primary
-    currency (fix I-10), 1 fetch + 1 `bulk_update` for wealth, 1 query + 1
-    `bulk_update` for caretakers (skipped entirely when there are no
-    orphan candidates), 1 `bulk_create` for events. On top of that,
-    each ACTUAL newly-orphaned minor costs `assign_orphan_caretaker`'s own
-    up-to-4-query search, AND -- fix NEW-7 (phase-6 audit round 4, T046) --
-    each death under the `matrilineal` rule specifically costs one
+    currency (fix I-10), 1 fetch + 1 `bulk_update` for wealth, the
+    caretaker pass (up to 3 queries + 1 `bulk_update`, plus
+    `assign_orphan_caretaker`'s own up-to-4-query search per minor actually
+    reassigned -- see `_assign_caretakers_to_unguarded_minors`), 1
+    `bulk_create` for events. On top of that -- fix NEW-7 (phase-6 audit
+    round 4, T046) -- each death under the `matrilineal` rule costs one
     ADDITIONAL query per the deceased's own sister: resolved exactly ONCE
     here (right after `resolve_heirs`, step 1) and threaded into both
     `distribute_estate` and `transfer_loans_as_lender` via their shared
@@ -3451,7 +3501,6 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     from epocha.apps.agents.models import Agent
     from epocha.apps.demography.couple import dissolve_on_death
     from epocha.apps.demography.models import DemographyEvent
-    from epocha.apps.demography.orchestrator import _tick_duration_hours
     from epocha.apps.demography.template_loader import load_template
     from epocha.apps.economy.models import Currency
     from epocha.apps.world.government import add_to_treasury
@@ -3477,7 +3526,6 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     primary_currency_code = (
         primary_currency.code if primary_currency is not None else ESTATE_TAX_CURRENCY_FALLBACK_CODE
     )
-    adulthood_age = template["migration"]["adulthood_age"]
 
     with transaction.atomic():
         government = Government.objects.get(simulation=simulation)
@@ -3594,45 +3642,10 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
             Agent.objects.bulk_update(agents_for_wealth, ["wealth"])
 
         # Caretaker assignment LAST -- see the docstring's CARETAKER
-        # ASSIGNMENT section for why. Bounded to this batch's own
-        # children, never a population-wide scan.
-        if orphan_candidates:
-            tick_duration_hours = _tick_duration_hours(simulation)
-            parent_ids_to_check = set()
-            for child in orphan_candidates.values():
-                if child.parent_agent_id:
-                    parent_ids_to_check.add(child.parent_agent_id)
-                if child.other_parent_agent_id:
-                    parent_ids_to_check.add(child.other_parent_agent_id)
-
-            still_alive_parent_ids = (
-                set(
-                    Agent.objects.filter(id__in=parent_ids_to_check, is_alive=True).values_list(
-                        "id", flat=True
-                    )
-                )
-                if parent_ids_to_check
-                else set()
-            )
-
-            minors_to_update = []
-            for child_id in sorted(orphan_candidates):
-                child = orphan_candidates[child_id]
-                if child.caretaker_agent_id is not None:
-                    continue
-                if child.age >= adulthood_age:
-                    continue
-                has_living_parent = (
-                    child.parent_agent_id in still_alive_parent_ids
-                    or child.other_parent_agent_id in still_alive_parent_ids
-                )
-                if has_living_parent:
-                    continue
-                assign_orphan_caretaker(child, tick, template, tick_duration_hours)
-                minors_to_update.append(child)
-
-            if minors_to_update:
-                Agent.objects.bulk_update(minors_to_update, ["caretaker_agent", "conditions"])
+        # ASSIGNMENT section for why.
+        _assign_caretakers_to_unguarded_minors(
+            simulation, tick, template, orphan_candidates, deceased_ids
+        )
 
         if events_to_create:
             DemographyEvent.objects.bulk_create(events_to_create)

@@ -5795,6 +5795,117 @@ class TestProcessInheritanceBatchCaretakerMustBeAnAdult:
             assert "state_ward" in persisted.conditions
 
 
+class TestProcessInheritanceBatchReplacesADeadCaretaker:
+    """Row 44: the death of a caretaker leaves its dependents without one.
+    The orphan below is the deceased grandmother's GRANDCHILD, so it is in
+    none of her heir categories; it is reached through `dependents`, the
+    reverse of its own `caretaker_agent`, and is given a new adult
+    caretaker, or the state-ward flag when no adult relative is left.
+    """
+
+    def _orphan_in_grandmothers_care(self, sim, zone, tick):
+        grandmother = _make_agent(
+            sim,
+            zone,
+            "Grandmother",
+            wealth=0.0,
+            age=60,
+            birth_tick=_ADULT_BIRTH_TICK - 30 * _TICKS_PER_YEAR,
+        )
+        mother = _make_agent(
+            sim,
+            zone,
+            "Mother",
+            parent_agent=grandmother,
+            is_alive=False,
+            wealth=0.0,
+            birth_tick=_ADULT_BIRTH_TICK,
+        )
+        orphan = _make_agent(
+            sim,
+            zone,
+            "Orphan",
+            parent_agent=mother,
+            caretaker_agent=grandmother,
+            wealth=0.0,
+            age=10,
+            birth_tick=tick - 10 * _TICKS_PER_YEAR,
+        )
+        return grandmother, orphan
+
+    @pytest.mark.django_db
+    def test_orphan_of_a_dead_caretaker_gets_an_adult_relative(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        grandmother, orphan = self._orphan_in_grandmothers_care(sim, zone, tick)
+        aunt = _make_agent(
+            sim, zone, "Aunt", parent_agent=grandmother, wealth=0.0, birth_tick=_ADULT_BIRTH_TICK
+        )
+        grandmother.is_alive = False
+        grandmother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[grandmother])
+
+        persisted = Agent.objects.get(id=orphan.id)
+        assert persisted.caretaker_agent_id == aunt.id
+        assert "state_ward" not in persisted.conditions
+
+    @pytest.mark.django_db
+    def test_orphan_of_a_dead_caretaker_with_no_adult_relative_is_a_state_ward(
+        self, sim_with_government
+    ):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        grandmother, orphan = self._orphan_in_grandmothers_care(sim, zone, tick)
+        grandmother.is_alive = False
+        grandmother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[grandmother])
+
+        persisted = Agent.objects.get(id=orphan.id)
+        assert persisted.caretaker_agent_id is None
+        assert "state_ward" in persisted.conditions
+
+
+class TestProcessInheritanceBatchKeepsALivingCaretaker:
+    """A minor's guardians are its parents AND its current caretaker: a
+    child of the deceased whose caretaker is alive keeps that caretaker,
+    even when an adult sibling would rank first on the kinship ladder. The
+    data model allows a caretaker beside a recorded parent (design spec
+    field note: parents "both dead, or migrated away"), so the case is a
+    state the rows can hold, whichever path wrote it.
+    """
+
+    @pytest.mark.django_db
+    def test_minor_with_a_living_caretaker_is_not_reassigned(self, sim_with_government):
+        sim, zone, government = sim_with_government
+        _set_demography_template(sim, "industrial")
+        tick = 50
+        mother = _make_agent(sim, zone, "Mother", wealth=0.0, age=40, birth_tick=_ADULT_BIRTH_TICK)
+        caretaker = _make_agent(sim, zone, "Caretaker", wealth=0.0, birth_tick=_ADULT_BIRTH_TICK)
+        _make_agent(
+            sim, zone, "AdultSibling", parent_agent=mother, wealth=0.0, birth_tick=_ADULT_BIRTH_TICK
+        )
+        minor = _make_agent(
+            sim,
+            zone,
+            "Minor",
+            parent_agent=mother,
+            caretaker_agent=caretaker,
+            wealth=0.0,
+            age=10,
+            birth_tick=tick - 10 * _TICKS_PER_YEAR,
+        )
+        mother.is_alive = False
+        mother.save(update_fields=["is_alive"])
+
+        process_inheritance_batch(sim, tick=tick, deceased_agents=[mother])
+
+        assert Agent.objects.get(id=minor.id).caretaker_agent_id == caretaker.id
+
+
 class TestProcessInheritanceBatchLoanTransfer:
     """Composition: the batch calls `transfer_loans_as_lender` per
     deceased, observable as the reassigned `Loan.lender`.
