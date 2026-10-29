@@ -1973,6 +1973,68 @@ class TestEmergencyFlightMovesTheHousehold:
         assert event.payload["household_members"] == []
 
     @pytest.mark.django_db
+    def test_every_member_who_fled_remembers_it_first_hand(self, sim_with_zone):
+        """Design spec Sezione 6, effect 3: the flight memory is written per
+        fleeing agent. The partner and the child lived the same flight as the
+        decider, and the memory names the decider as its origin, the one
+        household decision it records."""
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        decider = _make_agent(sim, zone, "Padre", age=40, wealth=0.0, gender=Agent.Gender.MALE)
+        partner = _make_agent(sim, zone, "Madre", age=38, wealth=0.0)
+        form_couple(decider, partner, formed_at_tick=1)
+        child = _make_agent(sim, zone, "Figlia", age=8, wealth=0.0, parent_agent=partner)
+        _set_starvation_counters({decider.id: 30, partner.id: 30, child.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+
+        remembered = Memory.objects.filter(
+            source_type=Memory.SourceType.DIRECT,
+            emotional_weight=EMERGENCY_FLIGHT_MEMORY_WEIGHT,
+            tick_created=50,
+        )
+        assert sorted(remembered.values_list("agent_id", "origin_agent_id")) == sorted(
+            (member.id, decider.id) for member in (decider, partner, child)
+        )
+
+    @pytest.mark.django_db
+    def test_a_household_flight_reaches_a_neighbour_once(self, sim_with_zone):
+        """The flight memory is written per member with the decider as its
+        origin, and hearsay is deduplicated by origin and tick
+        (`information_flow._propagate_memory`). A neighbour who knows the
+        whole household therefore hears of its flight once, not once per
+        member: the propagation does not multiply by the household size."""
+        from epocha.apps.agents.information_flow import propagate_information
+        from epocha.apps.agents.models import Relationship
+
+        sim, zone = sim_with_zone
+        _flight_world(sim, zone)
+        decider = _make_agent(sim, zone, "Padre", age=40, wealth=0.0, gender=Agent.Gender.MALE)
+        partner = _make_agent(sim, zone, "Madre", age=38, wealth=0.0)
+        form_couple(decider, partner, formed_at_tick=1)
+        neighbour = _make_agent(sim, zone, "Vicina", wealth=100.0)
+        for member in (decider, partner):
+            Relationship.objects.create(
+                agent_from=member,
+                agent_to=neighbour,
+                relation_type="friendship",
+                strength=0.7,
+                sentiment=0.6,
+                since_tick=0,
+            )
+        _set_starvation_counters({decider.id: 30, partner.id: 30})
+
+        process_emergency_flight(sim, tick=50)
+        propagate_information(sim, tick=50)
+
+        heard = Memory.objects.filter(
+            agent=neighbour,
+            origin_agent=decider,
+            source_type__in=[Memory.SourceType.HEARSAY, Memory.SourceType.RUMOR],
+        )
+        assert heard.count() == 1
+
+    @pytest.mark.django_db
     def test_a_married_minor_stays_with_her_husband(self, sim_with_zone):
         """Her mother's household starves and flees; hers does not. Marriage
         outranks the guardian chain in `household_keys` (round 9, C2), so

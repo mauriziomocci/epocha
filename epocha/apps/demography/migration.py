@@ -1171,9 +1171,15 @@ def process_emergency_flight(
        correctly), `reason="emergency_flight"`,
        `emit_event_even_if_empty=True`, `rng=rng` (fix T046/I-12). The
        decider's `zone` and `location` are set in memory and written in ONE
-       batched `bulk_update` at the end. The decider writes a first-hand
-       `Memory` at `EMERGENCY_FLIGHT_MEMORY_WEIGHT` (0.85),
-       `source_type=DIRECT`, `origin_agent=decider`.
+       batched `bulk_update` at the end. Every member who fled -- the
+       decider and the ids `coordinate_family_migration` returns -- gets a
+       first-hand `Memory` at `EMERGENCY_FLIGHT_MEMORY_WEIGHT` (0.85),
+       `source_type=DIRECT`, `origin_agent=decider`, in the same
+       `bulk_create`. Until the phase-6 gate's round 11 only the decider
+       wrote one, against the design spec's per-agent effect 3; one origin
+       for the household keeps the hearsay dedup of
+       `agents.information_flow` (origin and tick) from multiplying the
+       propagation by the household size.
     3. `meets_preconditions and target_zone is None` -> TRAPPED: every
        member of the household is trapped, and each gets their own
        `TRAPPED_CRISIS` event (`payload={"zone": member.zone_id,
@@ -1582,19 +1588,25 @@ def process_emergency_flight(
                 fled_agent_ids_by_zone[from_zone_id].add(decider.id)
                 fled_agent_ids_by_zone[from_zone_id].update(household_member_ids)
 
-                flight_memories.append(
+                # Everyone who fled lived it first hand (design spec Sezione 6,
+                # effect 3), and the origin is the decider for all of them: the
+                # hearsay dedup keys on origin and tick, so a neighbour who knows
+                # the whole household hears of its flight once.
+                content = (
+                    f"I had to leave {origin_zone.name} because of hunger. "
+                    "There was no other choice."
+                )
+                flight_memories.extend(
                     Memory(
-                        agent=decider,
-                        content=(
-                            f"I had to leave {origin_zone.name} because of hunger. "
-                            "There was no other choice."
-                        ),
+                        agent_id=fled_id,
+                        content=content,
                         emotional_weight=EMERGENCY_FLIGHT_MEMORY_WEIGHT,
                         source_type=Memory.SourceType.DIRECT,
                         reliability=1.0,
                         tick_created=tick,
                         origin_agent=decider,
                     )
+                    for fled_id in (decider.id, *household_member_ids)
                 )
 
             elif meets_preconditions:
