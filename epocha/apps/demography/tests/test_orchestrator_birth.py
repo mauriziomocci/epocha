@@ -10,6 +10,9 @@ event was nobody's job until now.
 from __future__ import annotations
 
 import copy
+import math
+import signal
+from contextlib import contextmanager
 from dataclasses import replace
 
 import pytest
@@ -1112,3 +1115,80 @@ class TestTheSqlFertileWindowAgreesWithTheAgeReader:
         )
 
         assert admitted == expected
+
+
+@contextmanager
+def _fails_after(seconds: float):
+    """Turn a hang into a failure: a loop that never ends raises instead.
+
+    The project ships no timeout plugin, and the cases below hung the suite
+    before the clock was validated, so each one runs under a real-time alarm.
+    POSIX only, which is what the test container runs.
+    """
+
+    def _expire(signum, frame):
+        raise TimeoutError(f"still running after {seconds} s")
+
+    previous = signal.signal(signal.SIGALRM, _expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+class TestTheFertileWindowRejectsAClockThatDoesNotAdvance:
+    """A tick of zero, negative or not-a-number length is refused by name.
+
+    The edge searches of `_fertile_window_filter` walk the elapsed ticks
+    until `_years_elapsed` crosses the window edge. With
+    `tick_duration_hours * acceleration <= 0` it never crosses and the walk
+    never ends: the scoped review of the round-16 closure measured
+    `_fertile_window_filter(0, -24.0, 1.0)` hanging, and
+    `World.tick_duration_hours` is editable in the Django admin. Before
+    `f6648c5` a `max(1e-9, ...)` clamp hid the same configuration.
+    """
+
+    @pytest.mark.parametrize(
+        ("hours", "acceleration"),
+        [
+            pytest.param(-24.0, 1.0, id="negative-hours"),
+            pytest.param(24.0, -1.0, id="negative-acceleration"),
+            pytest.param(0.0, 1.0, id="zero-hours"),
+            pytest.param(24.0, 0.0, id="zero-acceleration"),
+            pytest.param(math.nan, 1.0, id="nan-hours"),
+            pytest.param(24.0, math.nan, id="nan-acceleration"),
+        ],
+    )
+    def test_the_window_raises_instead_of_walking_forever(self, hours, acceleration):
+        with _fails_after(5.0), pytest.raises(orchestrator.NonPositiveTickError):
+            orchestrator._fertile_window_filter(0, hours, acceleration)
+
+    @pytest.mark.parametrize(
+        ("hours", "acceleration"),
+        [
+            pytest.param(-24.0, 1.0, id="negative"),
+            pytest.param(0.0, 1.0, id="zero"),
+            pytest.param(math.nan, 1.0, id="nan"),
+        ],
+    )
+    def test_the_one_clock_conversion_rejects_it_for_mortality_and_fertility(
+        self, hours, acceleration
+    ):
+        """`years_per_tick` is the one place that validates the clock, and the
+        mortality and fertility conversions read `dt` from it: a NaN `dt`
+        used to pass, since `nan > 1.0` is false, and turned every tick
+        probability into NaN."""
+        with pytest.raises(orchestrator.NonPositiveTickError):
+            orchestrator.years_per_tick(hours, acceleration)
+
+    def test_an_edge_search_that_needs_a_third_step_raises(self, monkeypatch):
+        """The correction absorbs one float rounding of the quotient, so it
+        moves at most two ticks; a third step means `_years_elapsed` is no
+        longer the non-decreasing function the inversion assumes. A reader
+        that never reaches the edge makes the walk endless today."""
+        monkeypatch.setattr(orchestrator, "_years_elapsed", lambda *args: 0.0)
+
+        with _fails_after(5.0), pytest.raises(AssertionError, match="third"):
+            orchestrator._fertile_window_filter(0, 24.0, 1.0)

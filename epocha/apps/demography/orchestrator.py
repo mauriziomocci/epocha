@@ -137,6 +137,16 @@ class TickLongerThanAYearError(ValueError):
     """A tick spans more than one simulated year, outside demography's domain."""
 
 
+class NonPositiveTickError(ValueError):
+    """A tick spans zero, negative or not-a-number simulated time.
+
+    `World.tick_duration_hours` is editable in the Django admin and the
+    acceleration comes from the template, so nothing upstream rules such a
+    clock out: time would stand still or run backwards, and the edge searches
+    of the SQL fertile window would never reach their edge.
+    """
+
+
 def years_per_tick(tick_duration_hours: float, acceleration: float) -> float:
     """Simulated years per tick, `dt = tick_duration_hours / 8760 * acceleration`.
 
@@ -153,10 +163,23 @@ def years_per_tick(tick_duration_hours: float, acceleration: float) -> float:
     ticks, so the guard rejects a configuration no shipped path produces,
     by name, instead of simulating it wrongly.
 
+    It is also the one place that validates the clock: the SQL fertile
+    window calls it before inverting the age reader, whose edge searches
+    assume time advances.
+
     Raises:
-        TickLongerThanAYearError: when `dt > 1`.
+        NonPositiveTickError: when `dt` is not a positive number -- zero,
+            negative or NaN.
+        TickLongerThanAYearError: when `dt > 1`, infinity included.
     """
     dt = (tick_duration_hours / HOURS_PER_YEAR) * acceleration
+    # Written as `not dt > 0` rather than `dt <= 0` so NaN, for which every
+    # comparison is false, is rejected too.
+    if not dt > 0.0:
+        raise NonPositiveTickError(
+            f"a tick of {tick_duration_hours} hours at acceleration {acceleration} spans "
+            f"{dt} simulated years; demography needs a tick of positive length"
+        )
     if dt > 1.0:
         raise TickLongerThanAYearError(
             f"a tick of {tick_duration_hours} hours at acceleration {acceleration} spans "
@@ -1040,13 +1063,18 @@ def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: 
     with `ceil` or `floor` of one quotient and then checked against
     `_years_elapsed`, the age reader's own arithmetic: the quotient alone
     differs from it by one float rounding, which lost the agent of exactly
-    50.0 years at 100-hour ticks under acceleration 0.1.
+    50.0 years at 100-hour ticks under acceleration 0.1. The clock goes
+    through `years_per_tick` first: with `tick_duration_hours * acceleration`
+    zero or negative the searches never reach the edge, a hang the scoped
+    review of the round-16 closure measured, and the walk is capped at two
+    correction steps.
 
     Agents with a NULL `birth_tick` are excluded. The fertility module falls
     back to the frozen `age` column for them, and the initialization
     guarantees no living agent is left in that state; admitting them here
     would quietly reintroduce the frozen-age path this project is removing.
     """
+    years_per_tick(tick_duration_hours, acceleration)  # validates the clock before the searches
     youngest_elapsed = _fewest_ticks_to_reach(FERTILE_AGE_MIN, tick_duration_hours, acceleration)
     oldest_elapsed = _most_ticks_within(FERTILE_AGE_MAX, tick_duration_hours, acceleration)
     return Q(
@@ -1055,28 +1083,58 @@ def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: 
     )
 
 
-def _fewest_ticks_to_reach(years: float, tick_duration_hours: float, acceleration: float) -> int:
-    """The smallest elapsed-tick count whose `_years_elapsed` is at least `years`.
+# The edge searches below correct the quotient's estimate by whole ticks.
+# The quotient differs from `_years_elapsed` by one float rounding: over
+# ticks of 1 to 8 760 hours and eleven accelerations from 0.1 to 10, where
+# `dt <= 1`, both edges, the walk took at most one step (38 of 243 276 searches). Two steps
+# leave headroom; a third means the age reader is no longer the
+# non-decreasing function the inversion assumes.
+_EDGE_CORRECTION_STEPS = 2
 
-    `_years_elapsed` is non-decreasing in the elapsed ticks, so the estimate
-    from one quotient is corrected by whole ticks until it is the edge.
-    """
-    elapsed = math.ceil(years * HOURS_PER_YEAR / (tick_duration_hours * acceleration))
-    while _years_elapsed(elapsed - 1, tick_duration_hours, acceleration) >= years:
-        elapsed -= 1
-    while _years_elapsed(elapsed, tick_duration_hours, acceleration) < years:
-        elapsed += 1
-    return elapsed
+
+def _fewest_ticks_to_reach(years: float, tick_duration_hours: float, acceleration: float) -> int:
+    """The smallest elapsed-tick count whose `_years_elapsed` is at least `years`."""
+    estimate = math.ceil(years * HOURS_PER_YEAR / (tick_duration_hours * acceleration))
+    return _corrected_edge(
+        estimate,
+        lambda elapsed: _years_elapsed(elapsed, tick_duration_hours, acceleration) >= years,
+        outward=-1,
+    )
 
 
 def _most_ticks_within(years: float, tick_duration_hours: float, acceleration: float) -> int:
     """The largest elapsed-tick count whose `_years_elapsed` is at most `years`."""
-    elapsed = math.floor(years * HOURS_PER_YEAR / (tick_duration_hours * acceleration))
-    while _years_elapsed(elapsed + 1, tick_duration_hours, acceleration) <= years:
-        elapsed += 1
-    while _years_elapsed(elapsed, tick_duration_hours, acceleration) > years:
-        elapsed -= 1
-    return elapsed
+    estimate = math.floor(years * HOURS_PER_YEAR / (tick_duration_hours * acceleration))
+    return _corrected_edge(
+        estimate,
+        lambda elapsed: _years_elapsed(elapsed, tick_duration_hours, acceleration) <= years,
+        outward=+1,
+    )
+
+
+def _corrected_edge(estimate: int, admits: Callable[[int], bool], outward: int) -> int:
+    """The last admitted elapsed-tick count, walking `outward` from `estimate`.
+
+    `admits` holds up to the edge and fails past it, in the direction of
+    `outward` (-1 or +1). The walk steps toward the edge until the count is
+    admitted and its outward neighbour is not, in at most
+    `_EDGE_CORRECTION_STEPS` steps.
+
+    Raises:
+        AssertionError: the edge is not reached within the step budget.
+    """
+    elapsed = estimate
+    for _ in range(_EDGE_CORRECTION_STEPS + 1):
+        if not admits(elapsed):
+            elapsed -= outward
+        elif admits(elapsed + outward):
+            elapsed += outward
+        else:
+            return elapsed
+    raise AssertionError(
+        f"the fertile-window edge needed a third correction step from estimate {estimate}; "
+        "the age reader is not non-decreasing in the elapsed ticks"
+    )
 
 
 def _load_simulation_template(simulation: Any, tick: int) -> dict | None:
