@@ -8,6 +8,8 @@ that a simulation which never opted in is left exactly as it was.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
@@ -195,3 +197,74 @@ def test_a_missing_template_does_not_abort_the_tick(monkeypatch):
     agent.refresh_from_db()
     assert agent.is_alive is True
     assert not DemographyEvent.objects.filter(simulation=sim).exists()
+
+
+def _header_agent_ids(monkeypatch, sim):
+    """Run one loop iteration and return the agent ids the chord was built for.
+
+    Every vital stream is scripted to "nobody dies, nobody is born", so the
+    population the chord sees is the one the test created -- the outcome does
+    not depend on the simulation's primary key, which the seeded streams mix
+    into their seed.
+    """
+    headers = []
+    monkeypatch.setattr(
+        "epocha.apps.simulation.tasks.chord",
+        lambda header: headers.append(header) or (lambda callback: None),
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "stream_for", lambda simulation, tick, phase: _ScriptedRandom([])
+    )
+    run_simulation_loop(sim.id)
+    assert headers, "the chord header was never built"
+    return {signature.args[0] for signature in headers[0]}
+
+
+@pytest.mark.django_db
+def test_a_minor_is_not_asked_to_decide_an_adult_still_is(monkeypatch):
+    """The guarantee `coordinate_family_migration` documents and assigns to the
+    orchestrator: a minor gets no `process_agent_turn` task, hence no
+    `DecisionLog` row and no `move_to` choice that would take it out of its
+    household alone."""
+    sim, zone = _simulation(None, demography=True)
+    newborn = _agent(sim, zone, "Neonato", age=0)
+    child = _agent(sim, zone, "Bambino", age=10)
+    adult = _agent(sim, zone, "Adulto", age=40)
+
+    header_ids = _header_agent_ids(monkeypatch, sim)
+
+    assert header_ids == {adult.id}
+    assert newborn.id not in header_ids and child.id not in header_ids
+
+
+@pytest.mark.django_db
+def test_a_population_of_minors_only_finalizes_the_tick_directly(monkeypatch):
+    """All living agents excluded is the empty-header case: the loop must take
+    the existing direct-finalize path, not hand Celery an empty chord."""
+    sim, zone = _simulation(None, demography=True)
+    _agent(sim, zone, "Neonato", age=0)
+    monkeypatch.setattr(
+        orchestrator_module, "stream_for", lambda simulation, tick, phase: _ScriptedRandom([])
+    )
+    finalize = MagicMock()
+    monkeypatch.setattr("epocha.apps.simulation.tasks.finalize_tick", finalize)
+    chord = MagicMock()
+    monkeypatch.setattr("epocha.apps.simulation.tasks.chord", chord)
+
+    run_simulation_loop(sim.id)
+
+    finalize.assert_called_once_with([], sim.id, 51)
+    chord.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_without_demography_every_living_agent_still_decides(monkeypatch):
+    """A simulation that never opted in keeps its behaviour: a young agent in
+    it is asked to decide exactly as before."""
+    sim, zone = _simulation(None, demography=False)
+    young = _agent(sim, zone, "Giovane", age=3)
+    adult = _agent(sim, zone, "Adulto", age=40)
+
+    header_ids = _header_agent_ids(monkeypatch, sim)
+
+    assert header_ids == {young.id, adult.id}

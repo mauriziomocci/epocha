@@ -67,9 +67,18 @@ def run_simulation_loop(simulation_id: int) -> None:
 
     # 3. Build chord of agent tasks
     from epocha.apps.agents.tasks import process_agent_turn
+    from epocha.apps.demography.orchestrator import minor_agent_ids
 
+    # Minors are not called to the decision loop: a newborn must not choose
+    # `move_to` and leave its household alone (the guarantee
+    # `coordinate_family_migration` documents). Read AFTER the demography
+    # block, so a child born this tick is already in the population. The
+    # predicate is demography's; an empty set when the simulation has not
+    # opted in keeps the chord exactly as it was.
     agent_ids = list(
-        Agent.objects.filter(simulation=simulation, is_alive=True).values_list("id", flat=True)
+        Agent.objects.filter(simulation=simulation, is_alive=True)
+        .exclude(id__in=minor_agent_ids(simulation, tick))
+        .values_list("id", flat=True)
     )
 
     if not agent_ids:
