@@ -72,6 +72,33 @@ class TestAnnualMortalityProbability:
         assert q40 < q60, f"q(60)={q60} not > q(40)={q40}"
         assert q60 < q80, f"q(80)={q80} not > q(60)={q60}"
 
+    def test_q_is_held_over_each_year_of_age(self):
+        """`q_x` belongs to the completed age, so it does not move within a year.
+
+        HP `q_x` is the probability of dying between exact ages `x` and
+        `x + 1` (gate decision D-29-20): a newborn of three months and one of
+        eleven carry the same `q_0`, and the step to `q_1` happens at the
+        first birthday, not before.
+        """
+        for whole_age in (0, 1, 30):
+            q = annual_mortality_probability(whole_age, PRE_INDUSTRIAL_PARAMS)
+            for fraction in (0.25, 0.5, 0.999):
+                assert annual_mortality_probability(
+                    whole_age + fraction, PRE_INDUSTRIAL_PARAMS
+                ) == pytest.approx(q, rel=1e-12), f"q moved inside year {whole_age}"
+
+    def test_q0_is_the_formula_at_exact_age_zero(self):
+        """`q_0` is HP at `x = 0`, the hump term at its limit zero.
+
+        The odds are `A ** (B ** C) + D * 0 + G * H ** 0`. The former guard
+        `max(age, 0.01)` evaluated the infancy term at 0.01 instead, which
+        with `B = 0.017` gave 0.0247 instead of 0.0291.
+        """
+        p = PRE_INDUSTRIAL_PARAMS
+        odds = p["A"] ** (p["B"] ** p["C"]) + p["G"]
+        assert annual_mortality_probability(0, p) == pytest.approx(odds / (1.0 + odds), rel=1e-12)
+        assert annual_mortality_probability(0, p) == pytest.approx(0.0291, abs=5e-5)
+
 
 # ---------------------------------------------------------------------------
 # Task 23: tick_mortality_probability

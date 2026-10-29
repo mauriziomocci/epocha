@@ -561,20 +561,36 @@ def minor_agent_ids(simulation: Any, tick: int) -> set[int]:
     }
 
 
+def exposure_age(agent: Any, context: DemographyTickContext, tick_duration_hours: float) -> float:
+    """The age at which this tick's mortality is charged: at the START of its interval.
+
+    The mortality step of tick `t` decides death over the interval since
+    `t - 1`: a newborn of tick `b` arrives after that tick's mortality step
+    and is first exposed at `b + 1`, so the interval `(b, b + 1]` is the one
+    it lived. Its hazard is read at the age the agent had when the interval
+    opened. Read at its close instead, the tick on which a birthday falls is
+    charged the next year's `q`: one tick in 365 at a daily resolution, one
+    in twelve at a monthly one, and every tick of the first year at a yearly
+    one, where no newborn ever met `q(0)` (gate decision D-29-20).
+    """
+    acceleration = float(context.template.get("acceleration", 1.0))
+    return age_in_years(agent, context.tick - 1, tick_duration_hours, acceleration)
+
+
 def mortality_probability_for(
     agent: Any,
     context: DemographyTickContext,
     tick_duration_hours: float,
 ) -> float:
-    """This tick's death probability for one agent (Heligman-Pollard)."""
+    """This tick's death probability for one agent (Heligman-Pollard), at
+    `exposure_age`; `mortality.py` reads it at the completed age."""
     from epocha.apps.demography.mortality import tick_mortality_probability
 
-    acceleration = float(context.template.get("acceleration", 1.0))
     return tick_mortality_probability(
-        age_in_years(agent, context.tick, tick_duration_hours, acceleration),
+        exposure_age(agent, context, tick_duration_hours),
         context.template["mortality"]["heligman_pollard"],
         tick_duration_hours,
-        acceleration,
+        float(context.template.get("acceleration", 1.0)),
     )
 
 
@@ -640,7 +656,9 @@ def run_mortality_step(
             continue
         agent.is_alive = False
         agent.death_tick = context.tick
-        agent.death_cause = sample_death_cause(age, params, rng)
+        agent.death_cause = sample_death_cause(
+            exposure_age(agent, context, tick_duration_hours), params, rng
+        )
         dead.append(agent)
 
     if aged:

@@ -384,10 +384,14 @@ def test_the_population_lives(reference_simulation):
     ).count()
     population_at_end = Agent.objects.filter(simulation=sim, is_alive=True).count()
 
-    # Measured on this fixture on 2026-09-26: 7 births and 5 deaths over the
-    # simulated year, 86 agents becoming 88 (the figures written here earlier,
-    # 14, 4 and 80 to 90, predate the six destitute agents the fixture gained
-    # for the subsistence counter). The crude birth rate that implies is far
+    # Measured on this fixture, run alone, on 2026-10-29: 7 births and 4
+    # deaths over the simulated year, 86 agents becoming 89. The 5 deaths and
+    # 88 agents of 2026-09-26 predate the remediation of gate decision
+    # D-29-20, which reads the hazard at the completed age at the start of
+    # the tick's interval: the elders of 95 now carry q(95) for their whole
+    # year of age instead of a hazard rising through it. The figures before
+    # those, 14, 4 and 80 to 90, predate the six destitute agents the fixture
+    # gained for the subsistence counter. The crude birth rate that implies is far
     # above the pre-industrial historical range, but the fixture is not a
     # population -- it is thirty couples all inside the fertile window,
     # which no real age structure looks like. Whether the MODEL reproduces

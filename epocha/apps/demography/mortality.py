@@ -34,9 +34,25 @@ def _unpack(params: Mapping[str, float]) -> tuple[float, ...]:
 
 
 def _hp_components(age: float, params: Mapping[str, float]) -> tuple[float, float, float]:
-    """Return (c1, c2, c3) corresponding to the three HP components at age x."""
+    """Return (c1, c2, c3), the three HP components at the completed age.
+
+    HP `q_x` is the probability of dying between EXACT ages `x` and `x + 1`,
+    the life-table quantity (Preston, Heuveline & Guillot 2001, Demography,
+    ch. 3; page not verified), so it is read at the completed age
+    `floor(age)` and held over the whole year of age. Evaluated at the
+    continuous age instead, a newborn spent its first year on a curve that
+    falls steeply within months and realized about a third of `q(0)`
+    (gate decision D-29-20, demography Plan 4).
+
+    At `x = 0` the accident-hump term contains `ln 0`; its limit as
+    `x -> 0+` is zero, so it is zero there and `q_0` is the formula's own
+    value, `A ** (B ** C) + G` in odds. The earlier guard `max(age, 0.01)`
+    shifted the age of all three terms instead and, with the pre-industrial
+    `B = 0.017`, moved the infancy intercept by 59%, from `q_0 = 0.0291` to
+    `0.0247`.
+    """
     A, B, C, D, E, F, G, H = _unpack(params)  # noqa: N806 -- Heligman-Pollard (1980) parameter notation
-    x = max(float(age), 0.01)
+    x = max(math.floor(age), 0)
     c1 = A ** ((x + B) ** C)
     c2 = D * math.exp(-E * (math.log(x) - math.log(F)) ** 2) if x > 0 else 0.0
     c3 = G * (H**x)
@@ -44,7 +60,8 @@ def _hp_components(age: float, params: Mapping[str, float]) -> tuple[float, floa
 
 
 def annual_mortality_probability(age: float, params: Mapping[str, float]) -> float:
-    """Return the annual probability of death at age x using HP (1980).
+    """Return the annual probability of death at the completed age `floor(age)`
+    using HP (1980); see `_hp_components` for the convention.
 
     Converts the HP hazard q/p to a probability via q = (q/p) / (1 + q/p).
     """
@@ -64,7 +81,10 @@ def tick_mortality_probability(
 
     The exact geometric conversion `1 - (1 - annual_q) ** dt`, at every
     age: the probability of surviving `dt` years at a constant annual
-    hazard is `(1 - q) ** dt`.
+    hazard is `(1 - q) ** dt`. With `q` read at the completed age, the
+    hazard is constant within each year of age (the constant-force
+    assumption of the life table), so the ticks of one year compound back
+    to exactly `q_x`.
 
     A linear branch `annual_q * dt` used to apply below `q = 0.1`, declared
     "accurate to better than 0.5%". Its relative error against the geometric
@@ -126,13 +146,11 @@ def fit_heligman_pollard(
     import numpy as np
     from scipy.optimize import curve_fit
 
-    def _hp_model(x, A, B, C, D, E, F, G, H):  # noqa: N803 -- Heligman-Pollard (1980) parameter notation
-        x_safe = np.maximum(x, 0.01)
-        c1 = A ** ((x_safe + B) ** C)
-        c2 = D * np.exp(-E * (np.log(x_safe) - np.log(F)) ** 2)
-        c3 = G * (H**x_safe)
-        q_over_p = c1 + c2 + c3
-        return q_over_p / (1.0 + q_over_p)
+    def _hp_model(x, *values):
+        # The very function the simulation evaluates, so a fitted parameter
+        # set reproduces the fitted q(x) when the mortality step reads it.
+        params = dict(zip(HP_PARAM_KEYS, values, strict=True))
+        return np.array([annual_mortality_probability(age, params) for age in x])
 
     if initial_guess is None:
         p0 = [0.005, 0.02, 0.1, 0.001, 10.0, 22.0, 0.00005, 1.1]

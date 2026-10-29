@@ -9,7 +9,10 @@ deciding who dies and emitting the event -- are what this path adds.
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
+from statistics import NormalDist
+from types import SimpleNamespace
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
@@ -17,6 +20,7 @@ from django.contrib.gis.geos import Point, Polygon
 from epocha.apps.agents.models import Agent
 from epocha.apps.demography import orchestrator
 from epocha.apps.demography.models import DemographyEvent
+from epocha.apps.demography.mortality import annual_mortality_probability
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
@@ -260,6 +264,105 @@ class TestMortalityStep:
         orchestrator.run_mortality_step(context, rng=_AlwaysDies())
 
         assert not DemographyEvent.objects.filter(simulation=sim).exists()
+
+
+class TestFirstYearOfLife:
+    """A birth cohort followed through its first year realizes `1q0 = q(0)`.
+
+    Heligman-Pollard `q_x` is the probability of dying between EXACT ages
+    `x` and `x + 1`, the life-table quantity (Preston, Heuveline & Guillot
+    2001, ch. 3). Until the remediation of gate decision D-29-20 the
+    mortality step evaluated it at the continuous age, so a newborn spent its
+    first year on `q(0.02)`, `q(0.04)`, ... -- a curve that falls steeply in
+    the first months -- and the realized first-year death probability came
+    out near a third of the model's `q(0)`. Fourteen gate rounds missed it
+    because no test followed a cohort through a whole year of ticks: every
+    test pinned one tick at one age.
+
+    Only the mortality step runs, on the simulation's own seeded stream:
+    births, couples and migration would change who is exposed and are not
+    the quantity under test.
+    """
+
+    COHORT_SIZE = 5000
+    HOURS_PER_WEEK = 168.0
+    # False-failure rate of the tolerance under the correct model. The draw
+    # is seeded, so the outcome is fixed; alpha states how unusual a seed
+    # would have to be to fail a correct implementation.
+    ALPHA = 0.001
+
+    @pytest.mark.parametrize("hours_per_tick", [24.0, 730.0, 4380.0, 8760.0])
+    def test_the_ticks_of_the_first_year_compound_exactly_to_q0(self, hours_per_tick):
+        """The per-tick probabilities a newborn meets before age 1 multiply back to `q(0)`.
+
+        No draw is involved: this is the survival the step's own hazard
+        implies, so it holds to rounding. Only tick lengths that divide the
+        year are used, so that the year is a whole number of ticks.
+
+        It also pins WHICH age a tick reads. The step of tick `t` decides
+        death over the interval since `t - 1` -- a newborn of tick `b` is
+        first exposed at `b + 1`, so that interval is the one it lived -- and
+        reads the age at its start. Read at its end, the tick on which the
+        first birthday falls was charged `q(1)`: harmless at a daily tick,
+        one twelfth of the year at a monthly one, and the whole first year at
+        a yearly one, where no newborn ever met `q(0)`.
+        """
+        template = load_template("pre_industrial_christian")
+        context = orchestrator.DemographyTickContext(simulation=None, tick=0, template=template)
+        newborn = SimpleNamespace(birth_tick=0, age=0)
+        ticks_per_year = round(8760.0 / hours_per_tick)
+        survival = 1.0
+        for tick in range(1, ticks_per_year + 1):
+            survival *= 1.0 - orchestrator.mortality_probability_for(
+                newborn, replace(context, tick=tick), hours_per_tick
+            )
+        q0 = annual_mortality_probability(0, template["mortality"]["heligman_pollard"])
+
+        assert 1.0 - survival == pytest.approx(q0, rel=1e-9)
+
+    def test_a_weekly_cohort_realizes_q0_over_its_first_year(self, sim_with_zone):
+        sim, zone = sim_with_zone
+        World.objects.filter(simulation=sim).update(tick_duration_hours=self.HOURS_PER_WEEK)
+        born_at = sim.current_tick
+        Agent.objects.bulk_create(
+            [
+                Agent(
+                    simulation=sim,
+                    zone=zone,
+                    name=f"Neonato {i}",
+                    role="child",
+                    location=Point(50, 50),
+                    age=0,
+                    birth_tick=born_at,
+                    gender=Agent.Gender.FEMALE if i % 2 else Agent.Gender.MALE,
+                    personality={},
+                )
+                for i in range(self.COHORT_SIZE)
+            ]
+        )
+        template = load_template("pre_industrial_christian")
+        ticks_per_year = 8760.0 / self.HOURS_PER_WEEK
+        # Every tick at which the cohort is still below exact age 1.
+        first_year_ticks = range(born_at + 1, born_at + 1 + math.floor(ticks_per_year))
+        for tick in first_year_ticks:
+            orchestrator.run_mortality_step(
+                orchestrator.DemographyTickContext(simulation=sim, tick=tick, template=template)
+            )
+
+        dead = Agent.objects.filter(simulation=sim, is_alive=False).count()
+        realized = dead / self.COHORT_SIZE
+        q0 = annual_mortality_probability(0, template["mortality"]["heligman_pollard"])
+        exposure_years = len(first_year_ticks) / ticks_per_year
+        expected = 1.0 - (1.0 - q0) ** exposure_years
+        standard_error = math.sqrt(expected * (1.0 - expected) / self.COHORT_SIZE)
+        tolerance = NormalDist().inv_cdf(1.0 - self.ALPHA / 2.0) * standard_error
+
+        assert abs(realized - expected) <= tolerance, (
+            f"first-year death fraction {realized:.4f} against the model's "
+            f"{expected:.4f} (q(0) = {q0:.4f} over {exposure_years:.4f} years), "
+            f"tolerance {tolerance:.4f}: the hazard is not read at the "
+            "completed age"
+        )
 
 
 class TestSuccessionStep:
