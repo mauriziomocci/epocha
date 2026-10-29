@@ -89,17 +89,38 @@ def _get_language_instruction(request) -> str:
     return LANGUAGES.get(lang, LANGUAGES["en"])["instruction"]
 
 
+# Below this age the prompt counts months: a ten-month-old and a two-year-old
+# are not the same speaker, and "0 years old" says nothing to the model.
+_AGE_IN_MONTHS_BELOW_YEARS = 2
+
+
+def _describe_age(agent) -> str:
+    """The agent's age in words for the chat prompt: completed years, or
+    completed months below two years. The age itself is demography's
+    (`current_age_in_years`); this only formats it."""
+    from epocha.apps.demography.orchestrator import current_age_in_years
+
+    years = current_age_in_years(agent)
+    if years < _AGE_IN_MONTHS_BELOW_YEARS:
+        months = int(years * 12)
+        return f"{months} month{'s' if months != 1 else ''}"
+    return f"{int(years)} years"
+
+
 def _build_chat_system_prompt(agent, request, personality_prompt, memory_text, chat_history):
     """Build the system prompt for agent chat conversations.
 
     Shared between chat_view and chat_send_api to avoid duplication.
     Instructs the LLM to roleplay as the agent with historically accurate
     behavior, reacting naturally to the full spectrum of human interaction.
+    States the agent's age, so a newborn does not answer like an adult.
+    Reads `agent.simulation` (and its world) once, for the age.
     """
     lang_instruction = _get_language_instruction(request)
 
     return (
-        f"You are {agent.name}, a {agent.role}. "
+        f"You are {agent.name}, a {agent.role}, {_describe_age(agent)} old. "
+        f"Speak and react as a person of that age would. "
         f"You are in a private face-to-face conversation with a visitor.\n"
         f"IMPORTANT: {lang_instruction}"
         f"Stay in character at all times. React as this specific person would, "
