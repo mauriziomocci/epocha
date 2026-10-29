@@ -365,14 +365,15 @@ class TestFitHeligmanPollard:
         )
         assert worst < 1e-6, f"{template_name}: max relative error {worst:.2e}"
 
-    def test_degenerate_input_raises_runtime_error(self):
-        """Constant-zero q vector raises RuntimeError (fit cannot converge).
+    def test_a_zero_schedule_is_the_extreme_underdetermined_case(self):
+        """A schedule of zeros leaves no age with `q > 0` in the fit.
 
-        A vector of zeros is incompatible with the HP model (all parameters
-        would need to be zero, which is outside the A, H, G bounds or produces
-        a degenerate flat surface). scipy.optimize.curve_fit should not converge.
+        It is the limit of the case below, zero equations for eight unknowns,
+        and §6.3 documents one error for it. A separate guard used to raise
+        `RuntimeError` "did not converge" first, although no fit was ever
+        attempted (scoped review of the round-16 closure).
         """
-        with pytest.raises(RuntimeError, match="Heligman-Pollard fit did not converge"):
+        with pytest.raises(UnderdeterminedFitError, match="got 0 ages"):
             fit_heligman_pollard(
                 self.FIT_AGES,
                 [0.0] * len(self.FIT_AGES),

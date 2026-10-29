@@ -183,24 +183,15 @@ def fit_heligman_pollard(
     xs = np.asarray(ages, dtype=float)
     ys = np.asarray(observed_q, dtype=float)
 
-    # Degenerate input guard: a mortality schedule that is uniformly zero
-    # has no HP interpretation (every component would need to vanish), so
-    # we reject it early rather than let curve_fit silently minimise to the
-    # boundary of the parameter space, which would produce misleading output.
-    if not np.any(ys > 0.0):
-        raise RuntimeError(
-            "Heligman-Pollard fit did not converge: observed_q contains no "
-            "positive values; a zero-mortality schedule is incompatible with "
-            "the HP model."
-        )
-
     lower = [0.0, 0.0, 0.0, 0.0, 0.1, 1.0, 0.0, 1.0]
     upper = [0.1, 0.5, 1.0, 0.05, 50.0, 50.0, 0.001, 1.5]
 
     # Each observed age is one equation and each parameter one unknown. With
     # bounds `curve_fit` runs the trust-region solver, which accepts more
     # unknowns than equations and returns one of infinitely many parameter
-    # sets as if it were a fit (round 16 of the Plan 4 phase-6 gate).
+    # sets as if it were a fit (round 16 of the Plan 4 phase-6 gate). A
+    # schedule of zeros is the extreme case, zero equations, and is refused
+    # by the same guard.
     observed = ys > 0.0
     observed_ages = int(np.count_nonzero(observed))
     if observed_ages < len(HP_PARAM_KEYS):
