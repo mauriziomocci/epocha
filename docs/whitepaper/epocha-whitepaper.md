@@ -473,8 +473,10 @@ description here is sufficient to follow the rest of the document but is
 not Methods-grade.
 
 A write of a simulation's `config` through the REST API replaces the whole
-object, `PATCH` included: a client that wants to keep a key, among them the
-five that the economy writes at creation, sends it back with the write, as
+object, `PATCH` included: a client that wants to keep a key, among them those
+the economy writes at creation (`production_config` always; `credit_config`,
+`banking_config`, `expectations_config` and `expropriation_policies` only when
+the era template defines them), sends it back with the write, as
 documented in the docstring of
 `epocha/apps/simulation/serializers.py::SimulationSerializer`.
 

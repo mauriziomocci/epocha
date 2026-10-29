@@ -510,8 +510,10 @@ resto del documento ma non è di livello Metodi.
 
 Una scrittura del `config` di una simulazione tramite l'API REST sostituisce
 l'intero oggetto, `PATCH` compresa: il client che vuole conservare una chiave,
-comprese le cinque che l'economia scrive alla creazione, la rimanda insieme
-alla scrittura, come documenta il docstring di
+comprese quelle che l'economia scrive alla creazione (`production_config`
+sempre; `credit_config`, `banking_config`, `expectations_config` ed
+`expropriation_policies` solo quando il template di era le definisce), la
+rimanda insieme alla scrittura, come documenta il docstring di
 `epocha/apps/simulation/serializers.py::SimulationSerializer`.
 
 ## 3.3 Contratti di integrazione cross-modulo (treasury, subsistence, outlook)

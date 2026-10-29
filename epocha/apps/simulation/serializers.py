@@ -31,10 +31,11 @@ class SimulationSerializer(serializers.ModelSerializer):
     ``config`` are not validated.
 
     A write of ``config``, ``PATCH`` included, REPLACES the whole object: the
-    client must send back every key it wants to keep, including the five that
-    the economy writes at creation (``production_config``, ``credit_config``,
-    ``banking_config``, ``expectations_config`` and ``expropriation_policies``,
-    see ``economy/initialization.py``). A ``PATCH`` of
+    client must send back every key it wants to keep, including those the
+    economy writes at creation (see ``economy/initialization.py``):
+    ``production_config`` is always written, while ``credit_config``,
+    ``banking_config``, ``expectations_config`` and ``expropriation_policies``
+    are written only when the era template defines them. A ``PATCH`` of
     ``{"config": {"max_protagonists": 5}}`` therefore leaves ``config`` equal to
     ``{"max_protagonists": 5}``. Merging the keys on the server would be a
     contract change, left to the dashboard work item.
