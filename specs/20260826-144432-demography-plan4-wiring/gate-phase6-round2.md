@@ -2412,6 +2412,12 @@ A tick annuali nessun neonato incontrava mai `q(0)`.
 genere, quindi una donna omosessuale poteva essere abbinata a un uomo. Il
 caso non si raggiunge oggi, perché il campo vale `HETEROSEXUAL` per difetto e
 la generazione del mondo non lo imposta, ma la regola era sbagliata.
+**Correzione del round 15:** la regola giusta ammette i fondatori
+eterosessuali **e bisessuali** ed esclude solo gli omosessuali e gli
+asessuali, come chiede la spec approvata delle coppie (spec.md:136-137 e
+spec.md:226 sul ramo `20261029-123404-rule-based-couples`). La prima
+correzione, `d6db09d`, ammetteva i soli eterosessuali ed escludeva quindi
+ogni bisessuale; il round 15 l'ha trovato (B1) e `49bd703` lo corregge.
 
 **Perché è sfuggito a quattordici round: il testimone puntuale.** Ogni test
 della mortalità fissava una funzione a un'età e a un tick, e verificava quel
@@ -2449,7 +2455,8 @@ tempo una quantità per tick.
   eterosessuale oltre all'età al matrimonio; un test parametrizzato su
   omosessuale e bisessuale, rosso prima, mostra la fondatrice esclusa non
   abbinata e l'uomo abbinato alla donna eterosessuale. §4.1.3 lo descrive
-  nelle due lingue.
+  nelle due lingue. *La regola è sbagliata per i bisessuali: vedi la
+  correzione del round 15 nel paragrafo M2 qui sopra.*
 
 **I lettori dell'età continua.** Ho controllato con `grep` tutti i lettori di
 `age_in_years` in `demography` e nelle altre app. Le soglie
@@ -2523,3 +2530,195 @@ e non solo del codice; se un lettore del §4.1.1 o un test fuori da
 produce nulla delle tre classi, il verdetto deve dire quali lunghezze del
 tick e quali accelerazioni ha esercitato, quali lettori dell'età ha
 classificato e che cosa ha lasciato fuori.
+
+### Verdetto round 15: NOT CONVERGED
+
+**2026-10-29.** Il round 15 ha attaccato l'intero `develop..HEAD` a
+`a619190` e ha trovato la suite a 1837 verdi. Il verdetto è **NOT
+CONVERGED** per un solo difetto bloccante, di classe 1.
+
+**B1, classe 1, introdotto da `d6db09d`.** `form_initial_couples` ammetteva
+all'abbinamento fondatore i soli fondatori `HETEROSEXUAL`, quindi escludeva
+ogni bisessuale. La spec approvata delle coppie, sul ramo
+`20261029-123404-rule-based-couples`, chiede invece «orientamento
+eterosessuale o bisessuale» per i due lati del mercato (spec.md:136-137) ed
+esclude solo `non_binary`, omosessuali e asessuali (spec.md:226). Il mio
+paragrafo M2 qui sopra diceva la regola sbagliata, e i due whitepaper
+dicevano «who are heterosexual» e «eterosessuali».
+
+Il round ha nominato quattro difetti non bloccanti, che chiudo tutti in
+questa remediation invece di rinviarli.
+
+- **N1.** La frase del §4.1.1 «i tick di un anno ricompongono esattamente
+  `q(x)`» vale solo per `dt = ore/8760 · acceleration ≤ 1`. A tick annuali
+  con accelerazione 2 il revisore ha misurato `l(2)` = 0,9426 contro lo
+  0,9662 della tavola.
+- **N2.** `orchestrator.age_in_years` leggeva 62,999… per 63 in tre casi:
+  168 ore ad accelerazione 1 e 0,5, e 97,999… per 98 ad accelerazione 10.
+  L'effetto è un tick caricato del `q(62)` invece del `q(63)`.
+- **N3.** In `dashboard/views.py`, `chat_view` (POST) e `chat_send_api`
+  erano un gemello parallelo di circa 85 righe che differivano solo
+  nell'allegato.
+- **N4, preesistente.** `fit_heligman_pollard` dal `p0` di default non
+  ritrovava il `q(x)` di `sci_fi` (errore relativo massimo 0,59; 0,42 prima
+  della remediation della riapertura).
+
+### Remediation del round 15
+
+**2026-10-29, codice a `54a3bbf`.** Un commit per difetto, ognuno con il
+testimone visto rosso prima della correzione.
+
+- **`49bd703`, B1.** La regola dell'orientamento è ora un solo predicato,
+  `couple.seeks_a_partner_of_the_other_sex`, vicino a
+  `meets_marriage_age`: ammette eterosessuali e bisessuali. Lo usa
+  `form_initial_couples`, l'unico punto del ramo che controlla
+  l'eleggibilità del fondatore (`grep sexual_orientation` in `demography`
+  trova solo quello e il sorteggio alla nascita), e il mercato a regole della
+  spec delle coppie lo riuserà. Il vecchio test parametrizzato è diviso in
+  due: omosessuale e asessuale restano fuori, con l'uomo ancora abbinabile;
+  una bisessuale, e un bisessuale dall'altro lato, si abbinano. I due casi
+  bisessuali erano rossi prima della correzione, 2 falliti su 6. Ho
+  corretto il commento del codice, la frase del §4.1.3 nelle due lingue e il
+  paragrafo M2 qui sopra.
+- **`2a65abf`, N1.** Il calcolo di `dt` ora vive in un solo punto,
+  `orchestrator.years_per_tick`, che solleva `TickLongerThanAYearError`
+  (una `ValueError`) per `dt > 1`. Lo chiamano `tick_mortality_probability`
+  e `tick_birth_probability`; la fertilità ne teneva una copia sua, e un
+  aumento lineare del tasso con `dt > 1` darebbe a una madre una
+  probabilità per tick doppia dell'annua mentre partorisce al più una volta
+  per tick. `grep` dei chiamanti: i due passi dell'orchestratore, nessun
+  altro. Nessun percorso distribuito raggiunge la guardia: i cinque template
+  hanno `acceleration` 1,0 e il generatore del mondo scrive tick di 24 ore,
+  cioè `dt = 0,0027`, e nessuna API espone `tick_duration_hours`. Quattro
+  testimoni (due di `tick_mortality_probability`, uno della fertilità, uno
+  del passo di mortalità a 8 760 ore con accelerazione 2) erano rossi prima
+  del cablaggio, con «DID NOT RAISE», e tornano rossi tutti e quattro sotto
+  una mutazione che alza la soglia a 9; il confine `dt = 1` resta
+  ammesso. §4.1.1 e §4.1.2 dichiarano il dominio nelle due lingue.
+- **`800e66b`, N2, corretto e non dichiarato.** `age_in_years` ora calcola
+  `(tick − birth_tick) · ore · acceleration / 8760`, con l'unica divisione
+  per ultima. Con ore e accelerazioni che rendono il prodotto un float
+  esatto, cioè ogni caso distribuito, il quoziente a un compleanno è l'anno
+  intero esatto. Ho rifatto la scansione del revisore su tick di 1, 24, 168,
+  730, 4 380 e 8 760 ore, accelerazioni 0,5, 1, 1,5, 2, 3 e 10 ed età da 0 a
+  110: la formula vecchia sbaglia esattamente i tre casi misurati, la nuova
+  nessuno. Il testimone parametrizzato sui tre casi controlla l'età e la
+  probabilità di morte caricata a quel tick, ed era rosso 3 su 3. Il
+  backfill di `initialization.py` dipende da questo lettore: il suo ciclo
+  resta com'è, e i suoi test, compresa la lettura di ogni età da 0 a 90 su
+  un mondo settimanale, restano verdi; ho aggiornato i due commenti che
+  citavano il 62,999…. L'intera suite della demografia, end-to-end
+  compreso, è passata senza cifre mosse (993 verdi). §4.1.0 lo registra
+  nelle due lingue.
+- **`7964fb2`, N4, corretto: la causa era locale.** Il fit minimizzava i
+  residui assoluti, quindi le età anziane dominavano e l'ottimizzatore si
+  fermava quando le età giovani, il cui `q` sotto `sci_fi` va da 4,3e-6 a
+  8,3e-3, erano piccole in termini assoluti; non era il `p0` né un bound.
+  Ho misurato tre varianti dallo stesso `p0`: tolleranze strette e residui
+  relativi ritrovano tutte le schede, `x_scale="jac"` no. Ho scelto i
+  residui relativi, `q̂/q − 1` con `sigma = q`, perché pesano ogni età per la
+  sua grandezza e sono l'obiettivo comunemente attribuito a Heligman e
+  Pollard (1980), che dichiaro non verificato sul paper; le età osservate a
+  `q = 0` restano fuori, perché non hanno uno scarto relativo. Il testimone
+  sui cinque template, errore relativo massimo sotto 1e-6 dal `p0` di
+  default, era rosso per `sci_fi` (0,57) e anche per `modern_democracy`
+  (1,1e-5); ora passano tutti e cinque, con i test di andata e ritorno, dei
+  bound e dell'input degenere. §6.3 lo descrive nelle due lingue. Nessuna
+  voce di build map serve, perché il difetto è chiuso.
+- **`54a3bbf`, N3.** Il percorso di risposta della chat privata è un solo
+  helper, `_reply_as_agent`, composto da `_memory_context`,
+  `_events_context` e `_chat_history_context`; l'allegato è
+  `_attachment_context`, e le due viste sono sottili. Il file temporaneo del
+  documento allegato era creato con `delete=False` e mai rimosso; ora è
+  rimosso alla chiusura del blocco. I test della storia girano sulle due
+  viste: la variante della pagina passava già, per la copia identica, e ho
+  provato che fallisce su una divergenza con una mutazione che rimetteva il
+  vecchio troncamento a 50 caratteri nella copia della pagina, 2 rossi, poi
+  ripristinata con `cmp`. Due test nuovi fissano che la pagina passa al
+  modello un'immagine o un documento allegati e li registra sul messaggio
+  del visitatore. Dashboard e chat verdi.
+
+**Suite intera:** 1858 verdi, 3 warning, in 909,69 secondi, a `54a3bbf`, un'unica corsa in un container usa e getta del progetto isolato `epocha-tests`. Ruff check e format puliti.
+
+**Un'osservazione fuori dal ramo.** Una sola volta, durante una corsa di
+dashboard e chat insieme sotto carico, `chat/tests/test_consumers.py::TestChatConsumer::test_connect_and_receive_response`
+è fallito per il timeout di 10 secondi di `receive_json_from`; tre corse
+successive della stessa combinazione e la suite intera sono passate. Il
+test non tocca codice di questo ramo; è un test `transaction=True` con un budget fisso di 10 secondi, e
+sotto carico il flush del database può superarlo. Non l'ho corretto perché
+non so ancora se la causa sia il budget o il consumer: lo porto all'utente
+come difetto da tracciare, non lo nascondo.
+
+## Round 16: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation del round 15 (codice a `54a3bbf`) e prima
+di lanciarlo.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola del round 8.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **B1.** Verifica che `seeks_a_partner_of_the_other_sex` sia l'unico
+   punto che decide l'orientamento ammesso, che la sua regola coincida con
+   spec.md:136-137 e spec.md:226 del ramo delle coppie, e che nessun altro
+   percorso del ramo abbini i fondatori per solo genere o per solo
+   orientamento eterosessuale. Contesta la scelta di lasciare il percorso
+   per intenti fuori dal predicato.
+2. **N1, la guardia di `dt`.** Rifai la ricerca di ogni punto che converte
+   un tick in tempo simulato (`8760`, `HOURS_PER_YEAR`, `ticks_per_year`,
+   `acceleration`) e decidi se qualcuno calcola ancora un `dt` per una
+   probabilità senza passare da `years_per_tick`. Verifica che il confine
+   `dt = 1` sia ammesso, che il tipo dell'errore sia quello dichiarato, e
+   che nessun percorso distribuito, comprese le fixture dei test di
+   integrazione, possa sollevarlo.
+3. **N2, il lettore dell'età.** Rifai la scansione esaustiva della
+   remediation, allargandola dove pensi che non basti (ore frazionarie,
+   accelerazioni non diadiche), e controlla che i lettori che derivano
+   l'età da un'altra formula, la finestra fertile in SQL di
+   `_fertile_window_filter`, la snapshot e il backfill, non diano a un
+   confine un esito diverso da `age_in_years`.
+4. **N4, il fit.** Verifica che i residui relativi non peggiorino il fit di
+   una tavola reale con rumore, che l'esclusione delle età a `q = 0` sia
+   dichiarata dove serve, e la frase su Heligman e Pollard (1980), che ho
+   dichiarato non verificata.
+5. **N3.** Confronta il comportamento delle due viste prima e dopo, campo
+   per campo della risposta e riga per riga dei messaggi salvati, e cerca
+   un terzo percorso di risposta della chat (il gruppo, l'API) che duplichi
+   ancora `_chat_history_context` o `_reply_as_agent`.
+6. **Le frasi scritte oggi** in §4.1.0, §4.1.1, §4.1.2, §4.1.3 e §6.3,
+   contro il codice e contro le misure di questo documento, nelle due
+   lingue.
+
+### Il terreno ereditato
+
+Resta quello del round 15, a cui si aggiungono per intero
+`dashboard/views.py` per la chat privata e `fit_heligman_pollard`.
+**Scegli e dichiara**, come ai round precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+B1 è sfuggito perché la correzione M2 è stata scritta contro la mia
+lettura della regola e non contro il testo della spec che la fissa, e il
+test parametrizzato fissava quella lettura sbagliata come attesa: un test
+che codifica la regola sbagliata non può fallire. Il criterio chiede di
+confrontare con la spec, ma solo per l'orientamento; se un'altra regola del
+ramo è stata scritta da una mia parafrasi invece che dalla sua fonte, il
+round non la vede finché non la cerca. La guardia di N1 rifiuta una
+configurazione che nessun percorso distribuito produce, e quindi un test
+che la esercita non dice nulla sul comportamento delle corse vere; se
+esiste un percorso che costruisce un mondo con tick più lunghi, la guardia
+lo fa fallire a runtime invece che alla configurazione. Il fit di N4 è
+provato solo su schede sintetiche e senza rumore, che sono il caso in cui
+ogni obiettivo ragionevole converge. Se il round non produce nulla delle
+tre classi, il verdetto deve dire quali percorsi di formazione delle
+coppie, quali conversioni di tempo e quali lettori dell'età ha esercitato,
+e che cosa ha lasciato fuori.
