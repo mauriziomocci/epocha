@@ -66,6 +66,24 @@ def authenticated_client(user):
     return client
 
 
+@pytest.fixture(autouse=True)
+def no_enrichment():
+    """Keep the enrichment pipeline out of the end-to-end flow.
+
+    World generation ends with `enrich_simulation_agents`, which builds its
+    own client through `enrichment.get_llm_client` and may query Wikipedia;
+    the patch on `generator.get_llm_client` does not reach it. Until round 16
+    of the Plan 4 phase-6 gate both tests here sent a real classification
+    request with the developer's key on every run; blanking the keys in the
+    test settings turned that into a 500 at client construction.
+    """
+    with patch(
+        "epocha.apps.world.generator.enrich_simulation_agents",
+        return_value={"classified": 0, "researched": 0, "enriched": 0},
+    ) as mock:
+        yield mock
+
+
 @pytest.mark.django_db
 class TestFullMVPFlow:
     @patch("epocha.apps.world.generator.get_llm_client")

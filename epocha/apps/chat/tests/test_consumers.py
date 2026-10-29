@@ -43,9 +43,21 @@ def _make_communicator(agent_id):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 class TestChatConsumer:
-    @patch("epocha.apps.llm_adapter.client.get_llm_client")
+    @patch("epocha.apps.llm_adapter.client.get_chat_llm_client")
     async def test_connect_and_receive_response(self, mock_get_client, agent):
-        """User sends a message, receives an in-character agent response."""
+        """User sends a message, receives an in-character agent response.
+
+        The consumer calls `get_chat_llm_client`, so that is the factory to
+        patch. Round 16 of the Plan 4 phase-6 gate found this test patching
+        `get_llm_client` instead: the chat factory then built the real chat
+        provider and sent a paid request on every suite run. A real provider
+        writes an `LLMRequest` row for every call, failed ones included, so
+        an empty table proves that none was reached.
+        """
+        from asgiref.sync import sync_to_async
+
+        from epocha.apps.llm_adapter.models import LLMRequest
+
         mock_client = MagicMock()
         mock_client.complete.return_value = "Aye, I am Marco the blacksmith."
         mock_get_client.return_value = mock_client
@@ -58,7 +70,8 @@ class TestChatConsumer:
         response = await communicator.receive_json_from(timeout=10)
 
         assert response["role"] == "agent"
-        assert len(response["content"]) > 0
+        assert response["content"] == "Aye, I am Marco the blacksmith."
+        assert await sync_to_async(LLMRequest.objects.count)() == 0
 
         await communicator.disconnect()
 
