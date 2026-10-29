@@ -214,14 +214,17 @@ class TestCohesionUpdate:
         group.cohesion = 0.6
         group.save(update_fields=["cohesion"])
         # A dict target is the arranged-marriage payload the pair-bond
-        # resolver accepts; it names no member and must be ignored.
+        # resolver accepts; it names no member and must be ignored. The
+        # action is "help", a cooperative one, so that counting the dict as
+        # a member would add +0.10 (cooperation ratio 1 times 0.10) and fail
+        # the equality below.
         DecisionLog.objects.create(
             simulation=simulation,
             agent=marco,
             tick=9,
             input_context="",
             output_decision=json.dumps(
-                {"action": "pair_bond", "target": {"for_child": "X", "match": "Y"}}
+                {"action": "help", "target": {"for_child": "X", "match": "Y"}}
             ),
             llm_model="test",
         )
