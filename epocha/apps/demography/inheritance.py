@@ -3241,15 +3241,14 @@ def _assign_caretakers_to_unguarded_minors(
     `assign_orphan_caretaker`'s own up-to-4 queries per reassigned minor.
     """
     from epocha.apps.agents.models import Agent
-    from epocha.apps.demography.orchestrator import _tick_duration_hours, age_in_years
+    from epocha.apps.demography.orchestrator import _age_clock, age_in_years
 
     dependents = Agent.objects.filter(caretaker_agent_id__in=deceased_ids, is_alive=True)
     candidates = {dependent.id: dependent for dependent in dependents} | children
     if not candidates:
         return
 
-    tick_duration_hours = _tick_duration_hours(simulation)
-    acceleration = float(template.get("acceleration", 1.0))
+    tick_duration_hours, acceleration = _age_clock(simulation, template)
     adulthood_age = template["migration"]["adulthood_age"]
     minors = [
         minor
