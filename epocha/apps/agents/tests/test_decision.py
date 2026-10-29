@@ -1,5 +1,6 @@
 """Tests for the agent decision pipeline."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -87,6 +88,22 @@ class TestProcessAgentDecision:
 
         assert isinstance(result, dict)
         assert result["action"] == "rest"  # Fallback action
+
+    @pytest.mark.parametrize("raw", ['["rest", "sleep"]', '"I will rest"', "42", "null"])
+    @patch("epocha.apps.agents.decision.get_llm_client")
+    def test_valid_json_that_is_not_an_object_falls_back(self, mock_get_client, agent, world, raw):
+        """Valid JSON that is not an object must not reach callers that call .get()."""
+        mock_client = MagicMock()
+        mock_client.complete.return_value = raw
+        mock_client.get_model_name.return_value = "gpt-4o-mini"
+        mock_get_client.return_value = mock_client
+
+        result = process_agent_decision(agent, world, tick=1)
+
+        assert isinstance(result, dict)
+        assert result["action"] == "rest"
+        log = DecisionLog.objects.get(agent=agent)
+        assert json.loads(log.output_decision)["action"] == "rest"
 
     @patch("epocha.apps.agents.decision.get_llm_client")
     def test_includes_memories_in_context(self, mock_get_client, agent, world):

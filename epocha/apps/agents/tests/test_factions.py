@@ -14,6 +14,7 @@ from epocha.apps.agents.factions import (
     _check_schism,
     _create_faction,
     _detect_and_propose_factions,
+    _process_formation_decisions,
     compute_leadership_score,
     update_group_cohesion,
     update_group_leadership,
@@ -221,6 +222,20 @@ class TestCohesionUpdate:
         update_group_cohesion(group, simulation, tick=10)
         group.refresh_from_db()
         assert 0.0 <= group.cohesion <= 1.0
+
+    def test_a_dict_join_target_does_not_stop_the_formation_step(self, simulation, world):
+        outsider = Agent.objects.create(simulation=simulation, name="Giulia", role="farmer")
+        DecisionLog.objects.create(
+            simulation=simulation,
+            agent=outsider,
+            tick=9,
+            input_context="",
+            output_decision=json.dumps({"action": "join_group", "target": {"name": "The Guild"}}),
+            llm_model="test",
+        )
+        _process_formation_decisions(simulation, tick=10)
+        outsider.refresh_from_db()
+        assert outsider.group is None
 
     def test_cohesion_clamped_to_range(self, simulation, world, group_with_members):
         group, marco, elena, carlo = group_with_members

@@ -1205,7 +1205,9 @@ def _process_formation_decisions(simulation, tick: int) -> None:
             formers.append(agent)
         elif action == "join_group" and agent.group is None:
             target = data.get("target", "")
-            if target:
+            # A non-string target (e.g. the dict payload of a pair-bond) is
+            # unhashable and names no group: ignore it.
+            if isinstance(target, str) and target:
                 joiners.setdefault(target, []).append(agent)
 
     # Process join requests for existing groups.
