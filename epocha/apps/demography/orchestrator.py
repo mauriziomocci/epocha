@@ -454,6 +454,67 @@ def age_in_years(agent: Any, tick: int, tick_duration_hours: float, acceleration
     return (tick - agent.birth_tick) / max(1e-9, ticks_per_year) * acceleration
 
 
+def _age_clock(simulation: Any, template: dict | None) -> tuple[float, float]:
+    """The two simulation-wide inputs `age_in_years` needs besides the agent.
+
+    A missing template reads as acceleration 1.0, the value every shipped
+    template that does not accelerate time carries.
+    """
+    acceleration = float(template.get("acceleration", 1.0)) if template else 1.0
+    return _tick_duration_hours(simulation), acceleration
+
+
+def current_age_in_years(agent: Any) -> float:
+    """The agent's age at its simulation's current tick, for display.
+
+    The one entry point for callers outside the tick loop (the dashboard
+    chat), so that they format an age without owning its formula: it runs
+    through `age_in_years`, hence through `birth_tick` and not through the
+    frozen `Agent.age` column. Costs one read of the simulation's world.
+    """
+    simulation = agent.simulation
+    template = _load_simulation_template(simulation, simulation.current_tick)
+    tick_duration_hours, acceleration = _age_clock(simulation, template)
+    return age_in_years(agent, simulation.current_tick, tick_duration_hours, acceleration)
+
+
+def minor_agent_ids(simulation: Any, tick: int) -> set[int]:
+    """Ids of the living agents too young to be asked to decide at `tick`.
+
+    A minor is younger than the era template's `migration.adulthood_age` on
+    `age_in_years`: the threshold and the age `household_keys` and
+    `coordinate_family_migration` already use. This is the enforcement of the
+    guarantee the latter documents ("MINORS ARE NOT CALLED TO THE DECISION
+    LOOP") -- a newborn that chose `move_to` would leave its household alone.
+    The tick loop subtracts this set from the agents it asks to decide; the
+    age predicate stays here so that the loop never owns a second copy.
+
+    Returns an empty set, with no query, for a simulation that has not opted
+    into demography (FR-009), and when its template cannot be used (the
+    block is skipped and logged by `_load_simulation_template`). Otherwise
+    the cost is bounded: the world's tick length and ONE read of the living
+    agents' `birth_tick` and `age`, never a query per agent.
+    """
+    from epocha.apps.agents.models import Agent
+
+    if not is_demography_enabled(simulation):
+        return set()
+    template = _load_simulation_template(simulation, tick)
+    if template is None:
+        return set()
+
+    adulthood_age = float(template["migration"]["adulthood_age"])
+    tick_duration_hours, acceleration = _age_clock(simulation, template)
+    living = Agent.objects.filter(simulation=simulation, is_alive=True).only(
+        "id", "birth_tick", "age"
+    )
+    return {
+        agent.id
+        for agent in living
+        if age_in_years(agent, tick, tick_duration_hours, acceleration) < adulthood_age
+    }
+
+
 def mortality_probability_for(
     agent: Any,
     context: DemographyTickContext,
@@ -863,6 +924,39 @@ def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: 
     )
 
 
+def _load_simulation_template(simulation: Any, tick: int) -> dict | None:
+    """The simulation's era template, or None when it cannot be used.
+
+    The one place that resolves `demography_template` and degrades by name:
+    a missing file and a template failing the A9 contract are different
+    mistakes and are logged as such. Callers treat None as "demography does
+    not apply to this simulation this tick" -- the tick goes on. No blind
+    `except Exception`: it would hide every other class of failure.
+    """
+    from epocha.apps.demography.template_loader import load_template
+
+    logger = logging.getLogger(__name__)
+    config = getattr(simulation, "config", None) or {}
+    template_name = config.get("demography_template", "pre_industrial_christian")
+    try:
+        return load_template(template_name)
+    except FileNotFoundError:
+        logger.warning(
+            "demography skipped for simulation %s at tick %s: template %r not found",
+            simulation.id,
+            tick,
+            template_name,
+        )
+    except ValueError:
+        logger.warning(
+            "demography skipped for simulation %s at tick %s: template %r is invalid",
+            simulation.id,
+            tick,
+            template_name,
+        )
+    return None
+
+
 def run_demography_tick(simulation: Any, tick: int) -> None:
     """Run the whole demography block for one tick, or nothing at all.
 
@@ -884,32 +978,11 @@ def run_demography_tick(simulation: Any, tick: int) -> None:
     in the engine's `avoid_conception` handler swallows exactly the malformed
     template case, and copying it would hide the same class again.
     """
-    from epocha.apps.demography.template_loader import load_template
-
-    logger = logging.getLogger(__name__)
-
     if not is_demography_enabled(simulation):
         return
 
-    config = getattr(simulation, "config", None) or {}
-    template_name = config.get("demography_template", "pre_industrial_christian")
-    try:
-        template = load_template(template_name)
-    except FileNotFoundError:
-        logger.warning(
-            "demography skipped for simulation %s at tick %s: template %r not found",
-            simulation.id,
-            tick,
-            template_name,
-        )
-        return
-    except ValueError:
-        logger.warning(
-            "demography skipped for simulation %s at tick %s: template %r is invalid",
-            simulation.id,
-            tick,
-            template_name,
-        )
+    template = _load_simulation_template(simulation, tick)
+    if template is None:
         return
 
     # A world generated before this simulation opted into demography carries
