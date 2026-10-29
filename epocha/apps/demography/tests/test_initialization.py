@@ -639,9 +639,9 @@ class TestTheBackfillNeverMakesAFounderYounger:
     marriage age is refused by the canonical age rule. The backfill now lets
     `age_in_years` judge the written tick and moves it one tick into the past
     when the reader comes back short, so the integer part of the read-back
-    age is the written age. Age 63 on a weekly world is the float case: the
-    exact inverse is a whole number of ticks and the reader still returned
-    62.999..., which is why rounding toward the past alone was not the fix.
+    age is the written age. Age 63 on a weekly world was the float case: the
+    exact inverse is a whole number of ticks and the reader returned
+    62.999... until round 15 of the gate made it divide once, last.
     """
 
     WEEK_HOURS = 168.0

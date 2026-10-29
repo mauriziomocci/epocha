@@ -20,7 +20,10 @@ from django.contrib.gis.geos import Point, Polygon
 from epocha.apps.agents.models import Agent
 from epocha.apps.demography import orchestrator
 from epocha.apps.demography.models import DemographyEvent
-from epocha.apps.demography.mortality import annual_mortality_probability
+from epocha.apps.demography.mortality import (
+    annual_mortality_probability,
+    tick_mortality_probability,
+)
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
@@ -362,6 +365,41 @@ class TestFirstYearOfLife:
             f"{expected:.4f} (q(0) = {q0:.4f} over {exposure_years:.4f} years), "
             f"tolerance {tolerance:.4f}: the hazard is not read at the "
             "completed age"
+        )
+
+
+class TestAgeAtAWholeYear:
+    """At the tick an agent completes a year, the age reads that whole year.
+
+    `age_in_years` divided the elapsed ticks by a float ticks-per-year and
+    then multiplied by the acceleration, two roundings that round 15 of the
+    Plan 4 phase-6 gate found returning 62.999... for 63 -- 3285 weekly ticks
+    at acceleration 1, 6570 at acceleration 0.5 -- and 97.999... for 98 at
+    511 weekly ticks under acceleration 10. `floor` then charged that tick
+    `q(62)`. These are the only misses of an exhaustive sweep over tick
+    lengths 1, 24, 168, 730, 4380 and 8760 hours, accelerations 0.5, 1, 1.5, 2, 3, 10
+    and ages 0 to 110; the fix multiplies before its single division.
+    """
+
+    @pytest.mark.parametrize(
+        ("acceleration", "elapsed_ticks", "whole_age"),
+        [(1.0, 3285, 63), (0.5, 6570, 63), (10.0, 511, 98)],
+    )
+    def test_the_age_is_the_whole_year_and_its_tick_is_charged_its_q(
+        self, acceleration, elapsed_ticks, whole_age
+    ):
+        hours = 168.0
+        agent = SimpleNamespace(birth_tick=0, age=0)
+        template = {**load_template("pre_industrial_christian"), "acceleration": acceleration}
+        params = template["mortality"]["heligman_pollard"]
+        # The exposure age of tick t is read at t - 1.
+        context = orchestrator.DemographyTickContext(
+            simulation=None, tick=elapsed_ticks + 1, template=template
+        )
+
+        assert orchestrator.age_in_years(agent, elapsed_ticks, hours, acceleration) == whole_age
+        assert orchestrator.mortality_probability_for(agent, context, hours) == (
+            pytest.approx(tick_mortality_probability(whole_age, params, hours, acceleration))
         )
 
 

@@ -479,11 +479,18 @@ def age_in_years(agent: Any, tick: int, tick_duration_hours: float, acceleration
     the whole run. The fallback to that column exists only for agents whose
     `birth_tick` is NULL, a state the initialization is required to leave
     behind.
+
+    One division, last: `elapsed * hours * acceleration / 8760`. The elapsed
+    ticks are an integer and the shipped tick lengths and accelerations make
+    the product an exact float, so at the tick an agent completes a year the
+    quotient is that whole year exactly and `floor` reads it. Dividing by a
+    float ticks-per-year first and multiplying by the acceleration after
+    rounded twice and returned 62.999... for 63 at 3285 weekly ticks (round
+    15 of the Plan 4 phase-6 gate), which charged that tick `q(62)`.
     """
     if agent.birth_tick is None:
         return float(agent.age or 0)
-    ticks_per_year = HOURS_PER_YEAR / max(1e-9, tick_duration_hours)
-    return (tick - agent.birth_tick) / max(1e-9, ticks_per_year) * acceleration
+    return (tick - agent.birth_tick) * tick_duration_hours * acceleration / HOURS_PER_YEAR
 
 
 def _age_clock(simulation: Any, template: dict | None) -> tuple[float, float]:

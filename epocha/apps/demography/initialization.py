@@ -164,7 +164,7 @@ def backfill_birth_ticks(simulation: Any, template: dict | None = None) -> None:
 
     for agent in pending:
         # The inverse of `age_in_years`, which computes
-        # `(tick - birth_tick) / ticks_per_year * acceleration`. `birth_tick`
+        # `(tick - birth_tick) * hours * acceleration / 8760`. `birth_tick`
         # is an integer, so the inverse cannot be exact when a year is not a
         # whole number of ticks (a weekly world has 52.14), and rounding to
         # the nearest tick alone put the read-back age BELOW the written one
@@ -174,10 +174,8 @@ def backfill_birth_ticks(simulation: Any, template: dict | None = None) -> None:
         # the marriage-age rule. The reader is therefore the judge: the birth
         # tick moves back one tick while `age_in_years` reads less than the
         # written age -- at most once, since rounding is off by at most half
-        # a tick. Flooring the formula instead is not enough on its own:
-        # where the inverse is a whole number of ticks the float product can
-        # land a hair above it, and the reader then returns 62.999... for 63,
-        # measured on a weekly world.
+        # a tick. The inverse below is computed in floats, so the reader
+        # stays the judge rather than a rounding direction.
         written = agent.age or 0
         agent.birth_tick = int(round(tick - written * ticks_per_year / max(1e-9, acceleration)))
         while age_in_years(agent, tick, tick_duration_hours, acceleration) < written:
