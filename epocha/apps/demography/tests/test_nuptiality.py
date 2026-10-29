@@ -9,7 +9,12 @@ import pytest
 from scipy.integrate import quad
 
 from epocha.apps.demography import nuptiality
-from epocha.apps.demography.nuptiality import _standard_lower, standard_cdf, standard_density
+from epocha.apps.demography.nuptiality import (
+    FirstMarriageSchedule,
+    _standard_lower,
+    standard_cdf,
+    standard_density,
+)
 
 # Integration window for the standardized density: the left tail is below
 # 1e-12 at z = -6 and the right tail below 1e-9 at z = 20, so the window
@@ -56,3 +61,21 @@ class TestStandardCdf:
     def test_far_left_of_the_support_the_cdf_is_zero_and_the_lower_part_one(self):
         assert standard_cdf(-50.0) == 0.0
         assert _standard_lower(-50.0) == 1.0
+
+
+class TestFirstMarriageSchedule:
+    # Christian values of the spec: location u, scale b, proportion C, minimum age m.
+    schedule = FirstMarriageSchedule(25.5, 5.5, 0.88, 14)
+
+    def test_the_density_integrates_to_the_proportion_ever_married(self):
+        total, _ = quad(self.schedule.density, 0, 80)
+        assert total == pytest.approx(0.88, abs=1e-4)
+
+    def test_the_cdf_reaches_the_proportion_ever_married(self):
+        # The right tail of the shape decays as exp(-alpha z): the mass beyond
+        # age 80 is 4.63e-6 (C times 5.26e-6, integrated independently with
+        # quad), so a tolerance tighter than 1e-5 cannot hold for any correct CDF.
+        assert self.schedule.cdf(80) == pytest.approx(0.88, abs=1e-5)
+
+    def test_almost_no_mass_lies_below_the_minimum_age(self):
+        assert self.schedule.cdf(14) < 1e-5

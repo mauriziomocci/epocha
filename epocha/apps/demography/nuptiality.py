@@ -31,6 +31,7 @@ Assumptions of the model as used here:
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 from scipy.special import gammainc, gammaincc
 
@@ -114,3 +115,37 @@ def _standard_lower(z: float) -> float:
     if y is None:
         return 1.0
     return float(gammainc(STANDARD_ALPHA / STANDARD_BETA, y))
+
+
+@dataclass(frozen=True)
+class FirstMarriageSchedule:
+    """First-marriage schedule of one era (R2), Kaneko (2003, eq. 3-4).
+
+    The standardized shape g_s is moved to the era by a location u and a
+    scale b, and weighted by the share C of women who ever marry:
+
+        f(x) = C * g_s((x - u) / b) / b        F(x) = C * G_s((x - u) / b)
+
+    Attributes:
+        location: u, the mean of the UNTRUNCATED distribution, in years. It is
+            not the historical mean age at marriage, which is observed on
+            marriages between the minimum age and the end of observation;
+            location_from_observed_mean derives u from that value (R5).
+        scale: b, the standard deviation of the untruncated distribution, in
+            years.
+        proportion: C, the share of women who ever marry, in (0, 1].
+        min_age: m, the era minimum marriage age for women, in years.
+    """
+
+    location: float
+    scale: float
+    proportion: float
+    min_age: float
+
+    def density(self, x: float) -> float:
+        """Frequency of first marriage at age x, f(x) of (R2)."""
+        return self.proportion * standard_density((x - self.location) / self.scale) / self.scale
+
+    def cdf(self, x: float) -> float:
+        """Cumulative share married by age x, F(x) of (R2)."""
+        return self.proportion * standard_cdf((x - self.location) / self.scale)
