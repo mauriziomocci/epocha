@@ -12,7 +12,7 @@ applies the fixes between rounds and records the resolution. Round cap: 10
 
 Categories: INCORRECT, UNJUSTIFIED, INCONSISTENT, MISSING, VERIFIED.
 
-**Current verdict: NOT CONVERGED after round 4; round 5 pending.**
+**Current verdict: CONVERGED at round 5 (five wording and list fixes applied after it); round 6 verifies that delta.**
 
 ## Round 1 (2026-10-29, 19:15-19:26, independent `critical-analyzer`)
 
@@ -106,3 +106,21 @@ mutation value; e0 70.74). Every table number recomputed from fresh copies.
 | R4-07 | MISSING | BIRTH events are written only when the newborn survives, biasing SC-006 rates by 0.9944. | Expected rates in SC-006 A and the realized TMFR of B scaled by 1 - 0.008*0.7 = 0.9944. |
 
 **Verdict round 4: NOT CONVERGED** (1 INCORRECT, 0 UNJUSTIFIED, 3 INCONSISTENT, 3 MISSING). Fixes applied in the same pass; round 5 re-audits.
+
+## Round 5 (2026-10-29, 20:16-20:26, independent `critical-analyzer`)
+
+All seven R4 findings RESOLVED per the reviewer. The reversed D-MF-03 was
+attacked specifically: the key is read only at `fertility.py:298`,
+`orchestrator.py:364` and the schema `template_loader.py:107`; no reader outside
+demography in either branch or in the life-course branch; the unknown-key
+rejection exists (`template_loader.py:307-310`). Every number recomputed again.
+
+| # | Class | Finding (evidence) | Resolution |
+|---|---|---|---|
+| R5-01 | MISSING | `README.md:125` and `README.it.md:125` still describe 2.394 against 4.5-6.5 and marital fertility as next work; FR-006 phase-4 search covered whitepapers only and omitted `require_couple_for_birth`. | FR-006 names both README paragraphs (verified at line 125 of both on the Plan 4 branch) and extends the phase-4 search to READMEs, CLAUDE.md, `docs/memory-backup/`, the build map, with `require_couple_for_birth` and `six clauses` among the patterns; couples task T051 text named. |
+| R5-02 | INCONSISTENT | Contract line, Perimetro and (N2) still described three templates or the removed key as the model rule. | Contract line names `fertility.py`, one line of `orchestrator.py`, the loader and five templates (contract unchanged); Perimetro adds the key removal; (N2) speaks of eras with the `marital` block. |
+| R5-03 | MISSING | The predicate inverts today's default (missing key means couple required). | Declared in FR-002; `annual_base_rate` and `requires_couple_for_birth` raise when a section does not carry exactly one block. |
+| R5-04 | INCONSISTENT | The Woods rationale covered Ig only, not the age-specific marital schedules for England and Wales. | Industrial row: those pages are outside the publisher's sample read, period unknown, reading assigned to rinvio 4. |
+| R5-05 | INCONSISTENT | 8 test lines are really 7; stale docstrings and the "six clauses" count not named. | Count corrected to 7 with the per-file list; `test_template_loader.py` docstring, `template_loader.py` module and `validate_template` docstrings and the whitepaper §6.2 clause count named; the exactly-one rule declared as the seventh clause. |
+
+**Verdict round 5: CONVERGED** (0 INCORRECT, 0 UNJUSTIFIED, 3 INCONSISTENT and 2 MISSING, all trivial wording or list fixes, applied above). Round 6 verifies only that delta.
