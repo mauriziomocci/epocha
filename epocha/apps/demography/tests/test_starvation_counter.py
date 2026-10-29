@@ -583,6 +583,24 @@ class TestTheStateFeedsItsWards:
         birthday.refresh_from_db()
         assert birthday.consecutive_ticks_under_subsistence == 1
 
+    def test_a_lone_ward_in_debt_still_starves(self, sim_with_zone):
+        """The declared limit of the state's care: it zeroes the ward's
+        need, never her wealth, so a debt is not covered and a lone ward
+        whose wealth is negative is below a need of zero. Round 13 of the
+        phase-6 gate (N-a): a mutation that drops the ward's wealth with her
+        need survived every test of this file."""
+        from epocha.apps.demography import orchestrator
+
+        sim, zone = sim_with_zone
+        indebted = _agent(
+            sim, zone, "Indebitata", wealth=-5.0, conditions=["state_ward"], **_of_age(sim, 8)
+        )
+
+        orchestrator.run_starvation_counter_step(_context(sim))
+
+        indebted.refresh_from_db()
+        assert indebted.consecutive_ticks_under_subsistence == 1
+
     def test_an_unflagged_minor_alone_is_not_covered(self, sim_with_zone):
         """The declared limit: the state feeds the wards it knows of. A minor
         with no living guardian and no flag -- a founder generated young, or

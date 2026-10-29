@@ -71,6 +71,11 @@ def compute_subsistence_threshold(simulation, zone) -> float:
     constant (extracted from economy/market.py), and current market prices
     in the zone. The result is the minimum wealth flow required to consume
     essential goods at subsistence quantity.
+
+    Without a `ZoneEconomy` -- a simulation on the deprecated legacy economy
+    of `world/economy.py` -- the threshold is 0.0, so "under subsistence"
+    reduces to negative wealth and the state's care of its wards zeroes a
+    need that is already zero; whitepaper §4.1.0 declares the consequence.
     """
     try:
         ze = ZoneEconomy.objects.get(zone=zone)
