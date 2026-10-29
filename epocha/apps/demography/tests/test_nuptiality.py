@@ -4,6 +4,7 @@ All tests are pure: no database, no Django models.
 """
 
 import math
+import random
 
 import pytest
 from scipy.integrate import quad
@@ -220,3 +221,28 @@ class TestRealizedCalendar:
         # realized mean of about 25.42, further than the 0.02 tolerance.
         mean_age, _ = _propagate_never_married(FirstMarriageSchedule(25.5, 5.5, 0.88, 14))
         assert abs(mean_age - 25.50) > 0.02
+
+
+class TestSeededCohort:
+    def test_a_seeded_cohort_realizes_the_calendar(self):
+        # User Story 1, scenario 1: 20,000 never-married women aged 12, weekly
+        # ticks to 50, candidates always available and no mortality. Every
+        # woman still single marries with the tick probability; all share one
+        # age per tick, so p is computed once per tick.
+        schedule = first_marriage_schedule(TestSchedulePerEra.christian_config)
+        rng = random.Random(20261029)
+        cohort_size = 20_000
+        single = cohort_size
+        weighted_age = 0.0
+        age = _FIRST_AGE
+        while age < _LAST_AGE:
+            p = schedule.tick_probability(age, _WEEKLY_YEARS)
+            married = sum(rng.random() < p for _ in range(single))
+            weighted_age += married * age
+            single -= married
+            age += _WEEKLY_YEARS
+        ever_married = cohort_size - single
+        # Three standard errors (spec SC-002): b / sqrt(n C) = 0.042 years on
+        # the mean, sqrt(0.88 * 0.12 / n) = 0.0023 on the share.
+        assert weighted_age / ever_married == pytest.approx(25.50, abs=0.13)
+        assert ever_married / cohort_size == pytest.approx(0.878, abs=0.007)
