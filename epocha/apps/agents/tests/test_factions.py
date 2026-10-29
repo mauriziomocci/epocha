@@ -207,6 +207,12 @@ class TestCohesionUpdate:
         self, simulation, world, group_with_members
     ):
         group, marco, elena, carlo = group_with_members
+        # Baseline: the same group with no decision in the window.
+        update_group_cohesion(group, simulation, tick=10)
+        group.refresh_from_db()
+        cohesion_without_decision = group.cohesion
+        group.cohesion = 0.6
+        group.save(update_fields=["cohesion"])
         # A dict target is the arranged-marriage payload the pair-bond
         # resolver accepts; it names no member and must be ignored.
         DecisionLog.objects.create(
@@ -221,7 +227,7 @@ class TestCohesionUpdate:
         )
         update_group_cohesion(group, simulation, tick=10)
         group.refresh_from_db()
-        assert 0.0 <= group.cohesion <= 1.0
+        assert group.cohesion == pytest.approx(cohesion_without_decision)
 
     def test_a_dict_join_target_does_not_stop_the_formation_step(self, simulation, world):
         outsider = Agent.objects.create(simulation=simulation, name="Giulia", role="farmer")

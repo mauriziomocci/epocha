@@ -118,8 +118,10 @@ class TestConditioningOnTheMinimumAge:
         assert self.christian.tick_probability(13.9, 168 / 8760) == 0.0
 
     def test_the_conditional_cdf_reaches_the_islamic_realized_share(self):
-        # C* = (C - F(m)) / (1 - F(m)) of the spec: 0.968 where F(14) is 0.062.
-        assert self.islamic.conditional_cdf(80) == pytest.approx(0.968, abs=1e-3)
+        # C* = (C - F(m)) / (1 - F(m)) of the spec: 0.968032 where F(14) is
+        # 0.062. Without the conditioning the value is 0.970 (1.97e-3 higher),
+        # which a tolerance of 1e-6 separates.
+        assert self.islamic.conditional_cdf(80) == pytest.approx(0.968032, abs=1e-6)
 
     def test_the_tick_probability_is_one_minus_exp_of_the_hazard(self):
         dt = 168 / 8760

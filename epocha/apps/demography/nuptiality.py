@@ -50,6 +50,12 @@ STANDARD_ALPHA = 1.145
 STANDARD_BETA = 1.896
 STANDARD_MU = -0.805
 
+# Shape alpha / beta of the incomplete gamma form of the standardized
+# schedule, and the normalizing constant K = beta / Gamma(alpha / beta) of
+# (R1). Both depend only on the constants above, so they are computed once.
+_ALPHA_OVER_BETA = STANDARD_ALPHA / STANDARD_BETA
+_DENSITY_CONSTANT = STANDARD_BETA / math.gamma(_ALPHA_OVER_BETA)
+
 # math.exp overflows a double above about 709.78. The density and the CDF
 # have underflowed to 0.0 (and 1.0 for the lower incomplete gamma) long
 # before, so beyond this exponent the function returns the limit instead of
@@ -82,6 +88,11 @@ def standard_density(z: float) -> float:
 
     g_s(z) = beta / Gamma(alpha / beta)
              * exp[-alpha (z - mu) - exp(-beta (z - mu))]
+           = K * y ** (alpha / beta) * exp(-y),   y = exp(-beta (z - mu))
+
+    The second form is the same function, since exp(-alpha (z - mu)) =
+    y ** (alpha / beta); it shares the argument y, and its overflow guard,
+    with the closed-form CDF.
 
     Rodriguez and Trussell (1980); Kaneko (2003, eq. 2). Verified
     numerically: it integrates to 1, with mean 0 and variance 1.0008
@@ -91,11 +102,10 @@ def standard_density(z: float) -> float:
     Returns 0.0 where exp(-beta (z - mu)) would overflow, that is far left
     of the support, where the true density is below the smallest double.
     """
-    t = -STANDARD_BETA * (z - STANDARD_MU)
-    if t > _EXP_OVERFLOW_GUARD:
+    y = _incomplete_gamma_argument(z)
+    if y is None:
         return 0.0
-    constant = STANDARD_BETA / math.gamma(STANDARD_ALPHA / STANDARD_BETA)
-    return constant * math.exp(-STANDARD_ALPHA * (z - STANDARD_MU) - math.exp(t))
+    return _DENSITY_CONSTANT * y**_ALPHA_OVER_BETA * math.exp(-y)
 
 
 def _incomplete_gamma_argument(z: float) -> float | None:
@@ -125,7 +135,7 @@ def standard_cdf(z: float) -> float:
     y = _incomplete_gamma_argument(z)
     if y is None:
         return 0.0
-    return float(gammaincc(STANDARD_ALPHA / STANDARD_BETA, y))
+    return float(gammaincc(_ALPHA_OVER_BETA, y))
 
 
 def _standard_lower(z: float) -> float:
@@ -139,7 +149,7 @@ def _standard_lower(z: float) -> float:
     y = _incomplete_gamma_argument(z)
     if y is None:
         return 1.0
-    return float(gammainc(STANDARD_ALPHA / STANDARD_BETA, y))
+    return float(gammainc(_ALPHA_OVER_BETA, y))
 
 
 @dataclass(frozen=True)
@@ -278,7 +288,7 @@ def location_from_observed_mean(observed_mean: float, scale: float, min_age: flo
 
 
 @functools.lru_cache(maxsize=32)
-def schedule_for(
+def _schedule_for(
     mean_age: float, sd_age: float, proportion: float, min_age: float
 ) -> FirstMarriageSchedule:
     """Build the schedule of an era from its historical parameters (cached).
@@ -286,8 +296,9 @@ def schedule_for(
     mean_age is the OBSERVED mean age at first marriage (a template value),
     from which the location u is solved by (R5). The solve costs a root
     finder over numerical integrals, so the result is memoized per distinct
-    parameter tuple: the template loader calls this to validate a template,
-    and the marriage market calls it again at run time as a cache hit. The
+    parameter tuple: the template loader calls first_marriage_schedule (the public entry
+    point) to validate a template, and the marriage market calls it again at
+    run time as a cache hit. The
     32 entries are far above the number of eras (five at the time of writing).
     """
     location = location_from_observed_mean(mean_age, sd_age, min_age)
@@ -303,7 +314,7 @@ def first_marriage_schedule(couple_cfg: Mapping[str, Any]) -> FirstMarriageSched
     only read here, and the derived location is never written back into it.
     """
     first_marriage = couple_cfg["first_marriage"]
-    return schedule_for(
+    return _schedule_for(
         float(first_marriage["mean_age_female"]),
         float(first_marriage["sd_age_female"]),
         float(first_marriage["proportion_ever_married_female"]),
