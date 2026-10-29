@@ -27,12 +27,13 @@ from epocha.apps.users.models import User
 from epocha.apps.world.government_types import GOVERNMENT_TYPES
 from epocha.apps.world.models import Government, GovernmentHistory, World
 
-# Include recent chat history for continuity.
-# Agent responses are heavily truncated (50 chars) to prevent
-# long dramatic responses from dominating context and causing
-# the model to repeat itself. User messages are kept fuller.
-_MAX_USER_MSG_LENGTH = 200
-_MAX_AGENT_MSG_LENGTH = 50
+# Recent chat history for continuity. The three limits are one budget of about
+# 1,500 tokens inside the 8,192-token context of the local model.
+# The model must re-read its own replies in full: cut short, it loses what it
+# just said and repeats itself.
+_MAX_USER_MSG_LENGTH = 600  # a visitor message is kept whole up to the same bound as a reply
+_MAX_AGENT_MSG_LENGTH = 600  # the model re-reads its own reply whole, not a 50-character stub
+_CHAT_HISTORY_MESSAGES = 10  # latest messages read, the one just sent included: 9 prior ones
 
 # ---------- Auth ----------
 
@@ -629,7 +630,9 @@ def chat_view(request, sim_id, agent_id):
                     + f" — React to this as {agent.name}.]"
                 )
 
-            recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:6]
+            recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[
+                :_CHAT_HISTORY_MESSAGES
+            ]
             chat_history = ""
             if recent_chat.count() > 1:
                 msgs = list(reversed(recent_chat))
@@ -813,7 +816,9 @@ def chat_send_api(request, sim_id, agent_id):
             + f" — React to this as {agent.name}.]"
         )
 
-    recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[:6]
+    recent_chat = ChatMessage.objects.filter(session=session).order_by("-created_at")[
+        :_CHAT_HISTORY_MESSAGES
+    ]
     chat_history = ""
     if recent_chat.count() > 1:
         msgs = list(reversed(recent_chat))
