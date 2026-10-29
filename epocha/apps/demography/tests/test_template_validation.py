@@ -502,3 +502,18 @@ class TestOnlyShippedTemplateNamesAreRead:
     def test_an_unknown_name_is_refused(self):
         with pytest.raises(FileNotFoundError, match="not a shipped template"):
             load_template("atlantis")
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            pytest.param(["industrial"], id="list"),
+            pytest.param({"name": "industrial"}, id="dict"),
+        ],
+    )
+    def test_a_name_that_is_not_a_string_is_refused_by_the_same_error(self, name):
+        """`simulation.config` is JSON, so the name can be a list or an
+        object. Unhashable, it raised `TypeError` at the cache, which the
+        callers' `FileNotFoundError` and `ValueError` branches do not catch,
+        and aborted the tick (scoped review of the round-16 closure)."""
+        with pytest.raises(FileNotFoundError, match="not a shipped template"):
+            load_template(name)

@@ -209,6 +209,11 @@ def load_template(name: str) -> dict[str, Any]:
             includes any name that is a path.
         ValueError: the template violates any clause of the A9 contract.
     """
+    # `simulation.config` is JSON, so the name can arrive as a list or an
+    # object; unhashable, it would raise `TypeError` at the cache, past the
+    # two errors the callers distinguish, and abort the tick.
+    if not isinstance(name, str):
+        raise _not_a_shipped_template(name)
     return _load_template_cached(name, str(TEMPLATES_DIR))
 
 
@@ -216,7 +221,8 @@ def load_template(name: str) -> dict[str, Any]:
 def _load_template_cached(name: str, templates_dir: str) -> dict[str, Any]:
     """Parse, validate and report one template. See `load_template`.
 
-    `templates_dir` is part of the cache key and otherwise unused: tests
+    `templates_dir` is the folder the file is read from, passed in rather
+    than read from `TEMPLATES_DIR` so that it is part of the cache key: tests
     monkeypatch `TEMPLATES_DIR`, and keying on the name alone would let a
     template read from a temporary directory poison the entry for the shipped
     one of the same name.
@@ -228,10 +234,7 @@ def _load_template_cached(name: str, templates_dir: str) -> dict[str, Any]:
     # shipped names are the folder's own listing, the one source
     # `list_available_templates` also reads.
     if name not in list_available_templates():
-        raise FileNotFoundError(
-            f"Demography template {name!r} is not a shipped template; "
-            f"available: {list_available_templates()}"
-        )
+        raise _not_a_shipped_template(name)
     path = Path(templates_dir) / f"{name}.json"
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
@@ -240,6 +243,14 @@ def _load_template_cached(name: str, templates_dir: str) -> dict[str, Any]:
 
 
 load_template.cache_clear = _load_template_cached.cache_clear
+
+
+def _not_a_shipped_template(name: object) -> FileNotFoundError:
+    """The one error both name checks raise, the one the callers distinguish."""
+    return FileNotFoundError(
+        f"Demography template {name!r} is not a shipped template; "
+        f"available: {list_available_templates()}"
+    )
 
 
 def _fail(source: str, message: str) -> None:
