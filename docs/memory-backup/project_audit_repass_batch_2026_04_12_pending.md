@@ -44,3 +44,12 @@ Nel 2026-04-12 un adversarial scientific audit su 8+ moduli pre-canonical-workfl
 
 - Factions Round 3 hardening: 5 finding behavioral deferred a chiusura factions (NEW-1, NEW-7, NEW-8, NEW-10, NEW-12/13) -- work item separato, vedi session resume.
 - Audit log originale: `docs/scientific-audit-2026-04-12.md`.
+
+
+## Nota 2026-10-29: disallineamento da verificare prima dell'audit del par. 8.1
+
+Il whitepaper §8.1 dice che la decisione per tick di ogni agente interroga il knowledge graph.
+Verificato il 2026-10-29: nessun modulo di `epocha/apps/agents` o `epocha/apps/simulation` importa
+`epocha.apps.knowledge`; il grafo e' usato solo dalla generazione del mondo e dalla dashboard, e la
+memoria degli agenti e' ordinata per peso emotivo e recenza, non per embedding. Da confermare
+(possibili percorsi dinamici) e correggere nell'audit del Knowledge Graph.

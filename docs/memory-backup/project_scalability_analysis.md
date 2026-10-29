@@ -28,3 +28,17 @@ Costo: ~$5 per simulazione completa di 100 tick.
 - Opinione pubblica (30+): regole aggregate, no LLM individuale
 
 Da implementare come parte del sistema multi-level agents.
+
+## Update 2026-10-29 (user): the purpose, and what scale means
+
+Epocha's purpose is the scientific simulation of civilizations of thousands,
+millions and billions of people. Behaviour, age-dependent included (see
+[[project-life-course-behavior]]), is modelled with rules and distributions
+grounded in the literature, at a bounded cost per tick, never with one LLM
+call per person. Small populations with individual or group chats are
+possible, but secondary: interaction must exist, it is not the engine of the
+simulation. As it stands, with every agent deciding through the LLM, Epocha is
+"più o meno un giocattolo" (user). Every spec states its cost per tick and how
+it scales with population. Take inspiration from MiroFish
+([[mirofish-comparison]]) while staying original and going beyond it: Epocha
+is meant to be unique in its kind.

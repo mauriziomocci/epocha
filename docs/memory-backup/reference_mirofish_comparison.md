@@ -1,9 +1,27 @@
 ---
 name: mirofish-comparison
-description: Feature comparison with MiroFish -- what to learn from them, what we do better
+description: Feature comparison with MiroFish, verified 2026-10-29 -- same per-agent LLM cost structure as Epocha, AGPL-3.0 (ideas only), where Epocha goes beyond
 type: reference
 originSessionId: 8f665d74-99ae-4441-b1f2-511d74b26c7d
 ---
+
+## Aggiornamento verificato 2026-10-29 (lettura statica del codice MiroFish via API GitHub, nulla eseguito)
+
+Le affermazioni sotto questa sezione sono anteriori e in parte superate: questa prevale.
+- **Stessa struttura di costo "giocattolo".** Ogni agente MiroFish e' un agente LLM di OASIS: un
+  agente che agisce in un round costa una chiamata LLM (`run_twitter_simulation.py:649`); il costo
+  si contiene solo con un sottoinsieme casuale per round. Il numero di agenti e' uno per entita'
+  estratta dai documenti. Il "milione di agenti" viene dal paper di OASIS, non da MiroFish.
+- **Iniezione di variabili quasi assente nel codice**: `scheduled_events` e' una lista vuota fissa
+  (`simulation_config_generator.py:725`); parametri tipo echo chamber, viral threshold sono generati
+  ma non letti dagli script di run. Nessuna citazione, nessuna validazione.
+- **Da cui prendere spunto (idee, mai codice)**: agente di report con strumenti, fatti correnti
+  separati da quelli superati, intervista agli agenti senza far avanzare la simulazione.
+- **Licenza AGPL-3.0**: niente codice ne' prompt copiati in Epocha (Apache-2.0).
+- **Dove Epocha va oltre**: scala con coorti statistiche e un insieme limitato di protagonisti LLM
+  (MiroFish non puo' senza abbandonare OASIS), rigore scientifico, demografia per tick.
+Rapporto completo del 2026-10-29 nello scratchpad della sessione Epocha di quel giorno (temporaneo).
+
 MiroFish (https://github.com/666ghj/MiroFish) -- simulatore multi-agente di
 riferimento. Confronto con Epocha per identificare gap e vantaggi.
 
