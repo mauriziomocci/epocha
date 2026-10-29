@@ -22,7 +22,19 @@ falling". Causes verified the same day in `epocha/apps/dashboard/views.py`
 3. Only the last 5 prior messages, as flat text inside the system prompt, plus
    the rule "React ONLY to the visitor's latest message", which works against
    continuity.
-4. The local 8B model (qwen3-8b) amplifies all of the above; not the root cause.
+4. The prompt appends `/no_think`, a Qwen-only switch: with Gemma 4 12B
+   (switched in on 2026-10-29) it is ignored, the model spends about 240 of the
+   500 max tokens on reasoning (measured: 236 reasoning of 302, 30 s per reply),
+   and a long prompt can leave the reply empty. The chat also tried the remote
+   gpt-4o-mini first and fell back to LM Studio on every message, until the
+   session override pointed EPOCHA_CHAT_LLM_* at LM Studio.
+5. Persistence gaps found 2026-10-29 while saving Kael Vrith: the GROUP chat
+   (`dashboard/views.py` `group_chat_view`) stores nothing server-side, so a
+   group discussion is lost when the page closes; event injection writes the
+   same memory again on every submit (Kael holds the meteorite event three
+   times); there is no export/import of a character (agent + memories + chat),
+   so moving one to a new simulation needs a script written by hand.
+6. The local 8B model (qwen3-8b) amplifies all of the above; not the root cause.
 
 **Why:** chat is secondary for Epocha (scale is the goal), but a demo that
 reads as nonsense undermines trust in the rest.
