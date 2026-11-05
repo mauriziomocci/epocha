@@ -14,6 +14,7 @@ Sources:
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import TYPE_CHECKING
 
 from django.db.models import Q
@@ -156,8 +157,11 @@ def stable_matching(
     each other via score_fn(proposer, respondent) -> float. Higher score
     is preferred.
 
-    Complexity: O(n * m) total proposals for n proposers and m respondents.
-    Gale & Shapley (1962) prove existence and stability.
+    Complexity: O(n·m·log m) for n proposers and m respondents: at most n·m
+    proposals (Gale & Shapley 1962), each proposer's list is sorted once
+    (m·log m), and the score function is evaluated 2·n·m times (once per pair
+    to rank each proposer's list, once per pair to build each respondent's
+    table). Gale & Shapley (1962) prove existence and stability.
 
     When len(proposers) != len(respondents), the smaller side is fully
     matched and the larger side has unmatched members.
@@ -173,12 +177,15 @@ def stable_matching(
     }
     respondent_prefs = {r: {p: score_fn(p, r) for p in proposers} for r in respondents}
 
-    free_proposers = list(proposers)
+    # A deque takes the free proposers in the same first-in-first-out order as
+    # the list did, so the run is step-for-step identical, ties included, but
+    # popleft() is O(1) where list.pop(0) is O(n) inside the proposal loop.
+    free_proposers = deque(proposers)
     engagements: dict = {}
     next_proposal_index: dict = {p: 0 for p in proposers}
 
     while free_proposers:
-        p = free_proposers.pop(0)
+        p = free_proposers.popleft()
         pref_list = proposer_prefs[p]
         if next_proposal_index[p] >= len(pref_list):
             continue

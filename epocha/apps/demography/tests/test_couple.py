@@ -338,6 +338,21 @@ def test_stable_matching_3x3_is_stable():
             )
 
 
+def test_stable_matching_evaluates_the_score_twice_per_pair():
+    """The score function is called 2 * n * m times for n proposers and m
+    respondents: once per pair to rank each proposer's list and once per pair
+    to build each respondent's table. The docstring's cost figure pins this."""
+    calls = []
+
+    def counting_score(proposer, respondent):
+        calls.append((proposer, respondent))
+        return float(proposer + 1) / (respondent + 1)
+
+    stable_matching(proposers=[0, 1, 2], respondents=[0, 1, 2, 3], score_fn=counting_score)
+
+    assert len(calls) == 2 * 3 * 4
+
+
 def test_stable_matching_asymmetric_3_proposers_2_respondents():
     """With 3 proposers and 2 respondents, exactly 2 matches must be produced."""
     score_table = {
