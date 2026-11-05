@@ -418,11 +418,11 @@ def marriage_ineligibility(
     The ONE eligibility rule of the marriage market, the founding pairing and
     the pair-bond intent resolver: `meets_marriage_age` (the era's minimum age
     on the canonical age) and the mourning interval after the death of a
-    partner. Today only the resolver calls it; the market adopts it with the
-    wiring of step 2 (group G9) and the founding pairing with the founding
-    schedule (group G10), so until then those two keep their own age check.
-    The resolver logs the reason, so the two refusals read differently in the
-    record.
+    partner. Two functions call it: the pair-bond intent resolver and
+    `read_market_population`, which the per-tick market and the founding
+    pairing (`initialization.form_initial_couples`) both use, so all three
+    apply the same rule. The resolver logs the reason, so the two refusals
+    read differently in the record.
 
     Mourning holds while `tick - widowed_at_tick < mourning_ticks`: the death
     tick is day 0, and exactly `mourning_ticks` later the agent is free. It
