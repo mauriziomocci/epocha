@@ -47,7 +47,7 @@ def simulation_with_vital_events(db):
 
     A fertile couple for the fertility step -- with `age` and `birth_tick`
     deliberately in disagreement, so nothing here can pass by reading the
-    frozen column -- a zone for migration, and living agents for mortality.
+    cached column -- a zone for migration, and living agents for mortality.
     """
     from django.contrib.gis.geos import Point, Polygon
 
@@ -85,7 +85,7 @@ def simulation_with_vital_events(db):
             location=Point(50, 50),
             health=1.0,
             wealth=500.0,
-            age=99,  # frozen column, deliberately wrong
+            age=99,  # cached column, deliberately wrong
             birth_tick=int(sim.current_tick - real_age * 365.0),
             education_level=0.4,
             social_class="working",
@@ -356,7 +356,7 @@ class TestPermutedOrdersBreakObservably:
                 location=Point(50, 50),
                 health=1.0,
                 wealth=wealth,
-                age=99,  # frozen column, deliberately wrong (the recurring trap)
+                age=99,  # cached column, deliberately wrong (the recurring trap)
                 birth_tick=int(sim.current_tick - real_age * 365.0),
                 education_level=0.4,
                 social_class="working",
@@ -496,7 +496,7 @@ class TestPermutedOrdersBreakObservably:
                 location=Point(50, 50),
                 health=1.0,
                 wealth=wealth,
-                age=99,  # frozen column, deliberately wrong (the recurring trap)
+                age=99,  # cached column, deliberately wrong (the recurring trap)
                 birth_tick=int(sim.current_tick - real_age * 365.0),
                 education_level=0.4,
                 social_class="working",

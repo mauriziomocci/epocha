@@ -3,8 +3,9 @@
 Two preconditions the demography modules assume, and that nothing satisfied.
 
 `birth_tick` is the project's only source of ageing: `Agent.age` is written
-once at world generation and never advances, so a population initialized
-without `birth_tick` has mortality and fertility frozen for the whole run.
+at world generation and only refreshed afterwards, as a cache of completed
+years, so a population initialized without `birth_tick` has no canonical age
+for mortality and fertility.
 
 And nothing created couples. Three era templates of five, the default among
 them, return a birth probability of exactly zero without an active couple,
@@ -73,7 +74,7 @@ def _agent(sim, zone, name, age, gender=Agent.Gender.MALE, **kwargs):
 class TestBirthTickBackfill:
     def test_no_living_agent_is_left_without_a_birth_tick(self, sim_with_zone):
         """The post-condition FR-013 states, asserted as a post-condition
-        rather than per agent: what matters is that the frozen-age path is
+        rather than per agent: what matters is that the stale-age path is
         unreachable afterwards."""
         sim, zone = sim_with_zone
         _agent(sim, zone, "Uno", age=20)
@@ -424,7 +425,7 @@ class TestActivationOnAnAlreadyGeneratedWorld:
 
         agent.refresh_from_db()
         # Asserted on birth_tick and not through `age_in_years`, which falls
-        # back to the frozen column when birth_tick is NULL and therefore
+        # back to the cached column when birth_tick is NULL and therefore
         # answers 28 whether or not the repair ran at all. The first version
         # of this test did exactly that and passed before the fix existed.
         assert agent.birth_tick is not None
@@ -622,7 +623,7 @@ class TestTheFoundingPairingSharesTheIntentPathsAgeRule:
 
         pairs = set(Couple.objects.filter(simulation=sim).values_list("agent_a_id", "agent_b_id"))
         assert pairs == {tuple(sorted((groom.id, bride.id)))}, (
-            "the founding pairing read the frozen `age` column instead of the "
+            "the founding pairing read the cached `age` column instead of the "
             "canonical age from `birth_tick`"
         )
 

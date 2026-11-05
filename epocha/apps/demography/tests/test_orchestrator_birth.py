@@ -60,7 +60,7 @@ TICKS_PER_YEAR = 365.0  # the default 24h tick
 def _birth_tick_for_age(sim, age_years):
     """A living adult was born before the run started, so its birth tick is
     negative -- the convention `Agent.birth_tick` documents. Age is derived
-    from it, never from the frozen `age` column."""
+    from it, never from the `age` column."""
     return int(sim.current_tick - age_years * TICKS_PER_YEAR)
 
 
@@ -433,12 +433,12 @@ class TestFertilityStep:
 
         assert not DemographyEvent.objects.filter(simulation=sim).exists()
 
-    def test_fertility_reads_birth_tick_and_not_the_frozen_age_column(self, sim_with_zone):
+    def test_fertility_reads_birth_tick_and_not_the_age_column(self, sim_with_zone):
         """The two sources must be able to disagree, or the test cannot tell
         them apart.
 
         Every fixture where `age` matches `birth_tick` is satisfied by an
-        implementation that filters the frozen column -- the blind spot this
+        implementation that filters the age column -- the blind spot this
         project has already paid for once: a probe declaring the same value
         as the fallback proves nothing about which one was read. Here the
         columns disagree on purpose. The agent's `age` column says 70, far
@@ -458,7 +458,7 @@ class TestFertilityStep:
 
         assert Agent.objects.filter(parent_agent=mother, birth_tick=context.tick).exists()
 
-    def test_an_agent_whose_frozen_age_looks_fertile_but_is_not_is_excluded(self, sim_with_zone):
+    def test_an_agent_whose_stale_age_looks_fertile_but_is_not_is_excluded(self, sim_with_zone):
         """The mirror case, so the property is pinned on both sides."""
         sim, zone = sim_with_zone
         elder = _agent(sim, zone, "Anziana", age=80)

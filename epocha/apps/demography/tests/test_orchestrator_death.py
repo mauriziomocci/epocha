@@ -192,11 +192,11 @@ class TestMortalityStep:
             simulation=sim, event_type=DemographyEvent.EventType.DEATH
         ).exists()
 
-    def test_mortality_reads_birth_tick_and_not_the_frozen_age_column(self, sim_with_zone):
+    def test_mortality_reads_birth_tick_and_not_the_age_column(self, sim_with_zone):
         """The two ageing sources must be able to disagree.
 
         A newborn's mortality is high under Heligman-Pollard and an adult's
-        is low, so an implementation reading the frozen `age` column instead
+        is low, so an implementation reading the `age` column instead
         of `birth_tick` produces a visibly different hazard. The agent below
         carries `age=1` in the column and eighty years of birth ticks.
         """

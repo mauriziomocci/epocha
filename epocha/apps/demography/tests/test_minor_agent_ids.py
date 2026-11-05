@@ -102,8 +102,8 @@ def test_the_dead_are_not_listed(sim_with_zone):
     assert dead_child.id not in orchestrator.minor_agent_ids(sim, sim.current_tick)
 
 
-def test_age_follows_birth_tick_not_the_frozen_age_column(sim_with_zone):
-    """`Agent.age` is written once and never advances: an agent whose column
+def test_age_follows_birth_tick_not_the_age_column(sim_with_zone):
+    """`Agent.age` is only a cache that can lag: an agent whose column
     still says 5 but whose birth tick makes it 30 is an adult."""
     sim, zone = sim_with_zone
     grown = _agent(sim, zone, "Cresciuto", 30, age=5)

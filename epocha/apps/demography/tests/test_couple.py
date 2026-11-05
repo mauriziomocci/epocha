@@ -316,7 +316,7 @@ def test_homogamy_score_finds_the_sentiment_whichever_agent_is_named_first(sim_w
 
 @pytest.mark.django_db
 def test_homogamy_score_takes_the_age_from_the_ages_map(sim_with_zone):
-    """The age term reads the canonical age map, not the frozen `age` column:
+    """The age term reads the canonical age map, not the cached `age` column:
     columns of 20 and 60 with mapped ages of 30 and 30 give a perfect term."""
     sim, zone = sim_with_zone
     a = _make_agent(sim, zone, "A", age=20)
@@ -1027,7 +1027,7 @@ def test_a_non_binary_agent_meets_the_higher_of_the_two_thresholds(
     ("column_age", "years_since_birth", "expected_couples"),
     [(30, 13, 0), (10, 20, 1)],
 )
-def test_the_age_is_read_from_the_birth_tick_not_the_frozen_column(
+def test_the_age_is_read_from_the_birth_tick_not_the_age_column(
     sim_with_zone, column_age, years_since_birth, expected_couples
 ):
     """`birth_tick` is the canonical age; the `age` column is a cache of it.

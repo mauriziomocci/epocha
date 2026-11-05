@@ -3,7 +3,7 @@
 Plan 4 makes agents be born inside a run. The prompt used to say only
 "You are {name}, a {role}", so a ten-month-old answered like an adult. The
 age comes from demography's canonical `current_age_in_years` (birth tick,
-tick length, acceleration), never from the frozen `Agent.age` column; the
+tick length, acceleration), never from the cached `Agent.age` column; the
 dashboard only words it.
 """
 
@@ -59,7 +59,7 @@ def test_an_adult_is_described_in_completed_years(sim):
     assert "months old" not in prompt
 
 
-def test_age_comes_from_birth_tick_not_the_frozen_column(sim):
+def test_age_comes_from_birth_tick_not_the_age_column(sim):
     prompt = _prompt_for(sim, age=70, birth_tick=int(CURRENT_TICK - 12.5 * TICKS_PER_YEAR))
 
     assert "12 years old" in prompt

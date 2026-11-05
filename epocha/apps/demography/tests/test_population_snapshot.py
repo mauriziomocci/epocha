@@ -393,7 +393,7 @@ class TestSnapshotFields:
         row = PopulationSnapshot.objects.get(simulation=sim, tick=tick)
         assert row.avg_household_size == pytest.approx(2.0, abs=0.001)
 
-    def test_ages_come_from_birth_tick_and_not_the_frozen_column(self, sim_with_zones):
+    def test_ages_come_from_birth_tick_and_not_the_age_column(self, sim_with_zones):
         """The third time this trap appears in this work item, so it is worth
         naming: a fixture whose `age` column agrees with its `birth_tick`
         cannot tell which of the two an implementation read. Here they

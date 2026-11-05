@@ -94,7 +94,7 @@ class TestChatConsumer:
 async def test_the_websocket_prompt_states_the_agents_age(simulation):
     """The third chat channel says the same thing about the speaker as the
     private and the group chat of the dashboard: who the agent is and how
-    old, from demography's canonical age (`birth_tick`), never the frozen
+    old, from demography's canonical age (`birth_tick`), never the cached
     `Agent.age` column. Round 12 of the phase-6 gate found this channel
     still opening with name and role only, so a newborn answered like an
     adult here."""

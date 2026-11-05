@@ -4,10 +4,10 @@ The demography modules assume two things about the population they are handed,
 and until this module existed nothing established either.
 
 **Ageing.** `birth_tick` is the project's only source of it. `Agent.age` is
-written once by the world generator and never advances, and the fertility
-module falls back to that column only when `birth_tick` is NULL -- so a
-founding population without birth ticks has mortality and fertility frozen for
-the entire run, at whatever ages the generator happened to produce.
+written by the world generator and afterwards only refreshed, as a cache of
+completed years, by the mortality step; the fertility module falls back to
+that column only when `birth_tick` is NULL -- so a founding population
+without birth ticks would have no canonical age to refresh it from.
 
 **Couples.** Three of the five era templates, the default among them, return a
 birth probability of exactly zero for a mother who is not in an active couple.

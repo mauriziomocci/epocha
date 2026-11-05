@@ -24,10 +24,10 @@ would hide precisely the class of error worth catching.
 
 The fixture makes `Agent.age` and `birth_tick` disagree on purpose. A fixture
 where they agree cannot say which of the two sources the code reads, and this
-work item has already been caught by that three times: `age` is written once
-at world generation and never advances, `birth_tick` is the only source that
-does, so every woman here carries an `age` column that would put her outside
-the fertile window while her `birth_tick` puts her inside it.
+work item has already been caught by that three times: `age` is a cache of
+completed years that can lag, `birth_tick` is the canonical source, so every
+woman here carries an `age` column that would put her outside the fertile
+window while her `birth_tick` puts her inside it.
 """
 
 from __future__ import annotations

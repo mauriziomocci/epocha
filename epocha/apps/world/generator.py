@@ -198,10 +198,11 @@ def generate_world_from_prompt(prompt: str, simulation, knowledge_graph=None) ->
 
     # Demographic initialization, for simulations that opted in. It gives every
     # generated agent a `birth_tick` consistent with the age written above --
-    # without which ageing never starts, since that `age` column never advances
-    # -- and forms the founding couples that three era templates require before
-    # any birth is possible. It returns immediately when demography is off, so
-    # simulations that never declared it are generated exactly as before.
+    # which is the canonical age source, `age` being only a cache of it
+    # refreshed by the mortality step -- and forms the founding couples that
+    # three era templates require before any birth is possible. It returns
+    # immediately when demography is off, so simulations that never declared
+    # it are generated exactly as before.
     from epocha.apps.demography.initialization import initialize_demography
 
     initialize_demography(simulation)

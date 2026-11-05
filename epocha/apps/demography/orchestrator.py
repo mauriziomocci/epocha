@@ -246,10 +246,10 @@ def build_newborn(
     contract, so the two compose.
 
     `birth_tick` is set here and is load-bearing well beyond this function:
-    it is the project's only source of ageing. `Agent.age` is written once at
-    world generation and never advances, and fertility falls back to it only
-    when `birth_tick` is NULL -- so a newborn without `birth_tick` would be
-    frozen at age zero forever.
+    it is the project's only source of ageing. `Agent.age` is written at
+    world generation and afterwards only refreshed, as a cache, by the
+    mortality step; fertility falls back to it only when `birth_tick` is
+    NULL -- so a newborn without `birth_tick` would stay at age zero forever.
     """
     from epocha.apps.agents.models import Agent
     from epocha.apps.demography.inheritance import apply_inheritance_at_birth
@@ -558,7 +558,7 @@ def current_age_in_years(agent: Any, clock: tuple[int, float, float] | None = No
     The one entry point for callers outside the tick loop (the chat
     channels), so that they format an age without owning its formula: it
     runs through `age_in_years`, hence through `birth_tick` and not through
-    the frozen `Agent.age` column. `clock` is `current_age_clock` of the
+    the cached `Agent.age` column. `clock` is `current_age_clock` of the
     agent's simulation; omitted, it is read here.
     """
     tick, tick_duration_hours, acceleration = clock or current_age_clock(agent.simulation)
@@ -1056,9 +1056,9 @@ def _tick_duration_hours(simulation: Any) -> float:
 def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: float) -> Q:
     """Filter the fertile window in SQL, on `birth_tick`.
 
-    Filtering on `Agent.age` would read a column that is written once at
-    world generation and never advances: an agent would stay fertile, or
-    infertile, for the whole run regardless of how many ticks passed.
+    Filtering on `Agent.age` would read a column that is only a cache
+    refreshed after step 2 of the tick, so it can lag the canonical age by
+    one tick and is not the quantity the window is defined on.
     `birth_tick` is the project's only source of ageing, and the window
     `FERTILE_AGE_MIN <= age_in_years <= FERTILE_AGE_MAX` inverts onto it as
     a closed interval of integer birth ticks, which keeps the selection one
@@ -1079,9 +1079,9 @@ def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: 
     correction steps.
 
     Agents with a NULL `birth_tick` are excluded. The fertility module falls
-    back to the frozen `age` column for them, and the initialization
+    back to the cached `age` column for them, and the initialization
     guarantees no living agent is left in that state; admitting them here
-    would quietly reintroduce the frozen-age path this project is removing.
+    would quietly reintroduce the stale-age path this project is removing.
     """
     years_per_tick(tick_duration_hours, acceleration)  # validates the clock before the searches
     youngest_elapsed = _fewest_ticks_to_reach(FERTILE_AGE_MIN, tick_duration_hours, acceleration)
