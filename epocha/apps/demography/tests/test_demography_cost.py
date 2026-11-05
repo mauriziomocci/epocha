@@ -448,7 +448,12 @@ PER_PAIR_BOND_INTENT = 7
 # (`DEATH_TICK_ONCE`) above, and not part of the per-intent slope: T035 of
 # the rule-based couples tasks declares one query per tick, not per intent,
 # and the measurement subtracts it so the linearity and the bound stay exact
-# equalities.
+# equalities. The market (`read_market_population`) reads the same history
+# once more on every tick, and that read is already in the baseline; so on a
+# tick with intents the history is read twice, once per phase. The spec
+# declared one read; sharing it would add an optional parameter to
+# `resolve_pair_bond_intents`, `run_marriage_market` and
+# `read_market_population` to save this one query, and was not done.
 MARRIAGE_HISTORY_READ = 1
 
 
