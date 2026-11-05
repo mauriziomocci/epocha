@@ -2572,9 +2572,9 @@ Table 7.2 — Acceptance thresholds per audited module.
 | Module | Threshold | Rationale |
 |---|---|---|
 | Mortality (HP fit) | RMSE on annual `q(x)` per single-year age class strictly less than `0.005`, and the fitted curve reproduces the three HP regimes (early-life decline, accident hump, senescent rise) qualitatively rather than collapsing to a Gompertz monotone | The threshold matches the order of magnitude of the residuals reported in Heligman and Pollard (1980) for their original Australian fits |
-| Fertility (Hadwiger fit) | Total Fertility Rate `TFR ∈ [4.5, 6.5]` for the pre-industrial era after fitting `H`, `R`, `T` against the Wrigley-Schofield ASFR profile. **Unreachable by its own procedure in the eras that require a couple** (`require_couple_for_birth`), until the marital-fertility work item replaces equation (4.2) there | The interval brackets the historically attested TFR range for early-modern England (Wrigley and Schofield 1981). The procedure fits (4.2) to an all-women profile, but with `require_couple_for_birth` (4.2) applies to married women only (§4.1.2). Computed for `pre_industrial_christian`, the template that profile describes, without mortality, widowhood or remarriage and with the loader-derived location `u = 25.580`: a fit that reproduces the profile (`H = 5`) realizes a TFR of 2.374, and reaching the lower bound 4.5 would require scaling `H` by 1.896, which implies 4.72 births per married woman per year at age 20. The same integral was not evaluated for the other two eras that require a couple, `pre_industrial_islamic` and `industrial`, which that dataset does not describe. The row is not a pass/fail check in those eras until the replacement lands |
+| Fertility (Hadwiger fit) | Total Fertility Rate `TFR ∈ [4.5, 6.5]` for the pre-industrial era after fitting `H`, `R`, `T` against the Wrigley-Schofield ASFR profile. **Unreachable by its own procedure in the eras that require a couple** (`require_couple_for_birth`), until the marital-fertility work item replaces equation (4.2) there | The interval brackets the historically attested TFR range for early-modern England (Wrigley and Schofield 1981). The procedure fits (4.2) to an all-women profile, but with `require_couple_for_birth` (4.2) applies to married women only (§4.1.2). Computed for `pre_industrial_christian`, the template that profile describes, without mortality, widowhood or remarriage and with the loader-derived location `u = 25.580`: a fit that reproduces the profile (`H = 5`) realizes a TFR of 2.374, and reaching the lower bound 4.5 would require scaling `H` by 1.896, which implies 4.72 births per married woman per year at age 20. The same integral, with the same conditions, gives 4.22 for `pre_industrial_islamic` and 2.117 for `industrial` (§11), eras that the Wrigley-Schofield dataset does not describe. The row is not a pass/fail check in those eras until the replacement lands |
 | Crisis mortality (Irish Famine analog) | Excess mortality consistent with approximately `12%` cumulative over five years when the simulation is forced with a famine shock of comparable magnitude | The `12%` figure is the order of magnitude of the population loss reported by Mokyr (1985) for the 1846-1851 Irish Famine combining excess deaths and forced emigration |
-| Couple formation (European marriage pattern) | Singulate Mean Age at Marriage `SMAM ∈ [25, 28]` years and never-married fraction at age 50 in `[10%, 20%]` after running the founder-population builder and aging the cohort | The two intervals are the canonical signature of the European Marriage Pattern reported in Hajnal (1965) |
+| Couple formation (European marriage pattern) | Singulate Mean Age at Marriage `SMAM ∈ [25, 28]` years and never-married fraction at age 50 in `[10%, 20%]` after running the founder-population builder and aging the cohort | The two intervals are the canonical signature of the European Marriage Pattern reported in Hajnal (1965). The row refers to the Christian template (`mean_age_female` 25.5), which encodes that pattern; it does not apply to the Islamic template (`mean_age_female` 19.0), whose mean age 19.0 lies below the interval |
 | Economy (base layer, §4.8) | Acceptance criteria deferred to Plan 4 alongside the dataset selection of §7.1; the audited invariants (factor-income injection equals V, goods conservation, tax transfer symmetry, seeded determinism of the non-LLM economic step) are enforced by the regression suite rather than by empirical thresholds | No empirical target dataset has been specified at the time of writing |
 | Economy (behavioral integration) | Acceptance criteria deferred to Plan 4 alongside the dataset selection of §7.1 | No empirical target dataset has been specified at the time of writing |
 
@@ -2820,9 +2820,19 @@ campaign tracked under `project_validation_experiments_pending.md`.
   measurement (SC-007 of the couples spec) on the corrected mortality
   code, not assumed. The cause is
   a model error of equation (4.2) applied to married women only, not a
-  calibration error. The figures were computed for the Christian template
-  only, not for the other two eras that require a couple. Replacing (4.2)
-  is a separate work item.
+  calibration error. The same integral, computed with the same functions
+  and the same conditions (no maternal mortality, no widowhood, no
+  remarriage), gives for `pre_industrial_islamic` (`u = 18.639`) a TFR of
+  4.22 and an analytic net reproduction rate of 1.909, with a marital rate
+  at age 20 of 0.36 births per married woman per year, and for `industrial`
+  (`u = 25.571`) a TFR of 2.117 and a net reproduction rate of 0.993, with
+  a marital rate at age 20 of 1.391, a value above 1 that a woman cannot
+  reach in a year. Under the couple rule the industrial era would therefore
+  shrink, while the Islamic era would still grow (a net reproduction rate of
+  1.909). Replacing (4.2)
+  by a marital-fertility schedule is a separate work item (branch
+  `20261029-185654-marital-fertility`, not merged), which replaces the
+  Hadwiger rate for married women.
 - The stage reading of the Coale and McNeil convolution (entry to the
   market, meeting, engagement) is not used: the mean stage durations are
   biased when the stages are correlated (Kaneko 2003).
