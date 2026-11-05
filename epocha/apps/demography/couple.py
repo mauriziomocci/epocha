@@ -435,6 +435,72 @@ def marriage_ineligibility(
     return None
 
 
+@dataclass(frozen=True)
+class MarketPopulation:
+    """The people the marriage market of one tick can see.
+
+    Attributes:
+        women: the eligible women, sorted by id. They are the proposers: the
+            market is female-dominant (the one-queue idea of SOCSIM, cited as
+            an idea in the spec).
+        men: the eligible men, sorted by id. They are the respondents.
+        ages: canonical age (`age_in_years` over `birth_tick`) of every agent
+            in `women` and `men`, computed once per tick.
+        history: the marriage history the eligibility was judged on; the
+            remarriage rate applies to the women in `history.ever_partnered`.
+    """
+
+    women: list
+    men: list
+    ages: dict[int, float]
+    history: MarriageHistory
+
+
+def read_market_population(context) -> MarketPopulation:
+    """Read who can marry at this tick, in three queries whatever the size.
+
+    Eligible means alive, a man or a woman, heterosexual or bisexual (the one
+    orientation rule, `seeks_a_partner_of_the_other_sex`), in no active couple,
+    and free of `marriage_ineligibility` (the era's minimum age and the
+    mourning interval). Queries: the living men and women with their
+    simulation joined in, the active couples, the marriage history.
+
+    Queryset dependencies: `select_related("simulation")`, because
+    `form_couple` reads `agent.simulation` and would otherwise cost a query
+    per couple formed.
+    """
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.orchestrator import age_in_years
+
+    simulation, tick, template = context.simulation, context.tick, context.template
+    hours = context.hours_per_tick()
+    acceleration = float(template.get("acceleration", 1.0))
+    partnered = active_couple_partners(simulation)
+    history = read_marriage_history(simulation)
+    candidates = (
+        Agent.objects.filter(
+            simulation=simulation,
+            is_alive=True,
+            gender__in=(Agent.Gender.MALE, Agent.Gender.FEMALE),
+        )
+        .select_related("simulation")
+        .order_by("id")
+    )
+    eligible = [
+        agent
+        for agent in candidates
+        if agent.id not in partnered
+        and seeks_a_partner_of_the_other_sex(agent)
+        and marriage_ineligibility(agent, template, tick, hours, history) is None
+    ]
+    return MarketPopulation(
+        women=[a for a in eligible if a.gender == Agent.Gender.FEMALE],
+        men=[a for a in eligible if a.gender == Agent.Gender.MALE],
+        ages={a.id: age_in_years(a, tick, hours, acceleration) for a in eligible},
+        history=history,
+    )
+
+
 def resolve_pair_bond_intents(
     simulation,
     tick: int,
