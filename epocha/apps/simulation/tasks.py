@@ -27,10 +27,9 @@ def run_simulation_loop(simulation_id: int) -> None:
     Steps:
     1. Verify simulation is still running
     2. Run economy tick (synchronous, fast)
-    3. Launch chord: one process_agent_turn per living agent
+    3. Launch chord: one process_agent_turn per protagonist (at most K)
     4. Chord callback (finalize_tick) handles the rest
     """
-    from epocha.apps.agents.models import Agent
     from epocha.apps.simulation.engine import run_economy
     from epocha.apps.simulation.models import Simulation
 
@@ -66,20 +65,13 @@ def run_simulation_loop(simulation_id: int) -> None:
     run_demography_tick(simulation, tick)
 
     # 3. Build chord of agent tasks
+    from epocha.apps.agents.deliberation import select_deliberating_agents
     from epocha.apps.agents.tasks import process_agent_turn
-    from epocha.apps.demography.orchestrator import minor_agent_ids
 
-    # Minors are not called to the decision loop: a newborn must not choose
-    # `move_to` and leave its household alone (the guarantee
-    # `coordinate_family_migration` documents). Read AFTER the demography
-    # block, so a child born this tick is already in the population. The
-    # predicate is demography's; an empty set when the simulation has not
-    # opted in keeps the chord exactly as it was.
-    agent_ids = list(
-        Agent.objects.filter(simulation=simulation, is_alive=True)
-        .exclude(id__in=minor_agent_ids(simulation, tick))
-        .values_list("id", flat=True)
-    )
+    # At most K protagonists deliberate (`max_protagonists`), minors excluded;
+    # read AFTER the demography block, so a child born this tick is already in
+    # the population. See `select_deliberating_agents`.
+    agent_ids = [agent.id for agent in select_deliberating_agents(simulation, tick)]
 
     if not agent_ids:
         finalize_tick([], simulation_id, tick)

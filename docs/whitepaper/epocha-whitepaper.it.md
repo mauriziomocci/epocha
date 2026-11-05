@@ -469,7 +469,7 @@ tick N      pre-snapshot ──> economy tick ──> chord(process_agent_turn �
 
 ## 3.2 Pipeline di decisione dell'agente (Big Five + memoria + LLM)
 
-Ogni agente vivente attraversa una pipeline a quattro stadi implementata
+Ogni protagonista (vedi sotto) attraversa una pipeline a quattro stadi implementata
 in `epocha/apps/agents/decision.py::process_agent_decision`. Il primo
 stadio raccoglie il contesto: le top-k memorie rilevanti (ordinate per
 peso emotivo decrescente, poi per recency decrescente, in
@@ -491,6 +491,20 @@ risposta, parsifica l'azione JSON con un fallback a `{"action": "rest",
 "reason": "confused"}` quando l'LLM restituisce output malformato, e
 persiste l'intero contesto di input e l'azione parsificata in una riga
 `DecisionLog` per replay e audit offline.
+
+La pipeline non gira per ogni agente vivente: gira per al più K
+protagonisti a tick, scelti da
+`epocha/apps/agents/deliberation.py::select_deliberating_agents` in
+quest'ordine: il capo di stato del governo della simulazione, i leader dei
+suoi gruppi, poi gli altri adulti per id. K viene da
+`config.max_protagonists` della simulazione (default 30; 0 significa nessuna
+chiamata LLM di decisione, la modalità di validazione). K è un budget di
+calcolo, non un parametro scientifico, e non afferma nulla sul comportamento
+umano. Gli agenti fuori dai protagonisti non deliberano, conservano la chat e
+vivono secondo le regole demografiche ed economiche del Capitolo 4. La
+generazione dell'identità di una fazione
+(`factions._generate_faction_identity`) è fuori dal limite: dà il nome a un
+gruppo, non a una persona. I minorenni non deliberano mai.
 
 Le memorie sono scritte da `apply_agent_action` con un peso emotivo
 estratto da una tabella di lookup per azione (per esempio 0.8 per

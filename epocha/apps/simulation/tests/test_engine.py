@@ -52,7 +52,7 @@ class TestSimulationEngine:
 
     @patch("epocha.apps.simulation.engine.process_agent_decision")
     def test_run_tick_processes_all_agents(self, mock_decision, sim_with_world):
-        """Every living agent should get a decision call."""
+        """Every agent should get a decision call while the default budget covers them."""
         Agent.objects.create(
             simulation=sim_with_world,
             name="Elena",
@@ -65,6 +65,19 @@ class TestSimulationEngine:
         engine.run_tick()
 
         assert mock_decision.call_count == 2  # Marco + Elena
+
+    @patch("epocha.apps.simulation.engine.process_agent_decision")
+    def test_only_k_protagonists_decide(self, mock_decision, sim_with_world):
+        """`max_protagonists = 2` gives exactly two decision calls out of five agents."""
+        for index in range(4):
+            Agent.objects.create(simulation=sim_with_world, name=f"Extra{index}", role="farmer")
+        sim_with_world.config = {"max_protagonists": 2}
+        sim_with_world.save()
+        mock_decision.return_value = {"action": "rest"}
+
+        SimulationEngine(sim_with_world).run_tick()
+
+        assert mock_decision.call_count == 2
 
     @patch("epocha.apps.simulation.engine.process_agent_decision")
     def test_dead_agents_are_skipped(self, mock_decision, sim_with_world):

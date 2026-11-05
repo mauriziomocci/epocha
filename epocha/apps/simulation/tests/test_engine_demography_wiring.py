@@ -8,12 +8,12 @@ that a simulation which never opted in is left exactly as it was.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
-from epocha.apps.agents.models import Agent
+from epocha.apps.agents.models import Agent, DecisionLog
 from epocha.apps.demography import orchestrator as orchestrator_module
 from epocha.apps.demography.models import DemographyEvent
 from epocha.apps.simulation.models import Simulation
@@ -268,3 +268,84 @@ def test_without_demography_every_living_agent_still_decides(monkeypatch):
     header_ids = _header_agent_ids(monkeypatch, sim)
 
     assert header_ids == {young.id, adult.id}
+
+
+def _decision_client_double():
+    """LLM client factory of the decision step that fails on any call (SC-006).
+
+    The sequential tick loop swallows exceptions per agent, so the raise alone
+    would not fail a test: the call count is asserted too.
+    """
+    return MagicMock(side_effect=AssertionError("the decision LLM was called with K = 0"))
+
+
+_FIXED_FACTION_IDENTITY = ("Faction", "Objective")
+TICKS_WITHOUT_PROTAGONISTS = 10
+
+
+def _simulation_without_protagonists(*, status):
+    """A demography-enabled simulation with `max_protagonists = 0` and two agents."""
+    sim, zone = _simulation(None, demography=True)
+    sim.config = {"demography_enabled": True, "max_protagonists": 0}
+    sim.status = status
+    sim.save()
+    _agent(sim, zone, "Uno", age=30)
+    _agent(sim, zone, "Due", age=35)
+    return sim
+
+
+@pytest.mark.django_db
+def test_with_zero_protagonists_the_celery_path_never_builds_a_decision_chord():
+    """SC-006, Celery path: K = 0 reaches no decision, over 10 ticks.
+
+    The loop only runs while the simulation is `running`, so `finalize_tick`
+    is replaced by a double that advances the tick counter (the real one would
+    re-enqueue the loop). `chord` is the seam where decisions are dispatched:
+    it must never be reached, because the header is empty.
+    """
+    sim = _simulation_without_protagonists(status=Simulation.Status.RUNNING)
+
+    def _advance_tick(results, simulation_id, tick):
+        Simulation.objects.filter(id=simulation_id).update(current_tick=tick)
+
+    decision_client = _decision_client_double()
+    with (
+        patch("epocha.apps.agents.decision.get_llm_client", decision_client),
+        patch(
+            "epocha.apps.agents.factions._generate_faction_identity",
+            return_value=_FIXED_FACTION_IDENTITY,
+        ),
+        patch("epocha.apps.simulation.tasks.chord") as chord,
+        patch("epocha.apps.simulation.tasks.finalize_tick", side_effect=_advance_tick) as finalize,
+    ):
+        for _ in range(TICKS_WITHOUT_PROTAGONISTS):
+            run_simulation_loop(sim.id)
+
+    decision_client.assert_not_called()
+    chord.assert_not_called()
+    assert finalize.call_count == TICKS_WITHOUT_PROTAGONISTS
+    assert all(call.args[0] == [] for call in finalize.call_args_list)
+    assert not DecisionLog.objects.filter(simulation=sim).exists()
+
+
+@pytest.mark.django_db
+def test_with_zero_protagonists_the_sequential_path_never_calls_the_decision_llm():
+    """SC-006, sequential path: the real `process_agent_decision` is never reached."""
+    from epocha.apps.simulation.engine import SimulationEngine
+
+    sim = _simulation_without_protagonists(status=Simulation.Status.RUNNING)
+
+    decision_client = _decision_client_double()
+    with (
+        patch("epocha.apps.agents.decision.get_llm_client", decision_client),
+        patch(
+            "epocha.apps.agents.factions._generate_faction_identity",
+            return_value=_FIXED_FACTION_IDENTITY,
+        ),
+    ):
+        engine = SimulationEngine(sim)
+        for _ in range(TICKS_WITHOUT_PROTAGONISTS):
+            engine.run_tick()
+
+    decision_client.assert_not_called()
+    assert not DecisionLog.objects.filter(simulation=sim).exists()
