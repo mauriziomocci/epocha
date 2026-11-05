@@ -166,7 +166,12 @@ class PopulationSnapshot(models.Model):
         default=list,
         help_text=("List of [age_bucket_low, age_bucket_high, count_male, count_female]"),
     )
-    sex_ratio = models.FloatField(default=1.0)
+    # Nullable because the ratio is UNDEFINED with no women, and the
+    # previous default returned the male COUNT in that case -- ten men
+    # with no women read identically to ten men and one woman, in a
+    # field a reader takes for a ratio. Found by the phase-6 closure
+    # review of demography Plan 4.
+    sex_ratio = models.FloatField(default=1.0, null=True, blank=True)
     avg_age = models.FloatField(default=0.0)
     crude_birth_rate = models.FloatField(default=0.0)
     crude_death_rate = models.FloatField(default=0.0)

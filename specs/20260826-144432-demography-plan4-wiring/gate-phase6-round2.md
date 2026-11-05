@@ -1,0 +1,2894 @@
+# Gate di fase 6 — Round 2 sul CODICE: criterio di convergenza
+
+**Scritto prima del lancio del round, 2026-08-28.** Il round 1 è girato senza
+che il criterio fosse fissato in anticipo su questo work item; qui lo è, e la
+ragione è la stessa che il work item precedente ha pagato per undici round —
+un criterio letto dopo aver visto il risultato è una trattativa, non un
+criterio.
+
+## Ambito: ristretto al diff della remediation
+
+Il round giudica `git diff a9a7bb0..HEAD`, non l'intero branch. Il round 1 ha
+già giudicato il diff completo `develop..a9a7bb0`; ri-giudicare quel codice
+significherebbe rileggere duemila righe già lette per trovare gli stessi
+rilievi.
+
+Sul work item precedente restringere l'ambito al diff della remediation ha
+portato un round da venticinque minuti a tre **senza perdere severità**: il
+round così ristretto ha trovato il difetto più consequenziale dell'arco
+finale.
+
+**Il round 1 ha prodotto NOVE bloccanti, non otto.** L'handoff ne conta otto,
+e la prima stesura di questo documento li contava otto qui e nove nella
+sezione seguente, che ne elenca nove. Il nono è la coda documentale, che
+l'handoff enumera separatamente dai bloccanti pur dovendo essere chiusa prima
+del merge. Nove è il numero: la sezione che segue è la lista, e una lista
+lunga nove è la definizione.
+
+Il rischio del restringimento è dichiarato invece che taciuto: una
+remediation può rompere codice che il round 1 aveva giudicato sano e che
+questo round non rilegge. È mitigato dal fatto che la suite intera gira su
+ogni commit, che le mutazioni sono eseguite contro la versione **precedente**
+oltre che contro quella nuova, e che ogni file toccato dalla remediation
+rientra comunque nell'ambito per intero, non solo nelle righe cambiate.
+
+## I nove bloccanti del round 1, e che cosa si sostiene di aver chiuso
+
+Il round deve **verificare ciascuna chiusura contro il codice**, non fidarsi
+di questo elenco. Una chiusura dichiarata e non vera è il difetto peggiore
+che questo round possa trovare, perché sposta un problema noto dentro la
+categoria dei risolti.
+
+1. **N+1 nel passo fertilità**, sette query per donna fertile viva.
+   Sostenuto chiuso da `ae12137`: sei domande precaricate una volta per zona
+   e per simulazione, la settima portata da `select_related`.
+2. **Fixture della guardia di costo che non poteva fallire** (soli maschi
+   contro un passo che filtra le femmine). Sostenuto chiuso già in `a9a7bb0`,
+   e ri-verificato qui perché la guardia è stata riscritta due volte da
+   allora.
+3. **`_avg_household_size` senza soglia d'età**, contro la propria docstring.
+   Sostenuto chiuso da `9a65ecb`, con la soglia presa dal template.
+4. **Prove d'ordine SC-002 tautologiche** — asserzione sulla tupla permutata
+   anziché sul comportamento. Sostenuto chiuso da `d773f7a`, che esegue
+   l'ordine permutato.
+5. **Nessun confine transazionale** nei passi scritti dall'orchestratore.
+   Sostenuto chiuso da `45189e8` per mortalità e fertilità, con la
+   dichiarazione esplicita che il passo contatore ha una sola scrittura e non
+   ne ha bisogno.
+6. **`load_template` nudo in `form_initial_couples`**, che abortiva la
+   generazione del mondo. Sostenuto chiuso da `6ea106f`.
+7. **`DemographyStep.rng_phase` senza consumatore e sbagliato per due passi**.
+   Sostenuto chiuso da `6ea106f`, diventato `rng_phases` e tenuto al codice
+   da un test che registra le derivazioni reali.
+8. **Popolazione sterile su un mondo già generato, senza log**. Sostenuto
+   chiuso da `bc93240`, con la riparazione del `birth_tick` per tick e
+   l'avviso sull'assenza di coppie.
+9. **Coda documentale**: §4.1.1–§4.1.3, l'ordine dichiarato in testa al §4.1,
+   la mappa di default cancellata nel §4.1.5, la sezione `names` non
+   documentata, la build map, `ruff format`. Sostenuta chiusa da `018d8ef`,
+   `bc93240` e `1286458`.
+
+## Che cosa il round deve cercare, in ordine di gravità
+
+1. **Difetti di correttezza nel codice di produzione** introdotti dalla
+   remediation stessa: è la classe che il work item precedente ha visto due
+   volte di fila, dove una riparazione distrugge un testimone mentre ne
+   aggiunge un altro.
+2. **Criteri che non possono fallire** fra le guardie **nuove**. Su questo
+   work item il conto sta a diciotto; la maggioranza di quelli trovati dalla
+   remediation è stata trovata dentro guardie scritte per chiudere i primi.
+3. **Chiusure dichiarate e non vere** fra le nove sopra.
+4. **Doc-sync**: un modulo del §4.1 toccato dalla remediation senza il
+   whitepaper aggiornato nello stesso commit.
+5. **Prosa che descrive uno stato superato**, build map inclusa.
+
+## Criterio di convergenza
+
+Il gate dà **CONVERGED** quando il round non produce:
+
+- alcun difetto di correttezza nel codice di produzione, **né**
+- alcun criterio che non può fallire, **né**
+- alcuna chiusura dichiarata e non vera fra le nove del round 1.
+
+Cifre imprecise, riferimenti che puntano male, frasi da riformulare e
+osservazioni sulla spec **non riaprono il gate**: si correggono nello stesso
+commit e si registrano.
+
+## Perché questo criterio può fallire
+
+Il criterio è falsificabile e va detto in che modo, o è teatro. La
+remediation aggiunge 2172 righe su 24 file, tocca due moduli auditati nelle
+firme, cambia il costo per tick due volte, introduce una riparazione che gira
+a ogni tick e riscrive undici file di test. Le mutazioni eseguite sono
+ventisei e cinque sono sopravvissute al primo colpo, tutte chiuse. Se il
+round non produce nulla delle tre classi bloccanti, la spiegazione ammessa è
+che quelle mutazioni lo abbiano già colto — non che il round non abbia
+guardato, e il verdetto deve dire quali percorsi ha verificato per
+sostenerlo.
+
+## Emendamenti a questo documento dopo il lancio
+
+Registrati perché un criterio modificato in silenzio dopo aver visto il
+risultato non è più un criterio. Nessuno dei due tocca ciò che blocca la
+convergenza; entrambi correggono un difetto che il round stesso ha trovato in
+questo file.
+
+1. **La contraddizione otto/nove**, rilevata dal round come C9: il documento
+   diceva otto nell'ambito e nove nella lista. Corretta a nove, che è la
+   lunghezza della lista.
+2. **Il conteggio dei criteri-che-non-possono-fallire**, da tredici a
+   diciotto, rilevato dal round come C8: tredici era un sotto-conteggio della
+   remediation stessa, e la cifra non è un cancello, è un contesto.
+
+Le tre classi bloccanti sono quelle scritte prima del lancio e non sono state
+toccate.
+
+## Verdetto: NOT CONVERGED
+
+Round eseguito il 2026-08-28 da tre revisori avversariali su classi disgiunte,
+ambito ristretto come dichiarato sopra.
+
+**Classe 1 — difetti di correttezza nel codice di produzione: nessun rilievo.**
+Il revisore ha verificato e dichiarato i percorsi: l'equivalenza bit-identica
+di `compute_aggregate_outlook` fallback inclusi; l'invarianza dei precarichi
+attraverso il ciclo delle candidate, seguita fino alle foglie e non presa
+dalla docstring; il `return` dentro `transaction.atomic()`, letto contro
+`Atomic.__exit__` e corretto perché su un return normale committa;
+l'annidamento del savepoint dentro `process_inheritance_batch`; l'equivalenza
+fra la mappa di appartenenza e `is_in_active_couple` incluse le FK nullable e
+la trappola del falsy; la legittimità del `select_related` sul one-to-one
+inverso; l'allineamento degli zip in `_avg_household_size` e la provenienza
+della soglia; l'idempotenza della riparazione per tick; l'assenza di
+consumatori di `rng_phases` fuori dai test; e l'assenza di import circolare.
+
+**Classe 2 — criteri che non possono fallire: UN rilievo, misurato, e blocca.**
+`test_demography_cost.py:173`, la seconda asserzione della guardia sui
+candidati assenti. Inerte due volte: oscurata dall'uguaglianza che la precede,
+che pinna `observed` a una costante e la riduce al confronto di due costanti
+di modulo; e, misurata con quell'ombra rimossa e con iniettata la regressione
+esatta che il suo messaggio nomina — i precarichi spostati sopra il ritorno
+anticipato — **ancora verde**, perché il conteggio gonfiato resta comunque
+sotto l'altro termine. Il revisore ha eseguito quarantacinque mutazioni sul
+codice di produzione contro una copia pristina di `c7683bf`: ogni altra
+guardia dell'elenco muore ad almeno una.
+
+**Classe 3 — chiusure e documentazione: la riga 9 NON CHIUSA, più dodici
+rilievi non bloccanti.** Le prime otto chiusure reggono contro il codice, con
+un sub-claim inesistente sulla riga 5. La nona no: §4.1.1, §4.1.2 e §4.1.3 di
+entrambi i whitepaper dichiaravano ancora che la demografia non è invocata dal
+tick loop, mentre il §4.1.4 le citava come già corrette — la chiusura che la
+spec nomina per prima nell'inventario di FR-017, e l'unica riga che nessuno
+aveva toccato.
+
+### Che cosa è stato corretto in risposta
+
+- La classe 2: l'asserzione inerte è stata **rimossa, non riparata**, e la
+  ragione è scritta nella docstring del test. L'uguaglianza che la precede
+  cattura la regressione da sola, come la stessa misura conferma.
+- La riga 9: le tre chiusure di §4.1.1–§4.1.3 riscritte in entrambe le lingue.
+- Il sub-claim della riga 5: il passo contatore ora **dichiara** di avere una
+  sola scrittura e di non volere un confine, invece di lasciarlo dedurre.
+- La tabella di doc-sync guadagna una riga per §4.1.0: elencava solo i cinque
+  moduli di modello mentre il §4.1.0 è un intero sotto-capitolo su
+  `orchestrator.py` e la tabella dei contratti del §4.1 documenta `context.py`
+  per nome. Tre commit hanno toccato quei file senza che scattasse alcun
+  obbligo, ed è così che il §4.1.0 è andato stale sul campo che avevano
+  rinominato.
+- Le cifre e le frasi superate: il §4.1.0 sul campo singolare, il §7.4
+  divergente fra le due lingue, il commento delle misure di costo, la docstring
+  del passo fertilità, quella del modulo di inizializzazione, i due conteggi
+  incoerenti in `fertility.py`, la build map su commit e criteri, questo stesso
+  documento sulla contraddizione otto/nove, e l'handoff marcato come superato.
+
+### Un difetto trovato fuori dai tre revisori, e registrato qui
+
+Verificando l'assunto che il ciclo delle candidate non scriva nulla — che
+l'handoff dava per assunto e che ora è **misurato**, zero scritture — è emerso
+che le nascite costavano **tre query ciascuna**: il partner, il dereference
+della sua FK, e la media di classe della zona dentro
+`apply_inheritance_at_birth`. FR-016a è categorico nel non concedere alle
+nascite alcun termine proprio, e nessuna guardia lo coglieva perché nessuna
+fixture di costo aveva una sola nascita. Corretto precaricando i partner in un
+`in_bulk` e la media di classe per zona, con una guardia nuova che pretende
+**uguaglianza** fra un tick con una nascita e uno con quattro, provata per
+mutazione su tutti e tre i precarichi.
+
+### Conseguenza
+
+Il criterio scritto prima del lancio dichiara bloccante un criterio che non
+può fallire. Ce n'era uno. Il round è **NOT CONVERGED**, e il round 3 giudica
+la remediation di questo round — inclusa la correzione del costo per nascita,
+che nessun revisore di questo round ha visto.
+
+---
+
+## Round 3: criterio, scritto prima del lancio
+
+**2026-08-28, dopo il verdetto qui sopra e prima di lanciare il round 3.**
+
+**Ambito**: `git diff c7683bf..HEAD`, la remediation del round 2. Include il
+codice di produzione che nessun revisore del round 2 ha visto — la correzione
+del costo per nascita — che è il primo posto dove guardare.
+
+**Le tre classi bloccanti restano identiche**: un difetto di correttezza nel
+codice di produzione, un criterio che non può fallire, una chiusura dichiarata
+e non vera. Non sono state toccate e non lo saranno.
+
+**Che cosa questo round deve sospettare per primo.** Il round 2 ha chiuso il
+proprio unico bloccante rimuovendo un'asserzione. Sul work item precedente,
+due volte di fila, una riparazione ha distrutto un testimone mentre ne
+aggiungeva un altro, e la causa era sempre la stessa: la copertura misurata
+dopo la correzione invece che come differenza. Quindi la domanda del round 3
+è se la rimozione abbia lasciato scoperto qualcosa che quell'asserzione, per
+quanto inerte contro la mutazione provata, copriva contro un'altra.
+
+**Convergenza**: nessuna delle tre classi. Cifre e frasi si correggono nello
+stesso commit.
+
+**Perché può fallire**: la remediation aggiunge un precarico nuovo in un
+ciclo caldo, cambia la firma di una funzione auditata per la quarta volta,
+rimuove un'asserzione da una guardia di costo e riscrive tre chiusure di
+capitolo in due lingue. Se non produce nulla, il verdetto deve dire quali
+percorsi ha verificato.
+
+### Verdetto round 3: NOT CONVERGED
+
+Due revisori, classi disgiunte, ambito ristretto come dichiarato.
+
+**Il criterio aveva ragione su cosa sospettare.** Aveva scritto, prima del
+lancio, che la domanda era se rimuovere un'asserzione avesse lasciato
+scoperto qualcosa. La risposta a quella domanda è no — misurata su due
+varianti del file di test, una con l'asserzione e una senza, contro cinque
+mutazioni: tutte rosse in entrambe, nessuna coppia verde/rosso. Ma la classe
+che il criterio nominava — una riparazione che aggiunge un testimone e ne
+lascia scoperto un altro — c'era lo stesso, un livello più in là.
+
+**Bloccante, classe 2, due rilievi.** La correzione del costo per nascita ha
+sostituito due query per nascita con due precarichi e ha aggiunto **solo un
+testimone di costo**. Il valore che i precarichi producono non era guardato da
+nulla:
+
+- `orchestrator.py`, la risoluzione del padre. Sostituendola con un uomo
+  arbitrario preso dalla mappa precaricata, **ogni neonato del tick riceve il
+  genitore sbagliato e 880 test su 880 restano verdi**. Il conteggio di query
+  non cambia, quindi la guardia nuova non lo vede; l'unico test che asserisce
+  `other_parent_agent_id` chiama `build_newborn` a mano e non attraversa mai
+  quella riga.
+- `orchestrator.py`, la media di classe della zona. Passandone una inventata a
+  ogni nascita — l'input dei rami `clark_regression` e
+  `becker_tomes_elasticity_0.4` dell'ereditarietà sociale — la suite resta
+  verde allo stesso modo.
+
+**Non bloccante, classe 1, un rilievo.** `active_couple_partners` scartava
+l'intera riga quando una delle due FK è nulla, mentre il `frozenset` che
+sostituiva teneva il superstite come membro: per una coppia attiva mezza-nulla
+i due rami dello stesso `if` in `tick_birth_probability` davano verdetti
+opposti sulla stessa agente, mentre la docstring li dichiara intercambiabili.
+**Questa premessa era sbagliata, e il round 4 l'ha smentita: si legga la
+rettifica sotto il verdetto del round 4.** Diceva: «Nessun percorso di
+produzione costruisce oggi quello stato — verificato: `dissolve_on_death`
+annulla la FK e scrive `dissolved_at_tick` nello stesso `save`, e nulla in
+`epocha/` cancella righe `Agent`». La prima metà regge; la seconda no, perché
+l'enumerazione cercava chiamate `.delete()` nel sorgente e il percorso vero
+non è una chiamata nel sorgente.
+
+### Che cosa è stato corretto in risposta
+
+Tre testimoni **di valore**, ciascuno provato contro la mutazione esatta che
+il revisore aveva misurato sopravvivere:
+
+- ogni neonato riceve il partner di **sua** madre, su tre coppie con la madre
+  alternata fra `agent_a` e `agent_b`, perché una coppia sola non separa una
+  risoluzione che legge una colonna soltanto;
+- una madre non accoppiata, sotto un'era che ammette la nascita fuori dalla
+  coppia, riceve `other_parent_agent_id` nullo — così la risoluzione non può
+  rispondere restituendo sempre qualcuno;
+- la media di classe che arriva a una nascita è quella della zona di quella
+  madre, confrontata con l'helper auditato **prima** del passo, perché il
+  neonato entra nella zona e sposta la media.
+
+La mappa dei partner entra ora ciascun lato per conto proprio, quindi il
+superstite di una coppia mezza-nulla è membro con valore `None`, e la
+membership si prova con `in` e mai per verità del valore. Una guardia lo
+pretende.
+
+### Conseguenza
+
+Il round 3 è **NOT CONVERGED**: due criteri che non potevano fallire, entrambi
+introdotti dalla remediation del round 2. Il round 4 giudica questa
+remediation.
+
+---
+
+## Round 4: criterio, scritto prima del lancio
+
+**2026-08-28, dopo il verdetto del round 3 e prima di lanciare il round 4.**
+
+**Ambito**: `git diff 8b0555e..HEAD`, la remediation del round 3.
+
+**Le tre classi bloccanti restano identiche** e non sono state toccate: un
+difetto di correttezza nel codice di produzione, un criterio che non può
+fallire, una chiusura dichiarata e non vera.
+
+### Il pattern che questo gate continua a produrre, e che il round 4 deve rompere
+
+Tre round, tre verdetti, e la stessa forma ogni volta: **la remediation del
+round N introduce il bloccante del round N+1**, sempre della stessa classe e
+sempre un passo più in là.
+
+- Il round 2 ha trovato un'asserzione inerte e l'ha chiusa rimuovendola.
+- Il round 3 ha trovato che la correzione del round 2 sul costo per nascita
+  aveva aggiunto **solo un testimone di costo**, e nessuno guardava il valore
+  che i precarichi producono.
+- Il round 3 l'ho chiuso aggiungendo tre testimoni di valore.
+
+La domanda del round 4 è quindi **la stessa un livello più fuori**: quei tre
+testimoni coprono ciò per cui sono stati scritti — è misurato — ma che cosa
+resta di ciò che il passo fertilità produce, e che nessun test asserisce per
+valore? Il neonato ha nome, sesso, orientamento, caratteri, classe sociale,
+istruzione, zona, `birth_tick`, genitori ed evento di nascita. I testimoni
+aggiunti ne coprono due. Il round 4 deve enumerare gli altri e dire, per
+ciascuno, quale mutazione lo lascerebbe verde.
+
+### Regola di processo, obbligatoria per questo round
+
+La lezione che il work item precedente ha pagato due volte: **quando una
+riparazione cambia un testimone, la batteria di mutazioni va eseguita anche
+contro la versione PRECEDENTE**, perché la copertura si misura come
+differenza e non dopo la correzione. Il round 4 la applica alla remediation
+del round 3 e lo dichiara nel verdetto.
+
+### Che cosa il verdetto deve contenere, oltre ai rilievi
+
+Se il round non produce nulla delle tre classi, deve **enumerare che cosa non
+ha coperto**. Un verdetto che dice solo «nessun rilievo» dopo tre round che
+ne hanno trovati non è un verdetto, è una resa.
+
+**Convergenza**: nessuna delle tre classi bloccanti. Cifre e frasi si
+correggono nello stesso commit.
+
+### Verdetto round 4: NOT CONVERGED
+
+**Il pattern si è ripetuto una quarta volta, e nel posto peggiore: dentro il
+testimone scritto per chiuderlo.**
+
+**Bloccante, classe 2.** Il testimone che il round 3 ha aggiunto per provare
+che ogni neonato riceve il partner di *sua* madre dichiara, nel proprio
+docstring, di separare le due colonne di `Couple` mettendo la madre in
+`agent_a` in alcune coppie e in `agent_b` in altre. Non lo fa. `form_couple`
+instrada entrambi i partner attraverso `_ordered_pair`, che ordina per id per
+soddisfare il vincolo canonico del modello, quindi **l'ordine degli argomenti
+al call site non decide nulla**: decide chi è stato creato prima, e la madre
+era creata per prima in tutti e tre i cicli. Misurato: togliendo il lato
+`agent_b` dalla mappa — esattamente la regressione che il docstring nomina —
+tutti e 22 i test del file restano verdi. È strutturalmente identico al
+bloccante 2 del round 1, la fixture di soli maschi contro un passo che filtra
+le femmine: **una fixture che dichiara di costruire un caso che il sistema le
+impedisce di costruire.**
+
+**Due testimoni su tre erano più deboli di quanto dichiaravano.** Quello sulla
+media di classe della zona girava su **una zona sola**, quindi «la media di
+*quella* zona» non era separabile da «la media di *una* zona»; misurato, la
+mutazione che legge la voce sbagliata della cache lo lasciava verde. E
+l'ultima asserzione di quel test, `mean > 0.0`, era oscurata dall'uguaglianza
+che la precede e giustificata da un commento che dichiarava il fallback
+neutro pari a zero, mentre è il rango di `working`.
+
+**La chiusura sulla mappa dei partner era metà.** La mappa è corretta e la
+guardia sulla coppia mezza-nulla esiste, ma **nessun test pretendeva che la
+membership si provasse con `in`**: sostituendo `mother.id in
+partnered_agent_ids` con `bool(partnered_agent_ids.get(mother.id))` l'intera
+suite restava verde, perché in ogni fixture i partner hanno id non nulli e
+quindi truthy. L'unica forma che separa i due predicati è la coppia
+mezza-nulla, e nessuna fixture la mandava attraverso `tick_birth_probability`.
+
+**Classe 1: l'annotazione mentiva.** `active_couple_partners` dichiarava
+`-> dict[int, int]` mentre il corpo dichiara `dict[int, int | None]` e il
+docstring dice che il valore può essere `None`. Tre affermazioni sullo stesso
+tipo nella stessa funzione, e quella sbagliata era la prima che un lettore
+vede. Nessun type checker nel progetto la coglieva.
+
+### Rettifica al verdetto del round 3
+
+Il round 3 dichiarava non raggiungibile in produzione la coppia attiva
+mezza-nulla, «verificato: nulla in `epocha/` cancella righe `Agent`». **È
+falso.** `epocha/apps/agents/admin.py` registra `Agent` con il `ModelAdmin` di
+default, quindi l'admin di Django espone «Delete selected agents», che fa
+scattare `on_delete=SET_NULL` su `Couple.agent_a`/`agent_b` senza toccare
+`dissolved_at_tick`: è esattamente una coppia attiva mezza-nulla, ed è il
+motivo per cui `SET_NULL` esiste. L'enumerazione cercava chiamate `.delete()`
+nel sorgente e non le trovava; il percorso admin non è una chiamata nel
+sorgente. La conseguenza è sostanziale: in quello stato la superstite **ora
+concepisce** sotto un'era che richiede la coppia, dove prima era esclusa. Il
+cambio è quello giusto — l'equivalenza con `is_in_active_couple` è
+l'invariante — ma era giustificato da una premessa che non regge, e ora è
+esercitato da un test.
+
+### Che cosa è stato corretto in risposta
+
+- L'alternazione fra le due colonne è reale: il padre è creato per primo nei
+  cicli pari, e **la fixture asserisce la propria forma** — che almeno una
+  madre sia in `agent_a` e almeno una in `agent_b` — perché una fixture che
+  smette in silenzio di costruire il caso che dichiara è il difetto che
+  questo file continua a pagare. Misurato: togliendo l'uno o l'altro lato
+  della mappa il testimone muore, in entrambe le direzioni.
+- Il testimone sulla media di zona gira ora su **due zone che partoriscono
+  entrambe nello stesso tick**, con composizioni di classe diverse e la
+  distinzione asserita in anticipo, e cattura la media per singola nascita.
+  Muore sia contro il valore inventato sia contro la lettura della zona
+  sbagliata.
+- Un testimone nuovo pretende che la membership si provi per chiave: la
+  superstite di una coppia mezza-nulla deve poter concepire sotto un'era che
+  richiede la coppia, perché *è* in una coppia attiva. Muore contro la
+  sostituzione con il test di verità del valore.
+- L'annotazione di ritorno dice ora `dict[int, int | None]`.
+
+### Conseguenza
+
+Round 4 **NOT CONVERGED**: un criterio che non poteva fallire più due
+testimoni più deboli della loro stessa dichiarazione, tutti introdotti dalla
+remediation del round 3. Il round 5 giudica questa remediation.
+
+---
+
+## Round 5: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 4 e prima di lanciare il round 5.**
+
+**Ambito**: `git diff 2849510..HEAD` — la remediation del round 4 più la
+risposta alla domanda di copertura per valore che il round 4 aveva lasciato
+aperta, e i due testimoni che ne discendono.
+
+**Le tre classi bloccanti restano identiche** e non sono state toccate: un
+difetto di correttezza nel codice di produzione, un criterio che non può
+fallire, una chiusura dichiarata e non vera.
+
+### Che cosa la domanda del round 4 ha prodotto, misurato
+
+La domanda era: che cosa produce `run_fertility_step` che nessun test
+asserisce per valore, attraversando il passo. La risposta, misurata e non
+argomentata: **dodici cose su tredici**.
+
+Dodici corruzioni applicate dentro il passo — nome, sesso, orientamento
+sessuale, gli otto caratteri ereditabili scalari dimezzati, classe sociale,
+livello d'istruzione, ricchezza, zona, più quattro proprietà dell'evento di
+nascita (nome del passo, flag di morte in parto, appaiamento del neonato e
+appaiamento della madre) — hanno lasciato **1717 test su 1717 verdi**, suite
+intera e non solo il sottoinsieme demografico. L'unica che moriva era
+`birth_tick`, con otto rossi.
+
+La riparazione è **due testimoni, non dodici**, perché le otto corruzioni
+sugli attributi del neonato sono lo stesso difetto: il passo che sovrascrive
+ciò che il proprio produttore ha appena costruito. Il primo testimone cattura
+l'oggetto restituito da `build_newborn` e pretende che la riga persistita gli
+corrisponda campo per campo; il secondo pretende che ogni evento descriva la
+propria nascita, su due nascite di cui una con la madre che muore in parto.
+
+### La regola operativa, applicata e dichiarata
+
+**La batteria è stata eseguita anche contro la versione precedente.** Prima
+dei testimoni: dodici corruzioni su dodici sopravvivono alla suite intera.
+Dopo: dodici su dodici muoiono, ciascuna misurata **singolarmente**, perché
+una batteria combinata si ferma al primo campo e proverebbe solo quello.
+
+**E il pattern si è ripetuto dentro la riparazione stessa, per la quinta
+volta.** Il testimone sull'orientamento sessuale, alla prima stesura, era
+inerte: la corruzione forza `heterosexual` e tutti e cinque i template lo
+estraggono al 95,5%, quindi sovrascriveva un valore con se stesso. È emerso
+solo perché le mutazioni sono state misurate campo per campo invece che tutte
+insieme; la batteria combinata lo avrebbe dichiarato coperto. Corretto
+sostituendo la distribuzione dell'era sul caricatore — non cercando un seme
+fortunato — e ri-misurato.
+
+### Che cosa questo round deve sospettare per primo
+
+I due testimoni nuovi sono l'unica cosa che oggi separa dodici proprietà dal
+nulla. La domanda è quindi la stessa un livello più fuori: **che cosa quei due
+testimoni dichiarano di coprire e non coprono**, e che cosa resta fuori dal
+loro perimetro. Il primo dichiara esplicitamente di non coprire una
+corruzione interna a `build_newborn`; il round verifichi che quella frontiera
+sia davvero presidiata altrove, e non solo dichiarata.
+
+### Che cosa il verdetto deve contenere, oltre ai rilievi
+
+Se il round non produce nulla delle tre classi, deve **enumerare che cosa non
+ha coperto**. Quattro round su quattro hanno prodotto un bloccante; un quinto
+che dice solo «nessun rilievo» non è un verdetto, è una resa.
+
+**Convergenza**: nessuna delle tre classi bloccanti. Cifre e frasi si
+correggono nello stesso commit.
+
+### Perché questo criterio può fallire
+
+La remediation aggiunge due classi di test e un monkeypatch sul caricatore dei
+template, tocca un file di test già riscritto tre volte in questo gate, e
+introduce una fixture che cambia la distribuzione di un'era. Se il round non
+produce nulla, la spiegazione ammessa è che le ventiquattro misure di
+mutazione — dodici prima, dodici dopo — lo abbiano già colto, e il verdetto
+deve dire quali percorsi ha verificato per sostenerlo.
+
+### Verdetto round 5: NOT CONVERGED
+
+Un revisore, ambito ristretto come dichiarato, igiene di processo rispettata:
+ogni mutazione ripristinata subito, un solo pytest per volta, nessun processo
+lasciato vivo.
+
+**Il pattern si è ripetuto per la sesta volta, e di nuovo dentro il testimone
+scritto per chiuderlo.** Tre criteri che non potevano fallire, tutti e tre
+nella classe `TestTheStepPersistsWhatItBuilt`, e due delle tre forme sono
+letteralmente quelle che i round 1 e 4 avevano già nominato.
+
+**Bloccante 1, classe 2 — il testimone si chiama «every field» e ne enumerava
+diciotto scritti a mano.** Il perimetro era il letterale `WITNESSED` più gli
+otto caratteri scalari, e nulla lo legava all'insieme dei campi che
+`build_newborn` scrive davvero: il letterale era già fuori sincrono col
+produttore il giorno in cui è nato. Fuori restavano `personality` — cinque
+tratti Big Five scritti da `inheritance.py:656` —, `cunning`, `role` e
+`health`. Misurato: azzerando la personalità di ogni neonato fra costruzione e
+salvataggio, **1719 test su 1719 verdi**.
+
+**Bloccante 2, classe 2 — la fixture aveva una zona sola**, quindi «la zona di
+*quella* madre» non era separabile da «una zona». Misurato con la regressione
+realistica, ogni neonato assegnato alla zona della prima candidata: 1719 su
+1719 verdi. È il rilievo che il round 4 aveva già fatto sul testimone della
+media di classe, ri-introdotto dentro il testimone scritto dopo di esso.
+
+**Bloccante 3, classe 2 — la corruzione della classe sociale sovrascriveva un
+valore con se stesso.** Madre `wealthy` e padre `elite` in entrambe le coppie,
+sotto una regola patrilineare verbatim: entrambi i neonati ereditavano
+`elite`, e pinnare quella colonna a `elite` lasciava 24 test su 24 verdi. È la
+stessa inerzia che la remediation del round 4 aveva trovato e chiuso
+sull'orientamento sessuale: riparata quella colonna, lasciata in piedi quella
+accanto sulla stessa trappola.
+
+**Non bloccante, prosa superata**: `test_fertility_zone_context.py` dichiarava
+ancora che nessun percorso di produzione costruisce la coppia attiva
+mezza-nulla, frase che il verdetto del round 4 aveva già rettificato in questo
+stesso documento.
+
+**Classe 1: nessun rilievo.** L'unica riga di produzione in ambito è
+l'annotazione di `active_couple_partners`, ora concorde con corpo e docstring.
+Tutte le chiusure del round 4 sono state ri-misurate e sono vive.
+
+### Che cosa è stato corretto in risposta
+
+- **L'insieme dei campi confrontati è derivato dal modello, non enumerato**:
+  `Agent._meta.concrete_fields` meno `id` e `created_at`, che non possono
+  combaciare per costruzione. Una colonna aggiunta domani è testimoniata senza
+  che nessuno se ne ricordi. Una guardia nomina esplicitamente i cinque campi
+  che il round 5 ha trovato mancanti, perché la regressione non torni in
+  silenzio.
+- **Due zone e due classi paterne**, con la fixture che **asserisce la propria
+  forma**: se i due neonati finissero nella stessa zona o nella stessa classe,
+  il test lo dice invece di andare inerte.
+- La prosa superata corretta in loco, con la ragione per cui era falsa.
+
+Ri-misurato: **ventidue mutazioni su ventidue muoiono**, comprese le quattro
+che questo round aveva misurato sopravvivere. Suite 1719 verdi, ruff pulito.
+
+### Conseguenza
+
+Round 5 **NOT CONVERGED**. Il round 6 giudica questa remediation.
+
+---
+
+## Round 6: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 5 e prima di lanciare il round 6.**
+
+**Ambito**: `git diff 47a8d44..HEAD`, la remediation del round 5 — i commit
+`281d5d7` e `c76c2f8`. Ogni file toccato rientra per intero.
+
+**Le tre classi bloccanti restano identiche** e non sono state toccate dal
+round 2 in poi: un difetto di correttezza nel codice di produzione, un
+criterio che non può fallire, una chiusura dichiarata e non vera.
+
+### Il conto onesto: sei round, sei volte lo stesso pattern
+
+La remediation del round N introduce il bloccante del round N+1, e dal round 3
+in poi **sempre dentro il testimone scritto per chiudere il round
+precedente**. Il round 5 ne ha trovati tre in un colpo, e due erano forme già
+nominate dai round 1 e 4: la fixture a una zona sola, e il valore corrotto che
+coincide con quello vero.
+
+**E il round 5 non li ha trovati tutti.** Dopo il suo verdetto, misurando il
+testimone appena riparato, ne è emerso un quarto della stessa classe: i campi
+erano catturati **per riferimento**, quindi `personality`, `conditions` e
+`location` — le tre colonne mutabili — venivano confrontate con se stesse. La
+forma che ri-assegna l'attributo moriva; una scrittura *in place*, che è la
+forma che una regressione reale assume quando del codice entra dentro una
+colonna JSON, lasciava tutti e 24 i test del file verdi. Chiuso con
+`copy.deepcopy` e ri-misurato.
+
+Questo è il fatto che il round 6 deve tenere davanti: **il round 5 ha
+enumerato ciò che non aveva coperto, e in quell'elenco non c'era l'aliasing.**
+Un revisore che dichiara i propri limiti resta comunque un revisore con
+limiti, e la copertura di un round non è la copertura del problema.
+
+### Che cosa questo round deve sospettare per primo
+
+La mossa strutturale della remediation è **derivare l'insieme dei campi
+confrontati da `Agent._meta.concrete_fields`** invece di enumerarli. È la
+risposta giusta al bloccante 1, e proprio per questo va attaccata dove una
+derivazione può mentire:
+
+- `UNCOMPARABLE` esclude `id` e `created_at`. L'esclusione è giustificata nel
+  commento, ma è un letterale scritto a mano dentro la riparazione di un
+  letterale scritto a mano: che cosa succede se una colonna futura non può
+  combaciare e nessuno la esclude, e che cosa succede se una che poteva
+  combaciare finisce lì dentro.
+- La guardia che nomina `personality`, `cunning`, `role`, `health`,
+  `location` pinna il rilievo del round 5. È essa stessa un letterale: può
+  restare verde mentre la derivazione a monte si svuota.
+- Alcune colonne **non possono differire** fra i due neonati della fixture —
+  `role` e `health` sono costanti per costruzione, `wealth` è zero
+  incondizionatamente. Per quelle, una corruzione al medesimo valore è un
+  no-op e non un difetto; ma il round dica esplicitamente quali colonne il
+  testimone può solo confermare e non discriminare.
+- Il wrapper di cattura ha una firma fissa. Se `build_newborn` acquisisce un
+  parametro, il testimone si rompe rumorosamente o silenziosamente: quale
+  delle due.
+
+### Che cosa il round 5 ha dichiarato di NON aver coperto, e che questo round eredita
+
+Sono i suoi passaggi, non i miei, e vanno chiusi o ri-dichiarati:
+
+- la corruzione di `location`, mai misurata;
+- i campi dell'evento fuori dal payload — `tick`, `event_type`, `simulation` —
+  di cui nessuno ha verificato se qualcosa li asserisca;
+- le quattro mutazioni sull'evento, **lette e non eseguite**;
+- il diff di branch `develop..HEAD`, mai riletto per intero da nessun round.
+
+### Che cosa il verdetto deve contenere
+
+Se il round non produce nulla delle tre classi, deve **enumerare che cosa non
+ha coperto**, e l'enumerazione del round 5 mostra che quell'elenco è la parte
+più utile del verdetto, non un contorno. Cinque round su cinque hanno prodotto
+un bloccante; un sesto che dice solo «nessun rilievo» non è un verdetto.
+
+**Convergenza**: nessuna delle tre classi bloccanti. Cifre e frasi si
+correggono nello stesso commit.
+
+### Perché questo criterio può fallire
+
+La remediation riscrive per intero la classe che regge dodici proprietà,
+introduce una derivazione dal metamodello di Django, aggiunge una seconda zona
+e una seconda classe sociale alla fixture, e cambia il modo in cui
+l'istantanea è catturata. Le mutazioni eseguite sono ventiquattro e quattro
+sono sopravvissute al primo colpo, tutte chiuse. Se il round non produce nulla
+delle tre classi, la spiegazione ammessa è che quelle misure lo abbiano già
+colto — non che il round non abbia guardato — e il verdetto deve dire quali
+percorsi ha verificato per sostenerlo.
+
+### Verdetto round 6: NOT CONVERGED
+
+Un revisore, ambito ristretto, igiene rispettata. Un bloccante, classe 2, e di
+nuovo dentro il testimone scritto per chiudere il round precedente: **settima
+volta**.
+
+**Bloccante — due delle trentaquattro colonne confrontate non possono
+discriminare, e sono le due che in produzione variano.** La remediation del
+round 5 ha sdoppiato zona e classe sociale e ha lasciato la posizione
+inchiodata: `_agent` fissa `Point(50, 50)` per ogni agente, quindi le due
+madri stavano sullo stesso punto in due zone diverse e i due neonati
+ereditavano quel punto. Misurato, con la regressione che questo gate ha già
+bloccato due volte su altre colonne — `newborns[-1].location =
+newborns[0].location` — **1719 test su 1719 verdi**.
+
+**La forma gemella sull'orientamento sessuale l'ha creata la remediation del
+round 4.** Pinnare la distribuzione a `{"homosexual": 1.0}` uccideva la
+corruzione a costante `= "heterosexual"`, ma dava a entrambi i neonati lo
+stesso valore: il travaso da un neonato all'altro restava verde. La
+riparazione di una forma aveva reso invisibile l'altra.
+
+Delle diciassette colonne costanti fra i due neonati, quindici lo sono anche
+in produzione — `build_newborn` le scrive come letterali o lascia il default
+del modello — quindi per quelle il travaso è un no-op e non un difetto.
+`location` e `sexual_orientation` erano le due eccezioni.
+
+**Non bloccanti**: `UNCOMPARABLE` poteva assorbire in silenzio qualunque
+colonna fuori dalle cinque nominate dalla guardia; il `tick` dell'evento di
+nascita non aveva alcun testimone, ed è la colonna su cui ogni tasso dello
+snapshot è raggruppato; la build map era ferma di un round.
+
+**Le quattro domande del criterio hanno avuto risposta.** La guardia sui
+cinque campi NON può restare verde mentre la derivazione si svuota: svuotando
+il filtro, muore per prima. Il letterale delle esclusioni si rompe
+rumorosamente nella direzione «colonna che non può combaciare», in silenzio
+nell'altra — ora chiusa. Il wrapper di cattura si rompe rumorosamente se
+`build_newborn` acquisisce un parametro. Le colonne che il testimone può solo
+confermare sono state enumerate una per una.
+
+**Classi 1 e 3: nessun rilievo**, e la ragione della classe 1 è che il diff in
+ambito non tocca una sola riga di produzione.
+
+### Che cosa è stato corretto in risposta
+
+- **Due posizioni diverse** per le due madri, e la fixture **asserisce anche
+  quella separazione**, accanto a zona e classe.
+- **La distribuzione dell'era alterna** fra due valori non eterosessuali, così
+  i due neonati differiscono sull'orientamento pur restando entrambi fuori dal
+  valore che la corruzione a costante userebbe. La fixture asserisce che
+  l'alternanza sia atterrata: se non lo fosse, fallisce invece di andare
+  inerte.
+- **`UNCOMPARABLE` è pinnata esattamente** a `{id, created_at}`: allargarla è
+  ora un atto visibile nel diff che fallisce lì per primo.
+- **Il `tick` dell'evento è asserito.**
+- La build map avanza al round 6 in entrambe le lingue.
+
+Ri-misurato: travaso della posizione, travaso dell'orientamento, `tick`
+spostato di uno e allargamento di `UNCOMPARABLE` **muoiono tutti e quattro**.
+
+### Un errore di processo, registrato perché non si ripeta
+
+Durante la remediation ho annullato la mutazione sul file di test con
+`git checkout --` su quel file, e poiché la riparazione non era ancora
+committata **ho cancellato la riparazione insieme alla mutazione**. Le misure
+erano già state prese e restano valide, ma il lavoro è stato riapplicato da
+capo. La regola che ne discende: **non si mutano file di test non committati**
+— o si committa prima, o si muta su una copia.
+
+### Conseguenza
+
+Round 6 **NOT CONVERGED**. Il round 7 giudica questa remediation.
+
+---
+
+## Round 7: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 6 e prima di lanciare il round 7.**
+
+**Ambito**: `git diff 98d8ab4..HEAD`, la remediation del round 6 (`f8815e7`).
+Ogni file toccato rientra per intero.
+
+**Le tre classi bloccanti restano identiche** dal round 2 e non sono state
+toccate.
+
+### Dove sta la debolezza del verdetto precedente, e da lì si comincia
+
+Il round 6 ha enumerato le diciassette colonne che i due neonati della fixture
+hanno identiche, e ne ha classificate **quindici come costanti anche in
+produzione**, dichiarando testualmente di averlo stabilito «per lettura di
+`build_newborn` e non per esperimento». È l'unica affermazione portante del
+verdetto che non sia stata misurata, ed è esattamente la forma di ragionamento
+che questo gate ha già smentito tre volte: una proprietà dedotta dalla lettura
+e non provata per mutazione.
+
+**La domanda del round 7 è quindi: quelle quindici sono davvero costanti in
+produzione?** Per ciascuna, o si nomina il letterale o il default del modello
+che la fissa, oppure si misura il travaso `newborns[-1].X = newborns[0].X` e
+si dice se sopravvive. Se anche una sola di esse varia per neonato in una run
+vera, è una colonna cieca e un bloccante di classe 2, identico a quello del
+round 6 una colonna più in là.
+
+### Gli altri punti da attaccare
+
+- **L'iteratore che alterna le ere** presume che `load_template` sia chiamata
+  esattamente due volte durante il passo. La fixture asserisce che
+  l'alternanza sia atterrata, quindi un disallineamento fallisce rumorosamente
+  — ma il round verifichi che sia davvero così e non per fortuna, e che cosa
+  accade se un percorso futuro aggiunge una chiamata.
+- **Le quattro asserzioni di forma della fixture** (zona, classe, posizione,
+  orientamento) sono ora quattro letterali. Valgono ciò che il round 6 ha
+  provato per la guardia dei cinque campi, o possono restare verdi mentre
+  quello che asserivano si svuota?
+- **`UNCOMPARABLE` pinnata a un'uguaglianza esatta** blocca l'allargamento, ma
+  che cosa succede a chi ha una ragione legittima di allargarla.
+
+### Debiti dichiarati, e dove vengono saldati
+
+Il diff di branch `develop..HEAD` non è mai stato riletto per intero da nessun
+round, ed è 1922 righe di produzione su 18 file. **Non è compito di questo
+round**: è la review Matteo sull'intero diff prevista dal passo di chiusura, a
+gate CONVERGED, e resta esplicitamente aperto fino a lì. Il round 7 non lo
+legga e non lo dichiari coperto.
+
+### Che cosa il verdetto deve contenere
+
+Rilievi per gravità con classe, `file:riga` e misura. Se non produce nulla
+delle tre classi, l'enumerazione esplicita di ciò che non ha coperto. Sei
+round su sei hanno prodotto un bloccante, e cinque di questi sono nati dentro
+il testimone scritto per chiudere il round precedente.
+
+**Convergenza**: nessuna delle tre classi bloccanti.
+
+### Perché questo criterio può fallire
+
+La remediation cambia quattro cose in un file di test e nulla nel codice di
+produzione: due posizioni, un iteratore di ere, un'uguaglianza sulle
+esclusioni, un'asserzione sul tick. Le mutazioni eseguite sono quattro e
+muoiono tutte. Se il round non produce nulla, la spiegazione ammessa è che la
+superficie sia genuinamente piccola — non che il round non abbia guardato — e
+il verdetto deve dirlo enumerando che cosa ha verificato, a partire dalle
+quindici colonne che il round 6 non ha misurato.
+
+### Verdetto round 7: CONVERGED
+
+Un revisore, ambito ristretto, igiene rispettata: mutazioni solo sul codice di
+produzione, prove sui test eseguite su una copia usa-e-getta, albero pulito,
+nessun processo lasciato vivo.
+
+**Nessuna delle tre classi bloccanti.** Nessun difetto di correttezza nel
+codice di produzione — il diff in ambito non ne contiene una riga; nessun
+criterio che non può fallire fra le guardie nuove, con le quattro asserzioni
+di forma, il pin di `UNCOMPARABLE` e l'asserzione sul tick tutte provate
+morire contro la regressione che nominano; nessuna chiusura dichiarata e non
+vera.
+
+**La domanda del criterio ha avuto la risposta che serviva.** Il round 6 aveva
+classificato quindici colonne come costanti in produzione «per lettura e non
+per esperimento». Il round 7 le ha misurate, e con un esperimento più forte
+del travaso: due nuclei familiari che differiscono su tutte e quindici —
+carisma 0,05 contro 0,95, ricchezza 5,0 contro 900,0, salute 0,35 contro 0,95,
+ruoli, gruppi, caretaker e contatori diversi — fatti passare per il passo
+vero. Tutte e quindici escono identiche fra i due neonati, sia sull'oggetto
+costruito sia sulla riga persistita. La conclusione del round 6 regge; la sua
+giustificazione no, ed è stata sostituita da una misura.
+
+**Le altre domande, tutte con esito misurato.** `load_template` è chiamata
+esattamente due volte per passo, e l'alternanza delle ere non può
+disallinearsi in silenzio perché il fallback è un valore unico: due nascite
+che ci cadano sopra collidono e l'asserzione di forma spara. Le quattro
+asserzioni di forma muoiono ciascuna contro la propria regressione, con il
+proprio messaggio e senza oscurarsi a vicenda. Allargare `UNCOMPARABLE`
+fallisce per prima, prima ancora che `fields` sia calcolato.
+
+### I due rilievi fuori dalle classi bloccanti, e perché lo sono
+
+Non per una trattativa fatta dopo aver visto il risultato, ma per la
+definizione scritta prima del lancio.
+
+**R1 — la costanza di `health`, `charisma` e `mood` è una proprietà dei
+template, non del codice.** `heritability` è validata come mapping a chiavi
+**aperte**, e `apply_trait_inheritance` fa `setattr` di qualunque chiave nomini
+una colonna scalare di `Agent`. Misurato con un'era che le dichiara
+ereditabili: i due neonati escono con salute 0,092 contro 0,531 e i valori
+arrivano fino alla riga persistita. `health` in particolare è scritta come
+letterale **prima** che l'ereditarietà giri, quindi il template vince. Fuori
+dalle classi perché il criterio chiede che una colonna vari **in produzione**,
+e nessuno dei cinque template spediti dichiara quelle chiavi. Il difetto vero
+era il commento che affermava la costanza in forma incondizionata: ora è
+condizionato ai template, con la misura e con il rimedio strutturale nominato.
+
+**R2 — due asserzioni tautologiche in `test_newborn_carries_inherited_
+attributes`.** `gender in Agent.Gender.choices` confronta un valore con
+l'enumerazione da cui è tipato, e `assert newborn.sexual_orientation` è vera
+per il default `heterosexual`. Fuori dalla classe 2 perché quella è scoped
+alle guardie **nuove** e questa esiste da prima di `a9a7bb0`. Corretta lo
+stesso: un'era con rapporto dei sessi zero produce solo figlie contro un
+default `male`, e una distribuzione solo asessuale non può produrre il default
+`heterosexual`. Nessun seme toccato. Provata per mutazione: riscrivendo i due
+default dopo l'ereditarietà, il test ora muore.
+
+**R3** — la data di ultima verifica nella build map, allineata in entrambe le
+lingue.
+
+### Conseguenza
+
+Il gate di fase 6 sul codice è **CONVERGED al round 7**, dopo sei round NOT
+CONVERGED. Restano da eseguire, prima del push: il re-pin dei whitepaper, il
+flag di T038, la build map allo stato post-merge, suite e ruff, e la review
+sull'intero diff di branch — l'unico debito che nessun round ha saldato e che
+il criterio del round 7 ha esplicitamente assegnato alla chiusura.
+
+---
+
+## Review di chiusura sull'intero diff del ramo: IL GATE SI RIAPRE
+
+**2026-08-29, dopo il CONVERGED del round 7.**
+
+Il criterio del round 7 aveva assegnato a questo passo il debito che nessun
+round aveva saldato: **`git diff develop..HEAD` non era mai stato riletto per
+intero**, perché ogni round era ristretto al diff della remediation
+precedente. La review ha letto 1752 righe di produzione su 12 file e ha
+trovato **quattro difetti di correttezza nel codice di produzione**, tutti
+verificati contro il sorgente prima di essere accettati.
+
+Il CONVERGED del round 7 resta valido **nel proprio ambito**, che era il diff
+della remediation del round 6. Non era sbagliato: era ristretto. È la
+restrizione stessa — che aveva fatto risparmiare tempo per sei round — ad
+avere una cecità strutturale, e questa ne è la fattura.
+
+### I quattro bloccanti, verificati
+
+**B1 — ogni bambino del mondo è un affamato cronico, e il contatore nuovo lo
+certifica a ogni tick.** Il passo 5 decide con `agent.wealth <
+thresholds[zone_id]`, sul patrimonio **individuale**;
+`inheritance.py` scrive `child.wealth = 0.0` su ogni nato. Ogni neonato entra
+sotto soglia e non ne esce finché non gli muore un genitore. Dopo
+`flight_trigger_ticks` — 30 tick col template di default, **5 con `sci_fi`** —
+supera la condizione 1 e la 2 della fuga d'emergenza. Poiché la fuga di massa
+scatta sopra il 30% della popolazione di zona, la sola coorte infantile basta
+a superare la soglia. Il ramo contiene già la nozione che gli manca:
+`snapshot.py` definisce che un minore appartiene al nucleo del genitore, con
+il proprio test d'età. Il passo 5 non lo sa.
+
+**B2 — `Agent.age` vale 0 per sempre su ogni agente nato nella simulazione, e
+due percorsi vivi lo leggono.** Le uniche scritture della colonna sono in
+`world/generator.py` e `orchestrator.py:171`; nulla la fa avanzare. I
+consumatori: `migration.py:682`, `annuity_for_agent(agent.age, ...)` dentro la
+condizione 3 della fuga, che dà a ogni nato l'orizzonte lavorativo massimo e
+quindi il guadagno atteso massimo da qualunque trasferimento — e si somma a
+B1 sullo stesso individuo; e `inheritance.py:3605`, `child.age >=
+adulthood_age`, per cui a un quarantenne nato nella simulazione viene
+assegnato un tutore.
+
+**B3 — il neonato non esiste quando si liquida l'eredità della madre che
+l'ha partorito.** Dentro la stessa transazione, `_settle_deaths` gira prima di
+`bulk_create(newborns)`. Al momento della liquidazione il neonato non è una
+riga: `resolve_heirs` non lo trova fra i figli, quindi una madre nubile morta
+di parto non gli lascia nulla; e la passata sui tutori, limitata a
+`heirs["children"]`, non lo vede affatto. L'unico orfano che il percorso del
+parto produce è precisamente l'unico che l'assegnazione del tutore non può
+raggiungere.
+
+**B4 — due definizioni dell'età, e la seconda perde il fattore di
+accelerazione.** `orchestrator.py:409` moltiplica per `acceleration`,
+`snapshot.py:117` no. Con i cinque template spediti `acceleration` vale 1,0 e
+i numeri coincidono, quindi nessun test lo vede; con 10,0 — valore che lo
+schema ammette — la piramide per età, l'età media, il denominatore del TFR e
+la soglia di minore età divergono dal modello che dichiarano di misurare. È
+l'artefatto di validazione contro HMD e Wrigley-Schofield.
+
+### Sei code, non bloccanti
+
+`_tick_duration_hours` scritta tre volte con tre query per tick, mentre
+`DemographyTickContext` esiste per risolvere una volta per tick esattamente
+questo; `HOURS_PER_YEAR` nudo in due punti contro il divieto di numeri magici;
+la successione dichiara nel docstring una protezione contro la doppia
+liquidazione che vale in una sola direzione, con la query di
+`settled_elsewhere` che nell'ordine dichiarato non può mai trovare nulla; lo
+snapshot ricostruisce a mano la mappa dei partner che `couple.py` fornisce già
+con i propri null guard, e legge `Couple` due volte; `sex_ratio` restituisce
+un conteggio quando non ci sono donne, rendendo indistinguibili due
+popolazioni diverse; e tre imprecisioni della piramide — bucket aperto
+etichettato come chiuso, agenti non binari che spariscono dalla somma,
+`_avg_household_size` non transitiva su una madre minorenne.
+
+### IL PATTERN, che è la cosa che conta
+
+**Sei rilievi su dieci sono la stessa cosa: il ramo calcola una grandezza
+correttamente in un posto e ne legge una copia stantia o duplicata in un
+altro.** L'età da `birth_tick` contro la colonna `age` congelata; l'età con
+l'accelerazione contro quella senza; la mappa dei partner centralizzata in
+`couple.py` contro quella riscritta a mano nello snapshot; la durata del tick
+risolta tre volte; e il patrimonio individuale letto come se fosse quello del
+nucleo, mentre il nucleo è definito trenta righe più in là nello stesso work
+item.
+
+La premessa architetturale — una sorgente canonica per grandezza — è scritta
+esplicitamente in cinque docstring ed è corretta. Il cablaggio ne ha aggiunta
+una seconda a quattro grandezze su cinque. **Non è disattenzione locale: è che
+nessun passo del gate ha mai confrontato due moduli diversi fra loro.** La
+restrizione dell'ambito, che è stata la scelta giusta per la velocità dei
+round, ha questa cecità come costo, e la fattura arriva tutta insieme qui.
+
+### Conseguenza, e che cosa serve dall'utente
+
+Il gate è **RIAPERTO**. Il ramo **non è mergiato** e non lo sarà finché B1-B4
+non sono chiusi e un round nuovo non giudica quella remediation.
+
+**B2 e B4 sono meccanici**: far avanzare `age` dentro la `bulk_update` che il
+passo mortalità già esegue, e passare `acceleration` allo snapshot — meglio
+ancora, riusare `age_in_years` invece di riscriverla, che è il pattern stesso.
+
+**B1 e B3 sono decisioni di modello e non le prendo da solo.** B1 chiede se il
+contatore di sussistenza vada calcolato sul nucleo invece che sull'individuo,
+oppure se i minori vadano esclusi dal passo 5: sono due modelli diversi con
+conseguenze diverse sulla migrazione, e la spec dice testualmente che il
+contatore si incrementa «quando l'agente è sotto la soglia di sussistenza»,
+quindi cambiarlo è una revisione di requisito, gate di fase 2, decisione
+dell'utente. B3 chiede se un neonato debba ereditare dalla madre morta nel
+partorirlo: la risposta intuitiva è sì, ma è una regola di successione e
+questo progetto non decide regole di successione per intuizione.
+
+T038 è riaperto: la validazione finale non è passata.
+
+---
+
+## Round 8: criterio, scritto prima del lancio
+
+**2026-08-29, dopo la riapertura del gate e prima di lanciare il round 8.**
+
+**Ambito**: `git diff 9e9ed9c..HEAD`, la remediation dei quattro difetti che
+la review di chiusura ha trovato (`170c6d1`). Ogni file toccato rientra per
+intero.
+
+**Le tre classi bloccanti restano identiche** e non sono state toccate dal
+round 2.
+
+### Perché questo round è diverso dai sette precedenti
+
+I round 5, 6 e 7 hanno giudicato diff che non contenevano **una sola riga di
+codice di produzione**: la classe 1 era vuota per costruzione, non per
+verifica, e i tre revisori lo hanno dichiarato. Questa remediation tocca tre
+moduli di produzione — `orchestrator.py`, `snapshot.py`, `context.py` — e
+cambia un **modello**, non un testimone. La classe 1 è viva e va giudicata per
+prima.
+
+### Che cosa attaccare, in ordine
+
+1. **Il predicato di nucleo** (`context.household_keys` più il passo
+   contatore). È una regola di modello nuova e i suoi bordi non sono stati
+   tutti esercitati: un agente senza zona, un nucleo che si estende su due
+   zone, un minore il cui genitore muore nello stesso tick, il neonato
+   ancorato a una madre che muore di parto, una coppia mezza-nulla. Per
+   ciascuno: che cosa fa il codice, e c'è un testimone.
+2. **Il rinfresco di `age`**. Tronca con `int()`: che cosa succede a
+   `birth_tick` nel futuro, a un'età negativa, a `birth_tick` nullo. E la
+   colonna è ora scritta a ogni tick in cui un compleanno cade: il termine
+   fisso di costo è pinnato su un tick in cui nessuno compie gli anni, e la
+   guardia del raddoppio è l'unica che esercita la scrittura.
+3. **Il riordino della transazione della fertilità**. I neonati sono creati
+   prima della liquidazione: che altro vede ora una riga che prima non
+   c'era. In particolare le query che `process_inheritance_batch` esegue per
+   le ALTRE morti dello stesso tick, e la passata sui tutori.
+4. **La memoizzazione su una dataclass frozen** (`hours_per_tick`), che
+   scrive con `object.__setattr__`: è sicura rispetto al riuso del contesto e
+   ai test che ne costruiscono uno a mano.
+5. **La fixture end-to-end**, cambiata per far starve qualcuno: verifica che
+   il passo 5 sia davvero esercitato e non solo che il test sia tornato
+   verde.
+
+### La lezione di processo, che vale più del round
+
+**La review di chiusura ha trovato quattro difetti che sette round non
+potevano vedere**, e la ragione è strutturale: ogni round era ristretto al
+diff della remediation precedente, quindi nessuno ha mai confrontato due
+moduli fra loro. Sei dei dieci rilievi erano la stessa cosa — una grandezza
+calcolata bene in un posto e riletta stantia in un altro — che è una classe
+che per definizione non esiste dentro un diff ristretto.
+
+Ne discende una regola per il resto di questo work item e per i successivi:
+**la review sull'intero diff del ramo non è un passo finale da eseguire una
+volta.** Va ri-eseguita dopo ogni remediation che tocchi il codice di
+produzione, perché è l'unica passata che può vedere quella classe. Il round 8
+non la sostituisce.
+
+**Convergenza**: nessuna delle tre classi bloccanti.
+
+### Perché questo criterio può fallire
+
+La remediation cambia un predicato di modello, aggiunge una funzione
+condivisa consumata da due moduli, riordina una transazione, introduce una
+memoizzazione su una struttura immutabile e ri-pinna tre costanti di costo
+verso il basso. Cinque testimoni nuovi, ciascuno visto rosso prima
+dell'implementazione. Se il round non produce nulla delle tre classi, il
+verdetto deve dire quali percorsi ha verificato e che cosa ha lasciato
+scoperto.
+
+### Verdetto round 8: NOT CONVERGED
+
+Un revisore, igiene rispettata, albero pulito. **La classe 1 era viva, come il
+criterio aveva previsto, e ha prodotto.**
+
+**Bloccante, classe 1 e insieme classe 3.** `household_keys` ancorava un
+minore al solo `parent_agent`. Ma il modello porta tre colonne di tutela —
+`parent_agent`, `other_parent_agent`, `caretaker_agent` — e il modulo
+dell'eredità, cablato accanto da questo stesso work item, risolve «figlio di»
+come `Q(parent_agent=x) | Q(other_parent_agent=x)`, cioè **entrambe** le FK.
+Due definizioni della stessa relazione in due moduli del medesimo
+sottosistema: la firma che questo ramo continua a produrre.
+
+Il costo, misurato e non dedotto. Il minore la cui madre è morta e il cui
+padre è vivo veniva ancorato a se stesso: nucleo di uno, patrimonio zero,
+contatore che sale a ogni tick e non si azzera mai, nemmeno alla maggiore età.
+È il meccanismo di B1 intatto per quella popolazione. E lo era **anche per il
+neonato del percorso che B3 esisteva per servire**: madre morta di parto,
+padre vivo e solvente, chiavi misurate `{Padre: (2,), Neonato: (3,)}`. Il ramo
+stabiliva la relazione col padre nella stessa transazione e la derivazione la
+ignorava. Terzo caso, per non transitività: il figlio di una madre minorenne
+restava un nucleo di uno mentre il nonno solvente stava due passi più su, e la
+finestra scoperta — fra i dodici anni della fertilità e i sedici o diciotto
+della maggiore età — è dentro il modello spedito.
+
+**Le altre tre chiusure reggono**, verificate contro il sorgente: il rinfresco
+di `age` ai bordi (`birth_tick` nullo, età negativa clampata dal
+`PositiveIntegerField`), il riordino della transazione (il neonato esce con
+l'intero asse, e le altre morti del tick non cambiano esito), e l'orologio
+condiviso dello snapshot, con l'algebra verificata.
+
+**Nessun criterio che non può fallire fra le guardie nuove**, e il round dice
+come l'ha provato: ciascuno dei cinque testimoni separa contro il codice
+precedente, la guardia del raddoppio esercita davvero la scrittura dell'età, e
+la fixture end-to-end è stata provata per mutazione rendendo il passo un
+no-op.
+
+### Che cosa è stato corretto in risposta
+
+- **`household_keys` cerca il tutore vivo nell'ordine madre, padre,
+  caretaker**, ed è **transitiva**: la catena risale finché trova un adulto,
+  con un insieme di visitati che chiude i cicli che il modello dati non
+  vieta.
+- Tre testimoni nuovi, uno per caso, tutti visti rossi prima.
+- **Quattro test diretti su `household_keys`**, che nessun file importava: i
+  suoi bordi si raggiungevano solo attraverso i due chiamanti.
+- Le code del round: il commento sul costo ora dichiara che 35 e 43 valgono
+  sul tick in cui **nessuno compie gli anni**, e che un compleanno costa una
+  query in più; l'helper morto rimosso dallo snapshot; il riferimento a
+  `household_keys` corretto in nome di modulo.
+- **Doc-sync**: i due whitepaper guadagnano il paragrafo su B2, B3 e B4, che
+  il round ha giustamente segnalato assenti.
+
+### Un difetto introdotto dalla remediation, colto dalla guardia di costo
+
+Insegnare a `household_keys` le altre due colonne di tutela ha fatto salire il
+costo a **due query per nascita**, contro un FR-016a che alle nascite non
+concede alcun termine. Causa: lo snapshot carica gli agenti con `.only(...)`
+che non includeva `other_parent_agent_id` né `caretaker_agent_id`, e toccare
+un campo differito costa una query per oggetto. Le tre colonne sono ora
+caricate insieme. È la guardia di costo ad averlo colto, che è esattamente il
+mestiere per cui è stata scritta.
+
+### Conseguenza
+
+Round 8 **NOT CONVERGED**. Il round 9 giudica questa remediation, e dopo di
+esso va ri-eseguita la review sull'intero diff del ramo, che il criterio del
+round 8 dichiara dovuta a ogni remediation che tocchi il codice di produzione.
+
+---
+
+## Round 9: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 8 e prima di lanciare il round 9.**
+
+### Il round 9 NON è ristretto, ed è una scelta motivata
+
+Otto round su otto sono stati ristretti al diff della remediation precedente.
+La scelta era giusta per la velocità — sul work item precedente aveva portato
+un round da venticinque minuti a tre senza perdere severità — ma la review di
+chiusura ha mostrato il conto: **quattro difetti di produzione che nessuno
+degli otto poteva vedere**, sei rilievi su dieci della stessa classe, una
+grandezza calcolata bene in un modulo e riletta stantia in quello accanto. È
+una classe che per definizione non esiste dentro un diff ristretto, e il round
+8 ne ha trovata una quinta istanza — due definizioni di «figlio di» in due
+moduli dello stesso sottosistema — proprio perché il criterio gli aveva
+chiesto di guardare fuori.
+
+**Ambito del round 9: `git diff develop..HEAD` per intero**, con la
+remediation del round 8 (`3787a8e`) come primo bersaglio. Non si fa una
+passata ristretta e poi una completa: la remediation è piccola, e una sola
+passata che le guardi entrambe costa meno di due e vede di più.
+
+**Le tre classi bloccanti restano identiche** dal round 2.
+
+### Che cosa attaccare per primo
+
+1. **`household_keys` dopo la seconda riscrittura.** Ora cerca il tutore vivo
+   in tre colonne e risale una catena. L'ordine madre-padre-caretaker è una
+   scelta: che cosa accade quando entrambi i genitori sono vivi ma non in
+   coppia fra loro, e il minore finisce nel nucleo dell'uno e non dell'altro.
+   La catena ha un insieme di visitati: è davvero impossibile un ciclo che la
+   faccia terminare su un nodo sbagliato invece che su nessuno.
+2. **La classe che il round 8 ha appena colto una quinta volta.** Cerca la
+   sesta: due moduli che definiscono la stessa relazione o la stessa
+   grandezza in modi diversi. `is_in_active_couple` contro la mappa dei
+   partner, `age_in_years` contro qualunque altra derivazione dell'età,
+   `compute_subsistence_threshold` contro la condizione 1 del trigger di
+   fuga, la nozione di «vivo» fra i passi.
+3. **I campi differiti.** La correzione dell'N+1 ha aggiunto tre colonne a un
+   `.only()`. Ce ne sono altri nel sottosistema, e ogni campo toccato fuori
+   dalla lista costa una query per oggetto: enumerali.
+4. **Il costo per intento di accoppiamento**, che la review di chiusura ha
+   registrato come coda e nessun round ha ancora misurato: i passi 1 e 2
+   girano a ogni tick e nessuna fixture di costo costruisce un intento.
+
+### Che cosa il verdetto deve contenere
+
+Rilievi per gravità con classe, `file:riga` e misura. Se non produce nulla
+delle tre classi, l'enumerazione di ciò che non ha coperto — su un diff di
+questa dimensione quell'elenco è la parte che vale, e i due verdetti
+precedenti lo hanno dimostrato.
+
+**Convergenza**: nessuna delle tre classi bloccanti.
+
+### Perché questo criterio può fallire
+
+Il diff è 53 file e circa 1900 righe di produzione, e un revisore che lo legga
+tutto superficialmente troverà meno di uno che ne legga metà a fondo. Il
+criterio chiede esplicitamente la profondità sui quattro punti sopra e accetta
+che il resto sia dichiarato non coperto: un elenco onesto di ciò che non è
+stato guardato vale più di una copertura nominale che non ha guardato niente.
+
+### Verdetto round 9: NOT CONVERGED
+
+**Il round 9 non era ristretto, ed è la scelta che ha prodotto il verdetto:
+nessuno dei tre bloccanti stava dentro la remediation del round 8.** Un round
+ristretto non ne avrebbe trovato nessuno.
+
+**C1, classe 1 — due orologi.** `initialization.py` era l'unico modulo del
+sottosistema a non nominare mai `acceleration`: zero occorrenze, contro
+quindici nell'orchestratore. Scriveva `birth_tick` senza il fattore e
+`age_in_years` lo rilegge moltiplicandovi, quindi il giro restituiva l'età
+scritta **per l'accelerazione**. Misurato: un quarantenne torna 400 anni a
+`acceleration=10`. Il docstring della funzione dichiarava esattamente
+l'invariante che il codice rompeva. Conseguenze dentro il ramo: azzardo di
+Heligman-Pollard valutato a quattrocento anni, e finestra fertile — che scala
+in senso opposto — che esclude l'intera popolazione fondatrice, quindi nessun
+concepimento mai.
+
+**C2, classe 1 — una persona a carico di due nuclei.** `_anchor` risaliva la
+catena dei tutori incondizionatamente, quindi una minorenne sposata finiva nel
+nucleo del genitore mentre la chiave del marito continuava a nominarla: il suo
+patrimonio contato in un nucleo, la sua appartenenza reclamata da un altro.
+Misurato: un anno di età ribalta il verdetto sulla stessa popolazione, a
+quattordici anni affamata accanto a un marito con diecimila, a diciassette no.
+Raggiungibile perché `min_marriage_age_*` non compare in `couple.py`: la
+soglia dell'era governa il solo accoppiamento fondatore, non il percorso per
+intenti.
+
+**C3, classe 1 — identità.** I bacini di nomi hanno **dodici** voci per sesso
+e `pick_newborn_name` non controlla l'unicità, quindi la collisione è certa al
+tredicesimo nato di un sesso; `_resolve_agent_by_name` legava il nome ambiguo
+all'omonimo con l'id più basso, in silenzio. Prima di questo ramo non nasceva
+nessuno: è il ramo a rendere certa una collisione finora impossibile.
+
+**Il pattern, sesta e settima istanza.** Due delle duplicazioni sono state
+introdotte **dal ramo stesso, nella stessa passata, con l'originale a due file
+di distanza**: `context.household_keys` riscriveva `couple.active_couple_partners`,
+e `orchestrator.age_in_years` riscriveva `fertility._effective_age_in_years`.
+Non è codice ereditato andato alla deriva: è codice nuovo che nasce già
+duplicato accanto al proprio originale, mentre sei docstring dello stesso ramo
+dichiarano la regola della sorgente canonica.
+
+### Che cosa è stato corretto in risposta
+
+- **C1**: il backfill riceve il template e delega l'inversione a
+  `age_in_years` invece di riscriverla; degrada ad accelerazione 1,0 con un
+  log se l'era non si carica, perché lo stesso codice è la riparazione per
+  tick del blocco e un refuso nel nome dell'era non deve fermare il tick.
+- **C2**: il matrimonio prevale sulla catena dei tutori. Decisione di modello
+  presa in autonomia e dichiarata: una coppia È un nucleo, prima riga del
+  docstring della derivazione, e nessuno può essere a carico di due.
+- **C3**, ratificata dall'utente: un bersaglio ambiguo viene **rifiutato e
+  registrato** invece che legato arbitrariamente. Non elimina l'ambiguità,
+  impedisce il matrimonio sbagliato. Risolvere per identificatore la
+  eliminerebbe ed è un work item separato, perché cambia lo schema d'azione
+  che il ciclo di decisione consegna al modello.
+- **Le due duplicazioni chiuse**: la mappa dei partner e la formula dell'età
+  hanno ora una sola implementazione ciascuna. La seconda aveva anche una
+  divergenza reale, il guardiano sul divisore presente in una sola delle due.
+- **Le code testuali**: il `why_here` del passo 5 e il docstring di
+  `migration.py` che asserivano ancora il modello pre-B1; «una query di soglia
+  per zona» che sono due; la memoizzazione che ne dichiarava tre quando ne
+  copre due; `HOURS_PER_YEAR` nominata anche nell'orchestratore e in
+  `fertility.py`, dove era un letterale nudo.
+- **La coda che valeva di più**: il costo per intento di accoppiamento non era
+  mai stato misurato da nessuna fixture, mentre i passi 1 e 2 girano a ogni
+  tick. Ora c'è una guardia che lo pinna sulla misura e dichiara che il
+  termine è per intento e non per agente vivo.
+
+Ogni correzione ha il proprio testimone, visto rosso prima. Suite **1735
+verdi**, ruff pulito su 339 file.
+
+### Conseguenza
+
+Round 9 **NOT CONVERGED**. Il round 10 giudica questa remediation, e — per la
+regola che il round 8 ha scritto e il round 9 ha confermato per la seconda
+volta — lo fa di nuovo sull'**intero diff del ramo**, non sul solo delta.
+
+---
+
+## Round 10: criterio, scritto prima del lancio
+
+**2026-08-29, dopo il verdetto del round 9 e prima di lanciare il round 10.**
+
+**Ambito: `git diff develop..HEAD` per intero**, di nuovo. La regola scritta al
+round 8 è stata confermata due volte: il round 9, non ristretto, ha prodotto
+tre bloccanti di cui **nessuno** stava nella remediation che un round
+ristretto avrebbe giudicato.
+
+**Le tre classi bloccanti restano identiche** dal round 2.
+
+### Che cosa attaccare, in ordine
+
+1. **Le due delegazioni nuove.** `fertility._effective_age_in_years` ora
+   importa `orchestrator.age_in_years` dentro il corpo, e
+   `initialization.backfill_birth_ticks` inverte quella stessa formula.
+   Verifica che non esista un percorso di import circolare che si manifesti
+   solo in produzione, e che l'inversione sia esatta e non approssimata dal
+   `round()`.
+2. **La precedenza del matrimonio sulla catena dei tutori**, che è la
+   decisione di modello del round 9. Il caso che nessuno ha ancora
+   esercitato: un minore i cui DUE genitori sono vivi ma **non in coppia fra
+   loro**. Oggi finisce nel nucleo della madre per l'ordine dichiarato.
+   È la scelta giusta, e comunque sia, esiste un testimone che la fissi?
+3. **Il cambio di forma del payload dello snapshot**: i bucket della piramide
+   passano da quattro a cinque elementi e `sex_ratio` diventa nullable. Ho
+   verificato che nessun consumatore esiste fuori dalla demografia — grep a
+   zero risultati su `epocha/apps` escludendo l'app stessa. Verificalo tu
+   invece di crederlo, e guarda anche serializzatori, API e template.
+4. **La sesta e settima istanza della classe duplicazione sono state chiuse.
+   Cerca l'ottava.** Il gate l'ha trovata sette volte, due delle quali con
+   l'originale a due file di distanza e introdotto dallo stesso ramo.
+
+### Il terreno che il round 9 ha dichiarato NON coperto, e che questo eredita
+
+Il round 9 lo ha elencato con onestà e nessuno lo ha ancora calpestato:
+`inheritance.py` oltre le 73 righe del diff — cioè il grosso di un modulo di
+3600 righe che il ramo ora esegue a ogni tick; `migration.py` oltre
+`process_emergency_flight` e `coordinate_family_migration`; la correttezza
+numerica dei tassi dello snapshot contro le definizioni di Preston, Heuveline
+e Guillot che il docstring cita; `mortality.py`, `template_loader.py` fuori
+dalla sezione `names`, `truncated_moments.py`, `clark_calibration.py`.
+
+**Scegli e dichiara.** Non chiedo di coprirlo tutto: chiedo di sceglierne una
+parte, andarci a fondo, e dire esattamente che cosa resta fuori. Un elenco
+onesto di ciò che non è stato guardato vale più di una copertura nominale.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+La remediation del round 9 tocca cinque moduli di produzione, cambia una
+precedenza di modello, introduce due delegazioni fra moduli e una migrazione
+di schema. Se il round non produce nulla delle tre classi, la spiegazione
+ammessa è che la superficie sia stata coperta e non che non sia stata
+guardata, e il verdetto deve dire quali percorsi ha verificato per
+sostenerlo.
+
+---
+
+## Decisione presa su delega dell'utente: la soglia d'età al matrimonio vale anche per gli intenti
+
+**2026-09-26, prima del lancio del round 10.** L'handoff la portava come
+decisione aperta, perché tocca `couple.py`, modulo auditato del Plan 2.
+L'utente l'ha delegata con queste condizioni, eseguite alla lettera.
+
+**Il difetto.** `min_marriage_age_male` e `min_marriage_age_female` erano
+lette dal solo `initialization.form_initial_couples`, e sulla colonna `age`;
+`resolve_pair_bond_intents` non le guardava, quindi un intento poteva sposare
+un agente sotto la soglia della propria era. Era la condizione di
+raggiungibilità di C2: la correzione del round 9 aveva chiuso il sintomo sul
+contatore, non la causa.
+
+**La decisione.** Un solo predicato, `couple.meets_marriage_age`, usato da
+entrambi i percorsi che formano coppie. Sta in `couple.py` perché la
+formazione delle coppie possiede le regole del matrimonio; calcola l'età con
+`orchestrator.age_in_years` su `birth_tick`, quindi porta l'`acceleration`
+dell'era. La soglia è un minimo inclusivo in anni compiuti. Un genere diverso
+da maschile e femminile, che i template non coprono, deve soddisfare la più
+alta delle due soglie, scelta conservativa dichiarata nel docstring. Nel
+risolutore il predicato sta nel ciclo di formazione, l'unico punto da cui
+passa ogni coppia, diretta o combinata, e si applica al proponente e a ogni
+bersaglio; un rifiuto non forma coppie ed è registrato a livello WARNING,
+sullo stesso modello di C3. I valori dei template non sono toccati. **C2
+resta**: nelle ere pre-industriali la soglia femminile è 14 contro una
+maggiore età di 16, quindi una quattordicenne sposata è legittima e il
+matrimonio deve continuare a prevalere sulla catena dei tutori.
+
+**Un difetto che la decisione ha scoperto.** Spostare l'accoppiamento
+fondatore dalla colonna all'età canonica ha reso visibile che il backfill di
+`birth_tick` arrotondava al tick più vicino l'inversa di `age_in_years`: su un
+mondo settimanale, 40 delle 91 età da 0 a 90 rileggevano un valore sotto
+quello scritto, la parte intera perdeva un anno, il rinfresco dell'età del
+passo mortalità riscriveva la colonna, e una fondatrice scritta esattamente a
+16 anni sotto `industrial` veniva rifiutata dalla soglia di 16. Ora è il
+lettore a giudicare: il tick scritto arretra di uno finché `age_in_years`
+torna corto. Arrotondare per difetto da solo non bastava, e la mutazione lo
+ha mostrato: a 63 anni l'inversa è un numero intero di tick e il prodotto in
+virgola mobile rileggeva 62,999...
+
+**Misure.** Test rossi prima, su entrambi i lati del confine: un anno sotto
+soglia rifiutato, esattamente alla soglia accettato, per ciascun sesso e in
+entrambi i ruoli; più il matrimonio combinato di una dodicenne, il non
+binario a 15 e a 16, l'età letta da `birth_tick` e non dalla colonna in
+entrambe le direzioni, l'accelerazione, e due testimoni sul backfill. Contro
+la versione precedente del codice i test nuovi danno sette rossi. Dodici
+mutazioni sulla produzione, misurate una per una contro un backup: undici
+morte al primo colpo; la dodicesima, `floor` al posto di `round`, è
+sopravvissuta perché il controllo del lettore la rendeva ridondante, quindi
+il `floor` è stato tolto e le due mutazioni sul controllo muoiono entrambe.
+**Costo per intento invariato**: 43 query senza intenti, 50 con due, 57 con
+quattro, cioè 3,5 per intento come al round 9; il rifiuto legge oggetti già
+in mano, e la durata del tick arriva dal contesto, dove la query si sposta dal
+passo mortalità invece di aggiungersi.
+
+**Fuori perimetro, e registrato qui invece che taciuto.** La stessa lettura
+ha trovato altre quattro chiavi del blocco `couple` dei template che nessun
+codice legge: `mourning_ticks`, `marriage_market_radius`,
+`marriage_market_type` e `allowed_types`. Sono validate dal caricatore e
+documentate nella Tabella 4.5 del §4.1.3 come parametri per era, e il §4.1.3
+dice che `marriage_market_type` «seleziona» fra matrimonio autonomo e
+combinato, mentre il risolutore accetta un intento combinato in qualunque
+era. Sono precedenti a questo ramo e sono una decisione di perimetro, non una
+correzione da prendere in autonomia: vanno portate all'utente.
+
+**Prosa superata, corretta nello stesso commit.** Aggiornando il conteggio
+della suite, la build map si è rivelata ferma su tre affermazioni false in
+entrambe le lingue: «tutti e trentotto i task sono chiusi» mentre T038 è
+aperto dalla riapertura del gate; costi fissi di 36 e 44 query e 6 per il
+tick con morti, mentre i pin sono 35, 43 e 5 dalla review di chiusura; e la
+corsa di un anno «da 80 a 90 agenti con 14 nascite e 4 morti», che misurata
+oggi dà 86 che diventano 88, con 7 nascite e 5 morti. Lo stesso commento
+stantio stava nel test end-to-end, ed è corretto con la misura. Suite **1751
+verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
+
+---
+
+## Round 10: emendamento al criterio, scritto prima del lancio
+
+**2026-09-26, dopo i commit `86d9f25` e `143df0d` e prima di lanciare il
+round 10.** Il criterio del round 10 era stato scritto e committato
+(`430e73a`) prima che questi due commit esistessero. Un criterio che non
+nomina il codice cambiato dopo di lui è un criterio che quel codice
+attraversa senza essere guardato, quindi lo emendo qui, in coda e in chiaro,
+invece di riscriverlo.
+
+**Che cosa NON cambia.** L'ambito resta `git diff develop..HEAD` per intero.
+Le tre classi bloccanti restano quelle del round 2 e non sono toccate: un
+difetto di correttezza nel codice di produzione, un criterio che non può
+fallire, una chiusura dichiarata e non vera. I quattro punti d'attacco e il
+terreno ereditato dal round 9 restano validi così come sono scritti sopra.
+
+**Che cosa si aggiunge come bersaglio, per primo.**
+
+1. **`couple.meets_marriage_age` e i suoi due chiamanti.** Il predicato
+   dichiara di essere l'unica regola d'età al matrimonio del sottosistema.
+   Verifica che non esista un terzo percorso che forma coppie senza
+   passarci — i soli chiamanti di `form_couple` fuori dai test sono oggi
+   `form_initial_couples` e `resolve_pair_bond_intents` — e attacca i suoi
+   bordi: `birth_tick` nullo, che ricade sulla colonna `age`; un genere
+   nullo o vuoto, che cade nel ramo della soglia più alta; un'era che
+   dichiari una soglia femminile superiore a quella maschile.
+2. **Il punto del risolutore in cui il predicato è applicato.** Il ciclo di
+   formazione, al proponente e a ciascun bersaglio. Un agente sotto soglia
+   può essere proponente di un intento e bersaglio di un altro nello stesso
+   tick, e l'intento combinato riattribuisce il proponente al figlio:
+   verifica che il rifiuto non lasci sfuggire alcuna combinazione e che non
+   ne rifiuti una legittima, per esempio consumando `used` o interrompendo
+   il ciclo di un proponente adulto che ha un secondo bersaglio valido.
+3. **Il controllo del lettore nel backfill di `birth_tick`.** Il ciclo che
+   arretra il tick finché `age_in_years` torna corto dichiara di girare al
+   più una volta. Verifica che termini sempre — accelerazione molto alta o
+   molto bassa, durata del tick estrema, `age` nullo — e che la parte intera
+   dell'età riletta coincida con quella scritta, che è la proprietà su cui
+   poggiano sia il rinfresco dell'età del passo mortalità sia la soglia.
+4. **Il costo.** La durata del tick arriva ora al risolutore dal contesto, e
+   la query si sposta dal passo mortalità al passo di formazione delle
+   coppie invece di aggiungersi. Misurato: 43, 50 e 57 query a zero, due e
+   quattro intenti. Verifica che lo spostamento regga anche sotto gli ordini
+   permutati dei passi che SC-002 esegue, e che il termine per intento non
+   cresca in un caso che la guardia non costruisce, come un intento
+   combinato o un bersaglio sotto soglia.
+5. **La rimozione delle due copie** (`143df0d`). `snapshot.py` importa ora
+   `orchestrator` a livello di modulo: verifica l'assenza di un ciclo
+   d'import che si manifesti solo in produzione, dal generatore del mondo o
+   dal worker Celery.
+
+**Un rilievo già registrato, e che il round giudichi invece di ereditare.**
+Quattro chiavi del blocco `couple` dei template — `mourning_ticks`,
+`marriage_market_radius`, `marriage_market_type`, `allowed_types` — sono
+validate e documentate nella Tabella 4.5 ma nessun codice le legge, e il
+§4.1.3 descrive `marriage_market_type` come se selezionasse il regime. Le ho
+classificate precedenti al ramo e da portare all'utente come decisione di
+perimetro. Quella classificazione è mia e non è un'esenzione scritta in
+anticipo: il round decida se una di esse è una chiusura dichiarata e non
+vera o un difetto che questo ramo ha reso raggiungibile, e lo dica.
+
+**Stato di partenza misurato**: HEAD `143df0d` più questo emendamento, suite
+**1751 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
+
+**Convergenza**: invariata. Nessuna delle tre classi bloccanti.
+
+### Verdetto round 10: NOT CONVERGED
+
+Un revisore, ambito `develop..HEAD` per intero, igiene rispettata e
+verificata: albero pulito, nessun processo residuo, mutazioni ripristinate
+dal backup. Sei rilievi bloccanti.
+
+- **F1, classe 1.** La fuga d'emergenza valuta ogni agente vivo come un
+  migrante autonomo, minori e neonati compresi. Con il contatore di nucleo
+  tutti i membri di un nucleo insolvente raggiungono la soglia insieme, e
+  l'orizzonte di Sjaastad è il più lungo proprio per il bambino: misurato
+  sul tick vero, la tutrice di 63 anni resta in `trapped_crisis`, la pupilla
+  di 10 fugge da sola con `household_members: []` e fa scattare da sola la
+  fuga di massa. È il residuo di B1.
+- **F2, classe 1, ottava istanza della duplicazione.** `coordinate_family_migration`
+  ricostruisce il nucleo a mano (partner più figli propri) invece di usare
+  `household_keys`: la sposa minorenne segue la madre lasciando il marito,
+  il pupillo resta indietro, il figliastro pure.
+- **F3, classe 1.** `net_migration_by_zone` contava un migrante per evento
+  mentre l'unico produttore scrive un evento per nucleo; la fixture del
+  test costruiva un payload senza `household_members`, forma che la
+  produzione non scrive mai.
+- **F4, classe 2.** `PER_PAIR_BOND_INTENT = 3.5` era misurato sulla forma
+  più economica, la coppia reciproca; tre query in più sul solo ramo non
+  reciproco lasciavano la guardia verde.
+- **F5, classe 3.** Il §4.1.3 diceva ancora che cablare `mourning_ticks` è
+  «una modifica di una riga riservata al Plan 4», voce esplicita
+  dell'inventario di FR-017 con T036 spuntato.
+- **F6, classe 1, la più lieve.** Il TFR scartava le nascite delle madri
+  morte di parto.
+
+Il pattern è il solito: cinque rilievi su sei sono una grandezza definita in
+un modulo e riletta diversamente in un altro, e i quattro di produzione
+stanno tutti sul confine fra migrazione e `household_keys`, che nessun round
+aveva confrontato.
+
+### Remediation, prima parte
+
+Corretti con testimone rosso prima, mutazioni misurate una per una contro un
+backup (tutte uccise):
+
+- **F3**: lo snapshot conta l'agente principale più `household_members`; la
+  fixture usa ora la forma che la produzione scrive.
+- **F4**: la guardia misura tre forme a due e quattro intenti, pretende
+  linearità e il raggiungimento del limite; misurato 3,5 per la coppia
+  reciproca, 6 per l'intento unilaterale, 7 per il combinato, 3 per un
+  intento rifiutato dalla soglia d'età. `PER_PAIR_BOND_INTENT` è ripinnata a
+  7, il caso peggiore raggiunto.
+- **F5**: la prosa del §4.1.3 in entrambe le lingue dice che il Plan 4 non
+  ha cablato il lutto e che il cablaggio è rinviato al work item separato
+  sulle chiavi della coppia, deciso dall'utente il 2026-09-26; nello stesso
+  paragrafo, la promessa di un builder non eterosessuale e non binario
+  «parte del deliverable del Plan 4» diventa ciò che il Plan 4 consegna,
+  un accoppiamento fondatore di soli uomini con donne. `marriage_market_type`
+  non «seleziona» più nulla nel testo, e il §6.2 dichiara le quattro chiavi
+  non lette.
+- **F6**: le madri morte di parto nel tick entrano nel numeratore e
+  nell'esposizione della loro età, con una lettura sola e solo nei tick che
+  ne hanno.
+- **Non bloccanti**: il testimone mancante per un bersaglio rifiutato che
+  non deve chiudere il turno del proponente (M7, ora uccisa); tre commenti
+  superati in `context.py`, `test_starvation_counter.py` e
+  `orchestrator.py`, quest'ultimo mio e falso: la durata del tick era già
+  risolta alla costruzione del contesto, non si spostava alcuna query.
+
+**Un criterio che poteva fallire per caso, trovato dalla suite e non dal
+round.** La prima versione della guardia F4 passava da sola e cadeva nella
+suite intera, e con essa cadeva `test_the_population_lives`. Causa unica:
+`get_seeded_rng` mescola l'id della simulazione nel seme, quindi quale
+fixture veda una nascita o una morte dipende da quante simulazioni la suite
+ha creato prima. La guardia ora forza a zero nascite e morti; il test
+end-to-end, che pretendeva `fine != inizio` e cadeva a 86 contro 86, asserisce
+l'identità contabile `fine = inizio + nascite − morti`, che è anche
+l'affermazione più forte.
+
+Suite **1754 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
+
+**F1 e F2 aspettavano la conferma dell'utente**, perché la correzione cambia
+il comportamento della migrazione in `migration.py`, modulo auditato. L'ha
+data il 2026-09-26: la fuga valuta e muove il nucleo di `household_keys`.
+
+### Remediation, seconda parte: F1 e F2
+
+**La decisione per nucleo.** `process_emergency_flight` deriva i nuclei una
+volta per tick con `context.household_keys` e decide ciascuno una volta, per
+bocca del suo decisore: l'ancoraggio, cioè l'id più basso di una coppia o
+l'adulto singolo, mai un dipendente. La condizione 1 è del nucleo, attraverso
+`context.starving_households`, predicato nuovo e UNICO che ora usa anche il
+contatore di fame, invece della copia individuale che il docstring del
+contatore dichiarava «divergenza deliberata»; le condizioni 2 e 3 leggono il
+contatore e l'orizzonte di Sjaastad del decisore. Un nucleo in fuga parte
+intero con un solo evento; un nucleo intrappolato intrappola ogni membro, e
+ciascuno conserva il proprio `TRAPPED_CRISIS`. Il numeratore della fuga di
+massa conta persone, storiche e correnti.
+
+**Una sola definizione di nucleo.** `coordinate_family_migration` non
+ricostruisce più il nucleo a mano: riceve i membri dal chiamante che li ha già
+derivati, oppure li deriva da sé con `household_keys`. L'ordine dei membri è
+uno solo, il partner per primo e poi i dipendenti dal più anziano.
+
+**Testimoni, tutti visti rossi prima o provati per mutazione.** Sette
+testimoni nuovi contro la versione precedente: la pupilla che non fugge da
+sola accanto alla tutrice intrappolata, la pupilla che parte con il tutore, il
+figliastro che parte con il nucleo in un solo evento (la prima stesura
+passava per caso, perché la bambina arrivava nella stessa zona fuggendo da
+sola: ora il test pretende un evento unico), la sposa minorenne che resta con
+il marito, il partner solvente che trattiene il nucleo, la fuga di massa che
+conta quattro persone e non una, e la derivazione di ripiego che porta la
+pupilla. Poi tre testimoni scritti per chiudere due mutazioni sopravvissute:
+il numeratore storico in persone, il costo di una fuga (due scritture, e
+nessuna nuova derivazione del nucleo per ogni nucleo in fuga) e il confine
+esatto di `starving_households`, dove una ricchezza pari alla soglia sfama il
+nucleo. Nove mutazioni sulla produzione, misurate una per una: sette uccise al
+primo colpo, le altre due dopo i testimoni appena descritti.
+
+**Il costo, ri-pinnato sulla misura.** Il passo di migrazione forzata legge
+ora la mappa dei partner che `household_keys` richiede: una query per tick,
+qualunque sia la popolazione. `FIXED_TERM_NO_CANDIDATES` e
+`FIXED_TERM_WITH_CANDIDATES` salgono da 35 e 43 a 36 e 44, e la guardia sul
+raddoppio della popolazione resta un'uguaglianza. La guardia del costo fisso
+della fuga passa da 17 a 18 query per la stessa ragione.
+
+**Fixture incoerenti, trovate dalla derivazione nuova.** `test_migration.py`
+e `test_inheritance.py` creavano agenti con `age=30` e `birth_tick=0`, cioè
+di cinquanta giorni per l'età canonica: `household_keys` li leggeva come
+minori. In `test_migration.py` la fixture deriva ora `birth_tick` dall'età; in
+`test_inheritance.py`, dove `birth_tick` ordina gli eredi in seimila righe di
+test, è corretto il solo agente che il test SC-004 giudica. Due fixture di
+`test_migration.py` avevano un partner con patrimonio 100 accanto a un agente
+a 4, cioè un nucleo che con la regola nuova non muore di fame: il partner ha
+ora patrimonio zero, che è il caso che quei test volevano esercitare.
+
+Suite **1765 verdi**, ruff pulito su 340 file, guardia bilingue 9 su 9.
+
+---
+
+## Round 11: criterio, scritto prima del lancio
+
+**2026-09-26, dopo i commit `b596753` e `b1b7c0d` e prima di lanciare il
+round 11.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola scritta al
+round 8 e confermata dai round 9 e 10, nessuno dei quali ha trovato i propri
+bloccanti dentro la remediation che un round ristretto avrebbe giudicato.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **La decisione per nucleo della fuga d'emergenza** (`b1b7c0d`), che cambia
+   un modello e non un testimone. Il decisore è l'ancoraggio del nucleo:
+   verifica i casi che nessun test costruisce — un minore orfano senza
+   tutore vivo, che è un nucleo da solo e si valuta da solo; un nucleo con i
+   partner in due zone; un partner fuori dalla popolazione con zona; un
+   nucleo il cui decisore ha un contatore diverso da quello dei dipendenti,
+   perché la composizione del nucleo è cambiata nel tick. E dì se è giusto
+   che solo il decisore scriva la memoria di prima mano della fuga.
+2. **Il predicato condiviso `context.starving_households`.** Il contatore di
+   fame lo usa ora al posto della propria aggregazione: verifica che il
+   rifattore sia un'equivalenza esatta, e che nessuno dei due chiamanti
+   prezzi un membro sulla zona sbagliata.
+3. **La fuga di massa in persone.** Numeratore e denominatore devono contare
+   la stessa unità nella finestra intera, storica e corrente; verifica anche
+   i due limiti dichiarati della ricostruzione del denominatore alla luce dei
+   nuclei.
+4. **La classe che la suite, non il round, ha trovato in questa
+   remediation**: criteri che dipendono dall'id della simulazione, perché
+   `get_seeded_rng` lo mescola nel seme. Due sono stati chiusi; cerca gli
+   altri — ogni uguaglianza esatta su conteggi di query, nascite o morti in
+   una fixture che non forza gli stream vitali.
+5. **La guardia per intento a 7** (`b596753`): è davvero il caso peggiore?
+   Le forme non costruite: un intento verso un bersaglio già in coppia, verso
+   un morto, verso un nome ambiguo, un proponente con più bersagli.
+
+### Il terreno ereditato
+
+Il round 10 ha dichiarato non coperti `inheritance.py` oltre il diff,
+`mortality.py`, `template_loader.py` oltre lo schema della coppia,
+`truncated_moments.py`, `clark_calibration.py`, la parte volontaria di
+`migration.py`, `fertility.py` oltre `_effective_age_in_years`, e le cifre
+end-to-end non ri-misurate. **Scegli e dichiara**, come ai round precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+La remediation del round 10 cambia il modello della fuga d'emergenza in un
+modulo auditato, introduce un predicato condiviso fra due moduli, cambia due
+serie dello snapshot e ri-pinna quattro costanti di costo. Se il round non
+produce nulla delle tre classi, il verdetto deve dire quali percorsi ha
+verificato per sostenerlo e che cosa ha lasciato fuori.
+
+### Verdetto round 11: NOT CONVERGED
+
+Un revisore, ambito `develop..HEAD` per intero, igiene verificata: albero
+pulito, nessun processo residuo, i cinque moduli mutati identici ai backup.
+Quattro rilievi bloccanti, **nessuno ancora corretto**: la sessione del
+2026-09-26 si è fermata al verdetto su richiesta dell'utente.
+
+- **R1, classe 1, introdotto dalla remediation del round 10.** Un nucleo
+  diviso fra due zone viene attribuito per intero alla zona del decisore:
+  un solo `from_zone` nel payload, il numeratore corrente e storico della
+  fuga di massa e la migrazione netta dello snapshot contano i membri che
+  non hanno mai abitato quella zona. Riprodotto: decisore in A con nove
+  vicini, moglie e due figli in «Casa» con due vicini; esito `MASS_FLIGHT`
+  da A al 40% quando da A è partito uno su dieci, nulla da Casa che ne ha
+  perso tre su cinque, e lo snapshot a `{A: -4, Casa: 0}`. Contro la
+  versione `b596753` non scatta nulla da A: la remediation l'ha introdotto.
+  È il caso normale, non un limite: il generatore assegna le zone a
+  rotazione, l'accoppiamento fondatore non guarda la zona, il neonato
+  eredita la zona della madre. Correzione indicata: ogni persona attribuita
+  alla propria zona di partenza, catturata prima dello spostamento, nel
+  numeratore corrente, nel payload e nello snapshot.
+- **R2, classe 1, codice preesistente reso vivo dal ramo.** `mortality.py`
+  usa `q·dt` per `q < 0.1` invece della forma geometrica `1-(1-q)^dt`:
+  sottostima misurata fino al 4,71% nelle ere pre-industriali (4,96% in
+  `industrial`), con un salto spurio di circa il 5% fra 82 e 83 anni,
+  contro un errore dichiarato «below 0.5%» nel §4.1.1. Lo stesso paragrafo
+  dice che `q` supera 0.1 per i neonati pre-industriali: falso, `q(0)` vale
+  0,0247. Correzione indicata: una riga, sempre la forma geometrica.
+- **R3, classe 3.** Il §4.1.5 dice ancora, in entrambe le lingue, che la
+  condizione (1) resta individuale per «divergenza deliberata», due
+  paragrafi dopo l'equazione (4.58) riscritta a `Σ_h`. Stessa classe di F5.
+- **R4, classe 3, classificazione del revisore e discutibile.**
+  `inheritance.py` dichiara che coprire la sussistenza del pupillo dello
+  Stato (`"state_ward"`) è compito per tick dell'orchestratore del Plan 4;
+  nessun codice lo fa e la spec non lo elenca fra ciò che il Plan 4 non
+  consegna. Misurato: un pupillo di otto anni senza patrimonio diventa
+  decisore di se stesso e fugge da solo.
+
+**Non bloccanti**, da correggere nello stesso giro: la condizione 2 letta
+dal contatore del partner di id più basso (N1, serve una regola di nucleo);
+due mutazioni sopravvissute, il decisore «mai un dipendente» (M7) e
+l'ordine dei dipendenti dal più anziano (M10), senza testimone; quattro
+uguaglianze in `test_demography_cost.py` che non forzano gli stream vitali
+e dipendono dall'id della simulazione (misurato: 7 fixture su 400 vedono un
+evento vitale); la memoria di prima mano della fuga scritta dal solo
+decisore e non dal partner adulto, che il revisore giudica decisione
+dell'utente; prosa e riferimenti superati (N8).
+
+**Confermato dal round**: il predicato condiviso `starving_households` è un
+rifattore esatto; la guardia per intento a 7 è il vero caso peggiore, per
+costruzione e per misura su sette forme d'intento; nessun ciclo d'import.
+
+**Prosa della build map corretta in questo commit.** Il paragrafo `hb.p1`
+inglese diceva dal 7 agosto che la fase 0 era «under way» su una scala
+latente logit senza troncamento, mentre l'italiano normativo la dice
+conclusa sulla normale troncata, che è ciò che il codice implementa
+(`truncated_moments.py`). La guardia bilingue non lo vedeva: confronta
+un'impronta del testo italiano, quindi un ricalcolo delle impronte dopo una
+modifica al solo italiano la rende verde senza traduzione. Segnalato dalla
+sessione del sito pubblico.
+
+### Remediation del round 11 (2026-10-29)
+
+**Chi ha deciso, e con quale stato.** L'utente era assente in mattinata e ha
+delegato le decisioni alla Trinità. Le decisioni sono registrate nel diario
+del giorno (`Diario/2026/10/2026-10-29/decisioni.md`): D-29-1 e D-29-2, prese
+da Domenico dopo le posizioni di Matteo verificate sul codice, sono
+**provvisorie fino alla conferma dell'utente**; D-29-4, sui minori nel ciclo
+decisionale, è stata confermata dall'utente alle 10:20.
+
+**Il pattern, nominato da Domenico.** Dal B1 la nozione di nucleo si propaga
+ai consumatori uno per round: round 8, 9, 10 e, al round 11, R1, R3 e N1.
+Un altro round senza enumerazione avrebbe rifatto il ciclo. Per questo
+D-29-1 ha messo **prima la tabella dei lettori** e poi una remediation sola:
+53 punti che leggono appartenenza, zona, patrimonio, età o contatore, per
+ciascuno l'unità che serve (persona o nucleo) e quella letta, con la riga di
+codice citata. Esito: 34 corretti, 12 difettosi (4 sono R1, 8 nuovi), 7 non
+chiari. La tabella, scritta a `2ae7d99`, è copiata nella cartella del diario
+come `epocha-person-household-table.md`.
+
+**Che cosa è stato corretto**, ogni volta con il testimone rosso prima:
+
+- **R2** (`81bcf2b`): `tick_mortality_probability` converte la probabilità
+  annua in forma geometrica a ogni età; la sottostima misurata con la
+  funzione di produzione arrivava al 4,71% a 82 anni nei due template
+  pre-industriali. Il testimone controlla ogni età da 0 a 100 su un tick
+  giornaliero; il §4.1.1 perde la dichiarazione dello 0,5% e la frase falsa
+  sui neonati.
+- **R3** (`81bcf2b`): il §4.1.5 non chiama più individuale la condizione (1).
+- **R4, variante (b)** (`2049636`, `0623b94`): in
+  `context.starving_households` il bisogno di un membro conta zero quando è
+  pupillo dello Stato, minorenne sull'età canonica e nucleo di sé solo. Il
+  docstring di `assign_orphan_caretaker` non afferma più un trasferimento
+  dalla tesoreria che nessun codice fa, e la spec lo elenca fra ciò che il
+  Plan 4 non consegna.
+- **Righe 20 e 33, contatore di nucleo** (`487a33a`): un nucleo affamato
+  scrive a ogni membro il massimo dei contatori precedenti più uno, un nucleo
+  sfamato azzera tutti; la condizione 2 non dipende più dall'id del decisore
+  (N1). Nessuna query nuova: le guardie restano a 36 e 44.
+- **Memoria della fuga** (`15cedd9`): la scrive ogni membro spostato, con il
+  decisore come `origin_agent`, dentro lo stesso `bulk_create`; un testimone
+  fissa che la deduplica per origine e tick di `information_flow` fa arrivare
+  la fuga una volta sola a un vicino che conosce tutto il nucleo.
+- **Codice morto, righe 10 e 12** (`a2b399e`): cancellati
+  `evaluate_emergency_flight` e `_household_members_of`; `members` diventa
+  argomento obbligatorio di `coordinate_family_migration`.
+- **Righe 44 e 45, il tutore** (`15f8454`, `a10098e`, `69ff5e5`): ogni
+  candidato tutore deve essere adulto per la soglia dell'era sull'età
+  canonica, i dipendenti di un tutore morto sono riassegnati, e la minore età
+  dell'orfano si decide anch'essa sull'età canonica e non sulla colonna `age`.
+- **Riga 30** (`6cdb4ea`): rinviata, con un test che fissa l'invariante che
+  la generazione del mondo dà una zona a ogni agente.
+- **D-29-4, minori fuori dal ciclo decisionale** (`7e9c9c6`, `a7d21a5`):
+  `minor_agent_ids`, predicato della demografia sull'età canonica, esclude i
+  minori dal chord Celery e dal percorso sequenziale di `SimulationEngine`.
+  L'età entra nel prompt della chat privata e di quella di gruppo
+  (`6c21973`, `02a1d47`). Il ruolo `child` congelato a vita resta un difetto
+  noto del work item sul comportamento per età (D-29-5).
+- **Le uguaglianze di costo** (`ea385c6`): ora contano a zero eventi vitali.
+  Il rosso dipendeva dalla chiave primaria: con due simulazioni in più create
+  prima, la guardia del raddoppio leggeva 45 query a cinque coppie e 50 a
+  dieci.
+
+**L'integrazione.** Quattro pacchetti, quattro merge `--no-ff` senza
+conflitti (`3abe2ac`, `6f65b7c`, `f4f3dfd`, `c1e8569`), poi sei commit di
+rifinitura (`da13c69`, `69ff5e5`, `d4ac1d0`, `807f9ba`, `02a1d47`,
+`3fca95f`). Suite intera a `3fca95f`: **1801 verdi**; `ruff check` e `ruff
+format --check` puliti su 343 file. Cancello meccanico: nessuna funzione
+nuova sopra soglia, ma i debiti preesistenti sono cresciuti:
+`process_emergency_flight` è a C901 23 e 101 istruzioni, e sono cresciuti
+anche `run_starvation_counter_step`, `run_tick`, `run_simulation_loop` e
+`group_chat_view`.
+
+**Parcheggiato per l'utente**, e dichiarato nel §4.1.5 in entrambe le lingue
+(`e9a09b4`): R1, perché la mappa dell'origine per membro nel payload
+`MIGRATION` cambia il contratto di un evento consegnato; la riga 9,
+l'orizzonte di Sjaastad del solo decisore, perché una regola di nucleo cambia
+il modello di decisione di un modulo convergente. **Parcheggiato tecnico**:
+nella chat di gruppo l'età legge il mondo una volta per ogni agente che
+risponde, cioè una query in più per chiamata al modello.
+
+---
+
+## Round 12: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation del round 11 (HEAD `cb60316`) e prima di
+lanciare il round 12.**
+
+**Ambito: `git diff develop..HEAD` per intero**, 101 commit e 81 file, per la
+regola del round 8, che i round 9, 10 e 11 hanno confermato.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **La completezza della tabella persona/nucleo.** È il primo bersaglio
+   perché la remediation si regge su di essa: un lettore mancato riapre il
+   ciclo. Cerca un punto che legge appartenenza, zona, patrimonio, età o
+   contatore e che la tabella non elenca, soprattutto nel codice entrato
+   oggi, scritto dopo la tabella (`2ae7d99`): `minor_agent_ids` e i suoi due
+   chiamanti, `_assign_caretakers_to_unguarded_minors`, il ramo del pupillo
+   in `starving_households`, il prompt delle due chat.
+2. **Le correzioni di oggi, sui loro bordi.** R4: le quattro condizioni del
+   predicato (il flag, la minore età, la chiave di nucleo di sé solo, il
+   giorno esatto della maggiore età). Il contatore a massimo più uno dopo un
+   matrimonio, una nascita, una maggiore età, una separazione e una morte.
+   La memoria della fuga per ogni membro spostato e la propagazione del
+   sentito dire. La riassegnazione del tutore e il filtro dell'adulto.
+   `minor_agent_ids` con la demografia spenta, con `birth_tick` nullo, in
+   un'era senza template, e l'esclusione nel chord e nel percorso
+   sequenziale.
+3. **I due modi in cui il ramo legge l'età.** L'età canonica deriva da
+   `birth_tick`; la colonna `age` è una cache. `annuity_for_agent`
+   (`migration.py:683`) e l'ordine dal più anziano di
+   `process_inheritance_batch` (`inheritance.py:3523`) leggono ancora la
+   colonna, ed è dichiarato. Verifica che nessun altro lettore sia scivolato
+   da una forma all'altra, e che dove le due divergono nessuno dei due
+   lettori dichiarati cambi un esito.
+4. **I test che dipendono dalla chiave primaria della simulazione.**
+   `get_seeded_rng` la mescola nel seme. Il round 10 ne ha chiusi due, oggi
+   le quattro uguaglianze di `test_demography_cost.py`; cerca ogni uguaglianza esatta su conteggi di query, nascite o
+   morti in una fixture che non forza gli stream vitali.
+5. **Le dichiarazioni di R1 e della riga 9 nel §4.1.5**, e ogni frase dei
+   whitepaper aggiunta oggi, contro il codice. In particolare: il §4.1.5 dice
+   che le condizioni (2) e (3) leggono il contatore del decisore, che con
+   `487a33a` è diventato il contatore del nucleo; la frase deve restare vera
+   e non fuorviante.
+
+### Il terreno ereditato
+
+Il verdetto del round 11 non elenca il terreno che ha lasciato fuori, quindi
+lo eredito dal suo criterio: `inheritance.py` oltre il diff, `template_loader.py`
+oltre lo schema della coppia, `truncated_moments.py`, `clark_calibration.py`,
+la parte volontaria di `migration.py`, `fertility.py` oltre
+`_effective_age_in_years`, le cifre end-to-end non ri-misurate, e di
+`mortality.py` tutto ciò che non è la conversione al tick corretta da R2.
+Fra i test aggiunti oggi non trovo un testimone per le due mutazioni
+sopravvissute del round 11, il decisore «mai un dipendente» (M7) e l'ordine
+dei dipendenti dal più anziano (M10). **Scegli e dichiara**, come ai round
+precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+La remediation di oggi tocca nove moduli di produzione in tre app, cambia la
+regola del contatore, aggiunge un ramo al predicato condiviso, toglie i
+minori dal ciclo decisionale e cancella due funzioni. È stata scritta in
+quattro pacchetti paralleli e integrata dal coordinatore, quindi il confine
+fra i pacchetti è il posto dove un difetto è più probabile: l'integrazione
+di oggi lo ha già mostrato una volta, con `test_inheritance.py` rotto dalla
+cancellazione fatta in un altro pacchetto (`da13c69`). Se il round non produce nulla delle tre classi,
+il verdetto deve dire quali lettori ha aggiunto o escluso dalla tabella,
+quali percorsi ha verificato e che cosa ha lasciato fuori.
+
+### Verdetto round 12: NOT CONVERGED
+
+Un revisore, ambito `develop..HEAD` per intero a `d7db42a`. Tre rilievi
+bloccanti, due di classe 1 introdotti dalla remediation del round 11 e uno di
+classe 3.
+
+- **F1, classe 1, da `2049636`.** Il ramo del pupillo in
+  `context.starving_households` controllava «ancoraggio senza partner»
+  (`key == (agent.id,)`) e non «solo nel suo nucleo», e il `continue`
+  scartava la ricchezza della pupilla insieme al suo bisogno. Riprodotto: una
+  pupilla di quindici anni con patrimonio 100, soglia 10,0 a testa, e un
+  figlio di sei mesi con 0; il nucleo veniva contato come il solo bambino,
+  affamato, ed entrambi i contatori salivano fino a `TRAPPED_CRISIS`. La
+  decisione D-29-2 dice che il bisogno conta zero quando il membro è pupillo,
+  minorenne e **solo** nel suo nucleo.
+- **F2, classe 1, da `15cedd9`.** La partner in fuga riceveva una memoria
+  `DIRECT` di prima mano della fuga e anche una copia `HEARSAY` della propria
+  fuga, perché la deduplica di `information_flow._propagate_memory` cercava in
+  `already_informed` solo sentito dire e voci.
+- **F3, classe 3.** Le righe 8 e 16 della tabella dei lettori non erano né
+  corrette né dichiarate: `build_migration_outlook` prezza salario, distanza e
+  insieme raggiungibile dalla sola zona del decisore, quindi un nucleo diviso
+  può «fuggire» nella zona dove una parte di esso abita già; il denominatore
+  della fuga di massa è ricostruito sulla zona del decisore.
+
+**Non bloccanti**, da correggere nello stesso giro: N1, nessun testimone del
+giorno esatto della maggiore età in `_assign_caretakers_to_unguarded_minors`
+(la mutazione `<` in `<=` sopravviveva); N3, la guardia di costo sulle nascite
+non forzava lo stream della mortalità; N4, il terzo canale di chat
+(`chat/consumers.py`) costruiva il prompt senza l'età; N6, la frase della
+riga 9 nel §4.1.5 non era più vera dopo `487a33a`; N7, il docstring di
+`process_emergency_flight` descriveva ancora il predicato individuale; M10,
+l'ordine dei dipendenti dal più anziano nel payload `MIGRATION` senza
+testimone. **Da registrare, non da correggere**: N5, le elezioni fanno votare
+i neonati; N8, il tetto malthusiano morbido non è monotono vicino al tetto;
+M7, giudicata equivalente negli stati raggiungibili.
+
+**Confermato dal round**: le altre correzioni del giorno reggono. Su 23
+mutazioni, 20 sono state uccise dai testimoni; nessun lettore dell'età è
+scivolato dalla forma canonica (`birth_tick`) alla colonna `age` o viceversa
+oltre ai due dichiarati.
+
+### Remediation del round 12
+
+Ogni correzione con il testimone rosso visto prima e poi verde; ogni
+testimone nuovo è stato controllato per mutazione da un backup, poi
+ripristinato dal backup.
+
+- **F1** (`d24191b`): il bisogno della pupilla conta zero solo se il suo
+  nucleo ha un membro solo, contato sulle chiavi di nucleo; la sua ricchezza
+  conta sempre. Testimone rosso: la madre pupilla di quindici anni con dieci
+  soglie e il figlio di sei mesi non sono affamati, e nessuna fuga né crisi
+  segue. Un secondo testimone, la stessa madre con una soglia e mezza, cade
+  sotto la mutazione che toglie la condizione del nucleo di uno; la mutazione
+  che azzera la ricchezza della pupilla fa cadere il primo. I quattro
+  testimoni di R4 restano verdi. Una conseguenza ora dichiarata: una pupilla
+  sola con ricchezza negativa resta affamata, perché la cura dello Stato
+  azzera il bisogno e non copre un debito. Il §4.1.0 dice, in entrambe le
+  lingue, ciò che il codice fa, e il paragrafo sull'eredità non dice più che
+  il predicato considera «provveduto» ogni pupillo.
+- **F2** (`62b8dfd`): `already_informed` include le memorie `DIRECT` della
+  stessa origine e dello stesso tick. Testimone rosso: dopo la fuga di un
+  nucleo e `propagate_information`, la partner possiede una sola memoria di
+  quella fuga, quella di prima mano (prima: `['direct', 'hearsay']`). Il
+  §4.4.1 e il §4.1.5 aggiornati in entrambe le lingue; il §4.4.1 dichiara che
+  la deduplica si basa su origine e tick e non sul contenuto, e che questo
+  vale ora anche per le memorie di prima mano.
+- **F3** (`7b4cacb`): una frase nel §4.1.5, nelle due lingue, accanto alla
+  dichiarazione di R1, dichiara le righe 8 e 16 come in attesa dell'utente
+  insieme a R1, la cui origine per membro le correggerebbe.
+- **N1** (`f7f7518`): un dipendente che compie la maggiore età il giorno
+  stesso non riceve tutore né annotazione di pupillo; la mutazione `<` in
+  `<=` ora cade.
+- **N3** (`f7f7518`): la guardia sulle nascite forza anche lo stream della
+  mortalità a zero morti, come le altre guardie di costo.
+- **N4** (`430dfa6`): `describe_age` e `describe_speaker` passano dalla
+  dashboard a `demography/orchestrator.py`, accanto a `current_age_in_years`,
+  l'età canonica di cui sono la sola formulazione; la dashboard (chat privata
+  e di gruppo) e `chat/consumers.py` li importano, quindi nessuna app di
+  presentazione importa l'altra. Testimone rosso sul consumer WebSocket: il
+  prompt dice «You are Pietro, a child, 10 months old.».
+- **N6 e N7** (`7b4cacb`): il §4.1.5 dice che la condizione (2)
+  legge il contatore del nucleo e non dipende più da chi decide, che solo la
+  condizione (3), l'orizzonte di Sjaastad, dipende dal decisore, e che
+  l'ancoraggio può essere un minore; il docstring e il commento di
+  `process_emergency_flight` dicono lo stesso e non descrivono più il
+  predicato individuale.
+- **M10** (`f7f7518`): un testimone fissa nel payload `MIGRATION` l'ordine
+  partner, poi figli dal più anziano, con figli creati dal più giovane così
+  che l'ordine per id sia l'inverso; la mutazione che ordina per id cade.
+
+**Registrato per l'utente, non corretto.** N5: `run_election`
+(`world/election.py`, `voter_list`) fa votare ogni agente vivo, neonati
+compresi; appartiene alla spec del comportamento per età e attende quella.
+N8: `fertility.malthusian_soft_ceiling` scende linearmente a zero fra l'80% e
+il 100% del tetto e risale al `floor_ratio` sopra il tetto, quindi con
+`floor_ratio` 0,1 e tetto 500 il fattore vale 0,01 a 499 e 0,1 a 500; è una
+decisione di modello per l'utente. M7: il decisore «mai un dipendente»
+giudicato equivalente negli stati raggiungibili, nessun testimone aggiunto.
+
+**L'integrazione.** Suite intera a `430dfa6`, con la build map aggiornata nell'albero: **1807 verdi**, zero rossi; `ruff check`
+e `ruff format --check` puliti su 343 file; la guardia bilingue della build map, dopo il ricalcolo delle impronte, dà 9 verdi.
+
+---
+
+## Round 13: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation del round 12 (codice a `430dfa6`) e prima di
+lanciarlo.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola del round 8,
+che i round dal 9 al 12 hanno confermato.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **Le correzioni F1 e F2 sui loro bordi.** F1: la pupilla sola, la pupilla
+   con un figlio, la pupilla sposata, la pupilla il giorno della maggiore età,
+   la pupilla con ricchezza negativa, e la pupilla il cui figlio è a sua volta
+   affidato a un tutore. F2: la deduplica ora include le memorie di prima
+   mano; verifica che non spenga una propagazione che deve avvenire, per
+   esempio il lutto (`generate_mourning_memories`, origine il defunto) o la
+   crisi da intrappolamento, e che un vicino che conosce tutto il nucleo
+   senta della fuga ancora una volta sola.
+2. **Ogni altro lettore dell'appartenenza al nucleo.** Il round 12 ha trovato
+   F1 in un lettore che deduceva il nucleo dall'ancoraggio invece di contarne
+   i membri. Cerca ogni punto che usa `key == (agent.id,)`, la lunghezza della
+   chiave o il partner come prova di essere soli, in `context.py`,
+   `migration.py`, `orchestrator.py`, `snapshot.py` e `inheritance.py`.
+3. **Ogni altro lettore della deduplica delle memorie.** `already_informed`,
+   il `get_or_create` degli eventi pubblici, la deduplica dei destinatari del
+   lutto, la memoria aggregata della crisi e la finestra di
+   `_CONCERN_DEDUP_TICKS` in `economy/banking.py`: per ciascuno, quale chiave
+   usa e se una memoria di prima mano la soddisfa o no.
+4. **Il percorso dell'età nei tre canali di chat**, ora che la frase vive in
+   `demography/orchestrator.py`: nessun canale costruisce più l'apertura per
+   conto suo, e nessuna app di presentazione importa l'altra.
+5. **Le frasi dei whitepaper scritte oggi** nei §4.1.0, §4.1.5 e §4.4.1,
+   contro il codice, nelle due lingue.
+
+### Il terreno ereditato
+
+Resta quello del round 12: `inheritance.py` oltre il diff,
+`template_loader.py` oltre lo schema della coppia, `truncated_moments.py`,
+`clark_calibration.py`, la parte volontaria di `migration.py`, `fertility.py`
+oltre `_effective_age_in_years`, le cifre end-to-end non ri-misurate, e di
+`mortality.py` tutto ciò che non è la conversione al tick. M7 resta senza
+testimone per scelta dichiarata. **Scegli e dichiara**, come ai round
+precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+Le due correzioni bloccanti di oggi sono piccole, ma toccano due predicati
+condivisi: il predicato di sussistenza, che il contatore di fame e la fuga
+d'emergenza leggono insieme, e la deduplica delle memorie, che ogni
+propagazione attraversa. Un predicato condiviso corretto per un caso può
+cambiarne un altro che nessun testimone guarda, ed è esattamente ciò che è
+successo al round 11 con il ramo del pupillo. Se il round non produce nulla
+delle tre classi, il verdetto deve dire quali lettori dell'appartenenza e
+della deduplica ha verificato, quali percorsi ha esercitato e che cosa ha
+lasciato fuori.
+
+### Verdetto round 13: NOT CONVERGED
+
+Ambito `develop..HEAD` per intero, secondo il criterio scritto prima del
+lancio. Un rilievo bloccante, di classe 1 e di classe 3 insieme.
+
+- **R13-1, classe 1 e classe 3, da `15cedd9` e dal cablaggio del lutto.**
+  La correzione F2 del round 12 metteva in `already_informed` le memorie
+  `DIRECT` della stessa origine solo sul tick corrente. Due memorie di prima
+  mano nominano come origine qualcuno diverso da chi le possiede: la fuga
+  (ogni membro, origine il decisore) e il lutto (`generate_mourning_memories`,
+  origine il defunto). Riprodotto: una coppia, la partner con un'amica,
+  contatori a 30; `process_emergency_flight(tick=50)`,
+  `propagate_information(50)`, `propagate_information(51)`, e la partner
+  possiede `('direct', 50, ...)` e anche `('rumor', 51, ...)` della stessa
+  fuga; lo stesso per una vedova dopo `generate_mourning_memories(defunto, 50)`
+  e due propagazioni. È anche di classe 3, perché il §4.1.5 dichiarava che un
+  membro fuggito non riceve mai come sentito dire la propria fuga, e la causa
+  per cui due round di fila l'hanno mancata è la stessa: i testimoni facevano
+  girare una sola propagazione.
+
+**Non bloccanti**, da correggere nello stesso giro: N-a, nessun testimone
+della regola dichiarata «una pupilla sola con ricchezza negativa resta
+affamata» (`context.py`), e la mutazione che scarta la ricchezza della
+pupilla sopravviveva a tutti i 24 test di `test_starvation_counter.py`; N-c,
+la chat di gruppo in `dashboard/views.py` leggeva il mondo una volta per
+agente, attraverso `describe_speaker`, `current_age_in_years` e `_world_of`;
+N-d, sul percorso legacy dell'economia, senza `ZoneEconomy`, ogni soglia vale
+0 e `world/economy.py:104` addebita a un bambino 3 contro un reddito di 2,
+quindi una pupilla sola muore di fame dopo un tick. **Da registrare, non da
+correggere**: N-b, la soppressione per stessa origine è accettabile, e la
+query della fase 1 in `information_flow.py` non ha `order_by`, già nel
+backlog del determinismo (memoria `project_determinism_enumeration_pending.md`);
+N-e, nota di gusto: la formulazione del prompt vive in un modulo di dominio.
+
+### Remediation del round 13
+
+Ogni correzione ha il testimone visto rosso prima e verde dopo; ogni
+testimone nuovo è stato controllato per mutazione da un backup, poi
+ripristinato dal backup e confrontato con `cmp`.
+
+- **R13-1** (`91ade95`): `already_informed` contiene chi ha già sentito la
+  stessa origine al tick corrente (`HEARSAY`, `RUMOR`) e chi ha una memoria
+  `DIRECT` della stessa origine con `tick_created` fra
+  `tick - (max(max_hops, 2) - 1)` e `tick`. La finestra è la vita della
+  notizia, letta nel codice e non stimata: la fase 1 racconta al tick `t`
+  dell'evento, la fase 2 a `t + 1` senza controllare `max_hops`
+  (`information_flow.py:92-118`), la fase 3 solo finché
+  `_estimate_hop` resta sotto `max_hops` (`if current_hop >= max_hops:
+  continue`, `information_flow.py:129-130`), e quella stima non scende mai
+  sotto l'hop vero per affidabilità non superiori a 1,0. L'ultimo racconto
+  cade quindi a `t + max(max_hops, 2) - 1`, cioè `t + 2` con il valore
+  predefinito 3. La formula del mandato, `tick - max_hops`, è più larga di un
+  tick: sopprimerebbe una notizia nuova della stessa origine quando la
+  vecchia ha già smesso di viaggiare, e la mutazione che la applica cade.
+  Testimoni rossi prima della correzione: la partner su due tick (con
+  un'amica), la partner su tutta la vita della notizia (in un triangolo di
+  amiche, che porta una voce del tick 51 fino a lei al tick 52), la vedova
+  su tutta la vita della notizia nello stesso triangolo, e i bordi della
+  finestra per `max_hops` 1, 3 e 5 (dentro soppresso, un tick prima no). Un
+  sesto testimone misura la vita della notizia lungo una catena di dieci
+  agenti per gli stessi tre valori, così la finestra non può scostarsi dalle
+  fasi senza che lo si veda. Sei mutazioni, tutte uccise: il confronto sul
+  solo tick corrente (sei test cadono), la finestra senza `max(..., 2)`
+  (cade il bordo con `max_hops` 1), la finestra di un tick più corta (cadono
+  i due testimoni di vita intera e i bordi), la formula del mandato (cadono
+  i bordi con 3 e 5), la finestra senza limite inferiore (cadono i bordi), e
+  la fase 3 con `>` invece di `>=` (cadono la misura della vita e i due
+  testimoni di vita intera). Il §4.4.1, in entrambe le lingue, dichiara la
+  soppressione più larga: chi ha vissuto di prima mano un evento di
+  un'origine non sente di nessun altro evento della stessa origine finché la
+  notizia del primo viaggia, due tick dopo l'evento con il valore
+  predefinito; il §4.1.5 dice che un membro fuggito non riceve la notizia
+  della propria fuga né come sentito dire né come rumour, ed è ora vero.
+  **L'alternativa non presa**: un campo sulla `Memory` che identifichi
+  l'evento distinguerebbe due eventi della stessa origine e toglierebbe la
+  soppressione larga; è una modifica di schema, quindi una decisione
+  dell'utente, ed è nominata nel §4.4.1 come tale.
+- **N-a** (`68b8958`): `test_a_lone_ward_in_debt_still_starves`, una pupilla
+  di otto anni con patrimonio -5 sola nel suo nucleo vede il contatore salire
+  a 1. La mutazione che azzera la ricchezza della pupilla insieme al suo
+  bisogno ora fa cadere questo test, e solo questo.
+- **N-c** (`84237f2`): `current_age_clock(simulation)` restituisce
+  `(tick, tick_duration_hours, acceleration)`; `current_age_in_years`,
+  `describe_age` e `describe_speaker` lo accettano come argomento facoltativo,
+  e `group_chat_view` lo calcola una volta per richiesta. Testimone rosso:
+  tre interlocutori producevano tre letture di `world_world`, ora una. La
+  mutazione che torna a `describe_speaker(agent)` fa cadere il testimone. La
+  chat privata e il consumer WebSocket restano sul percorso di un solo
+  agente, una lettura.
+- **N-d** (`68b8958`): verificato con una sonda temporanea, poi rimossa:
+  una pupilla di ruolo `child` con patrimonio 0, senza `Currency` né
+  `ZoneEconomy`, è a -1,0 dopo `run_economy` e ha il contatore a 1 dopo il
+  passo del contatore. Dichiarato nel §4.1.0, nelle due lingue, e nel
+  docstring di `compute_subsistence_threshold`; il percorso è deprecato e non
+  è stato riprogettato.
+
+**Registrato, non corretto.** N-b e N-e come sopra. Inoltre, fuori dal
+mandato e già dichiarato dal docstring di `propagate_information`: la
+deduplica del sentito dire e delle voci resta per tick, quindi un'amica che
+ha sentito della fuga al tick 50 la risente come voce al tick 51 da
+un'altra amica; è la regola «una volta per tick» del modello originale del
+§4.4, non un'eco su chi ha vissuto l'evento.
+
+**L'integrazione.** Suite intera a `84237f2`, con la build map aggiornata
+nell'albero: **1818 test**: la corsa intera ha dato 1817 verdi e un rosso, `test_no_fingerprint_is_stale`, perché avevo modificato la build map durante la corsa e prima del ricalcolo delle impronte; dopo il ricalcolo la guardia bilingue dà 9 verdi, quindi zero rossi noti, ma la suite non è stata rilanciata per intero dopo quel ricalcolo; `ruff check` e `ruff format --check` puliti su
+343 file. La build map porta il round 13 nella punta e, fra i lavori non ancora
+aperti, «Contesto degli agenti: ambientazione del mondo Express e coerenza della
+chat», le due segnalazioni dell'utente del 2026-10-29 sulla simulazione 4, da
+aprire dopo il merge del Plan 4.
+
+---
+
+## Round 14: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation del round 13 (codice a `84237f2`) e prima di
+lanciarlo.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola del round 8,
+che i round dal 9 al 13 hanno confermato.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **La correzione R13-1 su tutta la vita della notizia.** Rifai la
+   derivazione della finestra dalle tre fasi di `propagate_information` e
+   confrontala con `max(max_hops, 2) - 1`: la fase 2 che non guarda
+   `max_hops`, la fase 3 e `_estimate_hop`, i rumour deboli del filtro di
+   credenza, un'affidabilità di partenza sotto 1,0, un `decay` degenere.
+   Ogni testimone deve far girare la propagazione per tutta la vita della
+   notizia, non per un tick: è la ragione per cui i round 12 e 13 hanno
+   mancato lo stesso difetto.
+2. **Ogni memoria `DIRECT` la cui origine non è chi la possiede.** Oggi sono
+   due, la fuga (`migration.py`, origine il decisore) e il lutto
+   (`inheritance.py`, origine il defunto). Cerca se ce ne sono altre, e per
+   ciascuna verifica che chi la possiede non riceva l'evento come sentito
+   dire o voce, e che la soppressione più larga non spenga una notizia che
+   deve arrivare, per esempio la crisi da intrappolamento, che è `PUBLIC`.
+3. **L'orologio dell'età di N-c.** `current_age_clock` è la sola lettura del
+   mondo per la chat di gruppo; i tre canali producono la stessa frase per
+   lo stesso agente, con l'orologio passato o letto sul posto.
+4. **Le frasi dei whitepaper scritte oggi** nei §4.1.0, §4.1.5 e §4.4.1,
+   contro il codice, nelle due lingue, riferimenti di riga compresi.
+
+### Il terreno ereditato
+
+Resta quello del round 13, con la deduplica per tick del sentito dire
+registrata sopra: `inheritance.py` oltre il diff, `template_loader.py` oltre
+lo schema della coppia, `truncated_moments.py`, `clark_calibration.py`, la
+parte volontaria di `migration.py`, `fertility.py` oltre
+`_effective_age_in_years`, le cifre end-to-end non ri-misurate, e di
+`mortality.py` tutto ciò che non è la conversione al tick. M7 resta senza
+testimone per scelta dichiarata. **Scegli e dichiara**, come ai round
+precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+La correzione di oggi allarga un predicato condiviso da ogni propagazione,
+e lo allarga di proposito: chi ha vissuto un evento di un'origine non sente
+di altri eventi della stessa origine per due tick. Il criterio cerca gli
+echi sui due soli scrittori di memorie di prima mano con un'origine altrui
+che conosco oggi; se un terzo esiste e io non l'ho trovato, o se la
+finestra dedotta dalle fasi è sbagliata per una combinazione di parametri
+che nessun testimone tocca, il round può non vederlo. Se il round non
+produce nulla delle tre classi, il verdetto deve dire quali scrittori di
+memorie ha verificato, quali combinazioni di `max_hops` e di affidabilità ha
+esercitato e che cosa ha lasciato fuori.
+
+### Verdetto round 14: CONVERGED
+
+Ambito `develop..HEAD` per intero a `a6b64d4`, secondo il criterio scritto
+prima del lancio. Nessun rilievo delle tre classi bloccanti.
+
+**Che cosa il round ha verificato.** La finestra della correzione R13-1 è
+stata ricavata di nuovo dalle tre fasi di `propagate_information` e coincide
+con `max(max_hops, 2) - 1`: la fase 2 racconta a `t + 1` senza guardare
+`max_hops`, la fase 3 si ferma quando `_estimate_hop` raggiunge `max_hops`, e
+quella stima non scende sotto l'hop vero per affidabilità non superiori a
+1,0. Gli echi sono stati cercati con diciotto sonde che fanno girare la
+propagazione per tutta la vita della notizia e oltre, `max_hops + 6` tick,
+non per un tick solo: quindici sulla fuga d'emergenza, con `max_hops` 1, 2,
+3, 4 e 6 per forza dei legami 0,5, 0,9 e 0,05, la partner dentro una cerchia
+di cinque amiche e il decisore legato a una di loro; tre sul lutto, con
+`max_hops` 1, 3 e 5, la vedova e il figlio dentro la stessa cerchia. In tutte
+e diciotto chi ha vissuto l'evento possiede la sola memoria di prima mano,
+`[('direct', 50)]`. Gli scrittori di memorie `DIRECT` con un'origine altrui
+restano due, la fuga (`migration.py`, origine il decisore) e il lutto
+(`inheritance.py`, origine il defunto): l'ho ricontrollato in chiusura su
+ogni costruzione di `Memory` di produzione, e le altre memorie di prima mano
+(economia, motore, stratificazione, fazioni) hanno come origine chi le
+possiede o nessuna, mentre crisi, governo ed elezioni scrivono memorie
+`PUBLIC`. Le mutazioni del round sulla finestra in `information_flow.py` e
+sull'orologio dell'età nella chat di gruppo sono state uccise e i file
+ripristinati dai backup, come riporta l'auditor; non le ho rieseguite io.
+L'orologio di N-c dà la stessa frase sui tre canali; le frasi dei §4.1.0,
+§4.1.5 e §4.4.1 scritte al round 13 corrispondono al codice nelle due
+lingue, riferimenti di riga compresi.
+
+**Due rilievi non bloccanti, chiusi in chiusura.**
+
+- **NB-1, preesistente al ramo.** `EPOCHA_INFO_FLOW_RELIABILITY_DECAY`
+  (`config/settings/base.py`) si legge dall'ambiente e non era validato, e
+  il dominio `0 < decay < 1` stava solo in un docstring. Con `decay = 1.0`
+  `_estimate_hop` restituisce 0 per ogni rumour, la fase 3 non si ferma mai e
+  l'eco di prima mano torna: la sonda con decadimento 1,0 ha riprodotto la
+  vedova che riceve voci della morte del marito ai tick dal 53 al 57. Non è
+  di classe 1 perché il valore predefinito, 0,7, è nel dominio. Chiuso con
+  `50ec629`: `propagate_information` solleva `ImproperlyConfigured` quando il
+  decadimento cade fuori dall'intervallo aperto `(0, 1)`, nel punto in cui il
+  valore viene letto per la propagazione, senza ricondurlo nell'intervallo.
+  Nel repository non esisteva un modo già usato per validare un'impostazione,
+  quindi la guardia è nuova e sta in tre righe dentro la funzione che legge
+  il valore. I testimoni: quattro casi rifiutati, 1,0, 0,0, 1,5 e -0,1, visti
+  rossi prima della guardia, e un caso verde, 0,7, che propaga con
+  affidabilità 0,7. Tre mutazioni, tutte uccise: togliere la guardia (cadono
+  i quattro casi), allargarla a `<= 1` (cade 1,0), allargarla a `>= 0` (cade
+  0,0); il file è stato ripristinato dal backup e confrontato con `cmp`. Il
+  commento sulla finestra in `_propagate_memory`, il commento
+  dell'impostazione e la frase del §4.4.1 nelle due lingue dichiarano ora il
+  dominio. Nello stesso commit il commento dell'impostazione smette di
+  attribuire a Bartlett (1932) una perdita del 30% per passo, che
+  contraddiceva il modulo e la tabella dei parametri del §4.4, dove Bartlett
+  documenta il degrado senza prescrivere un tasso; e i riferimenti di riga a
+  `information_flow.py` nei due whitepaper seguono lo spostamento delle
+  righe.
+  La review in Matteo mode del delta di chiusura ha poi spostato la
+  guardia: dentro `propagate_information` scattava solo dopo la fase degli
+  agenti, già pagata in chiamate al LLM, e nel percorso a chord l'eccezione
+  di `finalize_tick` lasciava la simulazione RUNNING. Il decadimento è un
+  ingresso dell'ambiente, quindi ora lo giudica solo `config/settings/base.py`,
+  accanto a `env.float`, e un valore fuori da `(0, 1)` ferma ogni processo
+  web e worker all'avvio. La guardia nella funzione e il ramo di
+  `_estimate_hop` che riconduceva a 0 un decadimento degenere sono stati
+  tolti, perché l'unico chiamante passa il valore delle impostazioni e
+  nessun test lo sostituisce con uno degenere. I testimoni avviano le
+  impostazioni in un interprete nuovo: 1,0, 0,0, 1,5 e -0,1 fermano l'avvio
+  con `ImproperlyConfigured`, 0,7 lo lascia passare; le stesse tre mutazioni
+  di prima, più una che rifiuta sempre, sono tutte uccise.
+- **NB-2.** La suite intera è stata rilanciata a `a6b64d4`, dopo il
+  ricalcolo delle impronte che al round 13 era avvenuto durante la corsa:
+  **1818 verdi**, 3 avvisi, in 504,04 secondi. La riserva del round 13
+  («la suite non è stata rilanciata per intero dopo quel ricalcolo») è
+  quindi sciolta.
+
+**Che cosa il round ha lasciato fuori, per scelta dichiarata.** Il terreno
+ereditato del round 13, cioè `inheritance.py` oltre il diff,
+`template_loader.py` oltre lo schema della coppia, `truncated_moments.py`,
+`clark_calibration.py`, la parte volontaria di `migration.py`, `fertility.py`
+oltre `_effective_age_in_years` e di `mortality.py` tutto ciò che non è la
+conversione al tick; le cifre end-to-end, non ri-misurate; i valori del
+decadimento diversi da 0,7 e da 1,0, perché le sonde hanno esercitato solo
+questi due e la guardia di NB-1 rende 1,0 irraggiungibile. M7 resta senza
+testimone per scelta dichiarata.
+
+## Chiusura
+
+**Da registrare per l'utente, non corretti in questo ramo.**
+
+- **R1**, il nucleo diviso fra due zone attribuito per intero alla zona del
+  decisore (payload `MIGRATION`, numeratore della fuga di massa, migrazione
+  netta dello snapshot), con le righe 8 e 16 che la stessa origine per
+  membro correggerebbe. Era parcheggiato perché la mappa dell'origine per
+  membro cambia il contratto di un evento consegnato. La decisione
+  dell'utente in chat del 2026-10-29 (registro D-29-13 del diario), per cui
+  il contratto delle API di Epocha può cambiare finché non esiste un client
+  esterno, toglie quel blocco, ma la
+  correzione resta una decisione separata, da prendere con un work item suo.
+- **La riga 9**, l'orizzonte di Sjaastad letto sul solo decisore: una regola
+  di nucleo cambierebbe il modello di decisione di un modulo convergente, ed
+  è una decisione di modello per l'utente.
+- **N5**, `run_election` (`world/election.py`, `voter_list`) fa votare ogni
+  agente vivo, neonati compresi; appartiene alla spec del comportamento per
+  età, approvata il 2026-10-29 e con il lavoro dopo il merge.
+- **N8**, `fertility.malthusian_soft_ceiling` non è monotono vicino al tetto
+  (con `floor_ratio` 0,1 e tetto 500 vale 0,01 a 499 e 0,1 a 500); è una
+  decisione di modello per l'utente.
+- **L'alternativa non presa a R13-1**: conservare sulla `Memory` il tick, o
+  l'identità, dell'evento distinguerebbe due eventi della stessa origine e
+  toglierebbe la soppressione larga dichiarata nel §4.4.1, per cui chi ha
+  vissuto un evento di un'origine non sente di altri eventi della stessa
+  origine finché la notizia del primo viaggia. È una modifica di schema, e
+  la decisione spetta all'utente.
+
+**`tasks.md`.** L'unico task aperto era T038, la suite intera verde e la
+review in Matteo mode dell'intero diff del ramo prima del gate di fase 6. La
+review dell'intero diff è il round 14, CONVERGED; la suite intera è quella
+riportata qui sotto. T038 è spuntato, e i 38 task su 38 sono chiusi.
+
+**L'integrazione.** Suite intera a `50ec629`, con nell'albero la build map
+aggiornata e ricalcolata nelle impronte prima della corsa, il backup delle
+memorie e questo documento: **1823 verdi**, 3 avvisi, zero rossi, in 521,31
+secondi; i cinque test in più rispetto ai 1818 di `a6b64d4` sono quelli della
+guardia di NB-1. `ruff check .` e `ruff format --check .` puliti su 343 file.
+La guardia bilingue della build map dà 9 verdi.
+
+**Verdetto sul merge: il ramo è pronto per il merge in `develop`**, che
+spetta all'utente con `--no-ff`. Al merge, e non prima, si fa il pin
+`frozen-at-commit` dei due whitepaper: l'intestazione di
+`docs/whitepaper/epocha-whitepaper.md` e di `epocha-whitepaper.it.md` oggi
+porta `b5be0e2b62aa1cc2119f3d66418461eb9e92ea66`, e va riscritta con l'hash
+del commit di merge in un commit successivo al merge stesso, perché quell'hash
+non esiste prima. Insieme al pin, la build map passa il Plan 4 a fatto e
+viene ripubblicata sullo stesso URL.
+
+### Riapertura del gate (D-29-20)
+
+**2026-10-29, dopo la chiusura del round 14.** Il gate è riaperto per un
+difetto di classe 1, cioè di correttezza nel codice di produzione, trovato
+dalla rimisura della spec delle coppie e registrato come D-29-20 nel diario.
+
+**Il difetto, M1.** `orchestrator.mortality_probability_for` passava a
+`tick_mortality_probability` l'età continua `age_in_years`, dal cablaggio di
+`f130fb1` (2026-08-27). Il `q_x` di Heligman-Pollard è invece la probabilità
+di morire fra le età esatte `x` e `x + 1`, la grandezza della tavola di
+mortalità (Preston, Heuveline e Guillot 2001, cap. 3; pagina non
+verificata). Valutato a età frazionarie, un neonato passava il primo anno su
+`q(0,02)`, `q(0,04)`, … su una curva che scende da 0,022 a 0,0069 nei primi sei mesi. Ho
+riprodotto il difetto componendo le probabilità per tick che il passo usa
+davvero, sul template pre-industriale: la probabilità realizzata di morte nel
+primo anno `1q0` era 0,0084 a tick giornalieri, 0,0083 settimanali, 0,0077
+mensili e 0,0049 annuali, contro il `q(0)` di 0,0247 che il codice dichiarava.
+Il revisore aveva stimato 0,0087 e 0,0093; le mie cifre sono quelle del codice,
+misurate.
+
+La remediation ha trovato altri due difetti sullo stesso percorso. Il primo
+è la guardia `max(age, 0.01)` in `_hp_components`, presente dal primo commit
+del modulo, `59174fd`, senza commento e senza fonte (`git log -S` la porta lì
+e alla spec del 2026-04-18, che la trascrive senza motivo). Spostava l'età di
+tutti e tre i termini, mentre l'unica cosa da proteggere era il logaritmo
+della gobba accidentale, come mostra il ramo `if x > 0` rimasto morto sotto
+la guardia. Con il `B = 0,017` pre-industriale lo spostamento di 0,01 vale il
+59% del parametro che fissa la mortalità infantile, e portava `q(0)` da
+0,0291, il valore della formula a età esatta 0 con la gobba al suo limite
+zero, a 0,0247. **Ho scelto 0,0291**: è il valore del modello, e
+`fit_heligman_pollard` ora fitta attraverso la stessa funzione, così un
+insieme di parametri fittato riproduce nella simulazione il proprio `q(x)`.
+Il secondo è l'età letta alla CHIUSURA dell'intervallo del tick: il passo del
+tick `t` decide la morte nell'intervallo dal tick `t − 1`, ma leggeva l'età al
+tick `t`, quindi il tick di un compleanno era caricato del `q` dell'anno dopo.
+A tick annuali nessun neonato incontrava mai `q(0)`.
+
+**M2 (D-29-22).** `form_initial_couples` filtrava i fondatori per solo
+genere, quindi una donna omosessuale poteva essere abbinata a un uomo. Il
+caso non si raggiunge oggi, perché il campo vale `HETEROSEXUAL` per difetto e
+la generazione del mondo non lo imposta, ma la regola era sbagliata.
+**Correzione del round 15:** la regola giusta ammette i fondatori
+eterosessuali **e bisessuali** ed esclude solo gli omosessuali e gli
+asessuali, come chiede la spec approvata delle coppie (spec.md:136-137 e
+spec.md:226 sul ramo `20261029-123404-rule-based-couples`). La prima
+correzione, `d6db09d`, ammetteva i soli eterosessuali ed escludeva quindi
+ogni bisessuale; il round 15 l'ha trovato (B1) e `49bd703` lo corregge.
+
+**Perché è sfuggito a quattordici round: il testimone puntuale.** Ogni test
+della mortalità fissava una funzione a un'età e a un tick, e verificava quel
+valore. Nessun test seguiva una coorte attraverso un anno intero di tick,
+quindi nessuno misurava la grandezza che il whitepaper dichiara, cioè la
+probabilità realizzata sull'intervallo d'età. È lo stesso schema che il
+round 14 aveva già nominato per la propagazione delle notizie («ogni
+testimone deve far girare la propagazione per tutta la vita della notizia,
+non per un tick»), e non è stato esteso agli altri moduli che integrano nel
+tempo una quantità per tick.
+
+**La remediation.**
+
+- **`0e83df4`**, M1. `_hp_components` legge la scheda all'età compiuta
+  `floor(age)` e la tiene per l'anno d'età; la guardia a 0,01 è tolta e la
+  gobba vale zero a età 0; `exposure_age` in `orchestrator.py` legge l'età
+  all'inizio dell'intervallo del tick, per l'azzardo e per la causa;
+  `fit_heligman_pollard` fitta attraverso `annual_mortality_probability`.
+  Testimoni, tutti visti rossi prima della correzione: una coorte seedata di
+  5 000 neonati per 52 tick settimanali con il solo passo di mortalità
+  realizzava 55 morti (0,0110) contro un atteso di 0,0246 ± 0,0072 (`α` =
+  0,001 sull'errore standard binomiale) e ora ne realizza 150 (0,0300) contro
+  0,0290 ± 0,0078; la composizione esatta dei tick del primo anno a 24, 730,
+  4 380 e 8 760 ore dava 0,0290, 0,0271, 0,0171 e 0,0049 con la sola età
+  intera, e ora dà `q(0)` a 1e-9; due test unitari fissano `q` costante
+  dentro l'anno d'età e `q(0) = 0,0291`. Dopo la correzione `1q0 = 0,0291` a
+  tick giornalieri, mensili e annuali e 0,0296 settimanali (i 53 tick che si
+  aprono prima del primo compleanno coprono 1,016 anni); `l(25) = 0,930`, lo
+  0,9297 della tavola per età intere, contro 0,951-0,956 di prima. La cifra
+  fissata nell'end-to-end passa da 5 morti a 4 (86 agenti diventano 89 invece
+  di 88), con il motivo scritto nel test; le guardie di costo restano verdi
+  senza cifre mosse. §4.1.1 e §4.1.0 nelle due lingue dicono la convenzione,
+  le cifre prima e dopo, e che i risultati precedenti non sono confrontabili.
+- **`d6db09d`**, M2. L'eleggibilità del fondatore richiede l'orientamento
+  eterosessuale oltre all'età al matrimonio; un test parametrizzato su
+  omosessuale e bisessuale, rosso prima, mostra la fondatrice esclusa non
+  abbinata e l'uomo abbinato alla donna eterosessuale. §4.1.3 lo descrive
+  nelle due lingue. *La regola è sbagliata per i bisessuali: vedi la
+  correzione del round 15 nel paragrafo M2 qui sopra.*
+
+**I lettori dell'età continua.** Ho controllato con `grep` tutti i lettori di
+`age_in_years` in `demography` e nelle altre app. Le soglie
+(`meets_marriage_age`, la minorità di `inheritance.py`, `minor_agent_ids`,
+`household_keys` in `migration.py` e nel contatore di sussistenza, il
+backfill di `initialization.py`) confrontano l'età con un numero intero, e
+per un intero `n` vale `age >= n` se e solo se `floor(age) >= n`, quindi
+l'età continua dà lo stesso esito. La piramide e il TFR della snapshot usano
+già `int(age)`; l'età media resta continua, perché è una media. La fertilità
+di Hadwiger resta continua per scelta: è una scheda continua dell'età, non
+una probabilità annua fra età intere. Fuori da `demography` nessuna app legge
+l'età per una grandezza per età intere.
+
+## Round 15: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation della riapertura (codice a `d6db09d`) e
+prima di lanciarlo.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola del round 8.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **La convenzione di M1.** Verifica che `floor(age)` e `exposure_age`
+   insieme diano `1q0 = q(0)` e `l(x)` della tavola per età intere a ogni
+   lunghezza del tick, comprese quelle che non dividono l'anno, e sotto un
+   `acceleration` diverso da 1; che la causa di morte sia campionata alla
+   stessa età dell'azzardo; che il fondatore al primo tick dopo
+   l'inizializzazione sia caricato della sua età scritta e non di quella
+   precedente; che `floor` non perda un anno dove `age_in_years` restituisce
+   62,999… per 63. Ogni testimone segue una coorte o compone i tick di un
+   intervallo d'età, non un tick solo.
+2. **La guardia tolta.** Rifai il calcolo di `q(0)` a età esatta 0, verifica
+   che nessun altro percorso valuti `ln 0`, e che `fit_heligman_pollard`,
+   ora attraverso `annual_mortality_probability` e il suo tetto a 0,999,
+   converga e rispetti i bound come prima.
+3. **Ogni lettore di un'età intera.** Rifai la ricerca dei lettori di
+   `age_in_years` e di `Agent.age` in tutte le app, e per ciascuno decidi se
+   la grandezza è per età intere o continua; contesta la mia
+   classificazione dove non regge.
+4. **M2.** L'esclusione dei fondatori non eterosessuali, e se un altro
+   percorso di formazione delle coppie in questo ramo abbina per solo
+   genere.
+5. **Le frasi scritte oggi** in §4.1.0, §4.1.1 e §4.1.3, contro il codice e
+   contro le misure di questo documento, nelle due lingue.
+
+### Il terreno ereditato
+
+Resta quello del round 14, salvo `mortality.py`, che entra per intero.
+**Scegli e dichiara**, come ai round precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+Il difetto di oggi è sfuggito perché ogni testimone guardava un punto e
+nessuno una traiettoria, e il criterio lo corregge solo per la mortalità.
+Altre quantità del ramo si integrano nel tempo a partire da un valore per
+tick, la fertilità su un'età fertile, le soglie di Malthus, il contatore di
+sussistenza, e io non ho seguito nessuna di esse per un intervallo intero:
+se una di loro ha lo stesso difetto di lettura, il round può non vederlo
+finché non la segue. Inoltre la scelta di 0,0291 cambia una cifra del modello
+e non solo del codice; se un lettore del §4.1.1 o un test fuori da
+`demography` dipende da 0,0247, il round deve trovarlo. Se il round non
+produce nulla delle tre classi, il verdetto deve dire quali lunghezze del
+tick e quali accelerazioni ha esercitato, quali lettori dell'età ha
+classificato e che cosa ha lasciato fuori.
+
+### Verdetto round 15: NOT CONVERGED
+
+**2026-10-29.** Il round 15 ha attaccato l'intero `develop..HEAD` a
+`a619190` e ha trovato la suite a 1837 verdi. Il verdetto è **NOT
+CONVERGED** per un solo difetto bloccante, di classe 1.
+
+**B1, classe 1, introdotto da `d6db09d`.** `form_initial_couples` ammetteva
+all'abbinamento fondatore i soli fondatori `HETEROSEXUAL`, quindi escludeva
+ogni bisessuale. La spec approvata delle coppie, sul ramo
+`20261029-123404-rule-based-couples`, chiede invece «orientamento
+eterosessuale o bisessuale» per i due lati del mercato (spec.md:136-137) ed
+esclude solo `non_binary`, omosessuali e asessuali (spec.md:226). Il mio
+paragrafo M2 qui sopra diceva la regola sbagliata, e i due whitepaper
+dicevano «who are heterosexual» e «eterosessuali».
+
+Il round ha nominato quattro difetti non bloccanti, che chiudo tutti in
+questa remediation invece di rinviarli.
+
+- **N1.** La frase del §4.1.1 «i tick di un anno ricompongono esattamente
+  `q(x)`» vale solo per `dt = ore/8760 · acceleration ≤ 1`. A tick annuali
+  con accelerazione 2 il revisore ha misurato `l(2)` = 0,9426 contro lo
+  0,9662 della tavola.
+- **N2.** `orchestrator.age_in_years` leggeva 62,999… per 63 in tre casi:
+  168 ore ad accelerazione 1 e 0,5, e 97,999… per 98 ad accelerazione 10.
+  L'effetto è un tick caricato del `q(62)` invece del `q(63)`.
+- **N3.** In `dashboard/views.py`, `chat_view` (POST) e `chat_send_api`
+  erano un gemello parallelo di circa 85 righe che differivano solo
+  nell'allegato.
+- **N4, preesistente.** `fit_heligman_pollard` dal `p0` di default non
+  ritrovava il `q(x)` di `sci_fi` (errore relativo massimo 0,59; 0,42 prima
+  della remediation della riapertura).
+
+### Remediation del round 15
+
+**2026-10-29, codice a `54a3bbf`.** Un commit per difetto, ognuno con il
+testimone visto rosso prima della correzione.
+
+- **`49bd703`, B1.** La regola dell'orientamento è ora un solo predicato,
+  `couple.seeks_a_partner_of_the_other_sex`, vicino a
+  `meets_marriage_age`: ammette eterosessuali e bisessuali. Lo usa
+  `form_initial_couples`, l'unico punto del ramo che controlla
+  l'eleggibilità del fondatore (`grep sexual_orientation` in `demography`
+  trova solo quello e il sorteggio alla nascita), e il mercato a regole della
+  spec delle coppie lo riuserà. Il vecchio test parametrizzato è diviso in
+  due: omosessuale e asessuale restano fuori, con l'uomo ancora abbinabile;
+  una bisessuale, e un bisessuale dall'altro lato, si abbinano. I due casi
+  bisessuali erano rossi prima della correzione, 2 falliti su 6. Ho
+  corretto il commento del codice, la frase del §4.1.3 nelle due lingue e il
+  paragrafo M2 qui sopra.
+- **`2a65abf`, N1.** Il calcolo di `dt` ora vive in un solo punto,
+  `orchestrator.years_per_tick`, che solleva `TickLongerThanAYearError`
+  (una `ValueError`) per `dt > 1`. Lo chiamano `tick_mortality_probability`
+  e `tick_birth_probability`; la fertilità ne teneva una copia sua, e un
+  aumento lineare del tasso con `dt > 1` darebbe a una madre una
+  probabilità per tick doppia dell'annua mentre partorisce al più una volta
+  per tick. `grep` dei chiamanti: i due passi dell'orchestratore, nessun
+  altro. Nessun percorso distribuito raggiunge la guardia: i cinque template
+  hanno `acceleration` 1,0 e il generatore del mondo scrive tick di 24 ore,
+  cioè `dt = 0,0027`, e nessuna API espone `tick_duration_hours`. Quattro
+  testimoni (due di `tick_mortality_probability`, uno della fertilità, uno
+  del passo di mortalità a 8 760 ore con accelerazione 2) erano rossi prima
+  del cablaggio, con «DID NOT RAISE», e tornano rossi tutti e quattro sotto
+  una mutazione che alza la soglia a 9; il confine `dt = 1` resta
+  ammesso. §4.1.1 e §4.1.2 dichiarano il dominio nelle due lingue.
+- **`800e66b`, N2, corretto e non dichiarato.** `age_in_years` ora calcola
+  `(tick − birth_tick) · ore · acceleration / 8760`, con l'unica divisione
+  per ultima. Con ore e accelerazioni che rendono il prodotto un float
+  esatto, cioè ogni caso distribuito, il quoziente a un compleanno è l'anno
+  intero esatto. Ho rifatto la scansione del revisore su tick di 1, 24, 168,
+  730, 4 380 e 8 760 ore, accelerazioni 0,5, 1, 1,5, 2, 3 e 10 ed età da 0 a
+  110: la formula vecchia sbaglia esattamente i tre casi misurati, la nuova
+  nessuno. Il testimone parametrizzato sui tre casi controlla l'età e la
+  probabilità di morte caricata a quel tick, ed era rosso 3 su 3. Il
+  backfill di `initialization.py` dipende da questo lettore: il suo ciclo
+  resta com'è, e i suoi test, compresa la lettura di ogni età da 0 a 90 su
+  un mondo settimanale, restano verdi; ho aggiornato i due commenti che
+  citavano il 62,999…. L'intera suite della demografia, end-to-end
+  compreso, è passata senza cifre mosse (993 verdi). §4.1.0 lo registra
+  nelle due lingue.
+- **`7964fb2`, N4, corretto: la causa era locale.** Il fit minimizzava i
+  residui assoluti, quindi le età anziane dominavano e l'ottimizzatore si
+  fermava quando le età giovani, il cui `q` sotto `sci_fi` va da 4,3e-6 a
+  8,3e-3, erano piccole in termini assoluti; non era il `p0` né un bound.
+  Ho misurato tre varianti dallo stesso `p0`: tolleranze strette e residui
+  relativi ritrovano tutte le schede, `x_scale="jac"` no. Ho scelto i
+  residui relativi, `q̂/q − 1` con `sigma = q`, perché pesano ogni età per la
+  sua grandezza e sono l'obiettivo comunemente attribuito a Heligman e
+  Pollard (1980), che dichiaro non verificato sul paper; le età osservate a
+  `q = 0` restano fuori, perché non hanno uno scarto relativo. Il testimone
+  sui cinque template, errore relativo massimo sotto 1e-6 dal `p0` di
+  default, era rosso per `sci_fi` (0,57) e anche per `modern_democracy`
+  (1,1e-5); ora passano tutti e cinque, con i test di andata e ritorno, dei
+  bound e dell'input degenere. §6.3 lo descrive nelle due lingue. Nessuna
+  voce di build map serve, perché il difetto è chiuso.
+- **`54a3bbf`, N3.** Il percorso di risposta della chat privata è un solo
+  helper, `_reply_as_agent`, composto da `_memory_context`,
+  `_events_context` e `_chat_history_context`; l'allegato è
+  `_attachment_context`, e le due viste sono sottili. Il file temporaneo del
+  documento allegato era creato con `delete=False` e mai rimosso; ora è
+  rimosso alla chiusura del blocco. I test della storia girano sulle due
+  viste: la variante della pagina passava già, per la copia identica, e ho
+  provato che fallisce su una divergenza con una mutazione che rimetteva il
+  vecchio troncamento a 50 caratteri nella copia della pagina, 2 rossi, poi
+  ripristinata con `cmp`. Due test nuovi fissano che la pagina passa al
+  modello un'immagine o un documento allegati e li registra sul messaggio
+  del visitatore. Dashboard e chat verdi.
+
+**Suite intera:** 1858 verdi, 3 warning, in 909,69 secondi, a `54a3bbf`, un'unica corsa in un container usa e getta del progetto isolato `epocha-tests`. Ruff check e format puliti.
+
+**Un'osservazione fuori dal ramo.** Una sola volta, durante una corsa di
+dashboard e chat insieme sotto carico, `chat/tests/test_consumers.py::TestChatConsumer::test_connect_and_receive_response`
+è fallito per il timeout di 10 secondi di `receive_json_from`; tre corse
+successive della stessa combinazione e la suite intera sono passate. Il
+test non tocca codice di questo ramo; è un test `transaction=True` con un budget fisso di 10 secondi, e
+sotto carico il flush del database può superarlo. Non l'ho corretto perché
+non so ancora se la causa sia il budget o il consumer: lo porto all'utente
+come difetto da tracciare, non lo nascondo.
+
+## Round 16: criterio, scritto prima del lancio
+
+**2026-10-29, dopo la remediation del round 15 (codice a `54a3bbf`) e prima
+di lanciarlo.**
+
+**Ambito: `git diff develop..HEAD` per intero**, per la regola del round 8.
+
+**Le tre classi bloccanti restano identiche** dal round 2: un difetto di
+correttezza nel codice di produzione, un criterio che non può fallire, una
+chiusura dichiarata e non vera.
+
+### Che cosa attaccare, in ordine
+
+1. **B1.** Verifica che `seeks_a_partner_of_the_other_sex` sia l'unico
+   punto che decide l'orientamento ammesso, che la sua regola coincida con
+   spec.md:136-137 e spec.md:226 del ramo delle coppie, e che nessun altro
+   percorso del ramo abbini i fondatori per solo genere o per solo
+   orientamento eterosessuale. Contesta la scelta di lasciare il percorso
+   per intenti fuori dal predicato.
+2. **N1, la guardia di `dt`.** Rifai la ricerca di ogni punto che converte
+   un tick in tempo simulato (`8760`, `HOURS_PER_YEAR`, `ticks_per_year`,
+   `acceleration`) e decidi se qualcuno calcola ancora un `dt` per una
+   probabilità senza passare da `years_per_tick`. Verifica che il confine
+   `dt = 1` sia ammesso, che il tipo dell'errore sia quello dichiarato, e
+   che nessun percorso distribuito, comprese le fixture dei test di
+   integrazione, possa sollevarlo.
+3. **N2, il lettore dell'età.** Rifai la scansione esaustiva della
+   remediation, allargandola dove pensi che non basti (ore frazionarie,
+   accelerazioni non diadiche), e controlla che i lettori che derivano
+   l'età da un'altra formula, la finestra fertile in SQL di
+   `_fertile_window_filter`, la snapshot e il backfill, non diano a un
+   confine un esito diverso da `age_in_years`.
+4. **N4, il fit.** Verifica che i residui relativi non peggiorino il fit di
+   una tavola reale con rumore, che l'esclusione delle età a `q = 0` sia
+   dichiarata dove serve, e la frase su Heligman e Pollard (1980), che ho
+   dichiarato non verificata.
+5. **N3.** Confronta il comportamento delle due viste prima e dopo, campo
+   per campo della risposta e riga per riga dei messaggi salvati, e cerca
+   un terzo percorso di risposta della chat (il gruppo, l'API) che duplichi
+   ancora `_chat_history_context` o `_reply_as_agent`.
+6. **Le frasi scritte oggi** in §4.1.0, §4.1.1, §4.1.2, §4.1.3 e §6.3,
+   contro il codice e contro le misure di questo documento, nelle due
+   lingue.
+
+### Il terreno ereditato
+
+Resta quello del round 15, a cui si aggiungono per intero
+`dashboard/views.py` per la chat privata e `fit_heligman_pollard`.
+**Scegli e dichiara**, come ai round precedenti.
+
+### Convergenza
+
+Nessuna delle tre classi bloccanti. Cifre e frasi si correggono nello stesso
+commit.
+
+### Perché questo criterio può fallire
+
+B1 è sfuggito perché la correzione M2 è stata scritta contro la mia
+lettura della regola e non contro il testo della spec che la fissa, e il
+test parametrizzato fissava quella lettura sbagliata come attesa: un test
+che codifica la regola sbagliata non può fallire. Il criterio chiede di
+confrontare con la spec, ma solo per l'orientamento; se un'altra regola del
+ramo è stata scritta da una mia parafrasi invece che dalla sua fonte, il
+round non la vede finché non la cerca. La guardia di N1 rifiuta una
+configurazione che nessun percorso distribuito produce, e quindi un test
+che la esercita non dice nulla sul comportamento delle corse vere; se
+esiste un percorso che costruisce un mondo con tick più lunghi, la guardia
+lo fa fallire a runtime invece che alla configurazione. Il fit di N4 è
+provato solo su schede sintetiche e senza rumore, che sono il caso in cui
+ogni obiettivo ragionevole converge. Se il round non produce nulla delle
+tre classi, il verdetto deve dire quali percorsi di formazione delle
+coppie, quali conversioni di tempo e quali lettori dell'età ha esercitato,
+e che cosa ha lasciato fuori.
+
+### Verdetto round 16: CONVERGED
+
+**2026-10-29, codice a `488cc74`.** Il round non ha trovato nessuna delle
+tre classi bloccanti. Ha attaccato i sei punti del criterio con script di
+sola lettura: una scansione esaustiva di `age_in_years` con il giro di
+andata e ritorno del backfill e la finestra fertile in SQL; un confronto fra
+residui relativi e assoluti del fit su schede rumorose, con il caso limite
+di pochi punti; una sonda su che cosa sostituisce davvero il patch del test
+del consumer della chat; la suite intera, 1858 verdi in 655 secondi. Ha
+nominato sei difetti non bloccanti, e li chiudo tutti invece di rinviarli,
+uno per commit, ognuno con il testimone visto rosso prima della correzione.
+
+- **`73385af`, sicurezza e costo.** `chat/tests/test_consumers.py` sostituiva
+  `get_llm_client`, ma il consumer chiama `get_chat_llm_client`: ogni corsa
+  della suite mandava una richiesta vera, con la chiave di chat
+  dell'utente, a un'API esterna a pagamento, e secondo il round 16 i
+  tentativi ripetuti sul limite di frequenza (`providers/openai.py:184-192`)
+  spiegano il timeout osservato al round 15. Il test
+  ora sostituisce `get_chat_llm_client`, risponde il testo del finto
+  modello e controlla che la tabella `LLMRequest` resti vuota, perché un
+  fornitore vero scrive una riga per ogni chiamata, fallite comprese; con
+  il vecchio bersaglio e un endpoint di chat finto e irraggiungibile era
+  rosso, `assert 1 == 0`. In più `config/settings/test.py` azzera le due
+  chiavi, il modello di chat e i due base URL, così `OpenAIProvider` non si
+  costruisce affatto senza patch. La guardia in
+  `llm_adapter/tests/test_client.py` era rossa su entrambi i fornitori
+  prima dell'azzeramento, e riduce il confronto a un booleano perché pytest
+  stamperebbe la chiave. Cercando altri percorsi verso la rete ne ho
+  trovato un secondo: cinque dei sei test di
+  `world/tests/test_generator.py` sostituivano `generator.get_llm_client`
+  ma non l'arricchimento, che costruisce il suo client in `enrichment.py`
+  e chiamava il fornitore principale a ogni corsa; con le chiavi azzerate
+  erano rossi tutti e cinque con `IndexError` alla costruzione del
+  client, e ora una fixture sostituisce `enrich_simulation_agents` come già
+  fa `test_zone_invariant.py`. La prima corsa della suite intera ne ha
+  trovati altri due per la stessa via, i test end-to-end di
+  `tests/test_integration.py`, rossi con un 500 alla creazione Express e con
+  `KeyError: 'simulation_id'`; hanno ora la stessa fixture. L'unico altro codice di rete,
+  `agents/research.py` verso Wikipedia e DuckDuckGo, è raggiunto solo
+  dall'arricchimento, e i suoi test sostituiscono `requests.get`.
+- **`89c3df2`, sicurezza, preesistente.** `load_template` univa a un percorso
+  il nome del template letto da `simulation.config`, che l'API lascia
+  scrivere (`simulation/serializers.py:19`), e il tick lo raggiunge a ogni
+  corsa: `../` o un percorso assoluto leggevano qualsiasi JSON. Ora il punto
+  unico, `_load_template_cached`, legge solo un nome di
+  `list_available_templates`, cioè l'elenco della cartella, e solleva
+  `FileNotFoundError` altrimenti, l'errore che i chiamanti già distinguono.
+  I due test di fuga, con un template valido piazzato fuori dalla cartella,
+  erano rossi con «DID NOT RAISE»; quello del nome sconosciuto sollevava già
+  `FileNotFoundError` ed era rosso solo sul messaggio. §6.2 lo dice nelle
+  due lingue.
+- **`f6648c5`, finestra fertile in SQL.** Django manda un limite float su una
+  colonna intera come `int(x)`, che arrotonda verso lo zero, quindi un
+  limite negativo saliva: a tick settimanali sul tick 0 il limite -625,71
+  diventava -625 e ammetteva un'agente di 11,986 anni. E il limite calcolato
+  con due divisioni perdeva l'agente di 50,0 anni esatti a tick di 100 ore
+  con accelerazione 0,1. Ora i limiti sono interi: il numero di tick
+  trascorsi al confine viene da `ceil` o `floor` di un solo quoziente ed è
+  poi verificato contro `_years_elapsed`, l'aritmetica di `age_in_years`
+  estratta in un solo punto. Il testimone parametrizzato sui tre confini
+  passa dal database ed era rosso 3 su 3; una scansione su tick da 1 a 8 760
+  ore e undici accelerazioni non trova nessun disaccordo. Ho corretto anche
+  la docstring, che descriveva ancora la formula con due divisioni.
+- **`a93eed1`, fit sottodeterminato.** Con meno di otto età a `q > 0`
+  `fit_heligman_pollard` restituiva senza protestare uno fra infiniti
+  insiemi di parametri, perché con i bound `curve_fit` usa il risolutore
+  trust-region, che accetta più incognite che equazioni. Ora solleva
+  `UnderdeterminedFitError`, una `ValueError`; i due casi a una e a sette
+  età erano rossi con «DID NOT RAISE», e il confine a otto età resta
+  fittato. §6.3 lo dice nelle due lingue.
+- **`b522076`, N3 dichiarato e non provato.** La docstring del test diceva
+  che il file temporaneo dell'allegato è rimosso, ma nessuna asserzione lo
+  controllava. Un test nuovo registra il percorso che il parser riceve e
+  controlla che non esista più dopo la risposta; con la mutazione che
+  rimetteva `delete=False` era rosso, poi ho ripristinato `views.py` con
+  `cmp`.
+- **`15f8747`, il lato che propone.** L'abbinamento fondatore fa proporre gli
+  uomini (`initialization.py`, `stable_matching(men, women, score)`),
+  mentre il mercato a regole della spec delle coppie fa proporre le donne.
+  L'FR-014 non fissa il lato. Nessun cambio di codice: §4.1.3 lo registra
+  nelle due lingue e rimanda l'allineamento al work item delle coppie.
+
+**Suite intera:** 1870 verdi, 4 warning, in 803,41 secondi, nel container
+usa e getta del progetto isolato `epocha-tests`, sull'albero dei sei commit
+salvo una riga: il quarto warning veniva dal nuovo test del confine a otto
+età, dove scipy non può stimare la covarianza senza gradi di libertà
+residui, e il test ora lo dichiara con `pytest.warns`; dopo quella modifica
+`test_mortality.py` è passato intero (26 verdi). La prima corsa, prima delle
+due fixture di `tests/test_integration.py` e delle impronte della build map,
+aveva dato 3 rossi, tutti e tre chiusi qui. Ruff check e format puliti.
+
+**Una conseguenza da portare all'utente.** Durante la prova rossa della
+guardia, prima che il confronto fosse ridotto a un booleano, pytest ha
+stampato nel mio output il valore di `EPOCHA_CHAT_LLM_API_KEY` letto
+dall'ambiente del container. Il valore non è finito in nessun file del
+repository, ma è passato dalla trascrizione della sessione: va considerato
+esposto e ruotato.
+
+Segue una revisione mirata del codice nuovo di questa chiusura, cioè dei sei
+commit qui sopra, prima della chiusura del work item.
+
+### Revisione ristretta della chiusura
+
+**2026-10-29, sul delta `73385af..5e23a4f`.** La revisione mirata dei sei
+commit di chiusura ha trovato un difetto bloccante, di gravità S2, e quattro
+S3; nello stesso passaggio ho chiuso anche un difetto fuori dal delta, per la
+regola di non lasciare bug noti. Li chiudo tutti, uno per commit, ognuno con il
+testimone visto rosso prima della correzione.
+
+- **`555923c`, S2 bloccante, una regressione di `f6648c5`.** Le due ricerche
+  del confine della finestra fertile in SQL non avevano limite: con
+  `tick_duration_hours * acceleration` minore o uguale a zero non finivano
+  mai. Prima della correzione `_fertile_window_filter(0, -24.0, 1.0)` restava
+  appeso (l'ho interrotto con un allarme a 3 secondi), con zero ore sollevava
+  `ZeroDivisionError` e con NaN una `ValueError` generica; il vecchio
+  `max(1e-9, ...)` nascondeva la stessa configurazione, e
+  `World.tick_duration_hours` si modifica dall'admin. Ora `years_per_tick` è
+  l'unico punto che valida l'orologio: solleva la nuova `NonPositiveTickError`,
+  sorella di `TickLongerThanAYearError`, quando `dt` è zero, negativo o NaN
+  (NaN prima passava, perché `nan > 1` è falso), e la finestra fertile la
+  chiama prima delle ricerche. Le due ricerche condividono `_corrected_edge`,
+  limitata a due passi di correzione; un terzo passo solleva `AssertionError`
+  come violazione di invariante. Una scansione su tick da 1 a 8 760 ore e
+  undici accelerazioni con `dt <= 1` misura al massimo un passo (38 ricerche
+  su 243 276). I dieci testimoni girano sotto un allarme a 5 secondi, così un
+  blocco fallisce invece di fermare la suite; erano rossi 10 su 10, e quello
+  del terzo passo con `TimeoutError`. §4.1.1 lo dice nelle due lingue. Il
+  vincolo sul database resta fuori per la decisione D-29-29 ed è in build map
+  come voce non aperta.
+- **`1821d8d`, S3.** Un nome di template che non è una stringa, una lista o un
+  oggetto letti dal JSON di `simulation.config`, sollevava `TypeError` alla
+  cache, fuori dai rami `FileNotFoundError` e `ValueError` dei chiamanti, e
+  interrompeva il tick. Ora `load_template` controlla il tipo prima della cache
+  e solleva la stessa `FileNotFoundError` dell'elenco dei nomi, costruita da un
+  solo helper. I due casi, lista e dizionario, erano rossi con
+  `TypeError: unhashable type`. Nello stesso commit ho corretto la docstring di
+  `_load_template_cached`, che diceva `templates_dir` «altrimenti inutilizzato»
+  mentre il file viene letto proprio da lì.
+- **`52c5278`, S3.** `fit_heligman_pollard` aveva due guardie per lo stesso
+  ingresso: una scheda tutta a zero incontrava la più vecchia e sollevava
+  `RuntimeError` «did not converge» senza che nessun fit fosse tentato, contro
+  il §6.3 che documenta `UnderdeterminedFitError`. Ho cancellato la guardia
+  vecchia; il testimone, che ora chiede l'errore documentato con «got 0 ages»,
+  era rosso con il `RuntimeError`. §6.3 perde la frase sul `RuntimeError` nelle
+  due lingue.
+- **`03d3d28`, S3.** La fixture `no_enrichment` era copiata in
+  `world/tests/test_generator.py` e in `tests/test_integration.py`, e
+  `demography/tests/test_zone_invariant.py` sostituiva lo stesso bersaglio con
+  un decoratore. Le due cartelle di test sono sorelle, quindi il conftest più
+  stretto che le copre è quello alla radice: la fixture vive lì, non autouse,
+  e ogni modulo la richiede per nome. Togliendo la richiesta da
+  `test_generator.py` cinque dei suoi sei test tornano rossi.
+- **`f668ad3`, fuori dal delta.** `knowledge/tests/test_embedding.py::TestEmbedTextsReal`
+  scaricava intfloat/multilingual-e5-large dalla rete a ogni corsa, perché
+  `FASTEMBED_CACHE_PATH` non è impostata e i container usa e getta perdono la
+  cache; lo faceva anche la CI. Il marcatore `slow`, che nominava ancora
+  bge-m3, diventa `network`, registrato con il motivo nella descrizione ed
+  escluso dalla corsa predefinita con `-m 'not network'`; si lancia con
+  `pytest -m network`. Non è uno skip che nasconde un rosso: è un test di
+  integrazione che richiede la rete, eseguibile a richiesta. In build map
+  traccio come voce non aperta il cambio di pooling di multilingual-e5-large in
+  fastembed, da CLS a media, e la deriva degli embedding del Knowledge Graph
+  che ne può venire (§8.1).
+
+**Suite intera:** 1879 verdi, 3 esclusi (i test di rete), 2 warning, in 402,03
+secondi, nel container usa e getta del progetto isolato `epocha-tests`. Dopo la
+corsa ho cambiato solo un commento e una docstring di `orchestrator.py`, e
+`test_orchestrator_birth.py` con la guardia bilingue della build map è passato
+intero (47 verdi). Ruff check e format puliti.
