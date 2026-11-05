@@ -1,6 +1,7 @@
 """Tests for the protagonist budget (max_protagonists) of the deliberation step."""
 
 import logging
+from unittest.mock import patch
 
 import pytest
 from django.db import connection
@@ -14,7 +15,7 @@ from epocha.apps.agents.deliberation import (
 from epocha.apps.agents.models import Agent, Group
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
-from epocha.apps.world.models import Government
+from epocha.apps.world.models import Government, World
 
 
 @pytest.mark.parametrize("value", [0, 5, 30, 1000])
@@ -102,10 +103,23 @@ def test_an_absent_key_selects_every_agent_by_id(owner):
 
 
 def test_a_zero_budget_selects_nobody_with_no_query(owner):
-    simulation = _new_simulation(owner, "S3", {"max_protagonists": 0})
+    """Under demography, where `minor_agent_ids` WOULD query, K = 0 must not reach it.
+
+    Without demography the minor set is empty with no query and `[:0]` runs
+    none, so the early return would save nothing and its removal would go
+    unnoticed; the saving the guard buys is the minor read, hence the double
+    that raises.
+    """
+    simulation = _new_simulation(owner, "S3", {"demography_enabled": True, "max_protagonists": 0})
     _make_agents(simulation, 4)
 
-    with CaptureQueriesContext(connection) as queries:
+    with (
+        patch(
+            "epocha.apps.demography.orchestrator.minor_agent_ids",
+            side_effect=AssertionError("the minor set was read with K = 0"),
+        ),
+        CaptureQueriesContext(connection) as queries,
+    ):
         assert select_deliberating_agents(simulation, tick=1) == []
     assert len(queries) == 0
 
@@ -153,5 +167,21 @@ def test_the_query_count_does_not_depend_on_the_population(owner):
     large = _new_simulation(owner, "S7b", {"max_protagonists": 5})
     _make_agents(small, 20)
     _make_agents(large, 200)
+
+    assert _query_count(small) == _query_count(large)
+
+
+def test_the_query_count_does_not_depend_on_the_population_under_demography(owner):
+    """With demography on, the minor read adds queries but still a constant number."""
+    config = {"demography_enabled": True, "max_protagonists": 5}
+    small = _new_simulation(owner, "S7c", config)
+    large = _new_simulation(owner, "S7d", config)
+    for simulation in (small, large):
+        World.objects.create(simulation=simulation)
+    # Children, so that a per-minor query would show: adults never reach one.
+    for simulation, count in ((small, 20), (large, 200)):
+        Agent.objects.bulk_create(
+            [Agent(simulation=simulation, name=f"c{i}", age=5) for i in range(count)]
+        )
 
     assert _query_count(small) == _query_count(large)
