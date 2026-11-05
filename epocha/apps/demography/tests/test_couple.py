@@ -1329,3 +1329,75 @@ def test_an_intent_naming_a_widow_after_the_mourning_interval_forms_the_couple(s
 
     assert len(formed) == 1
     assert {formed[0].agent_a_id, formed[0].agent_b_id} == {widow.id, suitor.id}
+
+
+# ---------------------------------------------------------------------------
+# SC-002 on the production draw (User Story 1, scenario 1)
+# ---------------------------------------------------------------------------
+
+
+class _CohortAges(dict):
+    """Age map of a cohort that ages together: every woman has the same age.
+
+    Holding one number instead of a 20,000-entry dict rebuilt every tick keeps
+    the test about the draw, not about dictionary construction.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.age = 12.0
+
+    def __getitem__(self, agent_id):
+        return self.age
+
+
+def test_a_seeded_cohort_realizes_the_calendar():
+    """20,000 never-married women, weekly ticks, no mortality, candidates
+    always available: the production draw (`seek_probability_for` and
+    `draw_seekers`) reproduces the template mean age at first marriage and the
+    share married at 50. The loop only removes the married women and records
+    their ages; it computes no probability and draws no number.
+
+    Tolerances are three standard errors (SC-002): b/sqrt(n*C) = 0.042 on the
+    mean, sqrt(0.88*0.12/20000) = 0.0023 on the share.
+    """
+    import random
+    import types
+
+    from epocha.apps.demography.couple import (
+        MarketPopulation,
+        draw_seekers,
+        seek_probability_for,
+    )
+    from epocha.apps.demography.nuptiality import first_marriage_schedule
+    from epocha.apps.demography.template_loader import load_template
+
+    couple_cfg = load_template("pre_industrial_christian")["couple"]
+    schedule = first_marriage_schedule(couple_cfg)
+    years_per_tick = 168 / 8760
+    cohort_size, start_age, end_age = 20_000, 12.0, 50.0
+    ages = _CohortAges()
+    pool = [types.SimpleNamespace(id=index) for index in range(cohort_size)]
+    population = MarketPopulation(
+        women=pool, men=[], ages=ages, history=MarriageHistory(frozenset(), {})
+    )
+    rng = random.Random(2026)
+    marriage_ages: list[float] = []
+
+    tick = 0
+    ages.age = start_age
+    while ages.age < end_age:
+        probability = seek_probability_for(
+            population,
+            schedule,
+            couple_cfg["remarriage_annual_rate_female"],
+            years_per_tick,
+        )
+        married = {w.id for w in draw_seekers(pool, probability, rng)}
+        marriage_ages.extend([ages.age] * len(married))
+        pool = [w for w in pool if w.id not in married]
+        tick += 1
+        ages.age = start_age + tick * years_per_tick
+
+    assert sum(marriage_ages) / len(marriage_ages) == pytest.approx(25.50, abs=0.13)
+    assert len(marriage_ages) / cohort_size == pytest.approx(0.878, abs=0.007)
