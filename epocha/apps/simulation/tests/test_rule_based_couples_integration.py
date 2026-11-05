@@ -6,10 +6,20 @@ this one proves that they compose on the real tick loop: with
 founding comes from the rules, and every birth needs such a couple in an era
 that forbids births out of wedlock.
 
-The simulation is `running`, with `finalize_tick` doubled to advance the tick
-counter and `chord` patched, because `run_simulation_loop` returns at once on a
-paused simulation (the same seam as the Celery K = 0 test of
+The simulation is `running`, because `run_simulation_loop` returns at once on
+a paused one. The suite runs Celery eagerly, so the real `finalize_tick`
+executes (with an empty chord header the loop calls it directly and it
+advances the tick) and only its re-enqueue, `run_simulation_loop.apply_async`,
+is stopped, so that the test drives the ticks itself. `chord` is a spy around
+the real one: it must never be called, which proves that no decision task
+exists (the same seam as the Celery K = 0 test of
 `test_engine_demography_wiring.py`).
+
+The male age at first marriage is logged, never asserted. It is an indication
+only: it rests on a handful of marriages (the log line gives n), and the
+random streams are keyed on the simulation primary key, so the figure changes
+with the order in which the suite creates simulations (5 marriages gave 20.78,
+7 gave 23.24 and 25.38 on different orders). It is not a validation.
 """
 
 from __future__ import annotations
@@ -19,11 +29,13 @@ import random
 from unittest.mock import MagicMock, patch
 
 import pytest
+from celery import chord
 from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent, DecisionLog
 from epocha.apps.demography.initialization import initialize_demography
 from epocha.apps.demography.models import Couple
+from epocha.apps.demography.orchestrator import age_in_years
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.simulation.tasks import run_simulation_loop
@@ -34,7 +46,6 @@ logger = logging.getLogger(__name__)
 
 FOUNDERS = 300
 WEEKLY_TICK_HOURS = 168.0
-HOURS_PER_YEAR = 8760.0
 THREE_YEARS_IN_TICKS = 156
 # Fixed seed of the age draw: the population is a fixture, not a sample.
 AGE_DRAW_SEED = 7
@@ -128,7 +139,9 @@ def _male_ages_at_first_marriage(sim: Simulation, initialization_tick: int) -> l
     are resolved by name. Only founders can marry in three years, and their
     names are unique, so the lookup is exact.
     """
-    founders = {agent.name: agent for agent in Agent.objects.filter(simulation=sim)}
+    template = load_template("pre_industrial_christian")
+    acceleration = float(template.get("acceleration", 1.0))
+    agents_by_name = {agent.name: agent for agent in Agent.objects.filter(simulation=sim)}
     married: set[str] = set()
     ages: list[float] = []
     for couple in (
@@ -139,14 +152,14 @@ def _male_ages_at_first_marriage(sim: Simulation, initialization_tick: int) -> l
         names = _member_names(couple)
         if couple.formed_at_tick > initialization_tick:
             men = [
-                founders[name]
+                agents_by_name[name]
                 for name in names
                 if name not in married
-                and name in founders
-                and founders[name].gender == Agent.Gender.MALE
+                and name in agents_by_name
+                and agents_by_name[name].gender == Agent.Gender.MALE
             ]
             ages.extend(
-                (couple.formed_at_tick - man.birth_tick) * WEEKLY_TICK_HOURS / HOURS_PER_YEAR
+                age_in_years(man, couple.formed_at_tick, WEEKLY_TICK_HOURS, acceleration)
                 for man in men
             )
         married.update(names)
@@ -156,9 +169,12 @@ def _male_ages_at_first_marriage(sim: Simulation, initialization_tick: int) -> l
 def _log_marriage_indicators(sim: Simulation, initialization_tick: int) -> None:
     """Log (never assert) the indicative male age at first marriage of the run.
 
-    Wrigley et al. (1997), via Munro, give 27.02 and Newton 27.1 for England;
-    this population is a 300-founder fixture, so the number is an indication
-    of the machinery, not a validation.
+    For comparison only: 27.02 is the mean male age at first marriage of the
+    decades 1700-1749 (bachelor-spinster marriages) in Wrigley et al. (1997),
+    read through the secondary copy of Munro; Newton gives 27.1. The logged
+    figure rests on n marriages of a 300-founder fixture and depends on the
+    simulation primary key (module docstring), so the two are never to be
+    read as a comparison of values.
     """
     ages = _male_ages_at_first_marriage(sim, initialization_tick)
     formed = Couple.objects.filter(
@@ -173,7 +189,8 @@ def _log_marriage_indicators(sim: Simulation, initialization_tick: int) -> None:
         for couple in formed
     )
     logger.info(
-        "rule-only run: indicative male mean age at first marriage %s over %d marriages; "
+        "rule-only run: indicative male mean age at first marriage %s over n=%d marriages "
+        "(depends on the simulation primary key; period of the 27.02 reference: 1700-1749); "
         "%d of %d post-initialization couples formed by intents",
         f"{sum(ages) / len(ages):.2f}" if ages else "n/a",
         len(ages),
@@ -187,9 +204,6 @@ def test_three_rule_only_years_form_couples_and_births_without_any_decision(capl
     sim = _founded_simulation()
     initialization_tick = sim.current_tick
 
-    def _advance_tick(results, simulation_id, tick):
-        Simulation.objects.filter(id=simulation_id).update(current_tick=tick)
-
     decision_client = MagicMock(side_effect=AssertionError("the decision LLM was called"))
     with (
         caplog.at_level(logging.INFO, logger=__name__),
@@ -198,8 +212,8 @@ def test_three_rule_only_years_form_couples_and_births_without_any_decision(capl
             "epocha.apps.agents.factions._generate_faction_identity",
             return_value=FIXED_FACTION_IDENTITY,
         ),
-        patch("epocha.apps.simulation.tasks.chord"),
-        patch("epocha.apps.simulation.tasks.finalize_tick", side_effect=_advance_tick),
+        patch("epocha.apps.simulation.tasks.run_simulation_loop.apply_async"),
+        patch("epocha.apps.simulation.tasks.chord", wraps=chord) as chord_spy,
     ):
         for _ in range(THREE_YEARS_IN_TICKS):
             run_simulation_loop(sim.id)
@@ -208,6 +222,7 @@ def test_three_rule_only_years_form_couples_and_births_without_any_decision(capl
     sim.refresh_from_db()
     assert sim.current_tick == initialization_tick + THREE_YEARS_IN_TICKS
     decision_client.assert_not_called()
+    chord_spy.assert_not_called()
     assert not DecisionLog.objects.filter(simulation=sim).exists()
     assert Couple.objects.filter(simulation=sim, formed_at_tick__gt=initialization_tick).exists()
     assert Agent.objects.filter(simulation=sim, birth_tick__gt=initialization_tick).exists()
