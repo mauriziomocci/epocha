@@ -347,6 +347,50 @@ class TestTheFoundingMarriageIsAgeGraded:
 
         assert len(self._active(sim)) < 20
 
+    def test_the_draw_reads_the_canonical_age_not_the_cached_column(self, sim_with_zone):
+        """The founding draw must condition on the canonical age (birth_tick),
+        not on the `age` column, which is only a cache of completed years.
+        Column 15 and canonical 45: F*(45) = 0.873 against F*(15) = 5.7e-5
+        (measured), so about 35 of 40 women are declared; read from the
+        column, about none would be. Deliberately WITHOUT `universal_declaration`,
+        which removes the age from the draw."""
+        sim, zone = sim_with_zone
+        for i in range(40):
+            _agent(
+                sim,
+                zone,
+                f"Donna{i}",
+                age=15,
+                birth_tick=-45 * TICKS_PER_YEAR,
+                gender=Agent.Gender.FEMALE,
+            )
+        for i in range(50):
+            _agent(sim, zone, f"Uomo{i}", age=30, gender=Agent.Gender.MALE)
+
+        initialization.initialize_demography(sim)
+
+        assert len(self._active(sim)) >= 25
+
+    def test_the_draw_ignores_a_cached_column_older_than_the_canonical_age(self, sim_with_zone):
+        """Mirror case: column 45, canonical 15 -- the women are girls and
+        must not be declared (F*(15) = 5.7e-5)."""
+        sim, zone = sim_with_zone
+        for i in range(40):
+            _agent(
+                sim,
+                zone,
+                f"Donna{i}",
+                age=45,
+                birth_tick=-15 * TICKS_PER_YEAR,
+                gender=Agent.Gender.FEMALE,
+            )
+        for i in range(50):
+            _agent(sim, zone, f"Uomo{i}", age=30, gender=Agent.Gender.MALE)
+
+        initialization.initialize_demography(sim)
+
+        assert len(self._active(sim)) <= 2
+
     def test_the_declaration_consumes_the_initialization_stream(self, sim_with_zone, monkeypatch):
         sim, zone = sim_with_zone
         _agent(sim, zone, "Donna", age=25, gender=Agent.Gender.FEMALE)
