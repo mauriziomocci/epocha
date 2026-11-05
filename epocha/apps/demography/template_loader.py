@@ -117,7 +117,6 @@ SCHEMA: dict[str, Any] = {
     "couple": {
         "min_marriage_age_male": (int, None),
         "min_marriage_age_female": (int, None),
-        "allowed_types": (list, None),
         "default_type": (str, None),
         "divorce_enabled": (bool, None),
         "marriage_market_type": (str, None),

@@ -546,3 +546,13 @@ class TestCoupleSectionKeys:
         couple = load_template(name)["couple"]
         assert couple["mourning_days"] == self.ERA_MOURNING_DAYS[name]
         assert "mourning_ticks" not in couple
+
+    def test_allowed_types_is_rejected_as_an_unknown_key(self, template):
+        """FR-015: no code read it and the couple types are the model enum."""
+        template["couple"]["allowed_types"] = ["monogamous", "arranged"]
+        with pytest.raises(ValueError, match="unknown key in couple: allowed_types"):
+            validate_template(template, source="test")
+
+    @pytest.mark.parametrize("name", sorted(ERA_MOURNING_DAYS))
+    def test_no_shipped_template_carries_allowed_types(self, name):
+        assert "allowed_types" not in load_template(name)["couple"]

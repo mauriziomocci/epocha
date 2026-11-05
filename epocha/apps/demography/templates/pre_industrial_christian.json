@@ -123,10 +123,6 @@
   "couple": {
     "min_marriage_age_male": 16,
     "min_marriage_age_female": 14,
-    "allowed_types": [
-      "monogamous",
-      "arranged"
-    ],
     "default_type": "monogamous",
     "divorce_enabled": false,
     "marriage_market_type": "autonomous",
