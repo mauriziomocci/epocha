@@ -25,6 +25,12 @@ couple at each age. This script follows a cohort of 20,000 women from 12 to
 
 Harness assumptions, every one declared:
 
+- Step order of the engine: within a tick the market (couple formation) runs
+  before fertility, and fertility before mortality
+  (`orchestrator.DEMOGRAPHY_STEPS`); the Hadwiger rate is evaluated at the age
+  at the start of the tick (`_effective_age_in_years`). The reference of
+  configuration A follows the same order and age, 2.384 against 2.352 (rate at
+  the mid-tick age) and 2.363 (married share one tick late), decision D-05-E-12.
 - Men are female-dominant and always available: each tick the candidates
   are 500 never-married men redrawn from the template `age_pyramid` above
   `min_marriage_age_male` (a bracket partly below it is cut at it), not a
