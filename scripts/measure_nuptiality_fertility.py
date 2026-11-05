@@ -400,27 +400,38 @@ def run_configuration(context, replicates: int, seed_base: int, with_mortality: 
     }
 
 
-def report_configuration_a(context, result: dict) -> bool:
-    """Print configuration A against its references; return True when it passes."""
+def summarize_configuration_a(context, result: dict) -> tuple[dict, list[str], bool]:
+    """Return the table row, the check lines and the verdict of configuration A."""
     mean, error, half = interval(result["tfr"])
     reference = propagated_reference_tfr(context)
     continuous = continuous_tfr(context)
     gap = mean - reference
     distance = abs(gap) / error
     busiest = result["most_seekers"]
-    print("A, no mortality")
-    print(f"  TFR mean {mean:.4f} +- {half:.4f} (95% t), standard error {error:.4f}")
-    print(f"  reference (propagation, same ticks) {reference:.4f}")
-    print(f"  gap {gap:+.4f} = {distance:.2f} standard errors (limit {SEEKER_SD_LIMIT})")
-    print(f"  continuous value {continuous:.4f}")
-    print(f"  discretization gap {reference - continuous:+.4f} (reported, not gated)")
-    print(f"  most seekers in a tick {busiest} (limit {MAX_SEEKERS})")
-    print(f"  runtime {result['seconds']:.0f} s")
-    return distance <= SEEKER_SD_LIMIT and busiest <= MAX_SEEKERS
+    row = {
+        "configuration": "A, no mortality",
+        "tfr": f"{mean:.4f} +- {half:.4f}",
+        "tfr_value": f"{reference:.4f} (propagation)",
+        "gap": f"{gap:+.4f}",
+        "nrr": "-",
+        "nrr_value": "-",
+        "l25": "-",
+        "seconds": f"{result['seconds']:.0f}",
+    }
+    notes = [
+        f"A: gap {distance:.2f} standard errors (limit {SEEKER_SD_LIMIT}); standard error"
+        f" {error:.4f}",
+        f"A: continuous value {continuous:.4f}, discretization gap"
+        f" {reference - continuous:+.4f} (reported, not gated)",
+        f"A: most seekers in a tick {busiest} (limit {MAX_SEEKERS})",
+    ]
+    return row, notes, distance <= SEEKER_SD_LIMIT and busiest <= MAX_SEEKERS
 
 
-def report_configuration_b(context, template: dict, result: dict) -> bool:
-    """Print configuration B with the life table and the NRR; return True when it passes."""
+def summarize_configuration_b(
+    context, template: dict, result: dict
+) -> tuple[dict, list[str], bool]:
+    """Return the table row, the check lines and the verdict of configuration B."""
     survival = life_table(template)
     l12 = survival_to_twelve(context.death_probability)
     divisor = 1.0 + template["sex_ratio_at_birth"]
@@ -430,17 +441,44 @@ def report_configuration_b(context, template: dict, result: dict) -> bool:
     tfr_mean, _, tfr_half = interval(result["tfr"])
     analytic = analytic_nrr(context, template, survival)
     busiest = result["most_seekers"]
-    print("B, mortality, widowhood, mourning and remarriage (maternal mortality not modelled)")
-    print(f"  TFR mean {tfr_mean:.4f} +- {tfr_half:.4f} (95% t, no threshold)")
-    print(f"  NRR harness {nrr_mean:.4f} +- {nrr_half:.4f}")
-    print(f"  NRR interval [{nrr_mean - nrr_half:.4f}, {nrr_mean + nrr_half:.4f}]")
-    print(f"  NRR analytic {analytic:.4f} (no widowhood, no maternal mortality)")
-    print(f"  gap harness - analytic {nrr_mean - analytic:+.4f}")
-    print(f"  life table l(25) = {survival(25):.4f}, table l(12) = {survival(12):.4f}")
-    print(f"  tick-loop l_tick(12) = {l12:.4f}")
-    print(f"  most seekers in a tick {busiest} (limit {MAX_SEEKERS})")
-    print(f"  runtime {result['seconds']:.0f} s")
-    return nrr_mean + nrr_half >= 1.0 and busiest <= MAX_SEEKERS
+    row = {
+        "configuration": "B, mortality, widowhood",
+        "tfr": f"{tfr_mean:.4f} +- {tfr_half:.4f}",
+        "tfr_value": "none (no threshold)",
+        "gap": "-",
+        "nrr": f"{nrr_mean:.4f} [{nrr_mean - nrr_half:.4f}, {nrr_mean + nrr_half:.4f}]",
+        "nrr_value": f"{analytic:.4f} (gap {nrr_mean - analytic:+.4f})",
+        "l25": f"{survival(25):.4f}",
+        "seconds": f"{result['seconds']:.0f}",
+    }
+    notes = [
+        f"B: table l(12) = {survival(12):.4f}, tick-loop l_tick(12) = {l12:.4f}; the analytic NRR"
+        " has no widowhood and no maternal mortality (not modelled)",
+        f"B: most seekers in a tick {busiest} (limit {MAX_SEEKERS})",
+    ]
+    return row, notes, nrr_mean + nrr_half >= 1.0 and busiest <= MAX_SEEKERS
+
+
+TABLE_COLUMNS = (
+    ("configuration", "configuration"),
+    ("tfr", "TFR mean +- 95% t"),
+    ("tfr_value", "TFR reference"),
+    ("gap", "gap"),
+    ("nrr", "NRR harness [95% t]"),
+    ("nrr_value", "NRR analytic"),
+    ("l25", "l(25)"),
+    ("seconds", "s"),
+)
+
+
+def print_table(rows: list[dict]) -> None:
+    """Print the rows of both configurations as one aligned table."""
+    widths = [max(len(title), *(len(row[key]) for row in rows)) for key, title in TABLE_COLUMNS]
+    for cells in [
+        [title for _, title in TABLE_COLUMNS],
+        *([row[k] for k, _ in TABLE_COLUMNS] for row in rows),
+    ]:
+        print("  ".join(cell.ljust(width) for cell, width in zip(cells, widths)))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -456,9 +494,13 @@ def main(argv: list[str] | None = None) -> int:
         f" {args.seed_base}"
     )
     result_a = run_configuration(context, args.replicates, args.seed_base, with_mortality=False)
-    ok_a = report_configuration_a(context, result_a)
+    row_a, notes_a, ok_a = summarize_configuration_a(context, result_a)
     result_b = run_configuration(context, args.replicates, args.seed_base, with_mortality=True)
-    ok_b = report_configuration_b(context, template, result_b)
+    row_b, notes_b, ok_b = summarize_configuration_b(context, template, result_b)
+    print()
+    print_table([row_a, row_b])
+    print()
+    print("\n".join([*notes_a, *notes_b]))
     print(f"RESULT: A {'pass' if ok_a else 'FAIL'}, B {'pass' if ok_b else 'FAIL'}")
     return 0 if ok_a and ok_b else 1
 
