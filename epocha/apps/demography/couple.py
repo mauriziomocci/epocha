@@ -405,6 +405,36 @@ def meets_marriage_age(agent, template: dict, tick: int, tick_duration_hours: fl
     return age_in_years(agent, tick, tick_duration_hours, acceleration) >= threshold
 
 
+def marriage_ineligibility(
+    agent, template: dict, tick: int, tick_duration_hours: float, history: MarriageHistory
+) -> str | None:
+    """The reason an agent may not marry at this tick, or None when they may.
+
+    The ONE eligibility rule of the marriage market, the founding pairing and
+    the pair-bond intent resolver: `meets_marriage_age` (the era's minimum age
+    on the canonical age) and the mourning interval after the death of a
+    partner. The resolver logs the reason, so the two refusals read
+    differently in the record.
+
+    Mourning holds while `tick - widowed_at_tick < mourning_ticks`: the death
+    tick is day 0, and exactly `mourning_ticks` later the agent is free. It
+    applies to both sexes. The mourning interval is a tunable heuristic of the
+    era template (see `mourning_ticks`).
+
+    Args:
+        history: from `read_marriage_history`, read once by the caller.
+    """
+    if not meets_marriage_age(agent, template, tick, tick_duration_hours):
+        return "below the era's minimum marriage age"
+    widowed_at = history.widowed_at_tick.get(agent.id)
+    if widowed_at is None:
+        return None
+    acceleration = float(template.get("acceleration", 1.0))
+    if tick - widowed_at < mourning_ticks(template["couple"], tick_duration_hours, acceleration):
+        return "in mourning"
+    return None
+
+
 def resolve_pair_bond_intents(
     simulation,
     tick: int,

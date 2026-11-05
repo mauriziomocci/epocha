@@ -23,12 +23,14 @@ from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent, DecisionLog, Relationship
 from epocha.apps.demography.couple import (
+    MarriageHistory,
     _ordered_pair,
     active_couple_for,
     dissolve_on_death,
     form_couple,
     homogamy_score,
     is_in_active_couple,
+    marriage_ineligibility,
     mourning_ticks,
     pair_key,
     read_marriage_history,
@@ -1204,3 +1206,76 @@ def test_mourning_ticks_converts_days_to_ticks_rounding_up(
     couple_config = {"mourning_days": mourning_days}
 
     assert mourning_ticks(couple_config, tick_duration_hours, acceleration) == expected
+
+
+# ---------------------------------------------------------------------------
+# marriage_ineligibility
+# ---------------------------------------------------------------------------
+
+DAILY_WORLD_HOURS = 24.0
+ELIGIBILITY_TICK = 1000
+ELIGIBILITY_TEMPLATE = {
+    "acceleration": 1.0,
+    "couple": {
+        "min_marriage_age_male": 16,
+        "min_marriage_age_female": 14,
+        "mourning_days": 365,
+    },
+}
+
+
+def _widowed(agent_id, ticks_ago):
+    return MarriageHistory(
+        ever_partnered=frozenset({agent_id}),
+        widowed_at_tick={agent_id: ELIGIBILITY_TICK - ticks_ago},
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("ticks_since_the_death", "expected"),
+    [(100, "in mourning"), (364, "in mourning"), (365, None), (400, None)],
+)
+def test_a_widow_is_ineligible_until_the_mourning_interval_has_passed(
+    sim_with_zone, ticks_since_the_death, expected
+):
+    """One tick per day, 365 days of mourning: the death tick itself counts
+    as day 0, so exactly 365 ticks later the widow may marry again."""
+    sim, zone = sim_with_zone
+    widow = _make_agent(sim, zone, "Widow")
+
+    reason = marriage_ineligibility(
+        widow,
+        ELIGIBILITY_TEMPLATE,
+        ELIGIBILITY_TICK,
+        DAILY_WORLD_HOURS,
+        _widowed(widow.id, ticks_since_the_death),
+    )
+
+    assert reason == expected
+
+
+@pytest.mark.django_db
+def test_a_girl_below_the_era_minimum_age_is_ineligible_for_her_age(sim_with_zone):
+    sim, zone = sim_with_zone
+    girl = _make_agent(sim, zone, "Girl", age=13)
+    no_history = MarriageHistory(frozenset(), {})
+
+    reason = marriage_ineligibility(
+        girl, ELIGIBILITY_TEMPLATE, sim.current_tick, DAILY_WORLD_HOURS, no_history
+    )
+
+    assert reason == "below the era's minimum marriage age"
+
+
+@pytest.mark.django_db
+def test_an_unmarried_adult_is_eligible(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    no_history = MarriageHistory(frozenset(), {})
+
+    reason = marriage_ineligibility(
+        woman, ELIGIBILITY_TEMPLATE, sim.current_tick, DAILY_WORLD_HOURS, no_history
+    )
+
+    assert reason is None
