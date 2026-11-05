@@ -377,6 +377,19 @@ def test_no_seekers_issue_no_query(sim_with_zone, django_assert_num_queries):  #
         assert form_matched_couples(context, population, []) == []
 
 
+@pytest.mark.django_db
+def test_seekers_without_any_man_issue_no_query(sim_with_zone, django_assert_num_queries):  # noqa: F811
+    sim, zone = sim_with_zone
+    for i in range(2):
+        _make_agent(sim, zone, f"Woman{i}")
+    context = _christian_context(sim)
+    population = read_market_population(context)
+    assert population.women and not population.men
+
+    with django_assert_num_queries(0):
+        assert form_matched_couples(context, population, population.women) == []
+
+
 # ---------------------------------------------------------------------------
 # run_marriage_market
 # ---------------------------------------------------------------------------
