@@ -2802,6 +2802,39 @@ campaign tracked under `project_validation_experiments_pending.md`.
   candidate in her market draws again at the next tick. It is
   heterosexual and female-dominant, and the remarriage rate is a
   constant of the era, independent of age.
+- The values of the first-marriage calendar (`sd_age_female`,
+  `proportion_ever_married_female`, `remarriage_annual_rate_female`, and
+  `mean_age_female` in every template but the Christian one) are tunable
+  heuristics, not verified against a source. The Christian mean age 25.5
+  is provisional: it comes from Wrigley et al. (1997) as read in the
+  secondary copy of Munro, with the primary source unread.
+- With `require_couple_for_birth` the realized fertility of
+  `pre_industrial_christian` falls from `H = 5` to 2.374 births per
+  woman (no mortality, widowhood or remarriage; `u = 25.580`), and the
+  analytic net reproduction rate is 1.070, below the validation target of
+  Table 7.2. That rate is only 7.0% above 1 and depends on mortality, so
+  that the population does not die out is to be checked by the NRR
+  measurement (SC-007 of the couples spec) on the corrected mortality
+  code, not assumed. The cause is
+  a model error of equation (4.2) applied to married women only, not a
+  calibration error. The figures were computed for the Christian template
+  only, not for the other two eras that require a couple. Replacing (4.2)
+  is a separate work item.
+- The stage reading of the Coale and McNeil convolution (entry to the
+  market, meeting, engagement) is not used: the mean stage durations are
+  biased when the stages are correlated (Kaneko 2003).
+- The protagonists have a second marriage channel, the `pair_bond`
+  intents. With `implicit_mutual_consent = true` (all five templates) a
+  one-sided declaration suffices, and it respects the minimum age and the
+  mourning but neither the calendar nor the market radius. The calibrated
+  calendar is therefore exact only with `max_protagonists = 0` and
+  approximate when K is much smaller than the population; with the
+  default K = 30 in a world of at most 30 living agents everyone is a
+  protagonist, and the realized nuptiality is the rule plus the intents.
+- Agents that are not protagonists do not act in the decision loop: no
+  chosen work, voluntary movement, crime, property purchase or
+  contraception, and in the eras with `fertility_agency = "planned"` they
+  never use `avoid_conception`.
 - Wired into the tick loop by demography Plan 4: the block runs synchronously in `run_simulation_loop`, after the economy and before the per-agent chord, in an order declared as data.
 
 **Inheritance (§4.1.4).** The first six entries WERE design-level defects
