@@ -572,6 +572,26 @@ def partition_by_market(agents: list, radius: str) -> list[tuple]:
     return [(key, groups[key]) for key in sorted(groups, key=lambda k: (k is not None, k or 0))]
 
 
+def match_markets(seekers: list, candidates: list, radius: str, score) -> list[tuple]:
+    """Match the seekers with the candidates inside each market of the radius.
+
+    Both sides are partitioned with `partition_by_market`; in every market
+    that has both, `stable_matching` (Gale and Shapley 1962, audited) runs
+    with the seekers as proposers. A market with only one side forms nothing.
+    Surplus on either side stays unmatched, so no candidate is taken twice.
+    The pairs are returned `(seeker, candidate)` in ascending seeker id,
+    whatever the order the markets were visited in, so the couples written
+    from them have a stable order (plan PD-03).
+    """
+    candidates_by_market = dict(partition_by_market(candidates, radius))
+    pairs: list[tuple] = []
+    for key, market_seekers in partition_by_market(seekers, radius):
+        market_candidates = candidates_by_market.get(key)
+        if market_candidates:
+            pairs.extend(stable_matching(market_seekers, market_candidates, score))
+    return sorted(pairs, key=lambda pair: pair[0].id)
+
+
 def resolve_pair_bond_intents(
     simulation,
     tick: int,

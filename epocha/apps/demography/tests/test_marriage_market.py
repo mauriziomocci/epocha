@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import random
 import types
+from dataclasses import dataclass
 
 import pytest
 
@@ -19,6 +20,7 @@ from epocha.apps.demography.couple import (
     dissolve_on_death,
     draw_seekers,
     form_couple,
+    match_markets,
     partition_by_market,
     read_market_population,
     seek_probability_for,
@@ -237,3 +239,63 @@ def test_world_radius_is_one_market_keyed_none():
 def test_an_unknown_radius_raises():
     with pytest.raises(ValueError, match="adjacent_zones"):
         partition_by_market(_in_zones(1), "adjacent_zones")
+
+
+# ---------------------------------------------------------------------------
+# match_markets
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Person:
+    """A hashable stand-in for an agent: `stable_matching` keys dicts by agent,
+    and a `SimpleNamespace` is not hashable (a model instance is)."""
+
+    id: int
+    zone_id: int | None
+
+
+def _people(first_id, count, zone_id):
+    return [_Person(id=first_id + i, zone_id=zone_id) for i in range(count)]
+
+
+def test_surplus_seekers_stay_unmatched_and_no_candidate_is_taken_twice():
+    """SC-004: 100 seekers for 10 candidates in one zone give exactly 10 pairs."""
+    seekers = _people(1, 100, zone_id=1)
+    candidates = _people(1001, 10, zone_id=1)
+
+    pairs = match_markets(seekers, candidates, "same_zone", lambda w, m: 1 / (1 + abs(w.id - m.id)))
+
+    assert len(pairs) == 10
+    assert len({man.id for _, man in pairs}) == 10
+    assert len({woman.id for woman, _ in pairs}) == 10
+
+
+def test_the_radius_decides_whether_a_better_candidate_in_another_zone_counts():
+    """User Story 3, scenario 2: the zone-B candidate scores higher for the
+    seeker, but under `same_zone` only the zone-A one is reachable."""
+    seeker = _Person(id=1, zone_id=10)
+    near = _Person(id=100, zone_id=10)
+    better_far = _Person(id=101, zone_id=20)
+
+    def score(woman, man):
+        return 0.9 if man is better_far else 0.1
+
+    local = match_markets([seeker], [near, better_far], "same_zone", score)
+    anywhere = match_markets([seeker], [near, better_far], "world", score)
+
+    assert local == [(seeker, near)]
+    assert anywhere == [(seeker, better_far)]
+
+
+def test_the_pairs_come_out_in_ascending_woman_id_across_markets():
+    low_zone_seeker = _Person(id=9, zone_id=1)
+    high_zone_seeker = _Person(id=2, zone_id=5)
+    man_low = _Person(id=50, zone_id=1)
+    man_high = _Person(id=51, zone_id=5)
+
+    pairs = match_markets(
+        [low_zone_seeker, high_zone_seeker], [man_low, man_high], "same_zone", lambda w, m: 0.5
+    )
+
+    assert [woman.id for woman, _ in pairs] == [2, 9]
