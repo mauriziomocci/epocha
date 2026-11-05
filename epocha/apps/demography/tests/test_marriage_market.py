@@ -19,6 +19,7 @@ from epocha.apps.demography.couple import (
     dissolve_on_death,
     draw_seekers,
     form_couple,
+    partition_by_market,
     read_market_population,
     seek_probability_for,
 )
@@ -205,3 +206,34 @@ def test_equal_seeds_give_equal_seekers():
 
     assert first == second
     assert 0 < len(first) < len(women)
+
+
+# ---------------------------------------------------------------------------
+# partition_by_market
+# ---------------------------------------------------------------------------
+
+
+def _in_zones(*zone_ids):
+    return [types.SimpleNamespace(id=index + 1, zone_id=z) for index, z in enumerate(zone_ids)]
+
+
+def test_same_zone_groups_by_zone_with_the_null_zone_first():
+    agents = _in_zones(7, None, 3, 7)
+
+    markets = partition_by_market(agents, "same_zone")
+
+    assert [key for key, _ in markets] == [None, 3, 7]
+    assert [[a.id for a in group] for _, group in markets] == [[2], [3], [1, 4]]
+
+
+def test_world_radius_is_one_market_keyed_none():
+    agents = _in_zones(7, None, 3)
+
+    markets = partition_by_market(agents, "world")
+
+    assert markets == [(None, agents)]
+
+
+def test_an_unknown_radius_raises():
+    with pytest.raises(ValueError, match="adjacent_zones"):
+        partition_by_market(_in_zones(1), "adjacent_zones")

@@ -551,6 +551,27 @@ def draw_seekers(women: list, probability: Callable[[Agent], float], rng) -> lis
     return [woman for woman in women if rng.random() < probability(woman)]
 
 
+def partition_by_market(agents: list, radius: str) -> list[tuple]:
+    """Split agents into the markets they can meet in, by the era's radius.
+
+    `same_zone` makes one market per `zone_id` (the null zone is an ordinary
+    key); `world` makes one market for everybody, keyed `None`. Markets come
+    out with the null key first, then ascending `zone_id`, so the result does
+    not depend on dictionary order (plan PD-02); inside a market the agents
+    keep the order they were given. The loader admits only these two radii
+    (`ALLOWED_MARRIAGE_MARKET_RADII`); the check here keeps a corrupted
+    template dict loud instead of silently falling into one of them.
+    """
+    if radius == "world":
+        return [(None, list(agents))]
+    if radius != "same_zone":
+        raise ValueError(f"unknown marriage_market_radius {radius!r}")
+    groups: dict = {}
+    for agent in agents:
+        groups.setdefault(agent.zone_id, []).append(agent)
+    return [(key, groups[key]) for key in sorted(groups, key=lambda k: (k is not None, k or 0))]
+
+
 def resolve_pair_bond_intents(
     simulation,
     tick: int,
