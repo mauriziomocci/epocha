@@ -14,6 +14,7 @@ Sources:
 from __future__ import annotations
 
 import logging
+import math
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -195,6 +196,23 @@ def read_marriage_history(simulation) -> MarriageHistory:
     return MarriageHistory(frozenset(ever_partnered), widowed_at_tick)
 
 
+def mourning_ticks(couple_config: dict, tick_duration_hours: float, acceleration: float) -> int:
+    """Length of the era's mourning interval, in ticks.
+
+    `ceil(mourning_days * 24 / (tick_duration_hours * acceleration))`: a tick
+    covers `tick_duration_hours * acceleration` hours of simulated time, and a
+    partial tick of mourning counts as a whole one, so the interval is never
+    shortened. The conversion is written literally, not through an inverted
+    tick length: on a daily world the inverted form reads 365.00000000000006
+    and rounds up to 366.
+
+    The interval itself, `mourning_days`, is a tunable heuristic of the era
+    template, not a measured quantity (no cited source; Appendix A of the
+    whitepaper labels it so).
+    """
+    return math.ceil(couple_config["mourning_days"] * 24 / (tick_duration_hours * acceleration))
+
+
 def homogamy_score(
     a,
     b,
@@ -221,8 +239,6 @@ def homogamy_score(
     row: the two maps are computed once per tick by the caller, so scoring a
     pair costs no query.
     """
-    import math
-
     same_class = 1.0 if a.social_class == b.social_class else 0.0
     edu_diff = abs(float(a.education_level or 0.0) - float(b.education_level or 0.0))
     edu_prox = math.exp(-edu_diff)

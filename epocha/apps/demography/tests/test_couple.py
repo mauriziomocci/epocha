@@ -29,6 +29,7 @@ from epocha.apps.demography.couple import (
     form_couple,
     homogamy_score,
     is_in_active_couple,
+    mourning_ticks,
     pair_key,
     read_marriage_history,
     read_sentiments,
@@ -1181,3 +1182,25 @@ def test_the_history_ignores_the_couples_of_another_simulation(sim_with_zone):
 
     assert history.ever_partnered == frozenset()
     assert history.widowed_at_tick == {}
+
+
+# ---------------------------------------------------------------------------
+# mourning_ticks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("mourning_days", "tick_duration_hours", "acceleration", "expected"),
+    [
+        (365, 168.0, 1.0, 53),  # a weekly world: 365 / 7 = 52.14 ticks, rounded up
+        (365, 24.0, 1.0, 365),  # a daily world: one tick a day
+        (365, 24.0, 2.0, 183),  # twice the pace: 182.5 ticks, rounded up
+        (0, 24.0, 1.0, 0),  # no mourning interval
+    ],
+)
+def test_mourning_ticks_converts_days_to_ticks_rounding_up(
+    mourning_days, tick_duration_hours, acceleration, expected
+):
+    couple_config = {"mourning_days": mourning_days}
+
+    assert mourning_ticks(couple_config, tick_duration_hours, acceleration) == expected
