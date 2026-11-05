@@ -59,7 +59,9 @@ def initialize_demography(simulation: Any) -> None:
     `Couple`, active or dissolved, is not founded again (see
     `form_initial_couples`). "Has this world been initialized" is not a state
     anything records, and the couple table is the evidence that the founding
-    already ran, so re-running changes nothing.
+    already ran, so re-running changes nothing -- except when the first
+    founding formed zero couples: the table is then still empty and the next
+    call founds again.
     """
     if not is_demography_enabled(simulation):
         return
