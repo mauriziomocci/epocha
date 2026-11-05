@@ -438,7 +438,7 @@ PER_PAIR_BOND_INTENT = 7
 # What a tick pays once, for having any pair-bond intent at all: the resolver
 # reads the marriage history (`couple.read_marriage_history`) the first time it
 # checks an agent's eligibility, one query whatever the number of intents. It
-# is a fixed term of the tick, like the death term below, and not part of the
+# is a fixed term of the tick, like the once-per-tick death term (`DEATH_TICK_ONCE`) above, and not part of the
 # per-intent slope above: T035 of the rule-based couples tasks declares one
 # query per tick, not per intent, and the measurement subtracts it so the
 # linearity and the bound stay exact equalities.
