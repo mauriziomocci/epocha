@@ -411,8 +411,8 @@ the broker survive worker restarts without losing the simulation. Within a
 tick the order of agents is deterministic — the chord header is built from
 `select_deliberating_agents` (§3.2), which orders the protagonists by
 priority (head of state, then group leaders, then everyone else) and then by
-id, after the demography block so that the dead are not in it and the
-newborns are — so any non-determinism comes
+id, after the demography block so that the dead are not in it and this tick's
+newborns are counted among the minors it excludes — so any non-determinism comes
 from the LLM call and the per-tick seeded RNG streams documented in §3.4,
 never from scheduling. A real-time event-driven design was rejected because
 discrete ticks are the natural granularity of the demographic and economic
@@ -2617,7 +2617,7 @@ The roadmap follows the order agreed on 2026-10-29, which is an order of work ra
 
 - **1. Demography Plan 4 (Initialisation and Engine integration) — landed, closure pending the merge.** Plan 4 wired the demography modules of §4.1 into the live tick loop, as a synchronous block in `epocha/apps/simulation/tasks.py` that runs after the economy and before the per-agent chord, with its eight steps declared as data and each ordering property proven by permuting that declaration. It supplied the initialisation that gives a founding population the `birth_tick` ageing depends on and the couples three era templates require before any birth is possible, created the storage the emergency-flight trigger needed, corrected the birth RNG derivation that gave two newborns of one tick identical sex and orientation, and added the per-tick `PopulationSnapshot` writer. It closes the implementation-gap disclosure carried by §4.1. **The historical-validation campaign is NOT part of it** and remains pending as its own work item: the plan deliberately separated building the machine from running the experiments, so that a discrepancy against Wrigley-Schofield (1981) or Human Mortality Database targets can be attributed to the model rather than to the wiring. The validation-pending caveat of §7.5 therefore stands.
 - **2. Rule-based couple formation.** Couples form from rules (Coale and McNeil 1972) rather than only from LLM intents, which is the prerequisite of every validation: in the pre-industrial eras a birth requires a couple, and before this work item couples formed after initialisation only from LLM intents. The spec is approved by the Trinity under the project's autonomy profile, provisionally, pending the user's confirmation (D-29-21); the marriage market and the conditioned founding pairing, both in §4.1.3, are implemented on branch `20261029-123404-rule-based-couples`, which is not merged.
-- **3. Marital fertility in the eras that require a couple.** It comes before any validation: the Hadwiger schedule is a rate over all women, and applied to married women alone it gives a TFR (total fertility rate, the children a woman would bear over her fertile life) of 2.394 against the reference range of 4.5-6.5 of this whitepaper.
+- **3. Marital fertility in the eras that require a couple.** It comes before any validation: the Hadwiger schedule is a rate over all women, and applied to married women alone it gives a TFR (total fertility rate, the children a woman would bear over her fertile life) of 2.374 for `pre_industrial_christian` without mortality against the reference range of 4.5-6.5 of this whitepaper.
 - **4. Validation experiments execution.** The campaign specified in Chapter 7 — dataset acquisition, script implementation, metric computation, and threshold evaluation — is the central deliverable tracked in `docs/memory-backup/project_validation_experiments_pending.md`. The first run is England 1700-1750 against Wrigley and Schofield (1981) for mortality, fertility and age at marriage; it cites the published values only, because the machine-readable data behind them are distributed under terms not compatible with Apache-2.0. Execution is bound to Plan 4 of the demography roadmap above (which provides the live tick-loop integration the validation requires) and to the two items that precede it, couple formation and marital fertility.
 - **5. One data-grounded report.** A single report of the first validation, with every number and fact taken from the data.
 - **Adversarial audit of the Knowledge Graph (not opened yet).** The Knowledge Graph is the single module remaining in §8 pending its first scientific audit pass. Six clusters have already converged and been promoted: reputation on round 2 (2026-05-12) to §4.3, the rumor-propagation cluster (information flow, distortion, belief filter, plus affinity) on round 2 (2026-05-16) to §4.4, the political-institutions cluster (government, government_types, institutions, stratification, election) on round 2 (2026-05-16) to §4.5, movement on round 2 (2026-05-16) to §4.6, factions on round 2 (2026-05-16) to §4.7, and the economy base layer on round 12 of its first audit (2026-07-16) to §4.8. The Knowledge Graph audit is the gating item before it can be promoted from §8 to §4 status, before its parameters can be added to the parameter tables of §6, and before it can enter the validation campaign of §7.
@@ -2813,9 +2813,9 @@ campaign tracked under `project_validation_experiments_pending.md`.
   secondary copy of Munro, with the primary source unread.
 - With `require_couple_for_birth` the realized fertility of
   `pre_industrial_christian` falls from `H = 5` to 2.374 births per
-  woman (no mortality, widowhood or remarriage; `u = 25.580`), and the
-  analytic net reproduction rate is 1.070, below the validation target of
-  Table 7.2. That rate is only 7.0% above 1 and depends on mortality, so
+  woman (no mortality, widowhood or remarriage; `u = 25.580`), below the
+  validation target of Table 7.2, and the analytic net reproduction rate
+  is 1.070. That rate is only 7.0% above 1 and depends on mortality, so
   that the population does not die out is to be checked by the NRR
   measurement (SC-007 of the couples spec) on the corrected mortality
   code, not assumed. The cause is
@@ -2842,7 +2842,7 @@ campaign tracked under `project_validation_experiments_pending.md`.
   mourning but neither the calendar nor the market radius. The calibrated
   calendar is therefore exact only with `max_protagonists = 0` and
   approximate when K is much smaller than the population; with the
-  default K = 30 in a world of at most 30 living agents everyone is a
+  default K = 30 in a world of at most 30 living agents every adult is a
   protagonist, and the realized nuptiality is the rule plus the intents.
 - Agents that are not protagonists do not act in the decision loop: no
   chosen work, voluntary movement, crime, property purchase or
