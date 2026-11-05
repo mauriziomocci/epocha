@@ -1175,9 +1175,11 @@ def test_a_twice_widowed_woman_carries_the_later_death_tick(sim_with_zone):
 
 @pytest.mark.django_db
 def test_the_later_death_wins_even_when_its_couple_has_the_lower_id(sim_with_zone):
-    """Rows arrive in id order, so a plain assignment would keep the LAST row
-    read. Here the later death (tick 30) belongs to the first couple created,
-    the earlier one (tick 10) to the second: only `max` returns 30."""
+    """`read_marriage_history` has no ORDER BY, so the order the rows arrive in
+    is unspecified and a plain assignment could keep either one. `max` makes
+    the result independent of that order. Here the later death (tick 30)
+    belongs to the first couple created, the earlier one (tick 10) to the
+    second: whichever row comes last, only `max` returns 30."""
     sim, zone = sim_with_zone
     widow = _make_agent(sim, zone, "Widow")
     husband_of_the_first_couple = _make_agent(sim, zone, "First", gender=Agent.Gender.MALE)
