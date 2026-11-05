@@ -461,13 +461,13 @@ The pipeline does not run for every living agent: it runs for at most K
 protagonists per tick, selected by
 `epocha/apps/agents/deliberation.py::select_deliberating_agents` in this
 order: the head of state of the simulation's government, the leaders of its
-groups, then the remaining adults by id. K comes from the simulation's
+groups, then every other living agent by id (minors excluded, see below). K comes from the simulation's
 `config.max_protagonists` (default 30; 0 means no LLM decision call at all,
 the validation mode). K is a compute budget, not a scientific parameter, and
 carries no claim about human behaviour. Agents outside the protagonists do not
 deliberate, keep their chat, and live by the demographic and economic rules of
 Chapter 4. Faction identity generation (`factions._generate_faction_identity`)
-is outside the cap: it names a group, not a person. Minors never deliberate.
+is outside the cap: it names a group, not a person. Minors are excluded only when the simulation runs demography (`minor_agent_ids`, decision D-29-4); without it every living agent is eligible. The selection issues a constant number of queries, but under demography the rows read are O(N) in the population, because the minor ids are read and passed to the database as an `IN` list, until the life-course work item replaces `minor_agent_ids` (FR-008).
 
 Memories are written by `apply_agent_action` with an emotional weight drawn
 from a per-action lookup table (for example 0.8 for `betray`, 0.7 for

@@ -55,20 +55,24 @@ def max_protagonists(simulation) -> int:
 
 
 def select_deliberating_agents(simulation, tick: int) -> list:
-    """Return the at most K living adult agents that deliberate at ``tick``.
+    """Return the at most K living agents that deliberate at ``tick``.
 
     Priority, then id: the head of state of the simulation's ``Government``
     first, the leaders of the simulation's ``Group`` rows next, every other
     agent last, each class ordered by id (creation order). The query is one
-    ``Exists`` annotation sliced to K rows, so the cost is bounded by K and
-    not by the population (SC-006). K = 0 returns ``[]`` before any query.
+    ``Exists`` annotation sliced to K rows, so the query count is constant.
+    The rows read are O(N) under demography, because the minor ids are read and
+    passed to the database as an ``IN`` list of up to N values, until the
+    life-course work item replaces ``minor_agent_ids`` (FR-008). K = 0 returns
+    ``[]`` before any query.
 
     Minors are excluded through ``minor_agent_ids``: a newborn must not choose
     ``move_to`` and leave its household alone (the guarantee
     ``coordinate_family_migration`` documents). The set is read AFTER the
     demography block of the tick, so a child born this tick is already in the
     population. It is empty, with no query, when the simulation has not opted
-    into demography, which keeps the selection exactly as it was.
+    into demography, which keeps the selection exactly as it was: without
+    demography every living agent is eligible, a child included (D-29-4).
     """
     from django.db.models import Case, Exists, IntegerField, OuterRef, Value, When
 

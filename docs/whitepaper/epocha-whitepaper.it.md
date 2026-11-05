@@ -496,7 +496,7 @@ La pipeline non gira per ogni agente vivente: gira per al più K
 protagonisti a tick, scelti da
 `epocha/apps/agents/deliberation.py::select_deliberating_agents` in
 quest'ordine: il capo di stato del governo della simulazione, i leader dei
-suoi gruppi, poi gli altri adulti per id. K viene da
+suoi gruppi, poi ogni altro agente vivente per id (minorenni esclusi, vedi sotto). K viene da
 `config.max_protagonists` della simulazione (default 30; 0 significa nessuna
 chiamata LLM di decisione, la modalità di validazione). K è un budget di
 calcolo, non un parametro scientifico, e non afferma nulla sul comportamento
@@ -504,7 +504,7 @@ umano. Gli agenti fuori dai protagonisti non deliberano, conservano la chat e
 vivono secondo le regole demografiche ed economiche del Capitolo 4. La
 generazione dell'identità di una fazione
 (`factions._generate_faction_identity`) è fuori dal limite: dà il nome a un
-gruppo, non a una persona. I minorenni non deliberano mai.
+gruppo, non a una persona. I minorenni sono esclusi solo quando la simulazione esegue la demografia (`minor_agent_ids`, decisione D-29-4); senza di essa ogni agente vivente è ammissibile. La selezione emette un numero costante di query, ma con la demografia le righe lette sono O(N) nella popolazione, perché gli id dei minorenni vengono letti e passati al database come lista `IN`, finché il work item del corso della vita non sostituisce `minor_agent_ids` (FR-008).
 
 Le memorie sono scritte da `apply_agent_action` con un peso emotivo
 estratto da una tabella di lookup per azione (per esempio 0.8 per
