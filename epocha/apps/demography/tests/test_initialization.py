@@ -342,8 +342,10 @@ class TestTheFoundingMarriageIsAgeGraded:
         """At 15 the conditioned share F*(x) is 5.7e-5 (Christian schedule,
         measured), so 40 fifteen-year-old women with 50 men available are
         essentially never declared; the universal pairing paired them all.
-        The stream is seeded, so the bound is deterministic: P(3 or more of
-        40 declared) is below 1e-8."""
+        The stream is keyed on the simulation primary key, so the outcome
+        varies with the suite order and the bound is probabilistic: P(3 or
+        more of 40 declared) is 1.8e-9 (binomial, n = 40, p = 5.7e-5), so the
+        assertion holds with probability above 1 - 1e-8."""
         sim, zone = sim_with_zone
         for i in range(40):
             _agent(sim, zone, f"Giovane{i}", age=15, gender=Agent.Gender.FEMALE)
