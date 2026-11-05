@@ -1271,6 +1271,29 @@ def test_a_widow_is_ineligible_until_the_mourning_interval_has_passed(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(("ticks_since_the_death", "expected"), [(182, "in mourning"), (183, None)])
+def test_the_mourning_interval_follows_the_eras_acceleration(
+    sim_with_zone, ticks_since_the_death, expected
+):
+    """At acceleration 2.0 a daily tick covers two days, so 365 days of
+    mourning are ceil(182.5) = 183 ticks: the widow is still in mourning at
+    182 ticks and free at 183."""
+    sim, zone = sim_with_zone
+    widow = _make_agent(sim, zone, "Widow")
+    template = {**ELIGIBILITY_TEMPLATE, "acceleration": 2.0}
+
+    reason = marriage_ineligibility(
+        widow,
+        template,
+        ELIGIBILITY_TICK,
+        DAILY_WORLD_HOURS,
+        _widowed(widow.id, ticks_since_the_death),
+    )
+
+    assert reason == expected
+
+
+@pytest.mark.django_db
 def test_a_girl_below_the_era_minimum_age_is_ineligible_for_her_age(sim_with_zone):
     sim, zone = sim_with_zone
     girl = _make_agent(sim, zone, "Girl", age=13)
