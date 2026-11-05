@@ -71,10 +71,13 @@ from scipy import stats
 from scipy.integrate import quad
 
 from epocha.apps.demography.couple import (
+    MarketPopulation,
+    MarriageHistory,
     draw_seekers,
     homogamy_score,
     match_markets,
     mourning_ticks,
+    seek_probability_for,
 )
 from epocha.apps.demography.fertility import hadwiger_asfr
 from epocha.apps.demography.mortality import annual_mortality_probability
@@ -178,28 +181,42 @@ class Cohort:
         )
 
 
+def is_ineligible(tick: int, widowed_at: int, context) -> bool:
+    """Whether a woman may not marry at `tick`: below the minimum age or in mourning.
+
+    The harness copy of the production rule `couple.marriage_ineligibility`
+    (`meets_marriage_age` and mourning while `tick - widowed_at <
+    mourning_ticks`), reduced to what the cohort varies: every woman has the
+    harness age. A test compares the two on a grid of ticks and widowhoods.
+    """
+    return tick_age(tick) < context.min_age or tick - widowed_at < context.mourning
+
+
 def tick_market(cohort, tick, context, rng, next_id) -> tuple[int, int]:
     """Run one tick of the market; return the seekers drawn and the next free candidate id."""
     a_k = tick_age(tick)
-    if a_k < context.min_age:
-        return 0, next_id
     free = [
         w
         for w in cohort.women
         if cohort.alive[w.id - 1]
         and cohort.husband_birth[w.id - 1] is None
-        and tick - cohort.widowed_at[w.id - 1] >= context.mourning
+        and not is_ineligible(tick, cohort.widowed_at[w.id - 1], context)
     ]
-    first = context.first_marriage_probability[tick]
-
-    def probability(woman) -> float:
-        return context.remarriage if cohort.ever_partnered[woman.id - 1] else first
-
+    ages = {w.id: a_k for w in free}
+    history = MarriageHistory(
+        ever_partnered=frozenset(w.id for w in free if cohort.ever_partnered[w.id - 1]),
+        widowed_at_tick={},
+    )
+    population = MarketPopulation(women=free, men=[], ages=ages, history=history)
+    # The production probability: first-marriage schedule at the canonical age,
+    # remarriage rate for the women who have been in a couple.
+    probability = seek_probability_for(
+        population, context.schedule, context.remarriage_rate, context.years_per_tick
+    )
     seekers = draw_seekers(free, probability, rng)
     if not seekers:
         return 0, next_id
     candidates = []
-    ages = {w.id: a_k for w in seekers}
     for offset in range(CANDIDATE_POOL):
         age = context.candidate_age(rng)
         candidates.append(SyntheticAgent(next_id + offset, "male", age, CLASS, EDUCATION))
@@ -271,7 +288,7 @@ def build_context(template: dict) -> SimpleNamespace:
         weights=couple_cfg["homogamy_weights"],
         min_age=couple_cfg["min_marriage_age_female"],
         mourning=mourning_ticks(couple_cfg, TICK_HOURS, 1.0),
-        remarriage=1.0 - math.exp(-couple_cfg["remarriage_annual_rate_female"] * years),
+        remarriage_rate=couple_cfg["remarriage_annual_rate_female"],
         first_marriage_probability=[
             schedule.tick_probability(tick_age(tick), years) for tick in range(TICKS)
         ],

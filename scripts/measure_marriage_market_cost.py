@@ -148,8 +148,9 @@ def two_point_exponent(sizes: tuple[int, int], values: tuple[float, float]) -> f
 def measure_step2(n: int, seed: int, template: dict) -> tuple[float, float, int, float]:
     """Median seconds of one weekly step 2 at N agents, with the median S, M and pairs.
 
-    S, the seekers of a tick, is a random count with a mean near 0.5 at
-    N = 10^3, so the median time at the smallest N is a few microseconds and
+    S, the seekers of a tick, is a random count with a mean of about 0.32 at
+    N = 10^3 (the sum of the weekly first-marriage probabilities of the
+    eligible women), so the median time at the smallest N is a few microseconds and
     the least-squares exponent is noisy there; the medians of S and of the
     pairs are printed so the reader sees what the time was measured on.
     """
@@ -221,6 +222,8 @@ def report_step2(seed: int, template: dict) -> float:
         print(f"{n:>9d} {seekers:>9.1f} {men:>9d} {pairs:>9.1f} {median:>12.4f}")
     exponent = log_log_slope(list(STEP2_SIZES), seconds)
     print(f"step 2 exponent (least squares): {exponent:.3f} (limit {EXPONENT_LIMIT})")
+    upper = two_point_exponent(STEP2_SIZES[1:], tuple(seconds[1:]))
+    print(f"step 2 slope between 10^4 and 10^5 (not gated): {upper:.3f}")
     return exponent
 
 
