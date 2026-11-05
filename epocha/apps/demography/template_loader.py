@@ -543,7 +543,10 @@ def _check_first_marriage_solvable(data: dict[str, Any], source: str) -> None:
 
 
 def validate_template(data: dict[str, Any], source: str) -> None:
-    """Apply the six clauses of the A9 contract. Raises ValueError on any."""
+    """Validate a template: the six clauses of the A9 contract, plus the
+    `couple` range check and the solvability check of the first-marriage
+    schedule. Raises ValueError on any.
+    """
     if not isinstance(data, dict):
         _fail(source, "the document is not a JSON object")
     _walk(data, SCHEMA, "", source)
