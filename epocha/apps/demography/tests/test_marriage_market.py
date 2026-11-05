@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.demography.couple import (
@@ -36,7 +38,9 @@ from epocha.apps.demography.tests.test_couple import (  # reused fixture and hel
     _make_agent,
     sim_with_zone,  # noqa: F401
 )
-from epocha.apps.world.models import Zone
+from epocha.apps.simulation.models import Simulation
+from epocha.apps.users.models import User
+from epocha.apps.world.models import World, Zone
 
 DAILY_WORLD_HOURS = 24.0
 MARKET_TICK = 500
@@ -428,3 +432,52 @@ def test_a_widow_is_a_seeker_only_after_the_mourning_interval(
 
     expected = [{widow.id, suitor.id}] if marries else []
     assert [{c.agent_a_id, c.agent_b_id} for c in formed] == expected
+
+
+# ---------------------------------------------------------------------------
+# SC-003: the query count does not grow with the population
+# ---------------------------------------------------------------------------
+
+
+def _world_with_two_zones(label):
+    user = User.objects.create_user(
+        email=f"market{label}@epocha.dev", username=f"marketuser{label}", password="pass1234"
+    )
+    sim = Simulation.objects.create(name=f"Market{label}", seed=42, owner=user, current_tick=5)
+    world = World.objects.create(simulation=sim, stability_index=0.7)
+    zones = [
+        Zone.objects.create(
+            world=world,
+            name=f"Zone{i}",
+            zone_type="commercial",
+            boundary=Polygon.from_bbox((i * 200, 0, i * 200 + 100, 100)),
+            center=Point(i * 200 + 50, 50),
+        )
+        for i in range(2)
+    ]
+    return sim, zones
+
+
+def _market_queries(label, living_agents):
+    """The statements of one `run_marriage_market` call, INSERTs excluded."""
+    sim, zones = _world_with_two_zones(label)
+    for i in range(living_agents):
+        _make_agent(
+            sim,
+            zones[i % 2],
+            f"Agent{i}",
+            gender=Agent.Gender.FEMALE if (i // 2) % 2 == 0 else Agent.Gender.MALE,
+        )
+    with CaptureQueriesContext(connection) as captured:
+        run_marriage_market(_christian_context(sim), random.Random(1))
+    return [q["sql"] for q in captured.captured_queries if not q["sql"].startswith("INSERT")]
+
+
+@pytest.mark.django_db
+def test_the_market_query_count_does_not_grow_with_the_population(everyone_seeks):
+    small = _market_queries("small", 50)
+    large = _market_queries("large", 500)
+
+    assert len(small) == len(large)
+    for statements in (small, large):
+        assert sum('FROM "agents_relationship"' in sql for sql in statements) == 1
