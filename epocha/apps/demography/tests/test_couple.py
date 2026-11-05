@@ -300,6 +300,21 @@ def test_homogamy_score_reads_the_sentiment_map_not_the_database(
 
 
 @pytest.mark.django_db
+def test_homogamy_score_finds_the_sentiment_whichever_agent_is_named_first(sim_with_zone):
+    """The map is keyed by the ordered pair, so scoring (higher id, lower id)
+    finds the same sentiment as scoring (lower id, higher id)."""
+    sim, zone = sim_with_zone
+    a = _make_agent(sim, zone, "A")
+    b = _make_agent(sim, zone, "B", gender=Agent.Gender.MALE)
+    assert a.id < b.id
+    weights = {"w_class": 0.0, "w_edu": 0.0, "w_age": 0.0, "w_relationship": 1.0}
+    ages = {a.id: 25.0, b.id: 25.0}
+    sentiments = {pair_key(a.id, b.id): 1.0}
+
+    assert homogamy_score(b, a, weights, sentiments=sentiments, ages=ages) == 1.0
+
+
+@pytest.mark.django_db
 def test_homogamy_score_takes_the_age_from_the_ages_map(sim_with_zone):
     """The age term reads the canonical age map, not the frozen `age` column:
     columns of 20 and 60 with mapped ages of 30 and 30 give a perfect term."""
