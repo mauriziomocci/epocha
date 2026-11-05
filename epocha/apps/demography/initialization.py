@@ -21,13 +21,18 @@ for the subsystem would break the same invariance the tick-loop block is
 careful to preserve.
 
 The two repairs run at different moments, and the difference is deliberate.
-Couples are formed once, by the world generator, because pairing every
-eligible adult at once is founding-population behaviour and doing it per tick
-would bypass the pair-bond intents the couple step exists to resolve. Birth
-ticks are backfilled by the generator AND on every tick by the demography
-block, because a world generated before the flag was set carries none, and an
-agent without one is absent from every candidate query for the rest of the
-run.
+Couples are formed once, by the world generator, because the founding
+marriage is founding-population behaviour: it conditions on the ages the
+generator wrote and runs on the `initialization` stream of the simulation's
+current tick, whereas the marriages of later ticks come from the per-tick
+marriage market and the pair-bond intents the couple step exists to resolve.
+The founding couples are not a universal pairing of every eligible adult: each
+eligible woman is declared married with the probability the era's first-marriage
+schedule gives for her age, and the declared women are matched with the men of
+their market by the same function the per-tick market uses. Birth ticks are
+backfilled by the generator AND on every tick by the demography block, because
+a world generated before the flag was set carries none, and an agent without
+one is absent from every candidate query for the rest of the run.
 """
 
 from __future__ import annotations
@@ -37,9 +42,10 @@ from typing import Any
 
 from epocha.apps.demography.orchestrator import (
     HOURS_PER_YEAR,
+    DemographyTickContext,
     _tick_duration_hours,
-    age_in_years,
     is_demography_enabled,
+    stream_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -191,22 +197,27 @@ def backfill_birth_ticks(simulation: Any, template: dict | None = None) -> None:
 
 
 def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
-    """Pair the founding population's eligible adults.
+    """Build the founding couples from the era's conditioned first-marriage schedule.
 
-    Reuses the couple module end to end -- `homogamy_score` for preferences,
-    Gale-Shapley `stable_matching` for the assignment, `form_couple` for the
-    canonical ordering -- so initial couples are formed by exactly the
-    mechanism that forms couples later in the run, rather than by a second,
-    parallel rule that would drift from it.
+    Each eligible founder woman is declared married with probability
+    `F*(x)` (`FirstMarriageSchedule.conditional_cdf`, the share of women
+    married by age x among those who reach the minimum age single; Kaneko
+    2003, eq. 3-4, conditioned as in the couples spec, R4), one draw per
+    woman in ascending id from the `initialization` stream of the simulation's
+    current tick. The declared women then propose to the eligible men of
+    their market, through the same function the per-tick market uses
+    (`couple.form_matched_couples`), so founding and later couples come from
+    one mechanism. Eligibility is the market's: alive, a man or a woman,
+    heterosexual or bisexual, in no active couple, of the era's marriage age
+    on the canonical age; a homosexual or asexual founder is not paired
+    (gate decision D-29-22). Founders widowed before t = 0 are not modelled:
+    the founding population has no marriage history.
 
-    Eligibility is `couple.seeks_a_partner_of_the_other_sex`, the one
-    orientation rule, and `couple.meets_marriage_age`, the one marriage-age
-    rule the intent resolver applies too: the era
-    template's own minimum ages, on the canonical age derived from
-    `birth_tick`. This function used to apply its
-    own copy of the rule, on the `age` column, while the intent path applied
-    none -- round 9 of the Plan 4 phase-6 gate. Agents already in an active
-    couple are skipped so a repeated call cannot double-pair anyone.
+    Not every eligible adult is paired, which the previous universal pairing
+    did: women still single at their age by the schedule stay single, and the
+    surplus on either side of the market stays unpaired. A repeated call
+    draws again for the women still single, so it cannot double-pair anyone
+    but it can marry more of them.
 
     Args:
         simulation: the simulation whose founding population is paired.
@@ -215,71 +226,27 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
             once and by name. Omitted, it is loaded here, which is what the
             tests exercising this function in isolation use.
     """
-    from epocha.apps.agents.models import Agent
     from epocha.apps.demography.couple import (
-        form_couple,
-        homogamy_score,
-        meets_marriage_age,
-        read_sentiments,
-        seeks_a_partner_of_the_other_sex,
-        stable_matching,
+        draw_seekers,
+        form_matched_couples,
+        read_market_population,
     )
-    from epocha.apps.demography.models import Couple
+    from epocha.apps.demography.nuptiality import first_marriage_schedule
     from epocha.apps.demography.template_loader import load_template
 
     if template is None:
         config = getattr(simulation, "config", None) or {}
         template = load_template(config.get("demography_template", "pre_industrial_christian"))
-    couple_config = template["couple"]
-    weights = couple_config["homogamy_weights"]
-
-    already_partnered = set()
-    for pair in Couple.objects.filter(
-        simulation=simulation, dissolved_at_tick__isnull=True
-    ).values_list("agent_a_id", "agent_b_id"):
-        already_partnered.update(pair)
-
-    living = list(
-        Agent.objects.filter(simulation=simulation, is_alive=True)
-        .exclude(id__in=already_partnered)
-        .order_by("id")
+    context = DemographyTickContext(
+        simulation, simulation.current_tick, template, _tick_duration_hours(simulation)
     )
-    tick_duration_hours = _tick_duration_hours(simulation)
-    # The pairing forms the era's marriage between a man and a woman, so it
-    # admits the heterosexual and bisexual founders and keeps the homosexual
-    # and asexual ones out, as the rule-based market of the couples spec does
-    # (gate decision D-29-22, corrected by round 15). Same-sex couples are not
-    # modelled by the shipped templates.
-    eligible = [
-        a
-        for a in living
-        if seeks_a_partner_of_the_other_sex(a)
-        and meets_marriage_age(a, template, simulation.current_tick, tick_duration_hours)
-    ]
-    men = [a for a in eligible if a.gender == Agent.Gender.MALE]
-    women = [a for a in eligible if a.gender == Agent.Gender.FEMALE]
-    if not men or not women:
-        return
-
-    # The score reads two maps computed once here, so the pairing issues one
-    # query for the sentiments and none per scored pair.
-    acceleration = float(template.get("acceleration", 1.0))
-    ages = {
-        agent.id: age_in_years(agent, simulation.current_tick, tick_duration_hours, acceleration)
-        for agent in eligible
-    }
-    sentiments = read_sentiments([w.id for w in women], [m.id for m in men])
-
-    def score(proposer, respondent):
-        return homogamy_score(proposer, respondent, weights, sentiments=sentiments, ages=ages)
-
-    # No RNG stream is derived here, and that is deliberate rather than an
-    # omission: Gale-Shapley is deterministic given its inputs, and both
-    # sides are ordered by `id`, so the founding pairing already reproduces
-    # exactly without consuming randomness. Deriving a stream and discarding
-    # it would look like reproducibility work while doing none.
-    for proposer, respondent in stable_matching(men, women, score):
-        form_couple(proposer, respondent, formed_at_tick=simulation.current_tick)
+    population = read_market_population(context)
+    schedule = first_marriage_schedule(template["couple"])
+    rng = stream_for(simulation, simulation.current_tick, phase="initialization")
+    seekers = draw_seekers(
+        population.women, lambda woman: schedule.conditional_cdf(population.ages[woman.id]), rng
+    )
+    form_matched_couples(context, population, seekers)
 
     logger.info(
         "demography initialization: formed initial couples for simulation %s",

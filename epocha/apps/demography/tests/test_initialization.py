@@ -20,7 +20,7 @@ import pytest
 from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent
-from epocha.apps.demography import initialization
+from epocha.apps.demography import initialization, orchestrator
 from epocha.apps.demography.models import Couple
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
@@ -50,6 +50,17 @@ def sim_with_zone(db):
         center=Point(50, 50),
     )
     return sim, zone
+
+
+@pytest.fixture
+def universal_declaration(monkeypatch):
+    """PD-17 seam: every eligible founder woman declares, so the tests whose
+    subject is the pairing itself (thresholds, orientation, idempotence) are
+    decided by the market and not by the first-marriage draw."""
+    monkeypatch.setattr(
+        "epocha.apps.demography.nuptiality.FirstMarriageSchedule.conditional_cdf",
+        lambda self, x: 1.0,
+    )
 
 
 def _agent(sim, zone, name, age, gender=Agent.Gender.MALE, **kwargs):
@@ -123,7 +134,7 @@ class TestBirthTickBackfill:
 
 
 class TestInitialCouples:
-    def test_couples_are_formed_among_eligible_adults(self, sim_with_zone):
+    def test_couples_are_formed_among_eligible_adults(self, sim_with_zone, universal_declaration):
         sim, zone = sim_with_zone
         for i in range(3):
             _agent(sim, zone, f"Uomo{i}", age=30, gender=Agent.Gender.MALE)
@@ -133,7 +144,7 @@ class TestInitialCouples:
 
         assert Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True).count() == 3
 
-    def test_nobody_is_in_two_couples(self, sim_with_zone):
+    def test_nobody_is_in_two_couples(self, sim_with_zone, universal_declaration):
         sim, zone = sim_with_zone
         for i in range(4):
             _agent(sim, zone, f"Uomo{i}", age=30, gender=Agent.Gender.MALE)
@@ -150,7 +161,7 @@ class TestInitialCouples:
         "orientation", [Agent.SexualOrientation.HOMOSEXUAL, Agent.SexualOrientation.ASEXUAL]
     )
     def test_a_founder_neither_heterosexual_nor_bisexual_stays_out_of_the_pairing(
-        self, sim_with_zone, orientation
+        self, sim_with_zone, orientation, universal_declaration
     ):
         """The founding pairing forms the era's marriage between a man and a
         woman, so it admits the founders whose orientation includes the other
@@ -178,7 +189,9 @@ class TestInitialCouples:
         assert active.filter(agent_a__in=[man, partner], agent_b__in=[man, partner]).count() == 1
 
     @pytest.mark.parametrize("bisexual_gender", [Agent.Gender.FEMALE, Agent.Gender.MALE])
-    def test_a_bisexual_founder_enters_the_pairing(self, sim_with_zone, bisexual_gender):
+    def test_a_bisexual_founder_enters_the_pairing(
+        self, sim_with_zone, bisexual_gender, universal_declaration
+    ):
         """A bisexual founder is paired like a heterosexual one, on either
         side of the market, as the couples spec requires («orientamento
         eterosessuale o bisessuale»). Round 15 found her excluded: the rule
@@ -215,7 +228,9 @@ class TestInitialCouples:
         active = Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True)
         assert active.filter(agent_a__in=[man, woman], agent_b__in=[man, woman]).count() == 1
 
-    def test_agents_below_the_marriage_age_are_not_paired(self, sim_with_zone):
+    def test_agents_below_the_marriage_age_are_not_paired(
+        self, sim_with_zone, universal_declaration
+    ):
         """The era template's own minimum marriage ages, not an invented
         threshold."""
         sim, zone = sim_with_zone
@@ -227,7 +242,7 @@ class TestInitialCouples:
         assert not Couple.objects.filter(simulation=sim, agent_a__in=[child_m, child_f]).exists()
         assert not Couple.objects.filter(simulation=sim, agent_b__in=[child_m, child_f]).exists()
 
-    def test_the_male_threshold_alone_blocks_a_pairing(self, sim_with_zone):
+    def test_the_male_threshold_alone_blocks_a_pairing(self, sim_with_zone, universal_declaration):
         """Isolated on purpose: one candidate per side, so the only reason a
         couple can fail to form is the male minimum age.
 
@@ -245,7 +260,9 @@ class TestInitialCouples:
             f"{boy.name} is below the era's minimum marriage age for men and was paired anyway"
         )
 
-    def test_the_female_threshold_alone_blocks_a_pairing(self, sim_with_zone):
+    def test_the_female_threshold_alone_blocks_a_pairing(
+        self, sim_with_zone, universal_declaration
+    ):
         """The mirror case: the two minimums differ (16 and 14 in the default
         template), so each needs its own witness."""
         sim, zone = sim_with_zone
@@ -258,7 +275,7 @@ class TestInitialCouples:
             f"{girl.name} is below the era's minimum marriage age for women and was paired anyway"
         )
 
-    def test_it_is_idempotent(self, sim_with_zone):
+    def test_it_is_idempotent(self, sim_with_zone, universal_declaration):
         """Running twice must not double the couples: the founding
         population is initialized once, but nothing should break if a
         caller repeats it."""
@@ -271,7 +288,7 @@ class TestInitialCouples:
 
         assert Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True).count() == 1
 
-    def test_the_pairing_is_reproducible_from_the_seed(self, sim_with_zone):
+    def test_the_pairing_is_reproducible_from_the_seed(self, sim_with_zone, universal_declaration):
         sim, zone = sim_with_zone
         for i in range(3):
             _agent(sim, zone, f"Uomo{i}", age=30 + i, gender=Agent.Gender.MALE)
@@ -289,6 +306,77 @@ class TestInitialCouples:
         )
 
         assert first == second
+
+
+class TestTheFoundingMarriageIsAgeGraded:
+    """FR-005: the founding couples come from the conditioned first-marriage
+    schedule, not from a universal pairing of every eligible adult."""
+
+    @staticmethod
+    def _active(sim):
+        return sorted(
+            Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True).values_list(
+                "agent_a_id", "agent_b_id"
+            )
+        )
+
+    def test_with_every_woman_declared_forty_women_and_fifty_men_give_forty_couples(
+        self, sim_with_zone, universal_declaration
+    ):
+        sim, zone = sim_with_zone
+        for i in range(40):
+            _agent(sim, zone, f"Donna{i}", age=25, gender=Agent.Gender.FEMALE)
+        for i in range(50):
+            _agent(sim, zone, f"Uomo{i}", age=30, gender=Agent.Gender.MALE)
+
+        initialization.initialize_demography(sim)
+
+        assert len(self._active(sim)) == 40
+
+    def test_girls_just_past_the_minimum_age_are_mostly_not_declared(self, sim_with_zone):
+        """At 15 the conditioned share F*(x) is a few percent (Christian
+        schedule), so 40 fifteen-year-old women with 50 men available must
+        not all be paired, as the universal pairing paired them."""
+        sim, zone = sim_with_zone
+        for i in range(40):
+            _agent(sim, zone, f"Giovane{i}", age=15, gender=Agent.Gender.FEMALE)
+        for i in range(50):
+            _agent(sim, zone, f"Uomo{i}", age=30, gender=Agent.Gender.MALE)
+
+        initialization.initialize_demography(sim)
+
+        assert len(self._active(sim)) < 20
+
+    def test_the_declaration_consumes_the_initialization_stream(self, sim_with_zone, monkeypatch):
+        sim, zone = sim_with_zone
+        _agent(sim, zone, "Donna", age=25, gender=Agent.Gender.FEMALE)
+        _agent(sim, zone, "Uomo", age=30, gender=Agent.Gender.MALE)
+        calls = []
+        real_stream_for = orchestrator.stream_for
+
+        def spy(simulation, tick, phase):
+            calls.append((simulation.id, tick, phase))
+            return real_stream_for(simulation, tick, phase)
+
+        monkeypatch.setattr(initialization, "stream_for", spy, raising=False)
+
+        initialization.initialize_demography(sim)
+
+        assert calls == [(sim.id, sim.current_tick, "initialization")]
+
+    def test_two_runs_with_the_same_seed_give_the_same_couples(self, sim_with_zone, monkeypatch):
+        sim, zone = sim_with_zone
+        for i in range(30):
+            _agent(sim, zone, f"Donna{i}", age=18 + i % 10, gender=Agent.Gender.FEMALE)
+            _agent(sim, zone, f"Uomo{i}", age=24 + i % 10, gender=Agent.Gender.MALE)
+
+        initialization.initialize_demography(sim)
+        first = self._active(sim)
+        Couple.objects.filter(simulation=sim).delete()
+        initialization.initialize_demography(sim)
+
+        assert first
+        assert self._active(sim) == first
 
 
 class TestActivationPredicate:
@@ -431,7 +519,9 @@ class TestActivationOnAnAlreadyGeneratedWorld:
         assert agent.birth_tick is not None
         assert (tick - agent.birth_tick) / (8760.0 / 24.0) == pytest.approx(28.0, abs=0.01)
 
-    def test_a_repaired_population_can_actually_conceive(self, sim_with_zone):
+    def test_a_repaired_population_can_actually_conceive(
+        self, sim_with_zone, universal_declaration
+    ):
         """The observable the repair exists for, not the column it writes.
 
         Under an era that does not require a couple, a forced fertility
@@ -592,7 +682,7 @@ class TestTheFoundingPairingSharesTheIntentPathsAgeRule:
     `birth_tick` -- where the founding pairing used to read the `age` column.
     """
 
-    def test_an_existing_birth_tick_outranks_the_column(self, sim_with_zone):
+    def test_an_existing_birth_tick_outranks_the_column(self, sim_with_zone, universal_declaration):
         """The backfill never overwrites a recorded `birth_tick`, so a founder
         can carry one that disagrees with the column. Each is made to say
         the opposite of the other, in both directions: a rule that reads the
@@ -666,7 +756,9 @@ class TestTheBackfillNeverMakesAFounderYounger:
             f"written ages that read back as another integer: {younger[:5]} ({len(younger)} of 91)"
         )
 
-    def test_a_founder_at_exactly_the_threshold_is_paired_on_a_weekly_world(self, sim_with_zone):
+    def test_a_founder_at_exactly_the_threshold_is_paired_on_a_weekly_world(
+        self, sim_with_zone, universal_declaration
+    ):
         """The consequence that matters: under `industrial` the women's
         threshold is 16, and 16 years is 834.29 weekly ticks."""
         sim, zone = sim_with_zone
