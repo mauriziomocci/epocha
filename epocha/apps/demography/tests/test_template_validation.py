@@ -618,19 +618,7 @@ class TestFirstMarriageAndRemarriageKeys:
         }
         assert couple["remarriage_annual_rate_female"] == 0.10
 
-    @staticmethod
-    def _complete(template):
-        """The template with both new keys present, so each test removes one."""
-        template["couple"]["first_marriage"] = {
-            "mean_age_female": 25.5,
-            "sd_age_female": 5.5,
-            "proportion_ever_married_female": 0.88,
-        }
-        template["couple"]["remarriage_annual_rate_female"] = 0.10
-        return template
-
     def test_a_missing_first_marriage_section_is_rejected(self, template):
-        self._complete(template)
         del template["couple"]["first_marriage"]
         with pytest.raises(
             ValueError, match="mandatory section or field missing: couple.first_marriage"
@@ -639,25 +627,21 @@ class TestFirstMarriageAndRemarriageKeys:
 
     @pytest.mark.parametrize("key", FIRST_MARRIAGE_KEYS)
     def test_each_missing_first_marriage_subkey_is_rejected(self, template, key):
-        self._complete(template)
         del template["couple"]["first_marriage"][key]
         with pytest.raises(ValueError, match=f"missing: couple.first_marriage.{key}"):
             validate_template(template, source="test")
 
     def test_a_missing_remarriage_rate_is_rejected(self, template):
-        self._complete(template)
         del template["couple"]["remarriage_annual_rate_female"]
         with pytest.raises(ValueError, match="missing: couple.remarriage_annual_rate_female"):
             validate_template(template, source="test")
 
     def test_a_remarriage_rate_above_five_is_rejected(self, template):
-        self._complete(template)
         template["couple"]["remarriage_annual_rate_female"] = 5.1
         with pytest.raises(ValueError, match="couple.remarriage_annual_rate_female"):
             validate_template(template, source="test")
 
     def test_the_remarriage_rate_endpoints_are_accepted(self, template):
-        self._complete(template)
         for rate in (0.0, 5.0):
             template["couple"]["remarriage_annual_rate_female"] = rate
             validate_template(template, source="test")
@@ -728,7 +712,13 @@ class TestFirstMarriageIsSolvable:
         assert "18.78" in message
 
     def test_the_rejection_leaves_the_template_untouched(self):
-        """The location is derived, never written into the shared dict (PD-10)."""
+        """The location is derived, never written into the shared dict (PD-10).
+
+        This covers the rejection path only; that a successful load leaves
+        the shipped templates exactly as written is pinned by
+        `test_every_shipped_template_carries_the_spec_values`, which compares
+        the loaded `first_marriage` block to the values in the spec.
+        """
         template = copy.deepcopy(load_template("pre_industrial_christian"))
         template["couple"]["first_marriage"]["mean_age_female"] = 18.5
         before = copy.deepcopy(template)
