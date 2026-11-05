@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 from collections import deque
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from django.db.models import Q
@@ -145,6 +147,52 @@ def read_sentiments(seeker_ids, candidate_ids) -> dict[tuple[int, int], float]:
     for agent_from_id, agent_to_id, sentiment in rows:
         sentiments.setdefault(pair_key(agent_from_id, agent_to_id), sentiment)
     return sentiments
+
+
+@dataclass(frozen=True)
+class MarriageHistory:
+    """What the dissolved couples of a simulation say about each agent.
+
+    Attributes:
+        ever_partnered: ids of the agents who were in a couple that has since
+            ended, for whatever reason (a deceased partner has no id left here). The remarriage rate of the
+            marriage market applies to these women, the first-marriage
+            schedule to the others.
+        widowed_at_tick: id of each agent whose partner died, mapped to the
+            tick of the latest such death. Mourning follows death only, not
+            separation.
+    """
+
+    ever_partnered: frozenset[int]
+    widowed_at_tick: Mapping[int, int]
+
+
+def read_marriage_history(simulation) -> MarriageHistory:
+    """Read the marriage history of a simulation in one query.
+
+    `dissolve_on_death` nulls the deceased partner's foreign key and leaves
+    the survivor's, so in a couple dissolved by death the non-null side is the
+    widow or widower. A separated or annulled couple keeps both sides: both
+    were partnered, neither is widowed. A couple still active contributes
+    nothing, and a couple whose partners both died holds no living agent.
+
+    Queryset dependencies: one `values_list` on the simulation's dissolved
+    couples, no join.
+    """
+    from epocha.apps.demography.models import Couple
+
+    rows = Couple.objects.filter(
+        simulation=simulation, dissolved_at_tick__isnull=False
+    ).values_list("agent_a_id", "agent_b_id", "dissolved_at_tick", "dissolution_reason")
+    ever_partnered: set[int] = set()
+    widowed_at_tick: dict[int, int] = {}
+    for agent_a_id, agent_b_id, dissolved_at_tick, reason in rows:
+        survivors = [agent_id for agent_id in (agent_a_id, agent_b_id) if agent_id is not None]
+        ever_partnered.update(survivors)
+        if reason == Couple.DissolutionReason.DEATH:
+            for survivor in survivors:
+                widowed_at_tick[survivor] = max(dissolved_at_tick, widowed_at_tick.get(survivor, 0))
+    return MarriageHistory(frozenset(ever_partnered), widowed_at_tick)
 
 
 def homogamy_score(

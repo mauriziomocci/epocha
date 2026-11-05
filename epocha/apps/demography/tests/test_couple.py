@@ -30,6 +30,7 @@ from epocha.apps.demography.couple import (
     homogamy_score,
     is_in_active_couple,
     pair_key,
+    read_marriage_history,
     read_sentiments,
     resolve_pair_bond_intents,
     resolve_separate_intents,
@@ -1096,3 +1097,87 @@ def test_a_refused_target_does_not_end_the_proposers_other_intents(sim_with_zone
     assert [{c.agent_a_id, c.agent_b_id} for c in formed] == [{suitor.id, adult.id}], (
         "refusing the minor ended the suitor's turn before his valid second intent"
     )
+
+
+# ---------------------------------------------------------------------------
+# read_marriage_history
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_a_widow_is_ever_partnered_and_widowed_at_the_death_tick(
+    sim_with_zone, django_assert_num_queries
+):
+    sim, zone = sim_with_zone
+    widow = _make_agent(sim, zone, "Widow")
+    husband = _make_agent(sim, zone, "Husband", gender=Agent.Gender.MALE)
+    form_couple(widow, husband, formed_at_tick=1)
+    dissolve_on_death(husband, tick=40)
+
+    with django_assert_num_queries(1):
+        history = read_marriage_history(sim)
+
+    assert history.widowed_at_tick == {widow.id: 40}
+    assert history.ever_partnered == frozenset({widow.id})
+
+
+@pytest.mark.django_db
+def test_a_separated_woman_is_ever_partnered_but_not_widowed(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    couple = form_couple(woman, man, formed_at_tick=1)
+    couple.dissolved_at_tick = 30
+    couple.dissolution_reason = "separate"
+    couple.save(update_fields=["dissolved_at_tick", "dissolution_reason"])
+
+    history = read_marriage_history(sim)
+
+    assert history.ever_partnered == frozenset({woman.id, man.id})
+    assert history.widowed_at_tick == {}
+
+
+@pytest.mark.django_db
+def test_a_twice_widowed_woman_carries_the_later_death_tick(sim_with_zone):
+    """The widow sits on the higher-id side of her first couple and on the
+    lower-id side of her second, so both sides of the canonical order are read."""
+    sim, zone = sim_with_zone
+    first_husband = _make_agent(sim, zone, "First", gender=Agent.Gender.MALE)
+    widow = _make_agent(sim, zone, "Widow")
+    second_husband = _make_agent(sim, zone, "Second", gender=Agent.Gender.MALE)
+    form_couple(widow, first_husband, formed_at_tick=1)
+    dissolve_on_death(first_husband, tick=10)
+    form_couple(widow, second_husband, formed_at_tick=20)
+    dissolve_on_death(second_husband, tick=30)
+
+    history = read_marriage_history(sim)
+
+    assert history.widowed_at_tick == {widow.id: 30}
+
+
+@pytest.mark.django_db
+def test_an_agent_only_in_an_active_couple_is_in_neither_set(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    form_couple(woman, man, formed_at_tick=1)
+
+    history = read_marriage_history(sim)
+
+    assert history.ever_partnered == frozenset()
+    assert history.widowed_at_tick == {}
+
+
+@pytest.mark.django_db
+def test_the_history_ignores_the_couples_of_another_simulation(sim_with_zone):
+    sim, zone = sim_with_zone
+    other = Simulation.objects.create(name="Other", seed=1, owner=sim.owner, current_tick=5)
+    woman = _make_agent(other, zone, "Woman")
+    man = _make_agent(other, zone, "Man", gender=Agent.Gender.MALE)
+    form_couple(woman, man, formed_at_tick=1)
+    dissolve_on_death(man, tick=9)
+
+    history = read_marriage_history(sim)
+
+    assert history.ever_partnered == frozenset()
+    assert history.widowed_at_tick == {}
