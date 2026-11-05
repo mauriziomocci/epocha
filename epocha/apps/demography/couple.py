@@ -533,6 +533,19 @@ def seek_probability_for(
     return probability
 
 
+def draw_seekers(women: list, probability: Callable[[Agent], float], rng) -> list:
+    """Return the women whose marriage event falls on this tick.
+
+    One `rng.random()` per woman, in the order given, whatever her
+    probability: the stream is consumed the same way for any set of
+    probabilities, so changing a template value never shifts the draws of the
+    women who come after (plan PD-01). A woman is a seeker when her draw is
+    strictly below her probability, so a probability of 0.0 never selects her
+    and 1.0 always does (`random()` is in [0, 1)).
+    """
+    return [woman for woman in women if rng.random() < probability(woman)]
+
+
 def resolve_pair_bond_intents(
     simulation,
     tick: int,

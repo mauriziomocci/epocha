@@ -7,6 +7,7 @@ agents as `test_couple.py` does, and reuse its fixture and helper.
 from __future__ import annotations
 
 import math
+import random
 import types
 
 import pytest
@@ -16,6 +17,7 @@ from epocha.apps.demography.couple import (
     MarketPopulation,
     MarriageHistory,
     dissolve_on_death,
+    draw_seekers,
     form_couple,
     read_market_population,
     seek_probability_for,
@@ -167,3 +169,39 @@ def test_a_never_partnered_girl_below_the_schedule_minimum_age_gets_zero():
     )
 
     assert probability(population.women[0]) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# draw_seekers
+# ---------------------------------------------------------------------------
+
+
+def _women(count):
+    return [types.SimpleNamespace(id=index + 1) for index in range(count)]
+
+
+def test_with_probability_one_every_woman_is_a_seeker_and_with_zero_none():
+    women = _women(20)
+
+    assert draw_seekers(women, lambda woman: 1.0, random.Random(7)) == women
+    assert draw_seekers(women, lambda woman: 0.0, random.Random(7)) == []
+
+
+def test_the_stream_consumption_does_not_depend_on_the_probabilities():
+    women = _women(20)
+    rng_never, rng_always = random.Random(7), random.Random(7)
+
+    draw_seekers(women, lambda woman: 0.0, rng_never)
+    draw_seekers(women, lambda woman: 1.0, rng_always)
+
+    assert rng_never.getstate() == rng_always.getstate()
+
+
+def test_equal_seeds_give_equal_seekers():
+    women = _women(50)
+
+    first = draw_seekers(women, lambda woman: 0.3, random.Random(11))
+    second = draw_seekers(women, lambda woman: 0.3, random.Random(11))
+
+    assert first == second
+    assert 0 < len(first) < len(women)
