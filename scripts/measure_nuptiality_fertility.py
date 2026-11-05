@@ -45,6 +45,10 @@ Harness assumptions, every one declared:
   the measure concerns the interaction of nuptiality and equation (4.2).
 - Maternal mortality (0.008 per birth in the template) is not modelled, in
   both the harness and the analytic values.
+- The seek probability is the production function `couple.seek_probability_for`.
+  Eligibility (minimum age and mourning) is the reduced copy `is_ineligible`,
+  checked against `couple.marriage_ineligibility` on a grid by
+  `test_measurement_harness_rules.py`.
 - Mourning is `couple.mourning_ticks` after a husband's death; a woman who
   has been in a couple draws on the remarriage rate `r_f`
   (`remarriage_annual_rate_female`), a never-married one on the first-marriage
