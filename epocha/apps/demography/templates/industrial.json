@@ -132,7 +132,7 @@
     "marriage_market_type": "autonomous",
     "marriage_market_radius": "adjacent_zones",
     "implicit_mutual_consent": true,
-    "mourning_ticks": 180,
+    "mourning_days": 180,
     "homogamy_weights": {
       "w_class": 0.35,
       "w_edu": 0.3,

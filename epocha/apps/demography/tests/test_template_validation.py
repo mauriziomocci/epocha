@@ -517,3 +517,32 @@ class TestOnlyShippedTemplateNamesAreRead:
         and aborted the tick (scoped review of the round-16 closure)."""
         with pytest.raises(FileNotFoundError, match="not a shipped template"):
             load_template(name)
+
+
+class TestCoupleSectionKeys:
+    """The `couple` section after the rule-based couples work item.
+
+    `mourning_ticks` became `mourning_days` (FR-012): the old name said ticks
+    while the number is days, so one era value meant different durations on a
+    weekly and on a daily world.
+    """
+
+    ERA_MOURNING_DAYS = {
+        "pre_industrial_christian": 365,
+        "pre_industrial_islamic": 365,
+        "industrial": 180,
+        "modern_democracy": 90,
+        "sci_fi": 30,
+    }
+
+    def test_the_old_mourning_key_is_rejected(self, template):
+        template["couple"].pop("mourning_days", None)
+        template["couple"]["mourning_ticks"] = 180
+        with pytest.raises(ValueError, match="unknown key in couple: mourning_ticks"):
+            validate_template(template, source="test")
+
+    @pytest.mark.parametrize("name", sorted(ERA_MOURNING_DAYS))
+    def test_every_shipped_template_carries_mourning_days_with_its_old_value(self, name):
+        couple = load_template(name)["couple"]
+        assert couple["mourning_days"] == self.ERA_MOURNING_DAYS[name]
+        assert "mourning_ticks" not in couple

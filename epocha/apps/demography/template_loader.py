@@ -123,7 +123,7 @@ SCHEMA: dict[str, Any] = {
         "marriage_market_type": (str, None),
         "marriage_market_radius": (str, None),
         "implicit_mutual_consent": (bool, None),
-        "mourning_ticks": (int, None),
+        "mourning_days": (int, None),
         "homogamy_weights": {
             "w_class": (_NUMBER, UNIT),
             "w_edu": (_NUMBER, UNIT),

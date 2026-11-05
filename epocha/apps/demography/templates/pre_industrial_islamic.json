@@ -133,7 +133,7 @@
     "marriage_market_type": "arranged",
     "marriage_market_radius": "same_zone",
     "implicit_mutual_consent": true,
-    "mourning_ticks": 365,
+    "mourning_days": 365,
     "homogamy_weights": {
       "w_class": 0.4,
       "w_edu": 0.25,
