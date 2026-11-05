@@ -130,6 +130,12 @@
     "marriage_market_radius": "same_zone",
     "implicit_mutual_consent": true,
     "mourning_days": 365,
+    "first_marriage": {
+      "mean_age_female": 19.0,
+      "sd_age_female": 4.0,
+      "proportion_ever_married_female": 0.97
+    },
+    "remarriage_annual_rate_female": 0.1,
     "homogamy_weights": {
       "w_class": 0.4,
       "w_edu": 0.25,

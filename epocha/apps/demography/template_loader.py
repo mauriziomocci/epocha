@@ -50,6 +50,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from epocha.apps.demography.nuptiality import (
+    OBSERVATION_CEILING_AGE,
+    first_marriage_schedule,
+)
 from epocha.apps.demography.truncated_moments import (
     AdmissibleRegionResult,
     FixedPointNotConvergedError,
@@ -122,7 +126,20 @@ SCHEMA: dict[str, Any] = {
         "marriage_market_type": (str, None),
         "marriage_market_radius": (str, None),
         "implicit_mutual_consent": (bool, None),
+        # Days, not ticks: the same value means the same real interval on a
+        # weekly and on a daily world; the conversion to ticks is made where
+        # the key is consumed (FR-012).
         "mourning_days": (int, None),
+        # Observed first-marriage calendar of women and remarriage hazard
+        # (FR-016). Ranges the leaf intervals cannot express are checked in
+        # `_check_couple_ranges`. All values are tunable heuristics except the
+        # provisional Christian mean (spec, "Parametri per era").
+        "first_marriage": {
+            "mean_age_female": (_NUMBER, None),
+            "sd_age_female": (_NUMBER, None),
+            "proportion_ever_married_female": (_NUMBER, None),
+        },
+        "remarriage_annual_rate_female": (_NUMBER, (0.0, 5.0)),
         "homogamy_weights": {
             "w_class": (_NUMBER, UNIT),
             "w_edu": (_NUMBER, UNIT),
@@ -182,6 +199,12 @@ ALLOWED_FERTILITY_AGENCY = {"biological", "planned"}
 # two of them touch and an adjacency radius would silently behave as
 # `same_zone` under a name that promises more.
 ALLOWED_MARRIAGE_MARKET_RADII = {"same_zone", "world"}
+
+# Upper bound of `couple.first_marriage.sd_age_female`, in years (FR-016). An
+# admissibility bound with no source: a tunable limit chosen by the spec, not a
+# demographic finding, and verified only to leave the Christian mean (25.5)
+# solvable at the bound.
+MAX_FIRST_MARRIAGE_SD_YEARS = 15.0
 
 
 def load_template(name: str) -> dict[str, Any]:
@@ -451,13 +474,72 @@ def _check_admissible_pairs(data: dict[str, Any], source: str) -> None:
 
 def _check_couple_ranges(data: dict[str, Any], source: str) -> None:
     """Constraints on the `couple` section that a leaf type and interval cannot express."""
-    radius = data["couple"]["marriage_market_radius"]
+    couple = data["couple"]
+    radius = couple["marriage_market_radius"]
     if radius not in ALLOWED_MARRIAGE_MARKET_RADII:
         _fail(
             source,
             f"couple.marriage_market_radius = {radius!r} not admitted: "
             f"must be one of {sorted(ALLOWED_MARRIAGE_MARKET_RADII)}",
         )
+    if couple["mourning_days"] < 0:
+        _fail(
+            source,
+            f"couple.mourning_days = {couple['mourning_days']} out of range: must be 0 or more",
+        )
+    _check_first_marriage_ranges(couple, source)
+
+
+def _check_first_marriage_ranges(couple: dict[str, Any], source: str) -> None:
+    """Bounds of the first-marriage calendar, each failure naming path and interval.
+
+    The mean is the OBSERVED mean age of the women who marry inside the
+    window [min_marriage_age_female, OBSERVATION_CEILING_AGE] (spec, R5), so it
+    must lie strictly inside that window. The bounds on the spread (at most
+    MAX_FIRST_MARRIAGE_SD_YEARS) and on the proportion (at most 1) are
+    admissibility bounds, not sourced values (spec FR-016): the proportion must
+    be a probability and the spread a positive, bounded scale.
+    """
+    first_marriage = couple["first_marriage"]
+    minimum_age = couple["min_marriage_age_female"]
+    checks = (
+        (
+            "mean_age_female",
+            minimum_age < first_marriage["mean_age_female"] < OBSERVATION_CEILING_AGE,
+            f"({minimum_age:g}, {OBSERVATION_CEILING_AGE:g})",
+        ),
+        (
+            "sd_age_female",
+            0 < first_marriage["sd_age_female"] <= MAX_FIRST_MARRIAGE_SD_YEARS,
+            f"(0, {MAX_FIRST_MARRIAGE_SD_YEARS:g}]",
+        ),
+        (
+            "proportion_ever_married_female",
+            0 < first_marriage["proportion_ever_married_female"] <= 1,
+            "(0, 1]",
+        ),
+    )
+    for key, admitted, interval in checks:
+        if not admitted:
+            _fail(
+                source,
+                f"couple.first_marriage.{key} = {first_marriage[key]} "
+                f"outside the admitted interval {interval}",
+            )
+
+
+def _check_first_marriage_solvable(data: dict[str, Any], source: str) -> None:
+    """Reject a template whose observed mean age has no location parameter (R5).
+
+    Calling `first_marriage_schedule` is the validation and the warm-up at
+    once: the location is solved here, cached by `nuptiality` per parameter
+    tuple, and nothing is written into `data`, which the loader cache shares
+    across callers.
+    """
+    try:
+        first_marriage_schedule(data["couple"])
+    except ValueError as exc:
+        _fail(source, f"couple.first_marriage.mean_age_female: {exc}")
 
 
 def validate_template(data: dict[str, Any], source: str) -> None:
@@ -474,6 +556,7 @@ def validate_template(data: dict[str, Any], source: str) -> None:
         )
 
     _check_couple_ranges(data, source)
+    _check_first_marriage_solvable(data, source)
     _check_transmitted_characters(data, source)
     _check_admissible_pairs(data, source)
 

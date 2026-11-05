@@ -583,3 +583,155 @@ class TestMarriageMarketRadius:
 
     def test_the_industrial_template_ships_same_zone(self):
         assert load_template("industrial")["couple"]["marriage_market_radius"] == "same_zone"
+
+
+class TestFirstMarriageAndRemarriageKeys:
+    """FR-016, SC-012: the keys the rule-based marriage market reads.
+
+    Every missing key has its own rejection: a criterion that covers four of
+    five is how SC-015 came to pass against an empty section (see the module
+    docstring).
+    """
+
+    # mean_age_female, sd_age_female, proportion_ever_married_female
+    ERA_FIRST_MARRIAGE = {
+        "pre_industrial_christian": (25.5, 5.5, 0.88),
+        "pre_industrial_islamic": (19.0, 4.0, 0.97),
+        "industrial": (25.5, 5.5, 0.88),
+        "modern_democracy": (28.0, 6.0, 0.80),
+        "sci_fi": (28.0, 6.0, 0.80),
+    }
+    FIRST_MARRIAGE_KEYS = (
+        "mean_age_female",
+        "sd_age_female",
+        "proportion_ever_married_female",
+    )
+
+    @pytest.mark.parametrize("name", sorted(ERA_FIRST_MARRIAGE))
+    def test_every_shipped_template_carries_the_spec_values(self, name):
+        couple = load_template(name)["couple"]
+        mean, sd, proportion = self.ERA_FIRST_MARRIAGE[name]
+        assert couple["first_marriage"] == {
+            "mean_age_female": mean,
+            "sd_age_female": sd,
+            "proportion_ever_married_female": proportion,
+        }
+        assert couple["remarriage_annual_rate_female"] == 0.10
+
+    @staticmethod
+    def _complete(template):
+        """The template with both new keys present, so each test removes one."""
+        template["couple"]["first_marriage"] = {
+            "mean_age_female": 25.5,
+            "sd_age_female": 5.5,
+            "proportion_ever_married_female": 0.88,
+        }
+        template["couple"]["remarriage_annual_rate_female"] = 0.10
+        return template
+
+    def test_a_missing_first_marriage_section_is_rejected(self, template):
+        self._complete(template)
+        del template["couple"]["first_marriage"]
+        with pytest.raises(
+            ValueError, match="mandatory section or field missing: couple.first_marriage"
+        ):
+            validate_template(template, source="test")
+
+    @pytest.mark.parametrize("key", FIRST_MARRIAGE_KEYS)
+    def test_each_missing_first_marriage_subkey_is_rejected(self, template, key):
+        self._complete(template)
+        del template["couple"]["first_marriage"][key]
+        with pytest.raises(ValueError, match=f"missing: couple.first_marriage.{key}"):
+            validate_template(template, source="test")
+
+    def test_a_missing_remarriage_rate_is_rejected(self, template):
+        self._complete(template)
+        del template["couple"]["remarriage_annual_rate_female"]
+        with pytest.raises(ValueError, match="missing: couple.remarriage_annual_rate_female"):
+            validate_template(template, source="test")
+
+    def test_a_remarriage_rate_above_five_is_rejected(self, template):
+        self._complete(template)
+        template["couple"]["remarriage_annual_rate_female"] = 5.1
+        with pytest.raises(ValueError, match="couple.remarriage_annual_rate_female"):
+            validate_template(template, source="test")
+
+    def test_the_remarriage_rate_endpoints_are_accepted(self, template):
+        self._complete(template)
+        for rate in (0.0, 5.0):
+            template["couple"]["remarriage_annual_rate_female"] = rate
+            validate_template(template, source="test")
+
+
+class TestCoupleRanges:
+    """FR-016: the ranges a leaf type and interval cannot express.
+
+    Each rejection names the full path and the admitted interval, one case per
+    bound, so that a bound dropped from the check turns exactly one test red.
+    """
+
+    @pytest.mark.parametrize(
+        ("path", "value", "interval"),
+        [
+            ("mean_age_female", 14, "(14, 50)"),
+            ("mean_age_female", 50, "(14, 50)"),
+            ("sd_age_female", 0, "(0, 15]"),
+            ("sd_age_female", 15.1, "(0, 15]"),
+            ("proportion_ever_married_female", 0, "(0, 1]"),
+            ("proportion_ever_married_female", 1.1, "(0, 1]"),
+        ],
+    )
+    def test_a_first_marriage_value_outside_its_interval_is_rejected(
+        self, template, path, value, interval
+    ):
+        template["couple"]["min_marriage_age_female"] = 14
+        template["couple"]["first_marriage"][path] = value
+        with pytest.raises(ValueError) as excinfo:
+            validate_template(template, source="test")
+        message = str(excinfo.value)
+        assert f"couple.first_marriage.{path}" in message
+        assert interval in message
+
+    def test_a_negative_mourning_is_rejected_naming_the_path(self, template):
+        template["couple"]["mourning_days"] = -1
+        with pytest.raises(ValueError, match=r"couple\.mourning_days = -1.*0 or more"):
+            validate_template(template, source="test")
+
+    def test_the_closed_ends_are_accepted(self, template):
+        # Minimum age 14, not the industrial 16: with a spread of 15 years the
+        # observed mean 25.5 is reachable only from 14 (the reachable interval
+        # at 16 is [26.36, 40.40], which the solvability check rejects, as it
+        # should). This test pins the range bounds, not the solvability.
+        template["couple"]["min_marriage_age_female"] = 14
+        template["couple"]["first_marriage"]["sd_age_female"] = 15
+        template["couple"]["first_marriage"]["proportion_ever_married_female"] = 1.0
+        template["couple"]["mourning_days"] = 0
+        validate_template(template, source="test")
+
+
+class TestFirstMarriageIsSolvable:
+    """FR-016: the observed mean must have a location parameter (R5).
+
+    The observed mean of the women who marry between the minimum age and 50
+    cannot go below what the density reaches with its location pushed to the
+    bottom of the search bracket. A template asking for less has no schedule,
+    and the loader must say so where the template is written.
+    """
+
+    def test_an_unreachable_observed_mean_is_rejected_with_the_reachable_interval(self):
+        template = copy.deepcopy(load_template("pre_industrial_christian"))
+        template["couple"]["first_marriage"]["mean_age_female"] = 18.5
+        with pytest.raises(ValueError) as excinfo:
+            validate_template(template, source="test")
+        message = str(excinfo.value)
+        assert "couple.first_marriage.mean_age_female" in message
+        assert "18.78" in message
+
+    def test_the_rejection_leaves_the_template_untouched(self):
+        """The location is derived, never written into the shared dict (PD-10)."""
+        template = copy.deepcopy(load_template("pre_industrial_christian"))
+        template["couple"]["first_marriage"]["mean_age_female"] = 18.5
+        before = copy.deepcopy(template)
+        with pytest.raises(ValueError):
+            validate_template(template, source="test")
+        assert template == before
