@@ -228,13 +228,16 @@ def run_replicate(context, seed: int, with_mortality: bool) -> tuple[float, int]
     tfr = 0.0
     most_seekers = 0
     for tick in range(TICKS):
+        # The engine runs couple formation before fertility within a tick
+        # (`orchestrator.DEMOGRAPHY_STEPS`), so a woman who marries at this
+        # tick is already married when the Hadwiger rate is applied.
+        seekers, next_id = tick_market(cohort, tick, context, rng, next_id)
+        most_seekers = max(most_seekers, seekers)
         tfr += (
             hadwiger_asfr(tick_age(tick), context.hadwiger)
             * cohort.in_couple_share()
             / TICKS_PER_YEAR
         )
-        seekers, next_id = tick_market(cohort, tick, context, rng, next_id)
-        most_seekers = max(most_seekers, seekers)
         if with_mortality:
             tick_mortality(cohort, tick, context.death_probability, rng)
     return tfr, most_seekers
@@ -264,17 +267,18 @@ def build_context(template: dict) -> SimpleNamespace:
 def propagated_reference_tfr(context) -> float:
     """The TFR of the deterministic propagation of the first-marriage hazard.
 
-    At each monthly tick the share of women in a couple at the start of the
-    tick, M, weighs the Hadwiger rate; then M grows by the single share times
-    the tick probability of the schedule. This is the SC-002 propagation at
-    the same ticks as the harness, with no random draws, so it measures what
-    the draws should reproduce and not the discretization.
+    At each monthly tick the share of women in a couple, M, first grows by the
+    single share times the tick probability of the schedule (couple formation)
+    and then weighs the Hadwiger rate (fertility), the engine's step order,
+    with the rate at the age at the start of the tick. This is the SC-002
+    propagation at the same ticks as the harness, with no random draws, so it
+    measures what the draws should reproduce and not the discretization.
     """
     married = 0.0
     tfr = 0.0
     for tick in range(TICKS):
-        tfr += hadwiger_asfr(tick_age(tick), context.hadwiger) * married / TICKS_PER_YEAR
         married += (1.0 - married) * context.first_marriage_probability[tick]
+        tfr += hadwiger_asfr(tick_age(tick), context.hadwiger) * married / TICKS_PER_YEAR
     return tfr
 
 
