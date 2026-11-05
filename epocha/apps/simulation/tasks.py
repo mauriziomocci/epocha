@@ -1,7 +1,7 @@
 """Celery tasks for the simulation tick loop.
 
 Production path: run_simulation_loop runs the economy tick, then launches
-a Celery chord of process_agent_turn tasks (one per living agent). When
+a Celery chord of process_agent_turn tasks (one per protagonist, at most K). When
 all agent tasks complete, the finalize_tick callback advances the tick,
 decays memories, broadcasts via WebSocket, and re-enqueues the loop.
 

@@ -429,7 +429,7 @@ stesse espresse rispetto a questo passo nominale, per cui cambiare la
 scala temporale cambia il set di parametri piuttosto che il motore. Un
 tick è atomico: l'orchestratore esegue prima l'aggiornamento dell'economia,
 poi un chord Celery distribuisce un task `process_agent_turn` per ciascun
-agente vivente in parallelo, poi la callback del chord `finalize_tick`
+protagonista (al più K, §3.2) in parallelo, poi la callback del chord `finalize_tick`
 esegue il flusso di informazione, le dinamiche di fazione, il ciclo
 politico, il decadimento di relazioni e memoria, cattura uno snapshot,
 rileva crisi epocali, avanza il contatore di tick, fa il broadcast ai
@@ -452,7 +452,7 @@ validazione del Capitolo 7, e perché il parallelismo basato su chord scala oriz
 sui worker Celery senza lockare stato condiviso.
 
 ```
-tick N      pre-snapshot ──> economy tick ──> chord(process_agent_turn × N agents)
+tick N      pre-snapshot ──> economy tick ──> chord(process_agent_turn × protagonists)
                                                             │
                                                             ▼
                                               finalize_tick callback

@@ -398,7 +398,7 @@ calibration constants of the demography and economy modules are themselves
 expressed against this nominal step, so changing the time scale changes the
 parameter set rather than the engine. A tick is atomic: the orchestrator
 runs the economy update first, then a Celery chord dispatches one
-`process_agent_turn` task per living agent in parallel, then the chord
+`process_agent_turn` task per protagonist (at most K, §3.2) in parallel, then the chord
 callback `finalize_tick` runs information flow, faction dynamics, the
 political cycle, relationship and memory decay, captures a snapshot,
 detects epochal crises, advances the tick counter, broadcasts to connected
@@ -419,7 +419,7 @@ validation suite of Chapter 7 depends on, and because chord-based parallelism sc
 horizontally on Celery workers without locking shared state.
 
 ```
-tick N      pre-snapshot ──> economy tick ──> chord(process_agent_turn × N agents)
+tick N      pre-snapshot ──> economy tick ──> chord(process_agent_turn × protagonists)
                                                             │
                                                             ▼
                                               finalize_tick callback
