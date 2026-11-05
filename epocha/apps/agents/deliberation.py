@@ -61,8 +61,9 @@ def select_deliberating_agents(simulation, tick: int) -> list:
     first, the leaders of the simulation's ``Group`` rows next, every other
     agent last, each class ordered by id (creation order). The query is one
     ``Exists`` annotation sliced to K rows, so the query count is constant.
-    The rows read are O(N) under demography, because the minor ids are read and
-    passed to the database as an ``IN`` list of up to N values, until the
+    The rows read are O(N) under demography, because ``minor_agent_ids`` reads
+    the id, ``birth_tick`` and ``age`` of every living agent and the minor ids
+    then go back to the database as an ``IN`` list of up to N values, until the
     life-course work item replaces ``minor_agent_ids`` (FR-008). K = 0 returns
     ``[]`` before any query.
 
