@@ -151,6 +151,9 @@ def homogamy_score(
     a,
     b,
     weights: dict,
+    *,
+    sentiments: dict[tuple[int, int], float],
+    ages: dict[int, float],
     age_tolerance_years: float = 10.0,
 ) -> float:
     """Kalmijn-inspired compatibility score between two candidate partners.
@@ -158,28 +161,28 @@ def homogamy_score(
     Components (all in [0, 1] before weighting):
     - class similarity: 1.0 if same social_class, 0.0 otherwise
     - education proximity: exp(-|e_a - e_b|)
-    - age proximity: exp(-|age_a - age_b| / age_tolerance)
-    - relationship: existing Relationship.sentiment in [-1, 1] mapped to [0, 1]
+    - age proximity: exp(-|age_a - age_b| / age_tolerance), on the canonical
+      ages in `ages` (`age_in_years` over `birth_tick`), not on the `age`
+      column, which the world generator writes once and nothing advances
+    - relationship: the sentiment in [-1, 1] of the pair, from the
+      per-tick `sentiments` map (`read_sentiments`), mapped to [0, 1]; a pair
+      absent from the map reads the neutral 0.5
 
     Returns the weighted sum. Weights come from the era template and are
-    design heuristics (see spec §Sezione 3).
+    design heuristics (see spec §Sezione 3). The function reads no database
+    row: the two maps are computed once per tick by the caller, so scoring a
+    pair costs no query.
     """
     import math
 
     same_class = 1.0 if a.social_class == b.social_class else 0.0
     edu_diff = abs(float(a.education_level or 0.0) - float(b.education_level or 0.0))
     edu_prox = math.exp(-edu_diff)
-    age_diff = abs(float(a.age or 0) - float(b.age or 0))
+    age_diff = abs(ages[a.id] - ages[b.id])
     age_prox = math.exp(-age_diff / max(1e-9, age_tolerance_years))
 
-    relationship_score = 0.5
-    from epocha.apps.agents.models import Relationship
-
-    rel = Relationship.objects.filter(
-        Q(agent_from=a, agent_to=b) | Q(agent_from=b, agent_to=a)
-    ).first()
-    if rel is not None:
-        relationship_score = (rel.sentiment + 1.0) / 2.0
+    sentiment = sentiments.get(pair_key(a.id, b.id))
+    relationship_score = 0.5 if sentiment is None else (sentiment + 1.0) / 2.0
 
     return (
         float(weights.get("w_class", 0.4)) * same_class

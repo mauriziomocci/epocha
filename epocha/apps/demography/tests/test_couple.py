@@ -264,12 +264,49 @@ def test_homogamy_score_higher_for_similar_pair(sim_with_zone):
     b2 = _make_agent(sim, zone, "Disparate2", age=50, education_level=0.9, social_class="elite")
 
     weights = {"w_class": 0.4, "w_edu": 0.25, "w_age": 0.20, "w_relationship": 0.15}
-    score_similar = homogamy_score(a1, a2, weights)
-    score_disparate = homogamy_score(b1, b2, weights)
+    ages = {a.id: float(a.age) for a in (a1, a2, b1, b2)}
+    score_similar = homogamy_score(a1, a2, weights, sentiments={}, ages=ages)
+    score_disparate = homogamy_score(b1, b2, weights, sentiments={}, ages=ages)
 
     assert score_similar > score_disparate, (
         f"Similar score {score_similar:.3f} should exceed disparate {score_disparate:.3f}"
     )
+
+
+@pytest.mark.django_db
+def test_homogamy_score_reads_the_sentiment_map_not_the_database(
+    sim_with_zone, django_assert_num_queries
+):
+    """A Relationship row in the database is invisible to the score: only the
+    per-tick map it is handed counts, an absent pair reads the neutral 0.5,
+    and the score issues no query."""
+    sim, zone = sim_with_zone
+    a = _make_agent(sim, zone, "A")
+    b = _make_agent(sim, zone, "B", gender=Agent.Gender.MALE)
+    _relationship(sim, a, b, 1.0)
+    weights = {"w_class": 0.0, "w_edu": 0.0, "w_age": 0.0, "w_relationship": 1.0}
+    ages = {a.id: 25.0, b.id: 25.0}
+
+    with django_assert_num_queries(0):
+        absent = homogamy_score(a, b, weights, sentiments={}, ages=ages)
+        present = homogamy_score(a, b, weights, sentiments={pair_key(a.id, b.id): 1.0}, ages=ages)
+
+    assert absent == 0.5
+    assert present == 1.0
+
+
+@pytest.mark.django_db
+def test_homogamy_score_takes_the_age_from_the_ages_map(sim_with_zone):
+    """The age term reads the canonical age map, not the frozen `age` column:
+    columns of 20 and 60 with mapped ages of 30 and 30 give a perfect term."""
+    sim, zone = sim_with_zone
+    a = _make_agent(sim, zone, "A", age=20)
+    b = _make_agent(sim, zone, "B", age=60, gender=Agent.Gender.MALE)
+    weights = {"w_class": 0.0, "w_edu": 0.0, "w_age": 1.0, "w_relationship": 0.0}
+
+    score = homogamy_score(a, b, weights, sentiments={}, ages={a.id: 30.0, b.id: 30.0})
+
+    assert score == 1.0
 
 
 # ---------------------------------------------------------------------------

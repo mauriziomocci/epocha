@@ -38,6 +38,7 @@ from typing import Any
 from epocha.apps.demography.orchestrator import (
     HOURS_PER_YEAR,
     _tick_duration_hours,
+    age_in_years,
     is_demography_enabled,
 )
 
@@ -219,6 +220,7 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
         form_couple,
         homogamy_score,
         meets_marriage_age,
+        read_sentiments,
         seeks_a_partner_of_the_other_sex,
         stable_matching,
     )
@@ -259,8 +261,17 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
     if not men or not women:
         return
 
+    # The score reads two maps computed once here, so the pairing issues one
+    # query for the sentiments and none per scored pair.
+    acceleration = float(template.get("acceleration", 1.0))
+    ages = {
+        agent.id: age_in_years(agent, simulation.current_tick, tick_duration_hours, acceleration)
+        for agent in eligible
+    }
+    sentiments = read_sentiments([w.id for w in women], [m.id for m in men])
+
     def score(proposer, respondent):
-        return homogamy_score(proposer, respondent, weights)
+        return homogamy_score(proposer, respondent, weights, sentiments=sentiments, ages=ages)
 
     # No RNG stream is derived here, and that is deliberate rather than an
     # omission: Gale-Shapley is deterministic given its inputs, and both
