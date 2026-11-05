@@ -52,3 +52,45 @@ def max_protagonists(simulation) -> int:
         DEFAULT_MAX_PROTAGONISTS,
     )
     return DEFAULT_MAX_PROTAGONISTS
+
+
+def select_deliberating_agents(simulation, tick: int) -> list:
+    """Return the at most K living adult agents that deliberate at ``tick``.
+
+    Priority, then id: the head of state of the simulation's ``Government``
+    first, the leaders of the simulation's ``Group`` rows next, every other
+    agent last, each class ordered by id (creation order). The query is one
+    ``Exists`` annotation sliced to K rows, so the cost is bounded by K and
+    not by the population (SC-006). K = 0 returns ``[]`` before any query.
+
+    Minors are excluded through ``minor_agent_ids``: a newborn must not choose
+    ``move_to`` and leave its household alone (the guarantee
+    ``coordinate_family_migration`` documents). The set is read AFTER the
+    demography block of the tick, so a child born this tick is already in the
+    population. It is empty, with no query, when the simulation has not opted
+    into demography, which keeps the selection exactly as it was.
+    """
+    from django.db.models import Case, Exists, IntegerField, OuterRef, Value, When
+
+    from epocha.apps.agents.models import Agent, Group
+    from epocha.apps.demography.orchestrator import minor_agent_ids
+    from epocha.apps.world.models import Government
+
+    budget = max_protagonists(simulation)
+    if budget == 0:
+        return []
+    is_head = Exists(Government.objects.filter(simulation=simulation, head_of_state=OuterRef("pk")))
+    is_leader = Exists(Group.objects.filter(simulation=simulation, leader=OuterRef("pk")))
+    return list(
+        Agent.objects.filter(simulation=simulation, is_alive=True)
+        .exclude(id__in=minor_agent_ids(simulation, tick))
+        .annotate(
+            priority=Case(
+                When(is_head, then=Value(0)),
+                When(is_leader, then=Value(1)),
+                default=Value(2),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by("priority", "id")[:budget]
+    )
