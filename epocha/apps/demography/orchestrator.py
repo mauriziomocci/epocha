@@ -499,8 +499,10 @@ def age_in_years(agent: Any, tick: int, tick_duration_hours: float, acceleration
 
     `birth_tick` is the canonical source and the only one that advances:
     `Agent.age` is a cache of completed years, written at world generation
-    and refreshed only after the mortality step of a tick (step 2), so it can
-    lag the canonical age by up to a year within a tick; reading it would
+    and refreshed only by the mortality step of a tick (step 3), to the
+    completed years of that tick. It therefore trails the canonical age by
+    the truncation to whole years (under a year) and, before step 3 of a
+    tick, by one more tick; reading it would
     quantise every hazard and every eligibility window to that refresh. The
     fallback to that column exists only for agents whose `birth_tick` is
     NULL, a state the initialization is required to leave behind.
@@ -1058,8 +1060,9 @@ def _fertile_window_filter(tick: int, tick_duration_hours: float, acceleration: 
     """Filter the fertile window in SQL, on `birth_tick`.
 
     Filtering on `Agent.age` would read a column that is only a cache
-    refreshed after step 2 of the tick, so it can lag the canonical age by
-    one tick and is not the quantity the window is defined on.
+    refreshed by the mortality step (step 3) of the tick, so it trails the
+    canonical age by the truncation to whole years and, before that step, by
+    one more tick, and is not the quantity the window is defined on.
     `birth_tick` is the project's only source of ageing, and the window
     `FERTILE_AGE_MIN <= age_in_years <= FERTILE_AGE_MAX` inverts onto it as
     a closed interval of integer birth ticks, which keeps the selection one
