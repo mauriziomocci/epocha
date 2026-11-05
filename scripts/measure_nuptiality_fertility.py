@@ -25,14 +25,15 @@ couple at each age. This script follows a cohort of 20,000 women from 12 to
 
 Harness assumptions, every one declared:
 
-- Step order of the engine: within a tick the market (couple formation) runs
-  before fertility (`orchestrator.DEMOGRAPHY_STEPS`); the Hadwiger rate is
-  evaluated at the age at the start of the tick (`_effective_age_in_years`).
-  Not followed, and declared: the engine runs mortality before fertility,
-  the harness after it, so in configuration B a woman or husband who dies at
-  a tick still counts for that tick's births. The reference of
-  configuration A follows the same order and age, 2.384 against 2.352 (rate at
-  the mid-tick age) and 2.363 (married share one tick late), decision D-05-E-12.
+- Step order of the engine (`orchestrator.DEMOGRAPHY_STEPS`): within a tick
+  the market (couple formation, step 2) runs first, then mortality (step 3),
+  then fertility (step 7), so a woman who marries at a tick counts for that
+  tick's births and a woman or a husband who dies at it does not
+  (`replicate_tick`, held by `test_measurement_harness_rules.py`). The
+  Hadwiger rate is evaluated at the age at the start of the tick
+  (`_effective_age_in_years`). The reference of configuration A follows the
+  same order and age, 2.384 against 2.352 (rate at the mid-tick age) and 2.363
+  (married share one tick late), decision D-05-E-12.
 - Men are female-dominant and always available: each tick the candidates
   are 500 never-married men redrawn from the template `age_pyramid` above
   `min_marriage_age_male` (a bracket partly below it is cut at it), not a
@@ -251,6 +252,26 @@ def tick_mortality(cohort, tick, death_probability, rng) -> None:
             cohort.widowed_at[index] = tick
 
 
+def replicate_tick(
+    cohort, tick, context, rng, next_id, with_mortality
+) -> tuple[int, int, int, int]:
+    """Run one harness tick in the engine's step order; return what fertility reads.
+
+    `orchestrator.DEMOGRAPHY_STEPS` runs couple formation (step 2), then
+    mortality (step 3, the couple dissolved by succession at step 4), then
+    fertility (step 7) on the living women and the active couples. So a woman
+    who marries at this tick is already married when the Hadwiger rate is
+    applied, and a woman or a husband who dies at this tick is not.
+
+    Returns the seekers drawn, the next free candidate id, and the women in a
+    couple and alive at the moment the Hadwiger rate is applied.
+    """
+    seekers, next_id = tick_market(cohort, tick, context, rng, next_id)
+    if with_mortality:
+        tick_mortality(cohort, tick, context.death_probability, rng)
+    return seekers, next_id, cohort.in_couple_count(), cohort.alive_count()
+
+
 def run_replicate(context, seed: int, with_mortality: bool) -> tuple[float, float, int]:
     """Follow one cohort; return its TFR, its births per initial woman, its busiest tick.
 
@@ -267,17 +288,13 @@ def run_replicate(context, seed: int, with_mortality: bool) -> tuple[float, floa
     births_per_initial = 0.0
     most_seekers = 0
     for tick in range(TICKS):
-        # The engine runs couple formation before fertility within a tick
-        # (`orchestrator.DEMOGRAPHY_STEPS`), so a woman who marries at this
-        # tick is already married when the Hadwiger rate is applied.
-        seekers, next_id = tick_market(cohort, tick, context, rng, next_id)
+        seekers, next_id, in_couple, alive = replicate_tick(
+            cohort, tick, context, rng, next_id, with_mortality
+        )
         most_seekers = max(most_seekers, seekers)
         rate = hadwiger_asfr(tick_age(tick), context.hadwiger) / TICKS_PER_YEAR
-        in_couple = cohort.in_couple_count()
         births_per_initial += rate * in_couple / COHORT_SIZE
-        tfr += rate * in_couple / max(cohort.alive_count(), 1)
-        if with_mortality:
-            tick_mortality(cohort, tick, context.death_probability, rng)
+        tfr += rate * in_couple / max(alive, 1)
     return tfr, births_per_initial, most_seekers
 
 
