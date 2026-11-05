@@ -3519,6 +3519,7 @@ work item.
   population-scale implementation and parameter test. *Journal of
   Artificial Societies and Social Simulation*, 16(1), 6.
   https://www.jasss.org/16/1/6.html
+  (The article page was read; no DOI was verified.)
 - Walras, L. (1874). *Éléments d'économie politique pure, ou théorie de
   la richesse sociale*. L. Corbaz et Cie., Lausanne (part I, 1874;
   part II issued 1877). Definitive (fourth) edition published by
