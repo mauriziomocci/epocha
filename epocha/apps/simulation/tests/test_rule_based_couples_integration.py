@@ -208,6 +208,9 @@ def test_three_rule_only_years_form_couples_and_births_without_any_decision(capl
     with (
         caplog.at_level(logging.INFO, logger=__name__),
         patch("epocha.apps.agents.decision.get_llm_client", decision_client),
+        # Defensive, not exercised: measured on 2026-11-05, this run makes 0
+        # calls to _generate_faction_identity. It guards against a faction
+        # forming in a longer run and reaching the LLM.
         patch(
             "epocha.apps.agents.factions._generate_faction_identity",
             return_value=FIXED_FACTION_IDENTITY,
