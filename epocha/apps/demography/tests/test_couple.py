@@ -1174,6 +1174,25 @@ def test_a_twice_widowed_woman_carries_the_later_death_tick(sim_with_zone):
 
 
 @pytest.mark.django_db
+def test_the_later_death_wins_even_when_its_couple_has_the_lower_id(sim_with_zone):
+    """Rows arrive in id order, so a plain assignment would keep the LAST row
+    read. Here the later death (tick 30) belongs to the first couple created,
+    the earlier one (tick 10) to the second: only `max` returns 30."""
+    sim, zone = sim_with_zone
+    widow = _make_agent(sim, zone, "Widow")
+    husband_of_the_first_couple = _make_agent(sim, zone, "First", gender=Agent.Gender.MALE)
+    husband_of_the_second_couple = _make_agent(sim, zone, "Second", gender=Agent.Gender.MALE)
+    form_couple(widow, husband_of_the_first_couple, formed_at_tick=1)
+    form_couple(widow, husband_of_the_second_couple, formed_at_tick=2)
+    dissolve_on_death(husband_of_the_first_couple, tick=30)
+    dissolve_on_death(husband_of_the_second_couple, tick=10)
+
+    history = read_marriage_history(sim)
+
+    assert history.widowed_at_tick == {widow.id: 30}
+
+
+@pytest.mark.django_db
 def test_an_agent_only_in_an_active_couple_is_in_neither_set(sim_with_zone):
     sim, zone = sim_with_zone
     woman = _make_agent(sim, zone, "Woman")
