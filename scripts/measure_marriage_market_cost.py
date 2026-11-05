@@ -59,6 +59,7 @@ STEP2_SIZES = (1_000, 10_000, 100_000)
 FOUNDING_SIZES = (1_000, 10_000)
 EXTRAPOLATION_SIZE = 100_000
 REPETITIONS = 5
+FOUNDING_REPETITIONS = 3
 WEEK_HOURS = 168.0
 # Declared exponent N^2 * log N has a local slope of 2.11 between 10^3 and
 # 10^5; 2.3 leaves 0.19 for noise and cache effects (spec SC-005).
@@ -229,12 +230,17 @@ def report_step2(seed: int, template: dict) -> float:
 
 def report_founding(seed: int, template: dict) -> list[float]:
     """Print the founding table and return its time and memory exponents."""
-    print("\nFounding match, radius world (time without tracemalloc, memory in a second run)")
+    print(
+        f"\nFounding match, radius world (time: median of {FOUNDING_REPETITIONS} runs without"
+        " tracemalloc, memory in a separate run)"
+    )
     print(f"{'N':>9} {'declared':>9} {'men':>9} {'pairs':>9} {'seconds':>12} {'peak MiB':>14}")
     seconds, peaks = [], []
     for n in FOUNDING_SIZES:
         run = founding_match(n, seed, template)
-        elapsed, (declared, men, pairs) = timed(run)
+        runs = [timed(run) for _ in range(FOUNDING_REPETITIONS)]
+        elapsed = statistics.median(seconds for seconds, _ in runs)
+        declared, men, pairs = runs[0][1]
         peak = peak_memory_bytes(run)
         seconds.append(elapsed)
         peaks.append(peak)
