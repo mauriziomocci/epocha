@@ -20,11 +20,13 @@ from epocha.apps.demography.couple import (
     dissolve_on_death,
     draw_seekers,
     form_couple,
+    form_matched_couples,
     match_markets,
     partition_by_market,
     read_market_population,
     seek_probability_for,
 )
+from epocha.apps.demography.models import Couple
 from epocha.apps.demography.nuptiality import first_marriage_schedule
 from epocha.apps.demography.orchestrator import DemographyTickContext
 from epocha.apps.demography.template_loader import load_template
@@ -299,3 +301,40 @@ def test_the_pairs_come_out_in_ascending_woman_id_across_markets():
     )
 
     assert [woman.id for woman, _ in pairs] == [2, 9]
+
+
+# ---------------------------------------------------------------------------
+# form_matched_couples
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_two_seekers_and_two_men_form_two_couples_at_the_tick(sim_with_zone):  # noqa: F811
+    sim, zone = sim_with_zone
+    women = [_make_agent(sim, zone, f"Woman{i}") for i in range(2)]
+    for i in range(2):
+        _make_agent(sim, zone, f"Man{i}", gender=Agent.Gender.MALE)
+    context = _christian_context(sim)
+    population = read_market_population(context)
+
+    couples = form_matched_couples(context, population, population.women)
+
+    assert len(couples) == 2
+    assert {c.formed_at_tick for c in couples} == {MARKET_TICK}
+    assert {c.couple_type for c in couples} == {"monogamous"}
+    assert {c.agent_a_id for c in couples} | {c.agent_b_id for c in couples} >= {
+        w.id for w in women
+    }
+    assert Couple.objects.filter(simulation=sim).count() == 2
+
+
+@pytest.mark.django_db
+def test_no_seekers_issue_no_query(sim_with_zone, django_assert_num_queries):  # noqa: F811
+    sim, zone = sim_with_zone
+    _make_agent(sim, zone, "Woman")
+    _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    context = _christian_context(sim)
+    population = read_market_population(context)
+
+    with django_assert_num_queries(0):
+        assert form_matched_couples(context, population, []) == []

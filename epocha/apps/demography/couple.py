@@ -592,6 +592,46 @@ def match_markets(seekers: list, candidates: list, radius: str, score) -> list[t
     return sorted(pairs, key=lambda pair: pair[0].id)
 
 
+def form_matched_couples(context, population: MarketPopulation, seekers: list) -> list[Couple]:
+    """Match the tick's seekers with the unpartnered men and form the couples.
+
+    With no seeker or no man nothing is read and nothing is written. Otherwise
+    one query reads the sentiments of the seeker-candidate pairs, the score is
+    `homogamy_score` (Kalmijn 1998, equation 4.6) on the era weights and the
+    canonical ages already in `population`, the markets are those of the era's
+    `marriage_market_radius`, and every couple is written by `form_couple`
+    inside one transaction, in ascending seeker id, with the era's
+    `default_type`, as the intent resolver does.
+    """
+    from django.db import transaction
+
+    if not seekers or not population.men:
+        return []
+    couple_cfg = context.template["couple"]
+    sentiments = read_sentiments([w.id for w in seekers], [m.id for m in population.men])
+
+    def score(woman, man) -> float:
+        return homogamy_score(
+            woman,
+            man,
+            couple_cfg["homogamy_weights"],
+            sentiments=sentiments,
+            ages=population.ages,
+        )
+
+    pairs = match_markets(seekers, population.men, couple_cfg["marriage_market_radius"], score)
+    with transaction.atomic():
+        return [
+            form_couple(
+                woman,
+                man,
+                formed_at_tick=context.tick,
+                couple_type=couple_cfg["default_type"],
+            )
+            for woman, man in pairs
+        ]
+
+
 def resolve_pair_bond_intents(
     simulation,
     tick: int,
