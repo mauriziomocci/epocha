@@ -334,9 +334,11 @@ class TestTheFoundingMarriageIsAgeGraded:
         assert len(self._active(sim)) == 40
 
     def test_girls_just_past_the_minimum_age_are_mostly_not_declared(self, sim_with_zone):
-        """At 15 the conditioned share F*(x) is a few percent (Christian
-        schedule), so 40 fifteen-year-old women with 50 men available must
-        not all be paired, as the universal pairing paired them."""
+        """At 15 the conditioned share F*(x) is 5.7e-5 (Christian schedule,
+        measured), so 40 fifteen-year-old women with 50 men available are
+        essentially never declared; the universal pairing paired them all.
+        The stream is seeded, so the bound is deterministic: P(3 or more of
+        40 declared) is below 1e-8."""
         sim, zone = sim_with_zone
         for i in range(40):
             _agent(sim, zone, f"Giovane{i}", age=15, gender=Agent.Gender.FEMALE)
@@ -345,7 +347,7 @@ class TestTheFoundingMarriageIsAgeGraded:
 
         initialization.initialize_demography(sim)
 
-        assert len(self._active(sim)) < 20
+        assert len(self._active(sim)) <= 2
 
     def test_the_draw_reads_the_canonical_age_not_the_cached_column(self, sim_with_zone):
         """The founding draw must condition on the canonical age (birth_tick),
