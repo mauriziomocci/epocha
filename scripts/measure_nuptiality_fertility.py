@@ -15,8 +15,9 @@ couple at each age. This script follows a cohort of 20,000 women from 12 to
   sqrt(replicates)) from the reference, the deterministic propagation of the
   first-marriage hazard at the same monthly ticks, or when a tick has more
   than 500 seekers (the always-available-men assumption would not hold).
-- B, with mortality, widowhood, mourning and the remarriage rate. The TFR has
-  no threshold (widowhood and the remarriage rate are heuristics); the net
+- B, with mortality, widowhood, mourning and the remarriage rate. The TFR,
+  with M(a) the share in a couple among the women alive at that age (SC-007),
+  has no threshold (widowhood and the remarriage rate are heuristics); the net
   reproduction rate has one: failure when the upper bound of its 95%
   Student t interval is below 1, because choice A of D-RBC-04 (keep the
   Hadwiger rate for married women for now) rests on the population not
@@ -158,13 +159,14 @@ class Cohort:
         self.ever_partnered = [False] * COHORT_SIZE
         self.widowed_at = [NEVER] * COHORT_SIZE
 
-    def in_couple_share(self) -> float:
-        """Share of the initial cohort alive and in a couple."""
-        return (
-            sum(
-                1 for i in range(COHORT_SIZE) if self.alive[i] and self.husband_birth[i] is not None
-            )
-            / COHORT_SIZE
+    def alive_count(self) -> int:
+        """Women of the cohort still alive."""
+        return sum(self.alive)
+
+    def in_couple_count(self) -> int:
+        """Women of the cohort alive and in a couple."""
+        return sum(
+            1 for i in range(COHORT_SIZE) if self.alive[i] and self.husband_birth[i] is not None
         )
 
 
@@ -220,12 +222,20 @@ def tick_mortality(cohort, tick, death_probability, rng) -> None:
             cohort.widowed_at[index] = tick
 
 
-def run_replicate(context, seed: int, with_mortality: bool) -> tuple[float, int]:
-    """Follow one cohort; return its expected TFR and the largest seeker count of a tick."""
+def run_replicate(context, seed: int, with_mortality: bool) -> tuple[float, float, int]:
+    """Follow one cohort; return its TFR, its births per initial woman, its busiest tick.
+
+    The TFR weighs the Hadwiger rate by the share of the women ALIVE who are in
+    a couple, M(a) of SC-007 (survivors only). The births per initial woman
+    weigh it by the share of the INITIAL cohort in a couple: that is the
+    quantity the net reproduction rate needs, since it multiplies by the
+    survival to 12. Without mortality the two are equal.
+    """
     rng = random.Random(seed)
     cohort = Cohort()
     next_id = COHORT_SIZE + 1
     tfr = 0.0
+    births_per_initial = 0.0
     most_seekers = 0
     for tick in range(TICKS):
         # The engine runs couple formation before fertility within a tick
@@ -233,14 +243,13 @@ def run_replicate(context, seed: int, with_mortality: bool) -> tuple[float, int]
         # tick is already married when the Hadwiger rate is applied.
         seekers, next_id = tick_market(cohort, tick, context, rng, next_id)
         most_seekers = max(most_seekers, seekers)
-        tfr += (
-            hadwiger_asfr(tick_age(tick), context.hadwiger)
-            * cohort.in_couple_share()
-            / TICKS_PER_YEAR
-        )
+        rate = hadwiger_asfr(tick_age(tick), context.hadwiger) / TICKS_PER_YEAR
+        in_couple = cohort.in_couple_count()
+        births_per_initial += rate * in_couple / COHORT_SIZE
+        tfr += rate * in_couple / max(cohort.alive_count(), 1)
         if with_mortality:
             tick_mortality(cohort, tick, context.death_probability, rng)
-    return tfr, most_seekers
+    return tfr, births_per_initial, most_seekers
 
 
 def build_context(template: dict) -> SimpleNamespace:
@@ -349,14 +358,15 @@ def interval(values: list[float]) -> tuple[float, float, float]:
 
 
 def run_configuration(context, replicates: int, seed_base: int, with_mortality: bool) -> dict:
-    """Run the replicates of one configuration: TFR values, busiest tick, runtime."""
+    """Run the replicates of one configuration: TFR, births per initial woman, busiest tick."""
     started = time.perf_counter()
     runs = [
         run_replicate(context, seed_base + index, with_mortality) for index in range(replicates)
     ]
     return {
-        "tfr": [tfr for tfr, _ in runs],
-        "most_seekers": max(seekers for _, seekers in runs),
+        "tfr": [tfr for tfr, _, _ in runs],
+        "births_per_initial": [births for _, births, _ in runs],
+        "most_seekers": max(seekers for _, _, seekers in runs),
         "seconds": time.perf_counter() - started,
     }
 
@@ -385,7 +395,9 @@ def report_configuration_b(context, template: dict, result: dict) -> bool:
     survival = life_table(template)
     l12 = survival_to_twelve(context.death_probability)
     divisor = 1.0 + template["sex_ratio_at_birth"]
-    nrr_mean, _, nrr_half = interval([l12 * tfr / divisor for tfr in result["tfr"]])
+    nrr_mean, _, nrr_half = interval(
+        [l12 * births / divisor for births in result["births_per_initial"]]
+    )
     tfr_mean, _, tfr_half = interval(result["tfr"])
     analytic = analytic_nrr(context, template, survival)
     busiest = result["most_seekers"]
