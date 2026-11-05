@@ -176,6 +176,13 @@ SCHEMA: dict[str, Any] = {
 
 ALLOWED_FERTILITY_AGENCY = {"biological", "planned"}
 
+# The marriage-market radii the market implements (FR-013). `adjacent_zones`
+# is not admitted: the zones the world generator creates are 100-unit squares
+# placed 120 units apart (`world/generator.py`, `x_offset = col * 120`), so no
+# two of them touch and an adjacency radius would silently behave as
+# `same_zone` under a name that promises more.
+ALLOWED_MARRIAGE_MARKET_RADII = {"same_zone", "world"}
+
 
 def load_template(name: str) -> dict[str, Any]:
     """Load a demography template by name and validate it against A9.
@@ -442,6 +449,17 @@ def _check_admissible_pairs(data: dict[str, Any], source: str) -> None:
         )
 
 
+def _check_couple_ranges(data: dict[str, Any], source: str) -> None:
+    """Constraints on the `couple` section that a leaf type and interval cannot express."""
+    radius = data["couple"]["marriage_market_radius"]
+    if radius not in ALLOWED_MARRIAGE_MARKET_RADII:
+        _fail(
+            source,
+            f"couple.marriage_market_radius = {radius!r} not admitted: "
+            f"must be one of {sorted(ALLOWED_MARRIAGE_MARKET_RADII)}",
+        )
+
+
 def validate_template(data: dict[str, Any], source: str) -> None:
     """Apply the six clauses of the A9 contract. Raises ValueError on any."""
     if not isinstance(data, dict):
@@ -455,6 +473,7 @@ def validate_template(data: dict[str, Any], source: str) -> None:
             f"must be one of {sorted(ALLOWED_FERTILITY_AGENCY)}",
         )
 
+    _check_couple_ranges(data, source)
     _check_transmitted_characters(data, source)
     _check_admissible_pairs(data, source)
 

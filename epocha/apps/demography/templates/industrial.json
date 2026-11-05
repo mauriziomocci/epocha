@@ -126,7 +126,7 @@
     "default_type": "monogamous",
     "divorce_enabled": true,
     "marriage_market_type": "autonomous",
-    "marriage_market_radius": "adjacent_zones",
+    "marriage_market_radius": "same_zone",
     "implicit_mutual_consent": true,
     "mourning_days": 180,
     "homogamy_weights": {

@@ -951,11 +951,11 @@ Table 4.5 — Per-era couple-formation parameters (templates shipped in Plan 1).
 |------------------------------|------------------------|-------------------|-------------------|------------------|--------------------------|
 | `pre_industrial_christian`   | `autonomous`           | false             | 16 / 14           | 365              | `same_zone`              |
 | `pre_industrial_islamic`     | `arranged`             | true              | 16 / 14           | 365              | `same_zone`              |
-| `industrial`                 | `autonomous`           | true              | 18 / 16           | 180              | `adjacent_zones`         |
+| `industrial`                 | `autonomous`           | true              | 18 / 16           | 180              | `same_zone`              |
 | `modern_democracy`           | `autonomous`           | true              | 18 / 18           | 90               | `world`                  |
 | `sci_fi`                     | `autonomous`           | true              | 18 / 18           | 30               | `world`                  |
 
-All five templates ship with `default_type = "monogamous"` and `implicit_mutual_consent = true`. The former `allowed_types` key is removed: no code read it, and the couple types are fixed by the model enumeration. The homogamy weights vary across eras to reflect the cultural salience of each Kalmijn (1998) dimension under different historical regimes (Table 4.6): the two pre-industrial templates and the industrial template put substantial weight on social class, which loses ground in the modern-democracy template in favor of education proximity, and the speculative `sci_fi` template demotes class almost entirely in favor of relational sentiment.
+All five templates ship with `default_type = "monogamous"` and `implicit_mutual_consent = true`. The former `allowed_types` key is removed: no code read it, and the couple types are fixed by the model enumeration. The `marriage_market_radius` field admits `same_zone` and `world`, and the loader rejects any other value, `adjacent_zones` included: the zones the world generator creates are 100-unit squares placed 120 units apart (`world/generator.py`), so no two zones touch and an adjacency radius would behave as `same_zone` under a name that promises more; the `industrial` template therefore ships `same_zone`. The homogamy weights vary across eras to reflect the cultural salience of each Kalmijn (1998) dimension under different historical regimes (Table 4.6): the two pre-industrial templates and the industrial template put substantial weight on social class, which loses ground in the modern-democracy template in favor of education proximity, and the speculative `sci_fi` template demotes class almost entirely in favor of relational sentiment.
 
 Table 4.6 — Per-era homogamy weights for equation (4.6).
 
@@ -3580,7 +3580,7 @@ equation (4.6).
 | `implicit_mutual_consent` | One-sided declaration suffices when true | true | true | true | true | true | Demography spec | tunable |
 | `min_age` (M / F) | Minimum age for the eligibility check (years) | 16 / 14 | 16 / 14 | 18 / 16 | 18 / 18 | 18 / 18 | Demography spec; historical-attestation order of magnitude | tunable |
 | `mourning_days` | Cooldown after partner's death, in days (loaded but not yet consumed) | 365 | 365 | 180 | 90 | 30 | Demography spec | tunable |
-| `marriage_market_radius` | Spatial scope of candidate pool | `same_zone` | `same_zone` | `adjacent_zones` | `world` | `world` | Demography spec; spatial structure inherited from §3.6 | tunable |
+| `marriage_market_radius` | Spatial scope of candidate pool (`same_zone` or `world`) | `same_zone` | `same_zone` | `same_zone` | `world` | `world` | Demography spec; spatial structure inherited from §3.6 | tunable |
 | `w_class` | Class similarity weight in equation (4.6) | 0.40 | 0.40 | 0.35 | 0.20 | 0.10 | Kalmijn (1998); per-era cultural-salience calibration | tunable |
 | `w_edu` | Education proximity weight | 0.25 | 0.25 | 0.30 | 0.40 | 0.30 | Kalmijn (1998) | tunable |
 | `w_age` | Age proximity weight | 0.20 | 0.20 | 0.20 | 0.20 | 0.20 | Kalmijn (1998) | tunable |
@@ -3804,7 +3804,7 @@ homogamy weights of equation (4.6):
 - `min_age_male`, `min_age_female` — eligibility minimums in years
 - `mourning_days` — cooldown after partner's death, in days (loaded but
   not yet consumed)
-- `marriage_market_radius` — `same_zone`, `adjacent_zones`, or `world`
+- `marriage_market_radius` — `same_zone` or `world` (the loader rejects any other value)
 - `homogamy_weights` — sub-block carrying `w_class`, `w_edu`, `w_age`,
   `w_rel` summing to one
 - `default_type` — couple typology (the former `allowed_types` key is removed: no code read it and the couple types are fixed by the model enumeration)
@@ -3817,7 +3817,7 @@ Table C.1 — Demography templates shipped with Plan 1.
 |---|---|---|
 | `pre_industrial_christian` | `epocha/apps/demography/templates/pre_industrial_christian.json` | Pre-industrial Western Christendom; calibration target Wrigley and Schofield (1981) England 1700-1749; carries Catholic-marriage indissolubility (`divorce_enabled: false`); identical mortality and fertility blocks to `pre_industrial_islamic`, differs only in the couple block |
 | `pre_industrial_islamic` | `epocha/apps/demography/templates/pre_industrial_islamic.json` | Pre-industrial Islamic world; same biological schedules as `pre_industrial_christian`; carries arranged-marriage regime (`marriage_market_type: arranged`) under Goode (1963) Pass B semantics |
-| `industrial` | `epocha/apps/demography/templates/industrial.json` | Industrial transition; calibration target HMD England and Wales pooled 1841-1900; broadened marriage-market radius to `adjacent_zones` reflecting urbanisation |
+| `industrial` | `epocha/apps/demography/templates/industrial.json` | Industrial transition; calibration target HMD England and Wales pooled 1841-1900; marriage-market radius `same_zone` (the broader `adjacent_zones` radius is not implemented and the loader rejects it, §4.1.3) |
 | `modern_democracy` | `epocha/apps/demography/templates/modern_democracy.json` | Modern liberal democracy; calibration target HMD USA 2019 (pre-COVID baseline); marriage-market radius `world` reflecting modern mobility |
 | `sci_fi` | `epocha/apps/demography/templates/sci_fi.json` | Speculative far-future template; no empirical calibration target; documented inline in the source as speculative |
 

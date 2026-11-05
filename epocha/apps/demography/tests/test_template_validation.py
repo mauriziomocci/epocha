@@ -556,3 +556,30 @@ class TestCoupleSectionKeys:
     @pytest.mark.parametrize("name", sorted(ERA_MOURNING_DAYS))
     def test_no_shipped_template_carries_allowed_types(self, name):
         assert "allowed_types" not in load_template(name)["couple"]
+
+
+class TestMarriageMarketRadius:
+    """FR-013: only the radii the market implements are admitted.
+
+    `adjacent_zones` was shipped by the industrial template but the market
+    has no adjacency to read: generated zones are squares 120 units apart,
+    so `touches` is never true and the radius would silently behave as
+    `same_zone` under a name that promises more.
+    """
+
+    @pytest.mark.parametrize("radius", ["same_zone", "world"])
+    def test_the_two_implemented_radii_are_accepted(self, template, radius):
+        template["couple"]["marriage_market_radius"] = radius
+        validate_template(template, source="test")
+
+    def test_adjacent_zones_is_rejected_naming_the_field_and_the_admitted_set(self, template):
+        template["couple"]["marriage_market_radius"] = "adjacent_zones"
+        with pytest.raises(ValueError) as excinfo:
+            validate_template(template, source="test")
+        message = str(excinfo.value)
+        assert "couple.marriage_market_radius" in message
+        assert "adjacent_zones" in message
+        assert "['same_zone', 'world']" in message
+
+    def test_the_industrial_template_ships_same_zone(self):
+        assert load_template("industrial")["couple"]["marriage_market_radius"] == "same_zone"
