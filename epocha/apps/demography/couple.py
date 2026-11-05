@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Q
 
+from epocha.apps.demography.nuptiality import first_marriage_schedule
+
 if TYPE_CHECKING:
     # Type-check-only import: the runtime imports live inside the functions that
     # touch the ORM, to avoid a circular import at module load. With
@@ -630,6 +632,31 @@ def form_matched_couples(context, population: MarketPopulation, seekers: list) -
             )
             for woman, man in pairs
         ]
+
+
+def run_marriage_market(context, rng) -> list[Couple]:
+    """Run the rule-based marriage market of one tick.
+
+    Reads the eligible population, gives each woman her marriage-event
+    probability (first-marriage schedule or remarriage rate), draws the
+    seekers on the tick's `couple` stream, and forms the matched couples.
+    `years_per_tick` is the tick length in simulated years, written inline
+    as `fertility.py` does (plan PD-07).
+    """
+    from epocha.apps.demography.orchestrator import HOURS_PER_YEAR
+
+    couple_cfg = context.template["couple"]
+    acceleration = float(context.template.get("acceleration", 1.0))
+    years_per_tick = context.hours_per_tick() / HOURS_PER_YEAR * acceleration
+    population = read_market_population(context)
+    probability = seek_probability_for(
+        population,
+        first_marriage_schedule(couple_cfg),
+        couple_cfg["remarriage_annual_rate_female"],
+        years_per_tick,
+    )
+    seekers = draw_seekers(population.women, probability, rng)
+    return form_matched_couples(context, population, seekers)
 
 
 def resolve_pair_bond_intents(

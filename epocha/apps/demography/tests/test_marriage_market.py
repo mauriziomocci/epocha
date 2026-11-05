@@ -12,6 +12,7 @@ import types
 from dataclasses import dataclass
 
 import pytest
+from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.demography.couple import (
@@ -24,6 +25,7 @@ from epocha.apps.demography.couple import (
     match_markets,
     partition_by_market,
     read_market_population,
+    run_marriage_market,
     seek_probability_for,
 )
 from epocha.apps.demography.models import Couple
@@ -34,6 +36,7 @@ from epocha.apps.demography.tests.test_couple import (  # reused fixture and hel
     _make_agent,
     sim_with_zone,  # noqa: F401
 )
+from epocha.apps.world.models import Zone
 
 DAILY_WORLD_HOURS = 24.0
 MARKET_TICK = 500
@@ -338,3 +341,90 @@ def test_no_seekers_issue_no_query(sim_with_zone, django_assert_num_queries):  #
 
     with django_assert_num_queries(0):
         assert form_matched_couples(context, population, []) == []
+
+
+# ---------------------------------------------------------------------------
+# run_marriage_market
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def everyone_seeks(monkeypatch):
+    """Plan PD-17: force the probability to 1.0 so the market, not the draw, is
+    under test."""
+    monkeypatch.setattr(
+        "epocha.apps.demography.couple.seek_probability_for",
+        lambda population, schedule, rate, years_per_tick: lambda woman: 1.0,
+    )
+
+
+def _second_zone(zone):
+    return Zone.objects.create(
+        world=zone.world,
+        name="OtherZone",
+        zone_type="commercial",
+        boundary=Polygon.from_bbox((200, 0, 300, 100)),
+        center=Point(250, 50),
+    )
+
+
+@pytest.mark.django_db
+def test_a_seeker_without_a_candidate_in_her_zone_marries_when_one_arrives(
+    sim_with_zone,  # noqa: F811
+    everyone_seeks,
+):
+    """User Story 1, scenario 3."""
+    sim, zone = sim_with_zone
+    other = _second_zone(zone)
+    woman = _make_agent(sim, zone, "Woman")
+    _make_agent(sim, other, "FarAwayMan", gender=Agent.Gender.MALE)
+    context = _christian_context(sim)
+
+    assert run_marriage_market(context, random.Random(1)) == []
+
+    neighbour = _make_agent(sim, zone, "Neighbour", gender=Agent.Gender.MALE)
+    formed = run_marriage_market(context, random.Random(1))
+
+    assert [{c.agent_a_id, c.agent_b_id} for c in formed] == [{woman.id, neighbour.id}]
+
+
+@pytest.mark.django_db
+def test_the_better_scoring_candidate_of_another_zone_is_out_of_reach(
+    sim_with_zone,  # noqa: F811
+    everyone_seeks,
+):
+    """User Story 3, scenario 2 on the database: exactly one couple, zone A."""
+    sim, zone_a = sim_with_zone
+    zone_b = _second_zone(zone_a)
+    woman = _make_agent(sim, zone_a, "Woman", social_class="working")
+    in_a = _make_agent(
+        sim, zone_a, "ManA", gender=Agent.Gender.MALE, social_class="elite", education_level=0.0
+    )
+    _make_agent(sim, zone_b, "ManB", gender=Agent.Gender.MALE, social_class="working")
+
+    formed = run_marriage_market(_christian_context(sim), random.Random(1))
+
+    assert [{c.agent_a_id, c.agent_b_id} for c in formed] == [{woman.id, in_a.id}]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("market_tick", "marries"), [(MARKET_TICK, False), (800, True)])
+def test_a_widow_is_a_seeker_only_after_the_mourning_interval(
+    sim_with_zone,  # noqa: F811
+    everyone_seeks,
+    market_tick,
+    marries,
+):
+    """SC-009, market part: the husband died at tick 400; 100 days later the
+    widow is not a seeker, 400 days later she is."""
+    sim, zone = sim_with_zone
+    widow = _make_agent(sim, zone, "Widow")
+    husband = _make_agent(sim, zone, "Husband", gender=Agent.Gender.MALE, is_alive=False)
+    suitor = _make_agent(sim, zone, "Suitor", gender=Agent.Gender.MALE)
+    form_couple(widow, husband, formed_at_tick=1)
+    dissolve_on_death(husband, tick=400)
+
+    formed = run_marriage_market(_christian_context(sim, tick=market_tick), random.Random(1))
+
+    expected = [{widow.id, suitor.id}] if marries else []
+    assert [{c.agent_a_id, c.agent_b_id} for c in formed] == expected
