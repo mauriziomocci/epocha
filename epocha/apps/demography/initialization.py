@@ -54,10 +54,12 @@ logger = logging.getLogger(__name__)
 def initialize_demography(simulation: Any) -> None:
     """Prepare a founding population for the demography tick.
 
-    Idempotent: an agent that already has a `birth_tick` keeps it, and an
-    agent already in an active couple is not paired again. Re-running is
-    therefore harmless, which matters because "has this world been
-    initialized" is not a state anything currently records.
+    Idempotent: an agent that already has a `birth_tick` keeps it, and the
+    founding couples are formed once -- a simulation that already has any
+    `Couple`, active or dissolved, is not founded again (see
+    `form_initial_couples`). "Has this world been initialized" is not a state
+    anything records, and the couple table is the evidence that the founding
+    already ran, so re-running changes nothing.
     """
     if not is_demography_enabled(simulation):
         return
@@ -215,9 +217,16 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
 
     Not every eligible adult is paired, which the previous universal pairing
     did: women still single at their age by the schedule stay single, and the
-    surplus on either side of the market stays unpaired. A repeated call
-    draws again for the women still single, so it cannot double-pair anyone
-    but it can marry more of them.
+    surplus on either side of the market stays unpaired.
+
+    Founding runs once: if the simulation already has any `Couple` the
+    function returns without drawing. A second founding would draw again for
+    the women the first one left single, marrying more of them and reading
+    the same `initialization` stream numbers on a different set of women,
+    which would break both the schedule's meaning (each woman declared once,
+    at the founding age) and the reproducibility from the seed. Any couple,
+    including a dissolved one, counts: a world that has run ticks has a
+    marriage history, and the founding has none by construction.
 
     Args:
         simulation: the simulation whose founding population is paired.
@@ -231,12 +240,15 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
         form_matched_couples,
         read_market_population,
     )
+    from epocha.apps.demography.models import Couple
     from epocha.apps.demography.nuptiality import first_marriage_schedule
     from epocha.apps.demography.template_loader import load_template
 
     if template is None:
         config = getattr(simulation, "config", None) or {}
         template = load_template(config.get("demography_template", "pre_industrial_christian"))
+    if Couple.objects.filter(simulation=simulation).exists():
+        return
     context = DemographyTickContext(
         simulation, simulation.current_tick, template, _tick_duration_hours(simulation)
     )

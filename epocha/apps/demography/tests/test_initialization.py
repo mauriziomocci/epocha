@@ -275,18 +275,23 @@ class TestInitialCouples:
             f"{girl.name} is below the era's minimum marriage age for women and was paired anyway"
         )
 
-    def test_it_is_idempotent(self, sim_with_zone, universal_declaration):
-        """Running twice must not double the couples: the founding
-        population is initialized once, but nothing should break if a
-        caller repeats it."""
+    def test_it_is_idempotent(self, sim_with_zone):
+        """Founding runs once: a repeated call changes nothing. Without
+        `universal_declaration` on purpose -- with every woman declared the
+        first call leaves nobody for a second call to marry, which hid that
+        a repeat draws again for the women still single."""
         sim, zone = sim_with_zone
-        _agent(sim, zone, "Uomo", age=30, gender=Agent.Gender.MALE)
-        _agent(sim, zone, "Donna", age=28, gender=Agent.Gender.FEMALE)
+        for i in range(30):
+            _agent(sim, zone, f"Donna{i}", age=22 + i % 6, gender=Agent.Gender.FEMALE)
+            _agent(sim, zone, f"Uomo{i}", age=28 + i % 6, gender=Agent.Gender.MALE)
 
         initialization.initialize_demography(sim)
+        first = sorted(Couple.objects.filter(simulation=sim).values_list("id", "agent_a_id"))
         initialization.initialize_demography(sim)
+        second = sorted(Couple.objects.filter(simulation=sim).values_list("id", "agent_a_id"))
 
-        assert Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True).count() == 1
+        assert first, "the first call must found at least one couple for this to prove anything"
+        assert second == first
 
     def test_the_pairing_is_reproducible_from_the_seed(self, sim_with_zone, universal_declaration):
         sim, zone = sim_with_zone
