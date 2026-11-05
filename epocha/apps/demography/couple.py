@@ -104,6 +104,49 @@ def active_couple_for(agent):
     ).first()
 
 
+def pair_key(a_id: int, b_id: int) -> tuple[int, int]:
+    """Order-free key of a pair of agents: `(lower id, higher id)`.
+
+    The sentiment map is keyed by it, so a lookup does not depend on which
+    side of the pair is the seeker.
+    """
+    return (a_id, b_id) if a_id < b_id else (b_id, a_id)
+
+
+def read_sentiments(seeker_ids, candidate_ids) -> dict[tuple[int, int], float]:
+    """Sentiment of every acquainted seeker-candidate pair, in one query.
+
+    The homogamy score used to read the database once per scored pair
+    (`Relationship...first()`), which the market would multiply by every
+    pair of every tick. This reads all the pairs at once; the score then
+    only looks a key up.
+
+    A pair can carry several `Relationship` rows (`unique_together` includes
+    `relation_type`) and in either direction. The row kept is the lowest
+    primary key, which is the row `.first()` returned (the model has no
+    `Meta.ordering`, so `.first()` orders by pk): the choice of the relation
+    type is arbitrary, a known limit left to the owners of the agents model
+    (plan R4). A pair without a row is absent from the map.
+
+    Queryset dependencies: none beyond the single filtered `values_list`.
+    """
+    from epocha.apps.agents.models import Relationship
+
+    seekers, candidates = set(seeker_ids), set(candidate_ids)
+    rows = (
+        Relationship.objects.filter(
+            Q(agent_from_id__in=seekers, agent_to_id__in=candidates)
+            | Q(agent_from_id__in=candidates, agent_to_id__in=seekers)
+        )
+        .order_by("id")
+        .values_list("agent_from_id", "agent_to_id", "sentiment")
+    )
+    sentiments: dict[tuple[int, int], float] = {}
+    for agent_from_id, agent_to_id, sentiment in rows:
+        sentiments.setdefault(pair_key(agent_from_id, agent_to_id), sentiment)
+    return sentiments
+
+
 def homogamy_score(
     a,
     b,

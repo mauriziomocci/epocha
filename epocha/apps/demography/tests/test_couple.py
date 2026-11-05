@@ -21,7 +21,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
-from epocha.apps.agents.models import Agent, DecisionLog
+from epocha.apps.agents.models import Agent, DecisionLog, Relationship
 from epocha.apps.demography.couple import (
     _ordered_pair,
     active_couple_for,
@@ -29,6 +29,8 @@ from epocha.apps.demography.couple import (
     form_couple,
     homogamy_score,
     is_in_active_couple,
+    pair_key,
+    read_sentiments,
     resolve_pair_bond_intents,
     resolve_separate_intents,
     stable_matching,
@@ -268,6 +270,77 @@ def test_homogamy_score_higher_for_similar_pair(sim_with_zone):
     assert score_similar > score_disparate, (
         f"Similar score {score_similar:.3f} should exceed disparate {score_disparate:.3f}"
     )
+
+
+# ---------------------------------------------------------------------------
+# pair_key and read_sentiments
+# ---------------------------------------------------------------------------
+
+
+def _relationship(sim, agent_from, agent_to, sentiment, relation_type="friendship"):
+    return Relationship.objects.create(
+        agent_from=agent_from,
+        agent_to=agent_to,
+        relation_type=relation_type,
+        sentiment=sentiment,
+        since_tick=0,
+    )
+
+
+def test_pair_key_is_the_ordered_pair_of_ids():
+    assert pair_key(7, 3) == (3, 7)
+    assert pair_key(3, 7) == (3, 7)
+
+
+@pytest.mark.django_db
+def test_read_sentiments_issues_one_query(sim_with_zone, django_assert_num_queries):
+    sim, zone = sim_with_zone
+    women = [_make_agent(sim, zone, f"W{i}") for i in range(3)]
+    men = [_make_agent(sim, zone, f"M{i}", gender=Agent.Gender.MALE) for i in range(3)]
+    _relationship(sim, women[0], men[0], 0.5)
+
+    with django_assert_num_queries(1):
+        read_sentiments([w.id for w in women], [m.id for m in men])
+
+
+@pytest.mark.django_db
+def test_read_sentiments_finds_a_row_from_candidate_to_seeker(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    _relationship(sim, man, woman, -0.4)
+
+    sentiments = read_sentiments([woman.id], [man.id])
+
+    assert sentiments == {pair_key(woman.id, man.id): -0.4}
+
+
+@pytest.mark.django_db
+def test_read_sentiments_keeps_the_lowest_id_row_of_a_pair(sim_with_zone):
+    """Two relation types on one pair: the lower-id row wins, the row
+    `.first()` returned when the score read the database one pair at a time."""
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    _relationship(sim, man, woman, 0.8, relation_type="friendship")
+    _relationship(sim, woman, man, -0.9, relation_type="rivalry")
+
+    sentiments = read_sentiments([woman.id], [man.id])
+
+    assert sentiments == {pair_key(woman.id, man.id): 0.8}
+
+
+@pytest.mark.django_db
+def test_read_sentiments_omits_a_pair_without_a_row(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    other = _make_agent(sim, zone, "Other", gender=Agent.Gender.MALE)
+    _relationship(sim, woman, other, 0.3)
+
+    sentiments = read_sentiments([woman.id], [man.id])
+
+    assert sentiments == {}
 
 
 # ---------------------------------------------------------------------------
