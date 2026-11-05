@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     # touch the ORM, to avoid a circular import at module load. With
     # `from __future__ import annotations`, annotations are lazy strings, so this
     # block is never executed at runtime.
+    from epocha.apps.agents.models import Agent
     from epocha.apps.demography.models import Couple
 
 logger = logging.getLogger(__name__)
@@ -499,6 +500,37 @@ def read_market_population(context) -> MarketPopulation:
         ages={a.id: age_in_years(a, tick, hours, acceleration) for a in eligible},
         history=history,
     )
+
+
+def seek_probability_for(
+    population: MarketPopulation,
+    schedule,
+    remarriage_rate: float,
+    years_per_tick: float,
+) -> Callable[[Agent], float]:
+    """Return the function giving each eligible woman her chance of a marriage
+    event in one tick.
+
+    A woman never in a couple draws on the era's first-marriage schedule at her
+    canonical age (`FirstMarriageSchedule.tick_probability`, hazard of
+    Kaneko 2003, eq. 1-4). A woman who has been in a couple that ended draws
+    on a constant annual remarriage rate `r`, turned into a per-tick
+    probability as `1 - exp(-r * dt)`; `r` is a tunable heuristic of the era
+    template (`remarriage_annual_rate_female`), not a measured quantity, and
+    does not depend on age (a stated limit of the model). `dt` is the tick
+    length in simulated years.
+
+    The remarriage probability is computed once; the closure reads two maps
+    already in `population`, so it costs no query.
+    """
+    remarriage = 1.0 - math.exp(-remarriage_rate * years_per_tick)
+
+    def probability(woman) -> float:
+        if woman.id in population.history.ever_partnered:
+            return remarriage
+        return schedule.tick_probability(population.ages[woman.id], years_per_tick)
+
+    return probability
 
 
 def resolve_pair_bond_intents(

@@ -6,15 +6,21 @@ agents as `test_couple.py` does, and reuse its fixture and helper.
 
 from __future__ import annotations
 
+import math
+import types
+
 import pytest
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.demography.couple import (
     MarketPopulation,
+    MarriageHistory,
     dissolve_on_death,
     form_couple,
     read_market_population,
+    seek_probability_for,
 )
+from epocha.apps.demography.nuptiality import first_marriage_schedule
 from epocha.apps.demography.orchestrator import DemographyTickContext
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.demography.tests.test_couple import (  # reused fixture and helper
@@ -106,3 +112,58 @@ def test_the_market_population_costs_three_queries(
     # `agent.simulation` costs no query per couple.
     with django_assert_num_queries(0):
         population.women[0].simulation
+
+
+# ---------------------------------------------------------------------------
+# seek_probability_for
+# ---------------------------------------------------------------------------
+
+WEEKLY_YEARS_PER_TICK = 168 / 8760
+
+
+def _population(women_ages, ever_partnered=()):
+    """An in-memory population: women with the given ages, no men."""
+    women = [types.SimpleNamespace(id=index + 1) for index in range(len(women_ages))]
+    return MarketPopulation(
+        women=women,
+        men=[],
+        ages={woman.id: age for woman, age in zip(women, women_ages)},
+        history=MarriageHistory(frozenset(ever_partnered), {}),
+    )
+
+
+def _christian_schedule():
+    return first_marriage_schedule(load_template("pre_industrial_christian")["couple"])
+
+
+def test_a_never_partnered_woman_gets_the_first_marriage_probability():
+    schedule = _christian_schedule()
+    population = _population([25.0])
+
+    probability = seek_probability_for(population, schedule, 0.10, WEEKLY_YEARS_PER_TICK)
+
+    assert probability(population.women[0]) == schedule.tick_probability(
+        25.0, WEEKLY_YEARS_PER_TICK
+    )
+
+
+def test_a_woman_who_was_partnered_gets_the_remarriage_probability():
+    population = _population([25.0], ever_partnered={1})
+
+    probability = seek_probability_for(
+        population, _christian_schedule(), 0.10, WEEKLY_YEARS_PER_TICK
+    )
+
+    assert probability(population.women[0]) == pytest.approx(
+        1 - math.exp(-0.10 * WEEKLY_YEARS_PER_TICK), abs=1e-15
+    )
+
+
+def test_a_never_partnered_girl_below_the_schedule_minimum_age_gets_zero():
+    population = _population([13.5])
+
+    probability = seek_probability_for(
+        population, _christian_schedule(), 0.10, WEEKLY_YEARS_PER_TICK
+    )
+
+    assert probability(population.women[0]) == 0.0
