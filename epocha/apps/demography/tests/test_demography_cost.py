@@ -435,6 +435,15 @@ PER_DEATH = 12
 # marriage-age rule costs 3. The bound is the worst of the three, reached.
 PER_PAIR_BOND_INTENT = 7
 
+# What a tick pays once, for having any pair-bond intent at all: the resolver
+# reads the marriage history (`couple.read_marriage_history`) the first time it
+# checks an agent's eligibility, one query whatever the number of intents. It
+# is a fixed term of the tick, like the death term below, and not part of the
+# per-intent slope above: T035 of the rule-based couples tasks declares one
+# query per tick, not per intent, and the measurement subtracts it so the
+# linearity and the bound stay exact equalities.
+MARRIAGE_HISTORY_READ = 1
+
 
 def _pair_bond_intent(sim, agent, target_name, tick):
     import json
@@ -540,7 +549,8 @@ def test_the_pair_bond_intent_term_is_measured_and_bounded(monkeypatch):
         costs = []
         for count in (2, 4):
             sim, tick = _intents_of_shape(f"{shape}{count}", count, shape)
-            costs.append(_count_queries_without_vital_events(sim, tick, monkeypatch) - baseline)
+            measured = _count_queries_without_vital_events(sim, tick, monkeypatch)
+            costs.append(measured - baseline - MARRIAGE_HISTORY_READ)
         assert costs[0] > 0, (
             f"{shape} intents cost nothing at all: the fixture is not reaching "
             "the resolver and this guard measures an empty queryset"

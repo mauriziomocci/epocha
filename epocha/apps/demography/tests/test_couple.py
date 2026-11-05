@@ -1279,3 +1279,53 @@ def test_an_unmarried_adult_is_eligible(sim_with_zone):
     )
 
     assert reason is None
+
+
+# ---------------------------------------------------------------------------
+# Mourning on the intent path (User Story 3, scenario 1, resolver part)
+# ---------------------------------------------------------------------------
+
+
+def _widow_and_suitor(sim, zone, husband_died_at_tick):
+    """A widow of the default era and an unmarried suitor, each naming the other
+    at tick 499; the resolver runs at tick 500 on the daily world."""
+    husband = _make_agent(sim, zone, "Marito", gender=Agent.Gender.MALE)
+    widow = _make_agent(sim, zone, "Vedova")
+    suitor = _make_agent(sim, zone, "Pretendente", gender=Agent.Gender.MALE)
+    form_couple(widow, husband, formed_at_tick=1)
+    dissolve_on_death(husband, tick=husband_died_at_tick)
+    _decision_log(sim, widow, tick=499, action="pair_bond", target=suitor.name)
+    _decision_log(sim, suitor, tick=499, action="pair_bond", target=widow.name)
+    return widow, suitor
+
+
+@pytest.mark.django_db
+def test_an_intent_naming_a_widow_in_mourning_is_refused_and_logged(sim_with_zone, caplog):
+    import logging
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+    _widow_and_suitor(sim, zone, husband_died_at_tick=400)  # 100 days before tick 500
+
+    with caplog.at_level(logging.WARNING, logger="epocha.apps.demography.couple"):
+        formed = resolve_pair_bond_intents(sim, tick=500, rng=random.Random(42))
+
+    assert formed == []
+    assert any("in mourning" in record.message for record in caplog.records)
+
+
+@pytest.mark.django_db
+def test_an_intent_naming_a_widow_after_the_mourning_interval_forms_the_couple(sim_with_zone):
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+    widow, suitor = _widow_and_suitor(sim, zone, husband_died_at_tick=100)  # 400 days before
+
+    formed = resolve_pair_bond_intents(sim, tick=500, rng=random.Random(42))
+
+    assert len(formed) == 1
+    assert {formed[0].agent_a_id, formed[0].agent_b_id} == {widow.id, suitor.id}

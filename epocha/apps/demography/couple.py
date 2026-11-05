@@ -596,20 +596,28 @@ def resolve_pair_bond_intents(
 
     formed: list = []
 
-    def _of_marriage_age(agent: Agent) -> bool:
-        nonlocal tick_duration_hours
+    history: MarriageHistory | None = None
+
+    def _eligible(agent: Agent) -> bool:
+        # The tick length and the marriage history are read on the first
+        # call, so a tick without intents pays for neither, and a tick with
+        # intents pays one history query, not one per intent.
+        nonlocal tick_duration_hours, history
         if tick_duration_hours is None:
             from epocha.apps.demography.orchestrator import _tick_duration_hours
 
             tick_duration_hours = _tick_duration_hours(simulation)
-        if meets_marriage_age(agent, template, tick, tick_duration_hours):
+        if history is None:
+            history = read_marriage_history(simulation)
+        reason = marriage_ineligibility(agent, template, tick, tick_duration_hours, history)
+        if reason is None:
             return True
         logger.warning(
-            "demography: pair-bond intent involving %r (agent %s) refused in "
-            "simulation %s -- below the era's minimum marriage age",
+            "demography: pair-bond intent involving %r (agent %s) refused in simulation %s -- %s",
             agent.name,
             agent.id,
             simulation.id,
+            reason,
         )
         return False
 
@@ -620,13 +628,13 @@ def resolve_pair_bond_intents(
             if proposer_id in used:
                 continue
             proposer = by_id[proposer_id]
-            if not _of_marriage_age(proposer) or is_in_active_couple(proposer):
+            if not _eligible(proposer) or is_in_active_couple(proposer):
                 continue
             for target_id in direct_intents[proposer_id]:
                 if target_id in used:
                     continue
                 target = Agent.objects.filter(id=target_id, is_alive=True).first()
-                if target is None or not _of_marriage_age(target):
+                if target is None or not _eligible(target):
                     continue
                 if is_in_active_couple(target):
                     continue
