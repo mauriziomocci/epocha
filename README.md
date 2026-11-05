@@ -13,8 +13,9 @@ English | [Italiano](README.it.md)
 ## Vision
 
 Epocha is a computational take on psychohistory. Hundreds of autonomous
-agents — each with a Big Five personality, episodic memory, and LLM-driven
-deliberation — live inside a simulated world with audited demographic and
+agents — each with a Big Five personality and episodic memory, and up to a
+configurable number of them (`max_protagonists`, default 30) deliberating
+through an LLM at each tick — live inside a simulated world with audited demographic and
 economic dynamics. Crises emerge from the bottom up. The same engine
 scales from a medieval village to a galactic federation across centuries
 of simulated time.
@@ -77,7 +78,7 @@ epocha/apps/
   agents/              Personality, memory, decision pipeline, reputation, factions
   chat/                Real-time WebSocket conversations with agents
   dashboard/           Server-rendered UI with Alpine.js progressive enhancement
-  demography/          Mortality, fertility, couple formation, inheritance,
+  demography/          Mortality, fertility, nuptiality, couple formation, inheritance,
                        migration, and the per-tick orchestrator (audited)
   economy/             Production, monetary, market, behavioral integration (Behavioral audited)
   knowledge/           Knowledge graph: ingestion, embedding, ontology, RAG
@@ -122,7 +123,7 @@ Six clusters have converged and been promoted to Methods: reputation on round 2 
 
 Demography Plan 3 (inheritance + migration) is merged. Plan 4 wires the audited §4.1 models into the live tick loop and seeds the starting population from the era template; its phase-6 code gate converged on round 16 (2026-10-29) and the branch awaits the merge. The gate was reopened once, for a mortality defect: the wiring passed the continuous age to the Heligman-Pollard schedule, so a newborn spent its first year on `q(0.02)`, `q(0.04)`, … and infant mortality came out 0.0083 against `q(0) = 0.0291` at weekly ticks. `q(x)` is now read at the completed integer age and held over the whole year of age (whitepaper §4.1), so results produced before this fix are not comparable with later ones.
 
-The order of the next work was agreed on 2026-10-29. First, rule-based couple formation (Coale and McNeil 1972), the prerequisite of every validation, because in the pre-industrial eras a birth needs a couple and after initialisation couples form today only from LLM intents: its spec is approved by the Trinity under the project's autonomy profile, provisionally, pending the user's confirmation (D-29-21), and implementation has started on branch `20261029-123404-rule-based-couples`. Second, marital fertility in the eras that require a couple, before any validation: the Hadwiger schedule is a rate over all women, and applied to married women alone it gives a TFR (total fertility rate, the children a woman would bear over her fertile life) of 2.394 against the whitepaper's reference range of 4.5-6.5. Third, the first historical validation, England 1700-1750 against Wrigley and Schofield (1981) for mortality, fertility and age at marriage; it cites the published values only, because the machine-readable data behind them are distributed under terms not compatible with Apache-2.0. Fourth, one data-grounded report of that validation. Everything else stays on the [build map](docs/build-map/epocha-build-map.html), unopened until the first validation result exists: the Knowledge Graph audit, the economy financial markets (Spec 3), the dashboard driven by the API, the agents' context and chat coherence, the feasibility study for scale to billions of agents, the structural-demographic model with ensemble runs. The one exception is life-course behaviour by age, whose spec is approved and whose implementation starts after the Plan 4 merge. Full list in whitepaper §9.
+The order of the next work was agreed on 2026-10-29. First, rule-based couple formation (Coale and McNeil 1972), the prerequisite of every validation, because in the pre-industrial eras a birth needs a couple and, on `develop`, couples form after initialisation only from LLM intents: its spec is approved by the Trinity under the project's autonomy profile, provisionally, pending the user's confirmation (D-29-21), and on branch `20261029-123404-rule-based-couples` the marriage market is in the tick loop and only the protagonists, at most `max_protagonists` agents, deliberate through the LLM, with the final measurements and gate still to come. Second, marital fertility in the eras that require a couple, before any validation: the Hadwiger schedule is a rate over all women, and applied to married women alone it gives, for `pre_industrial_christian` without mortality, a TFR (total fertility rate, the children a woman would bear over her fertile life) of 2.374 against the whitepaper's reference range of 4.5-6.5. Third, the first historical validation, England 1700-1750 against Wrigley and Schofield (1981) for mortality, fertility and age at marriage; it cites the published values only, because the machine-readable data behind them are distributed under terms not compatible with Apache-2.0. Fourth, one data-grounded report of that validation. Everything else stays on the [build map](docs/build-map/epocha-build-map.html), unopened until the first validation result exists: the Knowledge Graph audit, the economy financial markets (Spec 3), the dashboard driven by the API, the agents' context and chat coherence, the feasibility study for scale to billions of agents, the structural-demographic model with ensemble runs. The one exception is life-course behaviour by age, whose spec is approved and whose implementation starts after the Plan 4 merge. Full list in whitepaper §9.
 
 ## Contributing
 
