@@ -149,7 +149,7 @@ def two_point_exponent(sizes: tuple[int, int], values: tuple[float, float]) -> f
 def measure_step2(n: int, seed: int, template: dict) -> tuple[float, float, int, float]:
     """Median seconds of one weekly step 2 at N agents, with the median S, M and pairs.
 
-    S, the seekers of a tick, is a random count with a mean of about 0.32 at
+    S, the seekers of a tick, is a random count with a mean of about 0.31 at
     N = 10^3 (the sum of the weekly first-marriage probabilities of the
     eligible women), so the median time at the smallest N is a few microseconds and
     the least-squares exponent is noisy there; the medians of S and of the
