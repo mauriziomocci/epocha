@@ -397,8 +397,9 @@ configured era template as one calendar month, year, or decade — the
 calibration constants of the demography and economy modules are themselves
 expressed against this nominal step, so changing the time scale changes the
 parameter set rather than the engine. A tick is atomic: the orchestrator
-runs the economy update first, then a Celery chord dispatches one
-`process_agent_turn` task per protagonist (at most K, §3.2) in parallel, then the chord
+runs the economy update first, then the demography block
+(`run_demography_tick`, §4.1.0, a no-op unless the simulation opted in), then
+a Celery chord dispatches one `process_agent_turn` task per protagonist (at most K, §3.2) in parallel, then the chord
 callback `finalize_tick` runs information flow, faction dynamics, the
 political cycle, relationship and memory decay, captures a snapshot,
 detects epochal crises, advances the tick counter, broadcasts to connected
@@ -408,8 +409,10 @@ countdown derived from the simulation speed multiplier (see
 keeps every tick a fresh task whose lifetime matches its work, which lets
 the broker survive worker restarts without losing the simulation. Within a
 tick the order of agents is deterministic — the chord header is built from
-`Agent.objects.filter(...).values_list("id", flat=True)`, whose ordering is
-the model's default primary key sequence — so any non-determinism comes
+`select_deliberating_agents` (§3.2), which orders the protagonists by
+priority (head of state, then group leaders, then everyone else) and then by
+id, after the demography block so that the dead are not in it and the
+newborns are — so any non-determinism comes
 from the LLM call and the per-tick seeded RNG streams documented in §3.4,
 never from scheduling. A real-time event-driven design was rejected because
 discrete ticks are the natural granularity of the demographic and economic
@@ -419,7 +422,7 @@ validation suite of Chapter 7 depends on, and because chord-based parallelism sc
 horizontally on Celery workers without locking shared state.
 
 ```
-tick N      pre-snapshot ──> economy tick ──> chord(process_agent_turn × protagonists)
+tick N      pre-snapshot ──> economy tick ──> demography tick ──> chord(process_agent_turn × protagonists)
                                                             │
                                                             ▼
                                               finalize_tick callback

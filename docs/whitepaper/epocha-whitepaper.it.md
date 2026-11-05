@@ -428,7 +428,8 @@ le costanti di calibrazione dei moduli di demografia ed economia sono esse
 stesse espresse rispetto a questo passo nominale, per cui cambiare la
 scala temporale cambia il set di parametri piuttosto che il motore. Un
 tick è atomico: l'orchestratore esegue prima l'aggiornamento dell'economia,
-poi un chord Celery distribuisce un task `process_agent_turn` per ciascun
+poi il blocco di demografia (`run_demography_tick`, §4.1.0, che non fa nulla se la
+simulazione non ha aderito), poi un chord Celery distribuisce un task `process_agent_turn` per ciascun
 protagonista (al più K, §3.2) in parallelo, poi la callback del chord `finalize_tick`
 esegue il flusso di informazione, le dinamiche di fazione, il ciclo
 politico, il decadimento di relazioni e memoria, cattura uno snapshot,
@@ -440,8 +441,9 @@ mantiene ogni tick un task fresco la cui vita coincide col suo lavoro, il
 che permette al broker di sopravvivere a riavvii dei worker senza perdere
 la simulazione. All'interno di un tick l'ordine degli agenti è
 deterministico — l'header del chord è costruito da
-`Agent.objects.filter(...).values_list("id", flat=True)`, il cui ordering è
-la sequenza di chiave primaria di default del modello — per cui ogni
+`select_deliberating_agents` (§3.2), che ordina i protagonisti per priorità
+(capo di stato, poi i leader dei gruppi, poi tutti gli altri) e poi per id,
+dopo il blocco di demografia, così che i morti non vi compaiono e i neonati sì — per cui ogni
 non-determinismo proviene dalla chiamata LLM e dagli stream RNG seedati
 per tick documentati in §3.4, mai dallo scheduling. Un design real-time
 event-driven è stato rifiutato perché i tick discreti sono la granularità
@@ -452,7 +454,7 @@ validazione del Capitolo 7, e perché il parallelismo basato su chord scala oriz
 sui worker Celery senza lockare stato condiviso.
 
 ```
-tick N      pre-snapshot ──> economy tick ──> chord(process_agent_turn × protagonists)
+tick N      pre-snapshot ──> economy tick ──> demography tick ──> chord(process_agent_turn × protagonists)
                                                             │
                                                             ▼
                                               finalize_tick callback
