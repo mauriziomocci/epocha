@@ -219,6 +219,36 @@ def test_equal_seeds_give_equal_seekers():
     assert 0 < len(first) < len(women)
 
 
+def test_the_founding_declaration_follows_the_conditioned_schedule_by_age_class():
+    """SC-008: the share of declared women in each five-year class matches the
+    mean of `F*(x)` over the class's women, within 3 binomial standard errors.
+
+    4000 women with ages uniform on [14, 50) from `random.Random(1)`, the
+    Christian schedule, the draw on `random.Random(2)`. The seeds are fixed, so
+    the test is deterministic; the 3-sigma band is the statistical statement
+    (a binomial proportion, Hogg and Tanis, Probability and Statistical
+    Inference, ch. 6), not a tolerance fitted to the outcome.
+    """
+    schedule = _christian_schedule()
+    ages_rng = random.Random(1)
+    women = _women(4000)
+    ages = {woman.id: ages_rng.uniform(14.0, 50.0) for woman in women}
+
+    declared = draw_seekers(
+        women, lambda woman: schedule.conditional_cdf(ages[woman.id]), random.Random(2)
+    )
+    declared_ids = {woman.id for woman in declared}
+
+    for low in range(14, 50, 5):
+        in_class = [w for w in women if low <= ages[w.id] < low + 5]
+        mean_probability = sum(schedule.conditional_cdf(ages[w.id]) for w in in_class) / len(
+            in_class
+        )
+        share = sum(w.id in declared_ids for w in in_class) / len(in_class)
+        standard_error = math.sqrt(mean_probability * (1.0 - mean_probability) / len(in_class))
+        assert abs(share - mean_probability) <= 3.0 * standard_error, (low, share, mean_probability)
+
+
 # ---------------------------------------------------------------------------
 # partition_by_market
 # ---------------------------------------------------------------------------
