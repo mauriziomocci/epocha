@@ -880,7 +880,15 @@ def run_couple_formation_step(
     context: DemographyTickContext,
     rng: random.Random | None = None,
 ) -> None:
-    """Form the couples whose partners asked to pair-bond at T-1.
+    """Form the tick's couples, in two phases that share one stream.
+
+    First the pair-bond intents of T-1 (`resolve_pair_bond_intents`), then the
+    rule-based marriage market (`run_marriage_market`): the women whose
+    marriage event falls on this tick are matched with the unpartnered men of
+    their market. The market reads the couples after the intents were
+    written, so a pair formed by an intent at T is already partnered and is
+    never matched again at T. Both phases draw from the tick's `couple`
+    stream.
 
     Before fertility, necessarily: birth probability is zero without an
     active couple in three templates of five, including the default, so a
@@ -889,7 +897,7 @@ def run_couple_formation_step(
     credible population curve that no shallow test tells apart from the
     correct one.
     """
-    from epocha.apps.demography.couple import resolve_pair_bond_intents
+    from epocha.apps.demography.couple import resolve_pair_bond_intents, run_marriage_market
 
     if rng is None:
         rng = stream_for(context.simulation, context.tick, phase="couple")
@@ -905,6 +913,7 @@ def run_couple_formation_step(
         rng,
         tick_duration_hours=context.hours_per_tick(),
     )
+    run_marriage_market(context, rng)
 
 
 def run_forced_migration_step(context: DemographyTickContext) -> None:
@@ -1210,10 +1219,10 @@ def run_demography_tick(simulation: Any, tick: int) -> None:
     # query per tick for a guarantee that the population the steps see can
     # actually age.
     #
-    # Only the backfill is reused here, never `form_initial_couples`: that
-    # one pairs every eligible adult at once, which is founding-population
-    # behaviour, and running it per tick would bypass the pair-bond intents
-    # that step 2 exists to resolve.
+    # Only the backfill is reused here, never `form_initial_couples`: that is
+    # founding-population behaviour, run once at initialization. Per-tick
+    # couple formation is step 2: the pair-bond intents, then the rule-based
+    # marriage market.
     from epocha.apps.demography.initialization import backfill_birth_ticks
 
     backfill_birth_ticks(simulation, template=template)
@@ -1279,12 +1288,14 @@ DEMOGRAPHY_STEPS: tuple[DemographyStep, ...] = (
         rng_phases=("couple",),
         run=run_couple_formation_step,
         why_here=(
-            "Couples form at T from intents at T-1, and birth probability is"
-            " zero without an active couple in three templates of five,"
-            " including the default. After fertility, every couple formed at T"
-            " could not conceive before T+1 -- a systematic one-tick delay"
-            " across all natality. Resolving separations first also leaves the"
-            " couple state coherent when formation reads it."
+            "Couples form at T from intents at T-1, then from the rule-based"
+            " marriage market, which must read the couples the intents just"
+            " wrote. Birth probability is zero without an active couple in"
+            " three templates of five, including the default. After fertility,"
+            " every couple formed at T could not conceive before T+1 -- a"
+            " systematic one-tick delay across all natality. Resolving"
+            " separations first also leaves the couple state coherent when"
+            " formation reads it."
         ),
     ),
     DemographyStep(

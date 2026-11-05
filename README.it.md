@@ -136,7 +136,7 @@ L'ordine dei prossimi lavori è stato concordato il 2026-10-29. Primo, la formaz
 
   | Capitolo whitepaper | Codice |
   |---|---|
-  | §4.1 Demografia | `epocha/apps/demography/{mortality,fertility,couple,inheritance,migration}.py` |
+  | §4.1 Demografia | `epocha/apps/demography/{mortality,fertility,nuptiality,couple,inheritance,migration}.py` |
   | §4.1.0 Orchestrazione per tick | `epocha/apps/demography/{orchestrator,initialization,snapshot,context}.py` |
   | §4.2 Economia — comportamentale | `epocha/apps/economy/{expectations,credit,banking,property_market}.py` |
   | §4.3 Reputazione | `epocha/apps/agents/reputation.py` |

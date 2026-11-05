@@ -680,3 +680,89 @@ class TestBlockEntryPoint:
         from epocha.apps.demography.models import DemographyEvent
 
         assert not DemographyEvent.objects.filter(simulation=simulation).exists()
+
+
+class TestMarriageMarketInStepTwo:
+    """Step 2 runs the intents first, then the rule-based marriage market."""
+
+    @pytest.fixture
+    def unpartnered_adults(self, db, monkeypatch):
+        """Two women and two men of the default era, nobody in a couple, and
+        the market's probability forced to 1.0 (plan PD-17)."""
+        from django.contrib.gis.geos import Point, Polygon
+
+        from epocha.apps.agents.models import Agent
+        from epocha.apps.world.models import Government, World, Zone
+
+        monkeypatch.setattr(
+            "epocha.apps.demography.couple.seek_probability_for",
+            lambda population, schedule, rate, years_per_tick: lambda woman: 1.0,
+        )
+        user = User.objects.create_user(
+            email="market@epocha.dev", username="marketorderuser", password="pass1234"
+        )
+        sim = Simulation.objects.create(
+            name="MarketOrder",
+            seed=2026,
+            owner=user,
+            current_tick=100,
+            config={"demography_enabled": True},
+        )
+        world = World.objects.create(simulation=sim, stability_index=0.7)
+        Government.objects.create(simulation=sim)
+        zone = Zone.objects.create(
+            world=world,
+            name="MarketOrderZone",
+            zone_type="residential",
+            boundary=Polygon.from_bbox((0, 0, 100, 100)),
+            center=Point(50, 50),
+        )
+
+        def _agent(name, gender):
+            return Agent.objects.create(
+                simulation=sim,
+                name=name,
+                zone=zone,
+                role="farmer",
+                location=Point(50, 50),
+                health=1.0,
+                wealth=500.0,
+                age=28,
+                birth_tick=int(sim.current_tick - 28 * 365.0),
+                education_level=0.4,
+                social_class="working",
+                gender=gender,
+                personality={},
+            )
+
+        women = [_agent("Anna", Agent.Gender.FEMALE), _agent("Berta", Agent.Gender.FEMALE)]
+        men = [_agent("Carlo", Agent.Gender.MALE), _agent("Dario", Agent.Gender.MALE)]
+        return sim, sim.current_tick + 1, women, men
+
+    def test_a_tick_without_intents_forms_couples_through_the_market(self, unpartnered_adults):
+        from epocha.apps.demography.models import Couple
+
+        sim, tick, _, _ = unpartnered_adults
+
+        orchestrator.run_demography_tick(sim, tick=tick)
+
+        formed = Couple.objects.filter(simulation=sim, formed_at_tick=tick)
+        assert formed.count() == 2
+
+    def test_a_pair_formed_by_an_intent_is_not_matched_again_by_the_market(
+        self, unpartnered_adults
+    ):
+        from epocha.apps.demography.models import Couple
+        from epocha.apps.demography.tests.test_couple import _decision_log
+
+        sim, tick, (anna, berta), (carlo, dario) = unpartnered_adults
+        _decision_log(sim, anna, tick - 1, "pair_bond", target=dario.name)
+        _decision_log(sim, dario, tick - 1, "pair_bond", target=anna.name)
+
+        orchestrator.run_demography_tick(sim, tick=tick)
+
+        couples = Couple.objects.filter(simulation=sim, formed_at_tick=tick)
+        assert {frozenset({c.agent_a_id, c.agent_b_id}) for c in couples} == {
+            frozenset({anna.id, dario.id}),
+            frozenset({berta.id, carlo.id}),
+        }

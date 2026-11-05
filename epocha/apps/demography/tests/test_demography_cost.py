@@ -388,8 +388,14 @@ def test_a_tick_with_deaths_stays_within_the_declared_bound(population, monkeypa
 # equalities sit on the no-birthday case; the doubling guard below is the one
 # that exercises the write, and it is pinned on an equality rather than on a
 # constant precisely so it stays honest about that.
-FIXED_TERM_NO_CANDIDATES = 36
-FIXED_TERM_WITH_CANDIDATES = 44
+#
+# Both constants grew by 3 (36 -> 39 and 44 -> 47) when step 2 gained the
+# rule-based marriage market (`couple.run_marriage_market`, T045): it reads
+# the eligible agents, the active couples and the marriage history every tick,
+# three queries whatever the population. These fixtures' women are all
+# partnered, so there is no seeker and the market issues no sentiment read.
+FIXED_TERM_NO_CANDIDATES = 39  # was 36: +3, the market's three reads
+FIXED_TERM_WITH_CANDIDATES = 47  # was 44: +3, the market's three reads
 
 # What a tick pays once for having any death at all, whatever their number:
 # the mortality step's own writes -- the marking and the event batch -- and
