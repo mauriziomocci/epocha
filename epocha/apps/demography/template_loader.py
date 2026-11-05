@@ -36,6 +36,12 @@ admitted interval: an error that says only that something is wrong sends
 the author hunting through a two-hundred-line file, which is how a typo
 survives in the first place.
 
+The `couple` block also carries the first-marriage and remarriage keys of
+the rule-based marriage market. Their values are a tunable heuristic, not
+verified (see the SCHEMA comment for the one provisional sourced value);
+the loader only checks that they are admissible and that the first-marriage
+schedule can be solved for them.
+
 Real calibration of the numerical parameters (Heligman-Pollard, Hadwiger)
 against historical life tables remains Plan 4's work; this module checks
 shape and admissibility, not realism.
