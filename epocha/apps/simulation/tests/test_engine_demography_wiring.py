@@ -11,6 +11,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from celery import chord
 from django.contrib.gis.geos import Point, Polygon
 
 from epocha.apps.agents.models import Agent, DecisionLog
@@ -298,15 +299,14 @@ def _simulation_without_protagonists(*, status):
 def test_with_zero_protagonists_the_celery_path_never_builds_a_decision_chord():
     """SC-006, Celery path: K = 0 reaches no decision, over 10 ticks.
 
-    The loop only runs while the simulation is `running`, so `finalize_tick`
-    is replaced by a double that advances the tick counter (the real one would
-    re-enqueue the loop). `chord` is the seam where decisions are dispatched:
-    it must never be reached, because the header is empty.
+    The loop only runs while the simulation is `running`. The suite runs Celery
+    eagerly, so the real `chord` and the real `finalize_tick` execute: with an
+    empty header the loop calls `finalize_tick` directly, which advances the
+    tick, and only its re-enqueue (`run_simulation_loop.apply_async`) is
+    stopped, so that the test drives the ten ticks itself.
     """
     sim = _simulation_without_protagonists(status=Simulation.Status.RUNNING)
-
-    def _advance_tick(results, simulation_id, tick):
-        Simulation.objects.filter(id=simulation_id).update(current_tick=tick)
+    started_at = sim.current_tick
 
     decision_client = _decision_client_double()
     with (
@@ -315,16 +315,17 @@ def test_with_zero_protagonists_the_celery_path_never_builds_a_decision_chord():
             "epocha.apps.agents.factions._generate_faction_identity",
             return_value=_FIXED_FACTION_IDENTITY,
         ),
-        patch("epocha.apps.simulation.tasks.chord") as chord,
-        patch("epocha.apps.simulation.tasks.finalize_tick", side_effect=_advance_tick) as finalize,
+        patch("epocha.apps.simulation.tasks.run_simulation_loop.apply_async") as re_enqueue,
+        patch("epocha.apps.simulation.tasks.chord", wraps=chord) as chord_spy,
     ):
         for _ in range(TICKS_WITHOUT_PROTAGONISTS):
             run_simulation_loop(sim.id)
 
+    sim.refresh_from_db()
     decision_client.assert_not_called()
-    chord.assert_not_called()
-    assert finalize.call_count == TICKS_WITHOUT_PROTAGONISTS
-    assert all(call.args[0] == [] for call in finalize.call_args_list)
+    chord_spy.assert_not_called()
+    assert re_enqueue.call_count == TICKS_WITHOUT_PROTAGONISTS
+    assert sim.current_tick == started_at + TICKS_WITHOUT_PROTAGONISTS
     assert not DecisionLog.objects.filter(simulation=sim).exists()
 
 
