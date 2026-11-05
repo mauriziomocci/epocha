@@ -180,8 +180,10 @@ def reference_simulation(db):
             )
         )
     # Four of the six are paired into two insolvent households; the last two
-    # stay free because `_file_couple_intents` needs a free man to resolve,
-    # and they were the only free men in the fixture.
+    # stay free because `_file_couple_intents` needs a free man to resolve.
+    # They are created after the founding, so they are free by construction;
+    # founder men the conditioned founding draw left single may be free too,
+    # but that depends on the draw and the test must not.
     paired = destitute[:4]
     for first, second in zip(paired[::2], paired[1::2], strict=True):
         form_couple(first, second, formed_at_tick=sim.current_tick)
@@ -225,9 +227,9 @@ def _file_couple_intents(sim, tick):
     men = [a for a in unpartnered if a.gender == Agent.Gender.MALE]
     assert men, "the fixture leaves no free man: nothing to resolve"
 
-    # The founding pass pairs every eligible woman, because the fixture has
-    # more men than women -- so a free woman has to be created here, after
-    # initialization, and she stands for the ordinary case the step exists
+    # A free woman is created here, after initialization, because whether a
+    # founder woman is still single depends on the conditioned founding draw
+    # and the test must not. She stands for the ordinary case the step exists
     # for: someone who reaches marriageable age, or arrives, after the world
     # was founded.
     free_woman = Agent.objects.create(
@@ -353,7 +355,7 @@ def test_the_separation_step_works_where_the_era_permits_divorce(reference_simul
     initialize_demography(sim)
 
     couple = Couple.objects.filter(simulation=sim, dissolved_at_tick__isnull=True).first()
-    assert couple is not None, "initialization formed no couple: nothing to separate"
+    assert couple is not None, "the fixture holds no active couple: nothing to separate"
     _intent(sim, couple.agent_a, 0, {"action": "separate"})
 
     run_demography_tick(sim, 1)
@@ -387,19 +389,14 @@ def test_the_population_lives(reference_simulation):
     ).count()
     population_at_end = Agent.objects.filter(simulation=sim, is_alive=True).count()
 
-    # Measured on this fixture, run alone, on 2026-10-29: 7 births and 4
-    # deaths over the simulated year, 86 agents becoming 89. The 5 deaths and
-    # 88 agents of 2026-09-26 predate the remediation of gate decision
-    # D-29-20, which reads the hazard at the completed age at the start of
-    # the tick's interval: the elders of 95 now carry q(95) for their whole
-    # year of age instead of a hazard rising through it. The figures before
-    # those, 14, 4 and 80 to 90, predate the six destitute agents the fixture
-    # gained for the subsistence counter. The crude birth rate that implies is far
-    # above the pre-industrial historical range, but the fixture is not a
-    # population -- it is thirty couples all inside the fertile window,
-    # which no real age structure looks like. Whether the MODEL reproduces
-    # historical rates is the validation work item's question, on a calibrated
-    # age pyramid; this test only asserts that the machinery runs.
+    # No figure is asserted or recorded here: the streams are keyed on the
+    # simulation's primary key, so the counts vary with the suite order, and
+    # the fixture is not a population -- it is thirty couples all inside the
+    # fertile window, which no real age structure looks like, so its crude
+    # birth rate is far above the pre-industrial historical range. Whether
+    # the MODEL reproduces historical rates is the validation work item's
+    # question, on a calibrated age pyramid; this test only asserts that the
+    # machinery runs.
     assert births > 0, f"no birth in {TICKS} ticks"
     assert deaths > 0, f"no death in {TICKS} ticks"
     # The accounting identity, not `end != start`. The streams are keyed on
