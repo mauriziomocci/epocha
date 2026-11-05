@@ -155,9 +155,9 @@ class MarriageHistory:
 
     Attributes:
         ever_partnered: ids of the agents who were in a couple that has since
-            ended, for whatever reason (a deceased partner has no id left here). The remarriage rate of the
-            marriage market applies to these women, the first-marriage
-            schedule to the others.
+            ended, for whatever reason (a deceased partner has no id left
+            here). The remarriage rate of the marriage market applies to
+            these women, the first-marriage schedule to the others.
         widowed_at_tick: id of each agent whose partner died, mapped to the
             tick of the latest such death. Mourning follows death only, not
             separation.
