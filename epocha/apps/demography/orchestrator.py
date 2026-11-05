@@ -498,11 +498,12 @@ def age_in_years(agent: Any, tick: int, tick_duration_hours: float, acceleration
     """The agent's age, derived from `birth_tick`.
 
     `birth_tick` is the canonical source and the only one that advances:
-    `Agent.age` is written once at world generation and never updated, so
-    reading it would freeze every hazard and every eligibility window for
-    the whole run. The fallback to that column exists only for agents whose
-    `birth_tick` is NULL, a state the initialization is required to leave
-    behind.
+    `Agent.age` is a cache of completed years, written at world generation
+    and refreshed only after the mortality step of a tick (step 2), so it can
+    lag the canonical age by up to a year within a tick; reading it would
+    quantise every hazard and every eligibility window to that refresh. The
+    fallback to that column exists only for agents whose `birth_tick` is
+    NULL, a state the initialization is required to leave behind.
 
     One division, last: `elapsed * hours * acceleration / 8760`. The elapsed
     ticks are an integer and the shipped tick lengths and accelerations make
