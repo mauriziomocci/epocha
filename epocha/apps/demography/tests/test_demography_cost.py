@@ -439,9 +439,10 @@ PER_PAIR_BOND_INTENT = 7
 # reads the marriage history (`couple.read_marriage_history`) the first time it
 # checks an agent's eligibility, one query whatever the number of intents. It
 # is a fixed term of the tick, like the once-per-tick death term
-# (`DEATH_TICK_ONCE`) above, and not part of the per-intent slope: T035 of the rule-based couples tasks declares one
-# query per tick, not per intent, and the measurement subtracts it so the
-# linearity and the bound stay exact equalities.
+# (`DEATH_TICK_ONCE`) above, and not part of the per-intent slope: T035 of
+# the rule-based couples tasks declares one query per tick, not per intent,
+# and the measurement subtracts it so the linearity and the bound stay exact
+# equalities.
 MARRIAGE_HISTORY_READ = 1
 
 
