@@ -230,7 +230,9 @@ def homogamy_score(
     - education proximity: exp(-|e_a - e_b|)
     - age proximity: exp(-|age_a - age_b| / age_tolerance), on the canonical
       ages in `ages` (`age_in_years` over `birth_tick`), not on the `age`
-      column, which the world generator writes once and nothing advances
+      column, which holds completed years only and is refreshed by the
+      mortality step after step 2, so it can lag the canonical age by up to
+      a year and would give the score a second source of age
     - relationship: the sentiment in [-1, 1] of the pair, from the
       per-tick `sentiments` map (`read_sentiments`), mapped to [0, 1]; a pair
       absent from the map reads the neutral 0.5
