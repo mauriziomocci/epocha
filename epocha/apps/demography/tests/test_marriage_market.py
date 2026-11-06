@@ -410,6 +410,31 @@ def everyone_seeks(monkeypatch):
     )
 
 
+@pytest.mark.django_db
+def test_the_market_reads_the_tick_length_with_the_template_acceleration(
+    sim_with_zone,  # noqa: F811
+    monkeypatch,
+):
+    """The tick length handed to the seek probability is `dt * acceleration`,
+    the value `orchestrator.years_per_tick` gives mortality and fertility."""
+    sim, _zone = sim_with_zone
+    seen = []
+
+    def spy(population, schedule, rate, years_per_tick):
+        seen.append(years_per_tick)
+        return lambda woman: 0.0
+
+    monkeypatch.setattr("epocha.apps.demography.couple.seek_probability_for", spy)
+    template = dict(load_template("pre_industrial_christian"), acceleration=2.0)
+    context = DemographyTickContext(
+        simulation=sim, tick=MARKET_TICK, template=template, tick_duration_hours=DAILY_WORLD_HOURS
+    )
+
+    run_marriage_market(context, random.Random(1))
+
+    assert seen == [pytest.approx(DAILY_WORLD_HOURS / 8760 * 2.0)]
+
+
 def _second_zone(zone):
     return Zone.objects.create(
         world=zone.world,

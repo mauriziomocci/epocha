@@ -640,20 +640,21 @@ def run_marriage_market(context, rng) -> list[Couple]:
     Reads the eligible population, gives each woman her marriage-event
     probability (first-marriage schedule or remarriage rate), draws the
     seekers on the tick's `couple` stream, and forms the matched couples.
-    `years_per_tick` is the tick length in simulated years, written inline
-    as `fertility.py` does (plan PD-07).
+    The tick length in simulated years comes from `orchestrator.years_per_tick`,
+    the point mortality and fertility share (imported here, not at module top,
+    like the other orchestrator imports of this module).
     """
-    from epocha.apps.demography.orchestrator import HOURS_PER_YEAR
+    from epocha.apps.demography.orchestrator import years_per_tick
 
     couple_cfg = context.template["couple"]
     acceleration = float(context.template.get("acceleration", 1.0))
-    years_per_tick = context.hours_per_tick() / HOURS_PER_YEAR * acceleration
+    tick_years = years_per_tick(context.hours_per_tick(), acceleration)
     population = read_market_population(context)
     probability = seek_probability_for(
         population,
         first_marriage_schedule(couple_cfg),
         couple_cfg["remarriage_annual_rate_female"],
-        years_per_tick,
+        tick_years,
     )
     seekers = draw_seekers(population.women, probability, rng)
     return form_matched_couples(context, population, seekers)
