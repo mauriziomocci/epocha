@@ -199,7 +199,14 @@ def _log_marriage_indicators(sim: Simulation, initialization_tick: int) -> None:
     )
 
 
-@pytest.mark.django_db
+# Real transactions, as in production: the engine commits once per tick, so
+# PostgreSQL prunes the superseded row versions of `agents_agent` (two steps
+# rewrite every living agent each tick). In the single transaction of a plain
+# `django_db` test ~100k dead row versions pile up and every query slows down,
+# so the runtime depended on the tests that ran before this one (decision
+# D-05-E-14; diagnosis in specs/20261029-123404-rule-based-couples/
+# phase6-t069-diagnosis.md). Tables are flushed at the end of the test.
+@pytest.mark.django_db(transaction=True)
 def test_three_rule_only_years_form_couples_and_births_without_any_decision(caplog):
     sim = _founded_simulation()
     initialization_tick = sim.current_tick
