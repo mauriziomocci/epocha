@@ -689,10 +689,12 @@ def resolve_pair_bond_intents(
     6. Malformed DecisionLog JSON is logged at WARNING level instead of
        being silently skipped (fix for audit finding B2-02).
     7. Refuses, and logs at WARNING level, a pairing in which either side is
-       below the era's minimum marriage age (`meets_marriage_age`). The
-       check sits in the formation loop, the one place every couple passes
-       through whether its intent was direct or arranged, and it reads
-       objects the loop already holds, so it costs no query.
+       ineligible by `marriage_ineligibility` (below the era's minimum
+       marriage age, or within the mourning interval after a partner's
+       death). The check sits in the formation loop, the one place every
+       couple passes through whether its intent was direct or arranged. It
+       reads the agents the loop already holds plus one read of the marriage
+       history, made once for the candidate pairs.
 
     `tick_duration_hours` is the world's tick length, which the age rule
     needs. The orchestrator passes the value its tick context has already
