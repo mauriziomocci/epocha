@@ -2840,8 +2840,9 @@ campaign tracked under `project_validation_experiments_pending.md`.
   intents. With `implicit_mutual_consent = true` (all five templates) a
   one-sided declaration suffices, and it respects the minimum age and the
   mourning but neither the calendar nor the market radius. The calibrated
-  calendar is therefore exact only with `max_protagonists = 0` and
-  approximate when K is much smaller than the population; with the
+  calendar is therefore unperturbed by intents only with
+  `max_protagonists = 0` and perturbed when K is much smaller than the
+  population; with the
   default K = 30 in a world of at most 30 living agents every adult is a
   protagonist, and the realized nuptiality is the rule plus the intents.
 - Agents that are not protagonists do not act in the decision loop: no
