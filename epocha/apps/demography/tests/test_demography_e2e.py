@@ -257,8 +257,9 @@ def _file_a_death_with_an_heir(sim, tick):
     """A widow with an estate and a living son, dead at `tick` before it runs.
 
     Whether the run's own deaths leave anything to settle is a draw. The
-    founders have no parents, siblings or children, so a mortality death
-    carries an heir only when it falls on a partnered agent; measured at
+    founders have no parents, siblings or children, and the agents born in
+    the run carry no wealth, so a mortality death carries a non-zero estate
+    to an heir only when it falls on a partnered founder; measured at
     simulation pk 156 the reference year had two deaths, an unpartnered
     elder and an unpartnered founder, and both estates went to the treasury
     exactly as `distribute_estate` prescribes when no heir lives. Correct
@@ -370,11 +371,10 @@ def test_every_declared_step_does_work_in_the_reference_run(reference_simulation
     # 3 mortality and 7 fertility.
     assert DemographyEvent.EventType.DEATH in kinds, "step 3 did nothing"
     assert DemographyEvent.EventType.BIRTH in kinds, "step 7 did nothing"
-    # 4 succession: an estate actually moved, and the widow's is one that
-    # must have, whatever the run's own deaths drew.
-    assert DemographyEvent.EventType.INHERITANCE_TRANSFER in kinds, (
-        "step 4 did nothing: no estate was settled in a run that had deaths"
-    )
+    # 4 succession: the widow's estate must have moved, whatever the run's own
+    # deaths drew. That real mortality deaths are settled is proven elsewhere:
+    # test_orchestrator_death.py (mortality then succession, real deaths) and
+    # test_orchestrator_order.py (a permuted order leaves a death unsettled).
     assert DemographyEvent.objects.filter(
         simulation=sim,
         tick=1,
