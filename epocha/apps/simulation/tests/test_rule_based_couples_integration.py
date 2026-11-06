@@ -20,6 +20,17 @@ only: it rests on a handful of marriages (the log line gives n), and the
 random streams are keyed on the simulation primary key, so the figure changes
 with the order in which the suite creates simulations (5 marriages gave 20.78,
 7 gave 23.24 and 25.38 on different orders). It is not a validation.
+
+The assertion that a couple forms after the initialization is probabilistic,
+like the girls test of `test_initialization.py`. Over the nine sessions of
+`phase6-measurements.md` the number of marriages was 7, 5, 6, 3, 9, 6, 10, 2
+and 10 (mean 6.44, variance over mean 1.28, close to Poisson). Under a Poisson
+count with that mean the probability of none in a run is exp(-6.44) = 1.6e-3;
+with the lower 95% limit of the mean (Student t, 8 degrees of freedom: 4.23)
+it is 1.5e-2. This is an estimate from nine runs, not a bound: the stream is
+keyed on the primary keys, which change with the suite order. The births
+assertion rests on 33 to 63 births per run (diagnosis file), whose probability
+of none is negligible next to the marriages.
 """
 
 from __future__ import annotations
