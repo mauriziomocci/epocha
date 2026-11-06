@@ -599,9 +599,9 @@ def form_matched_couples(context, population: MarketPopulation, seekers: list) -
 
     With no seeker or no man nothing is read and nothing is written. Otherwise
     one query reads the sentiments of the seeker-candidate pairs, the score is
-    `homogamy_score` (Kalmijn 1998, equation 4.6) on the era weights and the
-    canonical ages already in `population`, the markets are those of the era's
-    `marriage_market_radius`, and every couple is written by `form_couple`
+    `homogamy_score` (whitepaper equation (4.6), after Kalmijn 1998) on the era
+    weights and the canonical ages already in `population`, the markets are
+    those of the era's `marriage_market_radius`, and every couple is written by `form_couple`
     inside one transaction, in ascending seeker id, with the era's
     `default_type`, as the intent resolver does.
     """
