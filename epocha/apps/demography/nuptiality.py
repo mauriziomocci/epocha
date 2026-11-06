@@ -233,10 +233,11 @@ def founding_declaration_probability(schedule: FirstMarriageSchedule, age: float
 
     The conditioned cumulative F*(x) of (R4), not F(x): a woman who reaches the
     minimum age m single has had no chance of marrying before it, so the mass
-    F(m) that (R2) puts under m is not hers. Using F would declare about
-    F(m) / (1 - F(m)) of the girls just above m married without a calendar
-    that could have married them. One pure function, so the production path
-    and its test cannot diverge.
+    F(m) that (R2) puts under m is not hers. Using F would declare an excess
+    of F(x) - F*(x) = F(m) (1 - F(x)) / (1 - F(m)) married, which tends to
+    F(m) as x -> m: about F(m) of the girls just above m, married without a
+    calendar that could have married them. One pure function, so the
+    production path and its test cannot diverge.
     """
     return schedule.conditional_cdf(age)
 
