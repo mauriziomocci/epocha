@@ -13,6 +13,7 @@ from epocha.apps.demography.nuptiality import (
     FirstMarriageSchedule,
     _standard_lower,
     first_marriage_schedule,
+    founding_declaration_probability,
     location_from_observed_mean,
     standard_cdf,
     standard_density,
@@ -222,3 +223,22 @@ class TestRealizedCalendar:
         # realized mean of about 25.42, further than the 0.02 tolerance.
         mean_age, _ = _propagate_never_married(FirstMarriageSchedule(25.5, 5.5, 0.88, 14))
         assert abs(mean_age - 25.50) > 0.02
+
+
+class TestFoundingDeclarationProbability:
+    """SC-008 on the production path: the founding declaration uses F*, not F."""
+
+    islamic = FirstMarriageSchedule(18.639, 4.0, 0.97, 14)
+
+    def test_just_above_the_minimum_age_it_is_the_conditioned_share(self):
+        # At x = m + 0.1 the unconditioned F is 0.06835 (F(14) = 0.06157), the
+        # conditioned F* = (F(x) - F(m)) / (1 - F(m)) is 0.00723: a woman who
+        # reaches 14 single has had no chance yet to be married, so declaring
+        # her with F would marry 9 times too many girls of 14.
+        probability = founding_declaration_probability(self.islamic, 14.1)
+
+        assert probability == pytest.approx(0.0072273, abs=1e-6)
+        assert abs(probability - self.islamic.cdf(14.1)) > 0.05
+
+    def test_below_the_minimum_age_nobody_is_declared(self):
+        assert founding_declaration_probability(self.islamic, 13.9) == 0.0

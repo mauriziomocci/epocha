@@ -243,7 +243,10 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
         read_market_population,
     )
     from epocha.apps.demography.models import Couple
-    from epocha.apps.demography.nuptiality import first_marriage_schedule
+    from epocha.apps.demography.nuptiality import (
+        first_marriage_schedule,
+        founding_declaration_probability,
+    )
     from epocha.apps.demography.template_loader import load_template
 
     if template is None:
@@ -258,7 +261,9 @@ def form_initial_couples(simulation: Any, template: dict | None = None) -> None:
     schedule = first_marriage_schedule(template["couple"])
     rng = stream_for(simulation, simulation.current_tick, phase="initialization")
     seekers = draw_seekers(
-        population.women, lambda woman: schedule.conditional_cdf(population.ages[woman.id]), rng
+        population.women,
+        lambda woman: founding_declaration_probability(schedule, population.ages[woman.id]),
+        rng,
     )
     form_matched_couples(context, population, seekers)
 

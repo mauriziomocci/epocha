@@ -31,7 +31,10 @@ from epocha.apps.demography.couple import (
     seek_probability_for,
 )
 from epocha.apps.demography.models import Couple
-from epocha.apps.demography.nuptiality import first_marriage_schedule
+from epocha.apps.demography.nuptiality import (
+    first_marriage_schedule,
+    founding_declaration_probability,
+)
 from epocha.apps.demography.orchestrator import DemographyTickContext
 from epocha.apps.demography.template_loader import load_template
 from epocha.apps.demography.tests.test_couple import (  # reused fixture and helper
@@ -235,7 +238,9 @@ def test_the_founding_declaration_follows_the_conditioned_schedule_by_age_class(
     ages = {woman.id: ages_rng.uniform(14.0, 50.0) for woman in women}
 
     declared = draw_seekers(
-        women, lambda woman: schedule.conditional_cdf(ages[woman.id]), random.Random(2)
+        women,
+        lambda woman: founding_declaration_probability(schedule, ages[woman.id]),
+        random.Random(2),
     )
     declared_ids = {woman.id for woman in declared}
 

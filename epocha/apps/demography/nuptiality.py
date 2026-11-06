@@ -228,6 +228,19 @@ class FirstMarriageSchedule:
         return 1.0 - math.exp(-self.hazard(x) * years_per_tick)
 
 
+def founding_declaration_probability(schedule: FirstMarriageSchedule, age: float) -> float:
+    """Probability that a founding woman of this age is declared married (SC-008).
+
+    The conditioned cumulative F*(x) of (R4), not F(x): a woman who reaches the
+    minimum age m single has had no chance of marrying before it, so the mass
+    F(m) that (R2) puts under m is not hers. Using F would declare about
+    F(m) / (1 - F(m)) of the girls just above m married without a calendar
+    that could have married them. One pure function, so the production path
+    and its test cannot diverge.
+    """
+    return schedule.conditional_cdf(age)
+
+
 def truncated_mean(
     location: float,
     scale: float,
