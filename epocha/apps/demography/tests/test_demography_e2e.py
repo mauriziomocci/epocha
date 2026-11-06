@@ -253,6 +253,64 @@ def _file_couple_intents(sim, tick):
     return free_woman
 
 
+def _file_a_death_with_an_heir(sim, tick):
+    """A widow with an estate and a living son, dead at `tick` before it runs.
+
+    Whether the run's own deaths leave anything to settle is a draw. The
+    founders have no parents, siblings or children, so a mortality death
+    carries an heir only when it falls on a partnered agent; measured at
+    simulation pk 156 the reference year had two deaths, an unpartnered
+    elder and an unpartnered founder, and both estates went to the treasury
+    exactly as `distribute_estate` prescribes when no heir lives. Correct
+    succession, and step 4 still produced no transfer: the assertion was
+    passing or failing on how many simulations the suite had created first,
+    because `get_seeded_rng` mixes the primary key into the seed.
+
+    The widow is marked dead the way the mortality step marks its own dead
+    (`is_alive`, `death_tick`, `death_cause`) and before the tick runs, so she
+    is a death produced earlier in the tick that the succession step must
+    take up. No DEATH event is written for her: that event is the observable
+    of step 3, and filing one here would let the test's own input satisfy
+    the assertion on mortality.
+    """
+    widow = Agent.objects.create(
+        simulation=sim,
+        name="Vedova",
+        zone=Zone.objects.get(world__simulation=sim, name="Village"),
+        role="farmer",
+        location=Point(50, 50),
+        health=1.0,
+        wealth=100.0,
+        age=70,
+        birth_tick=int(sim.current_tick - 70 * TICKS_PER_YEAR),
+        education_level=0.5,
+        social_class="working",
+        gender=Agent.Gender.FEMALE,
+        personality={},
+    )
+    son = Agent.objects.create(
+        simulation=sim,
+        name="Erede",
+        zone=widow.zone,
+        role="farmer",
+        location=Point(50, 50),
+        health=1.0,
+        wealth=10.0,
+        age=45,
+        birth_tick=int(sim.current_tick - 45 * TICKS_PER_YEAR),
+        education_level=0.5,
+        social_class="working",
+        gender=Agent.Gender.MALE,
+        parent_agent=widow,
+        personality={},
+    )
+    widow.is_alive = False
+    widow.death_tick = tick
+    widow.death_cause = Agent.DeathCause.NATURAL_SENESCENCE
+    widow.save(update_fields=["is_alive", "death_tick", "death_cause"])
+    return widow, son
+
+
 @pytest.mark.django_db
 def test_every_declared_step_does_work_in_the_reference_run(reference_simulation):
     """The run has to exercise the order it claims to prove.
@@ -271,6 +329,7 @@ def test_every_declared_step_does_work_in_the_reference_run(reference_simulation
     sim = reference_simulation
     initialize_demography(sim)
     _file_couple_intents(sim, tick=0)
+    widow, son = _file_a_death_with_an_heir(sim, tick=1)
     # Filed so the negative on step 1 below is a real refusal rather than an
     # absence of input.
     from epocha.apps.demography.models import Couple as _Couple
@@ -311,10 +370,18 @@ def test_every_declared_step_does_work_in_the_reference_run(reference_simulation
     # 3 mortality and 7 fertility.
     assert DemographyEvent.EventType.DEATH in kinds, "step 3 did nothing"
     assert DemographyEvent.EventType.BIRTH in kinds, "step 7 did nothing"
-    # 4 succession: an estate actually moved.
+    # 4 succession: an estate actually moved, and the widow's is one that
+    # must have, whatever the run's own deaths drew.
     assert DemographyEvent.EventType.INHERITANCE_TRANSFER in kinds, (
         "step 4 did nothing: no estate was settled in a run that had deaths"
     )
+    assert DemographyEvent.objects.filter(
+        simulation=sim,
+        tick=1,
+        event_type=DemographyEvent.EventType.INHERITANCE_TRANSFER,
+        primary_agent=widow,
+        secondary_agent=son,
+    ).exists(), "step 4 did not settle a death produced before it in the same tick"
     # 5 the starvation counter: somebody was under the subsistence line.
     assert Agent.objects.filter(
         simulation=sim, consecutive_ticks_under_subsistence__gt=0
