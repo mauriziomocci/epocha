@@ -45,7 +45,6 @@ from epocha.apps.demography.clark_calibration import (
     CLARK_PERSISTENCE,
     solve_clark_innovation,
 )
-from epocha.apps.demography.rng import get_seeded_rng
 from epocha.apps.world.stratification import _CLASS_RANK
 
 logger = logging.getLogger(__name__)
@@ -1215,6 +1214,18 @@ def apply_social_inheritance(
 # ---------------------------------------------------------------------------
 
 
+def compute_zone_class_mean(zone: Any) -> float:
+    """Public name for the zone mean class rank, for callers that preload it.
+
+    The fertility step computes this once per candidate zone and passes it to
+    every birth in that zone, because computing it inside
+    `apply_inheritance_at_birth` costs one query per birth. Thin alias rather
+    than a second implementation: there is one definition of this quantity
+    and it is the private one below.
+    """
+    return _compute_zone_class_mean(zone)
+
+
 def _compute_zone_class_mean(zone: Any) -> float:
     """Mean class rank (on `_EXTENDED_CLASS_RANK`) of living agents in `zone`.
 
@@ -1246,7 +1257,13 @@ def _compute_zone_class_mean(zone: Any) -> float:
 
 
 def apply_inheritance_at_birth(
-    child: Any, mother: Any, father: Any, simulation: Any, tick: int
+    child: Any,
+    mother: Any,
+    father: Any,
+    simulation: Any,
+    tick: int,
+    rng: Any,
+    zone_class_mean: float | None = None,
 ) -> None:
     """Birth-pipeline entry point: apply every inheritance mechanism to a newborn.
 
@@ -1268,15 +1285,34 @@ def apply_inheritance_at_birth(
        per-era class rules) and education_level regression toward the era
        mean.
 
-    RNG stream: all three steps share a SINGLE `random.Random` instance,
-    drawn once via `demography.rng.get_seeded_rng(simulation, tick,
-    phase="inheritance")`, so together they consume one continuous,
+    RNG stream: all three steps share the SINGLE `random.Random` instance
+    the CALLER supplies, so together they consume one continuous,
     deterministic sequence rather than three independently-seeded ones.
     Changing the call order above would change which draw lands on which
     step and silently break bit-for-bit reproducibility across identically
     (simulation, tick)-seeded calls -- the same reproducibility contract
     `apply_trait_inheritance` and `resolve_birth_attributes` each document
     individually for their own internal draws.
+
+    WHY THE CALLER OWNS THE STREAM (Plan 4, SC-006): this function used to
+    derive it here, from `get_seeded_rng(simulation, tick,
+    phase="inheritance")`. That key does not depend on the newborn, and the
+    number of draws this function consumes does not depend on the parents
+    either -- `len(heritability)` gauss draws fixed by the template, one per
+    trait on every branch, then exactly two `rng.random()` calls in
+    `resolve_birth_attributes`. Every birth in a tick therefore restarted
+    the same sequence at the same offset, and two newborns in one tick came
+    out with IDENTICAL sex and orientation and identical trait residuals.
+    That is arithmetic on the draw count, not a hypothesis; it stayed
+    invisible only while nothing in production created a newborn.
+
+    The stream is now derived once per tick by the birth orchestrator and
+    threaded through the tick's newborns in a deterministic iteration
+    order, which is the rule `migration.py` already applies to its own
+    per-agent loop (Plan 4 FR-010). The parameter is REQUIRED rather than
+    defaulted: a default falling back to an internally derived stream would
+    leave the defect alive for every caller that omits it, and would give
+    the subsystem two ways to do one thing.
 
     Template resolution: `simulation.config.get("demography_template",
     "pre_industrial_christian")` then `template_loader.load_template(...)`,
@@ -1291,7 +1327,13 @@ def apply_inheritance_at_birth(
     template that would produce scientifically wrong inheritance under a
     mislabeled era.
 
-    zone_class_mean: computed once via `_compute_zone_class_mean(mother.zone)`
+    zone_class_mean: supplied by the caller when it has already computed the
+        mean for this zone and tick, and computed here via
+        `_compute_zone_class_mean(mother.zone)` otherwise. A caller resolving
+        several births in one tick MUST supply it: computed here it is one
+        query per birth, and FR-016a grants births no term of their own. It
+        is a property of the zone, so one value serves every birth in it.
+        Formerly computed once via `_compute_zone_class_mean(mother.zone)`
     -- the child's zone is the mother's zone (a newborn has no location
     history of its own) -- before any of the three steps run, since
     `apply_social_inheritance` needs it and the query has no RNG
@@ -1322,11 +1364,15 @@ def apply_inheritance_at_birth(
         father: the father Agent instance, or None if unresolved -- the
             single-parent fallback already supported by every downstream
             mechanism this function calls.
-        simulation: the Simulation instance; supplies `.config` (read for
-            the `demography_template` key) and is passed through to
-            `get_seeded_rng`.
-        tick: the current simulation tick, passed through to
-            `get_seeded_rng`.
+        simulation: the Simulation instance; supplies `.config`, read for
+            the `demography_template` key.
+        tick: the current simulation tick. Recorded on the child and used
+            by the mechanisms this function delegates to; the RNG stream is
+            no longer derived from it here.
+        rng: the tick's `inheritance`-phase stream, derived ONCE by the
+            caller and shared across every newborn of that tick in a
+            deterministic iteration order. Required, see "WHY THE CALLER
+            OWNS THE STREAM" above.
 
     Raises:
         FileNotFoundError, ValueError: propagated unchanged from
@@ -1339,9 +1385,8 @@ def apply_inheritance_at_birth(
     template_name = simulation.config.get("demography_template", "pre_industrial_christian")
     template = load_template(template_name)
 
-    zone_class_mean = _compute_zone_class_mean(mother.zone)
-
-    rng = get_seeded_rng(simulation, tick, phase="inheritance")
+    if zone_class_mean is None:
+        zone_class_mean = _compute_zone_class_mean(mother.zone)
 
     apply_trait_inheritance(child, mother, father, template, rng)
 
@@ -2754,12 +2799,15 @@ def transfer_loans_as_lender(
 # viene flaggato e Government.government_treasury copre la sua
 # sussistenza (modellando il wardship statale). L'orfano riceve comunque
 # la sua eredità direttamente; il caretaker amministra ma non possiede gli
-# asset."
+# asset." The treasury clause of that quote is not a transfer in the code:
+# see STATE WARD FLAG in `assign_orphan_caretaker`'s docstring.
 # ---------------------------------------------------------------------------
 
 
-def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
-    """Assign `minor.caretaker_agent` to the nearest living relative, or
+def assign_orphan_caretaker(
+    minor: Any, tick: int, template: dict, tick_duration_hours: float
+) -> Any | None:
+    """Assign `minor.caretaker_agent` to the nearest living adult relative, or
     flag state wardship when none exists (design spec Sezione 5, "Gestione
     orfani (fix MISS-1)").
 
@@ -2792,18 +2840,22 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
     minor's own two recorded parents; aunt/uncle means a living child
     (either FK) of a grandparent, excluding the minor's own parents.
 
-    STATE WARD FLAG: when no living relative exists in either stage, this
-    function returns None, leaves `minor.caretaker_agent` at None, and
-    appends the string `"state_ward"` to `minor.conditions`. `conditions`
+    STATE WARD FLAG: when no living adult relative exists in either
+    stage, this function returns None, sets `minor.caretaker_agent` to
+    None (clearing the link to a dead caretaker, when that is how the
+    minor got here), and appends the string `"state_ward"` to
+    `minor.conditions`. `conditions`
     (an existing `Agent` JSONField list, normally used for diseases and
     disabilities) is reused as the flag carrier because the plan is
     constrained to zero migrations (SC-005) and this field is otherwise
     unused for the minor at this point -- adding a dedicated boolean field
-    would require a migration this plan does not authorize. The treasury
-    actually covering the ward's subsistence (`Government.
-    government_treasury`) is NOT this function's job: it is the per-tick
-    job of the Plan 4 orchestrator, which reads the `"state_ward"` flag
-    every tick that follows. Only the flag itself is set here.
+    would require a migration this plan does not authorize. Only the flag
+    is set here. The spec's treasury clause ("Government.government_
+    treasury copre la sua sussistenza") is NOT implemented as a transfer:
+    no code moves treasury money to a ward. Demography Plan 4 instead
+    treats a state-ward minor as provided for in the household
+    subsistence predicate, `context.starving_households`, which owns that
+    rule.
 
     FIX MISS-1 (why this function exists at all): a caretaker only
     ADMINISTERS the minor's estate; the minor keeps direct ownership of
@@ -2813,13 +2865,20 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
     else. Wealth transfer, if any, already happened earlier in the death
     pipeline via `distribute_estate`; this function never re-opens it.
 
-    NO ADULTHOOD REQUIREMENT ON THE CARETAKER: the design spec is silent
-    on whether a chosen caretaker must itself be an adult. This
-    implementation imposes none -- a minor sibling can be selected as
-    caretaker if it is the nearest living relative. Flagged here
-    explicitly for the phase-6 adversarial audit rather than silently
-    assumed; resolving it either way is a scientific/design decision, not
-    an implementation default this function should invent.
+    THE CARETAKER IS AN ADULT: every candidate, at every rung and in both
+    stages, must have reached the era's `migration.adulthood_age` -- the
+    same threshold that makes the orphan a minor in the first place. The
+    design spec (Sezione 5, "Gestione orfani") lists the sibling rung
+    without an age, and an earlier version of this function read that
+    literally: three orphaned siblings aged 14, 10 and 6 became each
+    other's caretakers in a cycle, children administering children's
+    estates. This rule fills that gap rather
+    than contradicting the spec: a guardian who is a minor is no guardian,
+    and an orphan with no adult relative is exactly the state-ward case
+    the spec already defines. The age is `orchestrator.age_in_years` over
+    `birth_tick`, the canonical clock the rest of the subsystem reads
+    (`couple.meets_marriage_age` takes the same two inputs for the same
+    reason), so it carries the era's `acceleration` too.
 
     NO-SAVE CONTRACT (module-wide, matches `distribute_estate`'s "WITHOUT
     persisting" contract, T021): this function mutates the passed `minor`
@@ -2833,14 +2892,8 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
     other is `migration.py`'s `process_emergency_flight`). Neither module
     decides tick ordering -- that is the orchestrator's job -- so every
     input this function needs is passed explicitly rather than read from
-    module-level state. `tick` is accepted for exactly this reason (API
-    symmetry with the rest of the Plan 4 orchestrator surface, which
-    threads `tick` through every step) but currently plays NO
-    computational role inside this function -- there is no tick-dependent
-    branch here today. Documented honestly rather than inventing a use
-    for it: a future caller (e.g. one that logs a `DemographyEvent` at
-    the moment of assignment) may need it, but that is out of this
-    function's scope.
+    module-level state: `tick`, `template` and `tick_duration_hours` are
+    exactly the three inputs the adulthood test above needs.
 
     EDGE CASE, untested by design (out of this task's scope): if `minor`
     has no recorded zone (`zone_id is None`), stage 1 is skipped entirely
@@ -2854,13 +2907,15 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
             primary key). The caller (the Plan 4 death orchestrator)
             guarantees `minor` is an orphaned minor -- this function does
             not itself verify age or parental death.
-        tick: the current simulation tick, passed through for orchestrator
-            API symmetry (decision D3). See the docstring section above --
-            it has no computational effect in this implementation.
+        tick: the current simulation tick, the "now" of every candidate's
+            age.
+        template: the era template; `migration.adulthood_age` and
+            `acceleration` are read.
+        tick_duration_hours: hours per tick of the simulation's world.
 
     Returns:
-        The chosen caretaker `Agent`, or `None` when no living relative
-        exists anywhere (the state-ward case).
+        The chosen caretaker `Agent`, or `None` when no living adult
+        relative exists anywhere (the state-ward case).
 
     Query cost contract (bounded, independent of population size -- this
     runs once per newly-orphaned minor, and the Plan 4 orchestrator will
@@ -2874,6 +2929,13 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
     rather than scanning the population.
     """
     from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.orchestrator import age_in_years
+
+    adulthood_age = template["migration"]["adulthood_age"]
+    acceleration = float(template.get("acceleration", 1.0))
+
+    def _is_adult(agent: Any) -> bool:
+        return age_in_years(agent, tick, tick_duration_hours, acceleration) >= adulthood_age
 
     def _sort_key(agent: Any) -> tuple[int, int]:
         birth_tick = agent.birth_tick if agent.birth_tick is not None else 0
@@ -2893,9 +2955,12 @@ def assign_orphan_caretaker(minor: Any, tick: int) -> Any | None:
     aunts_uncles_raw = _resolve_aunts_uncles(grandparent_ids, parent_ids)
     aunts_uncles = sorted((agent for agent in aunts_uncles_raw if agent.is_alive), key=_sort_key)
 
-    # Kinship rungs in priority order -- each pool is already living-only
-    # and sorted ascending by (birth_tick, id).
-    kinship_pools = (siblings, grandparents, aunts_uncles)
+    # Kinship rungs in priority order -- each pool is living-only, sorted
+    # ascending by (birth_tick, id), and narrowed here to adults.
+    kinship_pools = tuple(
+        [agent for agent in pool if _is_adult(agent)]
+        for pool in (siblings, grandparents, aunts_uncles)
+    )
 
     def _first_match(zone_id: int | None) -> Any | None:
         for pool in kinship_pools:
@@ -3144,6 +3209,72 @@ def generate_mourning_memories(deceased: Any, tick: int) -> None:
 ESTATE_TAX_CURRENCY_FALLBACK_CODE = "USD"
 
 
+def _assign_caretakers_to_unguarded_minors(
+    simulation: Any, tick: int, template: dict, children: dict[int, Any], deceased_ids: set[int]
+) -> None:
+    """Give a caretaker to every minor this batch left with no living
+    guardian, and persist it.
+
+    A minor's guardians are its two recorded parents and its
+    `caretaker_agent` -- the same three agents `context.household_keys`
+    anchors a minor through. The candidates are `children` (the deceased's
+    own children, collected by the caller) plus the deceased's `dependents`,
+    the living agents whose `caretaker_agent` is one of `deceased_ids`. The
+    second set is row 44: a caretaker is often not a parent, so an orphan in
+    its grandmother's care is her grandchild, outside every heir category,
+    and her death used to leave it pointing at a dead caretaker for the rest
+    of the run, never re-read. A candidate gets
+    `assign_orphan_caretaker` when it is a minor and NONE of its three
+    guardians is alive: a child whose caretaker survives, or who still has a
+    living parent, is left alone by the same test, with no rule of its own.
+
+    The minority test is `orchestrator.age_in_years` against the era's
+    `migration.adulthood_age`, the age derived from `birth_tick` that
+    `assign_orphan_caretaker` applies to the caretaker and
+    `context.household_keys` to the household, never the `Agent.age`
+    column, which is only a cache.
+
+    Query cost, per batch and never per population: 1 query for the
+    dependents, 1 for the world's tick length (skipped when there is no
+    candidate), 1 for the living guardians (skipped when no candidate is a
+    minor) and 1 `bulk_update` (skipped when nobody is reassigned), plus
+    `assign_orphan_caretaker`'s own up-to-4 queries per reassigned minor.
+    """
+    from epocha.apps.agents.models import Agent
+    from epocha.apps.demography.orchestrator import _age_clock, age_in_years
+
+    dependents = Agent.objects.filter(caretaker_agent_id__in=deceased_ids, is_alive=True)
+    candidates = {dependent.id: dependent for dependent in dependents} | children
+    if not candidates:
+        return
+
+    tick_duration_hours, acceleration = _age_clock(simulation, template)
+    adulthood_age = template["migration"]["adulthood_age"]
+    minors = [
+        minor
+        for _, minor in sorted(candidates.items())
+        if age_in_years(minor, tick, tick_duration_hours, acceleration) < adulthood_age
+    ]
+    if not minors:
+        return
+
+    def _guardian_ids(minor: Any) -> set[int]:
+        guardians = (minor.parent_agent_id, minor.other_parent_agent_id, minor.caretaker_agent_id)
+        return {guardian_id for guardian_id in guardians if guardian_id is not None}
+
+    all_guardian_ids = set().union(*(_guardian_ids(minor) for minor in minors))
+    living_guardian_ids = set(
+        Agent.objects.filter(id__in=all_guardian_ids, is_alive=True).values_list("id", flat=True)
+    )
+    unguarded = [minor for minor in minors if not _guardian_ids(minor) & living_guardian_ids]
+    if not unguarded:
+        return
+
+    for minor in unguarded:
+        assign_orphan_caretaker(minor, tick, template, tick_duration_hours)
+    Agent.objects.bulk_update(unguarded, ["caretaker_agent", "conditions"])
+
+
 def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) -> None:
     """Settle every death in `deceased_agents` for this `tick`: dissolve
     couples, settle each estate, transfer loans, generate mourning
@@ -3251,30 +3382,24 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     CARETAKER ASSIGNMENT COMES LAST, AFTER EVERY DECEASED ABOVE IS FULLY
     PROCESSED (settled ordering decision): a minor orphaned by the LAST
     death in the batch must still be caught, and the "does this candidate
-    still have a living parent" check must see the batch's FINAL
-    aliveness state, not a partial one. Scoped to `heirs["children"]`
-    collected during the loop above -- NOT a population-wide scan -- so
-    the cost is bounded by this batch's own deaths, never by total
-    population size. A candidate is actually orphaned and gets
-    `assign_orphan_caretaker(child, tick)` called on it (T025's own
-    contract: mutates `child` in memory only, never saves) when ALL of:
-    it does not already have a `caretaker_agent`; it is a minor
-    (`child.age < template["migration"]["adulthood_age"]`); and NEITHER
-    of its own two recorded parents is still alive (checked with ONE
-    query across every candidate's parent ids, never per-candidate).
-    `assign_orphan_caretaker` itself still costs its own documented
-    up-to-4-query search PER actual orphan (inherent to reusing that pure
-    resolver rather than reimplementing its kinship ladder here) -- see
-    QUERY BUDGET below.
+    still have a living guardian" check must see the batch's FINAL
+    aliveness state, not a partial one. The candidates are
+    `heirs["children"]` collected during the loop above plus every
+    deceased's `dependents` -- NOT a population-wide scan -- so the cost
+    is bounded by this batch's own deaths, never by total population size.
+    `_assign_caretakers_to_unguarded_minors` owns the rule and its cost:
+    a minor gets a caretaker when none of its parents and none of its
+    current caretaker is alive.
 
     FAMILY-TOPOLOGY SCOPE (ratified 2026-07-20, logged for the phase-6
-    audit as an open question, NOT a defect to fix here): orphan
-    candidates are `heirs["children"]` ONLY -- the deceased's OWN
-    grandchildren are never candidates, because `resolve_heirs` has no
-    category that reaches two generations down (`extended_family` reaches
-    the deceased's own grandparents' lineage, never descendants of the
-    deceased's own children). This is a property of the CONVERGED design,
-    not something this task is scoped to change.
+    audit as an open question, NOT a defect to fix here): the deceased's
+    OWN grandchildren are never heir-derived candidates, because
+    `resolve_heirs` has no category that reaches two generations down
+    (`extended_family` reaches the deceased's own grandparents' lineage,
+    never descendants of the deceased's own children). A grandchild IN THE
+    DECEASED'S CARE is nonetheless reached, through `dependents` (row 44);
+    one whose caretaker is someone else still has a living guardian and
+    needs none.
 
     WEALTH CREDITING AND ZEROING (T028's persistence pin): after the full
     per-deceased loop, every deceased's wealth is set to exactly 0.0 and
@@ -3350,12 +3475,12 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     `transfer_loans_as_lender`'s own cost (up to 2) +
     `generate_mourning_memories`'s own cost (up to 5). PLUS, once for the
     whole batch (not per deceased): 1 query to resolve the primary
-    currency (fix I-10), 1 fetch + 1 `bulk_update` for wealth, 1 query + 1
-    `bulk_update` for caretakers (skipped entirely when there are no
-    orphan candidates), 1 `bulk_create` for events. On top of that,
-    each ACTUAL newly-orphaned minor costs `assign_orphan_caretaker`'s own
-    up-to-4-query search, AND -- fix NEW-7 (phase-6 audit round 4, T046) --
-    each death under the `matrilineal` rule specifically costs one
+    currency (fix I-10), 1 fetch + 1 `bulk_update` for wealth, the
+    caretaker pass (up to 3 queries + 1 `bulk_update`, plus
+    `assign_orphan_caretaker`'s own up-to-4-query search per minor actually
+    reassigned -- see `_assign_caretakers_to_unguarded_minors`), 1
+    `bulk_create` for events. On top of that -- fix NEW-7 (phase-6 audit
+    round 4, T046) -- each death under the `matrilineal` rule costs one
     ADDITIONAL query per the deceased's own sister: resolved exactly ONCE
     here (right after `resolve_heirs`, step 1) and threaded into both
     `distribute_estate` and `transfer_loans_as_lender` via their shared
@@ -3415,7 +3540,6 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
     primary_currency_code = (
         primary_currency.code if primary_currency is not None else ESTATE_TAX_CURRENCY_FALLBACK_CODE
     )
-    adulthood_age = template["migration"]["adulthood_age"]
 
     with transaction.atomic():
         government = Government.objects.get(simulation=simulation)
@@ -3532,44 +3656,10 @@ def process_inheritance_batch(simulation: Any, tick: int, deceased_agents: Any) 
             Agent.objects.bulk_update(agents_for_wealth, ["wealth"])
 
         # Caretaker assignment LAST -- see the docstring's CARETAKER
-        # ASSIGNMENT section for why. Bounded to this batch's own
-        # children, never a population-wide scan.
-        if orphan_candidates:
-            parent_ids_to_check = set()
-            for child in orphan_candidates.values():
-                if child.parent_agent_id:
-                    parent_ids_to_check.add(child.parent_agent_id)
-                if child.other_parent_agent_id:
-                    parent_ids_to_check.add(child.other_parent_agent_id)
-
-            still_alive_parent_ids = (
-                set(
-                    Agent.objects.filter(id__in=parent_ids_to_check, is_alive=True).values_list(
-                        "id", flat=True
-                    )
-                )
-                if parent_ids_to_check
-                else set()
-            )
-
-            minors_to_update = []
-            for child_id in sorted(orphan_candidates):
-                child = orphan_candidates[child_id]
-                if child.caretaker_agent_id is not None:
-                    continue
-                if child.age >= adulthood_age:
-                    continue
-                has_living_parent = (
-                    child.parent_agent_id in still_alive_parent_ids
-                    or child.other_parent_agent_id in still_alive_parent_ids
-                )
-                if has_living_parent:
-                    continue
-                assign_orphan_caretaker(child, tick)
-                minors_to_update.append(child)
-
-            if minors_to_update:
-                Agent.objects.bulk_update(minors_to_update, ["caretaker_agent", "conditions"])
+        # ASSIGNMENT section for why.
+        _assign_caretakers_to_unguarded_minors(
+            simulation, tick, template, orphan_candidates, deceased_ids
+        )
 
         if events_to_create:
             DemographyEvent.objects.bulk_create(events_to_create)

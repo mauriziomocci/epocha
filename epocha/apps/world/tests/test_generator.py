@@ -92,6 +92,11 @@ def simulation(user):
     return Simulation.objects.create(name="GenTest", seed=42, owner=user)
 
 
+# The enrichment pipeline builds its own LLM client: see `no_enrichment`
+# in the root conftest.
+pytestmark = pytest.mark.usefixtures("no_enrichment")
+
+
 @pytest.mark.django_db
 class TestGenerateWorldFromPrompt:
     @patch("epocha.apps.world.generator.get_llm_client")

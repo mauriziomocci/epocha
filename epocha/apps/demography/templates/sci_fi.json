@@ -249,5 +249,35 @@
   "migration": {
     "flight_trigger_ticks": 5,
     "adulthood_age": 18
+  },
+  "names": {
+    "male": [
+      "Corvin",
+      "Idris",
+      "Talon",
+      "Rho",
+      "Vesper",
+      "Kell",
+      "Orin",
+      "Zev",
+      "Cassian",
+      "Draven",
+      "Sol",
+      "Nyx"
+    ],
+    "female": [
+      "Lyra",
+      "Sable",
+      "Vega",
+      "Ione",
+      "Astra",
+      "Rune",
+      "Cyra",
+      "Wren",
+      "Nova",
+      "Sena",
+      "Kira",
+      "Echo"
+    ]
   }
 }

@@ -66,6 +66,11 @@ def authenticated_client(user):
     return client
 
 
+# The enrichment pipeline builds its own LLM client: see `no_enrichment`
+# in the root conftest.
+pytestmark = pytest.mark.usefixtures("no_enrichment")
+
+
 @pytest.mark.django_db
 class TestFullMVPFlow:
     @patch("epocha.apps.world.generator.get_llm_client")

@@ -1,5 +1,10 @@
 """Tests for the information flow propagation engine."""
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from epocha.apps.agents.information_flow import propagate_information
@@ -7,6 +12,9 @@ from epocha.apps.agents.models import Agent, Memory, Relationship
 from epocha.apps.simulation.models import Event, Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import World
+
+# Repository root, the working directory from which `config.settings` imports.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 @pytest.fixture
@@ -410,3 +418,162 @@ class TestPropagateInformation:
         rep = ReputationScore.objects.filter(holder=elena, target=marco)
         assert rep.exists()
         assert rep.first().reputation < 0
+
+
+def _personable(simulation, name):
+    return Agent.objects.create(
+        simulation=simulation,
+        name=name,
+        role="farmer",
+        personality={trait: 0.5 for trait in ("openness", "agreeableness")},
+    )
+
+
+def _close_friends(one, other):
+    Relationship.objects.create(
+        agent_from=one,
+        agent_to=other,
+        relation_type="friendship",
+        strength=0.9,
+        sentiment=0.9,
+        since_tick=0,
+    )
+
+
+@pytest.mark.django_db
+class TestFirstHandMemoriesAndTheLifetimeOfTheNews:
+    """A first-hand memory suppresses hearsay of the same origin for as long
+    as news of that origin can still be travelling, and no longer.
+
+    Round 13 of the demography Plan 4 phase-6 gate (R13-1): the first-hand
+    kind matched on the current tick only, so a fleeing partner or a widow,
+    whose first-hand memory names someone else as origin, was told of her
+    own flight or loss one hop later. The window is the lifetime of the
+    news, which these tests measure rather than assume.
+    """
+
+    @pytest.mark.parametrize(("max_hops", "last_tick"), [(1, 51), (3, 52), (5, 54)])
+    def test_news_of_a_first_hand_event_stops_travelling_where_the_window_ends(
+        self, simulation, world, settings, max_hops, last_tick
+    ):
+        """Phase 1 retells at the event's tick, phase 2 at the next one
+        whatever `max_hops` says, phase 3 while the hop is below `max_hops`:
+        a tick-50 event is last retold at 50 + max(max_hops, 2) - 1. Along a
+        chain long enough never to run out of listeners, that tick is
+        measured, so the suppression window cannot drift from it unseen."""
+        settings.EPOCHA_INFO_FLOW_MAX_HOPS = max_hops
+        chain = [_personable(simulation, f"Anello{i}") for i in range(10)]
+        for one, other in zip(chain, chain[1:], strict=False):
+            _close_friends(one, other)
+        Memory.objects.create(
+            agent=chain[0],
+            content="I travelled to the coast.",
+            emotional_weight=0.8,
+            source_type="direct",
+            tick_created=50,
+            origin_agent=chain[0],
+        )
+
+        for tick in range(50, 60):
+            propagate_information(simulation, tick=tick)
+
+        retold_at = Memory.objects.filter(
+            origin_agent=chain[0], source_type__in=["hearsay", "rumor"]
+        ).values_list("tick_created", flat=True)
+        assert max(retold_at) == last_tick
+
+    @pytest.mark.parametrize(("max_hops", "oldest_suppressing_tick"), [(1, 49), (3, 48), (5, 46)])
+    def test_a_first_hand_memory_suppresses_hearsay_exactly_over_the_window(
+        self, simulation, world, marco, settings, max_hops, oldest_suppressing_tick
+    ):
+        """Inside the window the holder is already informed; one tick older,
+        her first-hand memory belongs to news that has stopped travelling,
+        and fresh news of the same origin reaches her."""
+        settings.EPOCHA_INFO_FLOW_MAX_HOPS = max_hops
+        inside = _personable(simulation, "Dentro")
+        outside = _personable(simulation, "Fuori")
+        for holder, tick_created in (
+            (inside, oldest_suppressing_tick),
+            (outside, oldest_suppressing_tick - 1),
+        ):
+            _close_friends(marco, holder)
+            Memory.objects.create(
+                agent=holder,
+                content="Marco took me along to the coast.",
+                emotional_weight=0.8,
+                source_type="direct",
+                tick_created=tick_created,
+                origin_agent=marco,
+            )
+        Memory.objects.create(
+            agent=marco,
+            content="I travelled to the coast.",
+            emotional_weight=0.8,
+            source_type="direct",
+            tick_created=50,
+            origin_agent=marco,
+        )
+
+        propagate_information(simulation, tick=50)
+
+        heard = Memory.objects.filter(origin_agent=marco, source_type="hearsay")
+        assert list(heard.values_list("agent__name", flat=True)) == ["Fuori"]
+
+
+def _boot_settings_with_decay(decay: str) -> subprocess.CompletedProcess:
+    """Import the shared settings in a fresh interpreter, as every web and
+    worker process does at boot, with the decay set in the environment."""
+    return subprocess.run(
+        [sys.executable, "-c", "import config.settings.base"],
+        cwd=_REPO_ROOT,
+        env={**os.environ, "EPOCHA_INFO_FLOW_RELIABILITY_DECAY": decay},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+
+@pytest.mark.django_db
+class TestReliabilityDecayDomain:
+    """The per-hop reliability decay is read from the environment, and the
+    hop estimate that bounds phase 3 is defined only for 0 < decay < 1: at
+    1.0 `_estimate_hop` returns 0 for every rumour, phase 3 never stops and
+    the first-hand suppression window, derived from the three phases, no
+    longer covers the life of the news (round 14 of the demography Plan 4
+    phase-6 gate, NB-1). A decay outside the open interval is a
+    configuration error, refused by the settings where the environment is
+    read, so that a bad value stops every web and worker process at boot,
+    before any tick and any paid LLM call."""
+
+    @pytest.mark.parametrize("decay", ["1.0", "0.0", "1.5", "-0.1"])
+    def test_a_decay_outside_the_open_unit_interval_stops_the_boot(self, decay):
+        booted = _boot_settings_with_decay(decay)
+
+        assert booted.returncode != 0
+        assert "ImproperlyConfigured" in booted.stderr
+        assert "EPOCHA_INFO_FLOW_RELIABILITY_DECAY" in booted.stderr
+
+    def test_a_decay_inside_the_open_unit_interval_boots(self):
+        booted = _boot_settings_with_decay("0.7")
+
+        assert booted.returncode == 0, booted.stderr
+
+    def test_the_default_decay_propagates_and_decays_reliability(
+        self, simulation, world, marco, elena, settings
+    ):
+        settings.EPOCHA_INFO_FLOW_RELIABILITY_DECAY = 0.7
+        _close_friends(marco, elena)
+        Memory.objects.create(
+            agent=marco,
+            content="I travelled to the coast.",
+            emotional_weight=0.8,
+            source_type="direct",
+            tick_created=1,
+            origin_agent=marco,
+        )
+
+        propagate_information(simulation, tick=1)
+
+        heard = Memory.objects.get(agent=elena, origin_agent=marco)
+        assert heard.reliability == pytest.approx(0.7)
