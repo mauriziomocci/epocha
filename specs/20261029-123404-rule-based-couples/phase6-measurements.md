@@ -152,20 +152,30 @@ che aveva ospitato una sola run invece di due. Quindi l'esito dipende anche
 dalle altre chiavi primarie (agenti, zone, mondo), che cambiano con lo stato
 della base; non ho isolato quale.
 
-**Durata del test: condizione di fallimento.** La durata supera il limite
-di 120 s in sette delle nove pk, dalla 3 alla 9. La serie è girata fra le
-01:01 e le 01:23 con un load average della macchina intorno a 7, quindi non
-del tutto quieta, e le sue durate non sono misure a macchina quieta. Ho escluso che
-dipenda dalla base riutilizzata: sulla stessa base, a carico della macchina
-simile (load average fra 4 e 7), la pk 1 ha richiesto 70,57 s e la pk 3
-subito dopo 145,90 s. Una ripetizione della pk 1 sulla stessa base ha poi
-richiesto 103,85 s, ma con il load average salito a 12-14 per processi
-estranei a questo lavoro, quindi quella cifra misura il carico e non la pk.
-La durata dipende dunque dalla popolazione che le estrazioni producono, e
-nella suite completa, dove la pk del test dipende dall'ordine con cui le altre
-prove creano simulazioni, il test di T069 non resta sotto i 120 s salvo che
-alle pk 1 e 2. La causa (più nascite, più coppie, mercato più grande o altro)
-non l'ho misurata. Il limite non l'ho cambiato.
+**Durata del test: correzione (D-05-E-14).** Il paragrafo di questa sezione
+scritto in origine attribuiva la durata alla popolazione che le estrazioni
+producono. Quell'affermazione è sbagliata. La diagnosi
+(`phase6-t069-diagnosis.md`) mostra che la popolazione cambia il lavoro di
+circa il 6-10%, mentre la durata raddoppia perché il test girava in una sola
+transazione: due passi riscrivono ogni agente vivo a ogni tick, PostgreSQL non
+può potare le versioni vecchie finché la transazione resta aperta, e le righe
+morte lasciate dai test precedenti nella stessa base rendono ogni query più
+lenta. La pk era solo un indicatore di quante run avevano preceduto il test.
+Le durate della tabella qui sopra (129-196 s alle pk da 3 a 9) misurano
+quindi quello stato della base, non la pk né la popolazione.
+
+La decisione D-05-E-14 ha marcato il test con
+`@pytest.mark.django_db(transaction=True)`, cioè con commit reali come fa il
+motore in produzione (un commit per tick), lasciando invariato il limite di
+120 s. Ho rimisurato il test così modificato (commit `6f0925d`), nel progetto
+isolato `epocha-couples`, con il load average della macchina fra 5 e 8
+(non quieta): da solo con `--create-db` la sessione dura 41,96 s (load 6,20
+all'inizio, 5,21 alla fine); in una sola invocazione dopo
+`test_demography_e2e.py` (due prove lunghe di demografia) la chiamata del test
+dura 50,18 s (load 5,11 all'inizio, 5,30 alla fine) e, ripetuta subito dopo
+sulla stessa base, 54,10 s (load 5,30 all'inizio, 8,56 alla fine). Tutte le
+asserzioni passano. I tempi sono sotto il limite di 120 s anche con la
+macchina carica e non dipendono più dai test eseguiti prima.
 
 ## Decisioni a cui queste misure si riferiscono
 
@@ -183,11 +193,13 @@ mortalità, che nel motore precede la fecondità.
 ## Condizioni di fallimento
 
 SC-005 non fallisce in nessuna delle tre run, e SC-007 non fallisce in
-nessuna delle due configurazioni. Il test di T069, eseguito da solo a
-macchina quieta, dura 67,11 s ed è sotto il limite di 120 s; la stessa prova
-alle pk da 3 a 9 dura fra 129 e 196 s, sopra il limite, e la dipendenza dalla
-pk è confermata da una run di controllo sulla stessa base (70,57 s alla pk 1,
-145,90 s alla pk 3). La considero una condizione di fallimento del piano
-(Rinvii R7, sopra 120 s fermarsi e scalare): **la fase 6 si ferma qui**, T088
-non parte, e la decisione sul test (limite, dimensione della prova, marker,
-causa della durata) va all'Opus che coordina o all'utente.
+nessuna delle due configurazioni. Il test di T069 con commit reali
+(D-05-E-14) dura fra 42 e 54 s, sotto il limite di 120 s del piano
+(Rinvii R7), anche dopo altre prove lunghe di demografia nella stessa
+invocazione. La condizione di fallimento registrata in origine per T069 era
+un artefatto della transazione unica del test, non una proprietà del modello
+(si veda la correzione sopra e `phase6-t069-diagnosis.md`). Due difetti veri
+trovati dalla diagnosi, fuori da questo work item, restano da aprire come work
+item propri: la scrittura di `social_class` per ogni agente a ogni tick in
+`update_social_classes` e le due letture di relazioni con OR su due chiavi
+esterne.
