@@ -381,11 +381,11 @@ def test_tick_birth_probability_no_couple_returns_zero(female_agent):
     agent.birth_tick = sim.current_tick - 26 * 876  # ~26 years at 10h/tick
     agent.save()
 
+    # No reload: `tick_birth_probability` imports `is_in_active_couple` inside
+    # the function, so the patched attribute is read at call time. Reloading
+    # `fertility` replaced its classes, and a test module that had imported
+    # `FertilityScheduleError` before the reload could no longer catch it.
     with _inject_couple_stub(return_value=False):
-        # Force fertility module to re-import couple with the stub in place
-        import importlib
-
-        importlib.reload(fertility_mod)
         result = fertility_mod.tick_birth_probability(
             agent,
             _ERA_PARAMS_WITH_COUPLE_REQUIRED,
@@ -421,9 +421,6 @@ def test_tick_birth_probability_avoid_conception_returns_zero(female_agent):
     agent.refresh_from_db()
 
     with _inject_couple_stub(return_value=True):
-        import importlib
-
-        importlib.reload(fertility_mod)
         result = fertility_mod.tick_birth_probability(
             agent,
             _ERA_PARAMS_WITH_COUPLE_REQUIRED,

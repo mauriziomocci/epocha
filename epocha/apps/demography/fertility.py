@@ -115,6 +115,61 @@ def marital_fertility_rate(age: float, marital_cfg: Mapping[str, float]) -> floa
     return level * HENRY_NATURAL_FERTILITY[group][1]
 
 
+class FertilityScheduleError(ValueError):
+    """A `fertility` section does not carry exactly one base schedule.
+
+    A subclass of ValueError, so every caller that already treats a template
+    defect as a ValueError stays correct (plan PD-03); callers that need to
+    tell this defect apart decide by type, never by message.
+    """
+
+
+# (N4): the base schedule is chosen by the block the `fertility` section
+# carries, and the presence of the `marital` block is also the couple rule
+# (spec D-MF-03): births need an active couple exactly in the eras whose base
+# rate is a rate per partnered woman.
+_BASE_SCHEDULES = {"marital": marital_fertility_rate, "hadwiger": hadwiger_asfr}
+
+
+def base_schedule_kind(fertility_cfg: Mapping[str, object]) -> str:
+    """Name of the single base-schedule block of a `fertility` section.
+
+    Raises FertilityScheduleError when the section carries both blocks or
+    neither: exactly one is admitted. This is the only place the rule is
+    written; the predicate, the dispatcher and the template loader call it,
+    so they cannot disagree.
+    """
+    present = [kind for kind in _BASE_SCHEDULES if kind in fertility_cfg]
+    if len(present) != 1:
+        raise FertilityScheduleError(
+            "fertility.marital and fertility.hadwiger: exactly one is admitted, "
+            f"the section has the keys {sorted(fertility_cfg)}"
+        )
+    return present[0]
+
+
+def requires_couple_for_birth(fertility_cfg: Mapping[str, object]) -> bool:
+    """Whether a birth needs an active couple: true iff the section has `marital`.
+
+    Inverts the former default (FR-002): a missing `require_couple_for_birth`
+    key used to mean "couple required", while a section without `marital`
+    now does not require one, and a section without exactly one base block
+    raises FertilityScheduleError instead of silently allowing births
+    outside a couple.
+    """
+    return base_schedule_kind(fertility_cfg) == "marital"
+
+
+def annual_base_rate(age: float, fertility_cfg: Mapping[str, object]) -> float:
+    """Annual base fertility rate at age a, before Becker and the ceiling (N4).
+
+    The marital rate r(a) of (N1) with the `marital` block, the Hadwiger
+    ASFR (4.2) with the `hadwiger` block; FertilityScheduleError otherwise.
+    """
+    kind = base_schedule_kind(fertility_cfg)
+    return _BASE_SCHEDULES[kind](age, fertility_cfg[kind])
+
+
 def _female_role_employment_fraction(zone, simulation) -> float:
     """Fraction of adult females in a wage-earning role in the zone.
 

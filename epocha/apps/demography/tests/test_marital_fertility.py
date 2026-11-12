@@ -11,7 +11,8 @@ Coale-Trussell model"); the primary source was not read.
 These tests prove the shape (piecewise constant on the published groups,
 non-increasing from 25, zero outside [15, 50)) and the level
 (M = T_m / 8.995, with 8.995 computed from the six values, never written by
-hand). All tests are pure: no database, no Django models.
+hand), and the single dispatch point (N4) that chooses the base schedule
+from the block a `fertility` section carries. All tests are pure: no database, no Django models.
 """
 
 import pytest
@@ -19,7 +20,11 @@ import pytest
 from epocha.apps.demography.fertility import (
     HENRY_NATURAL_FERTILITY,
     HENRY_TMFR_20_49,
+    FertilityScheduleError,
+    annual_base_rate,
+    hadwiger_asfr,
     marital_fertility_rate,
+    requires_couple_for_birth,
 )
 
 # The English level of the spec, the marital TMFR 20-49 that the Christian
@@ -76,3 +81,51 @@ def test_level_is_t_m_over_henry_tmfr():
 
     industrial_level = marital_fertility_rate(22.0, {"total_marital_fertility_20_49": 6.22}) / 0.460
     assert industrial_level == pytest.approx(0.69150, abs=1e-5)
+
+
+# --- One dispatch point (FR-002, US3 scenario 4, plan PD-02 and PD-03) ---
+
+BECKER_ZERO = {f"beta_{i}": 0.0 for i in range(5)}
+HADWIGER_BLOCK = {"H": 1.8, "R": 30, "T": 4.2}
+MARITAL_SECTION = {"marital": MARITAL_BLOCK, "becker_coefficients": BECKER_ZERO}
+HADWIGER_SECTION = {"hadwiger": HADWIGER_BLOCK, "becker_coefficients": BECKER_ZERO}
+BOTH_BLOCKS = {"marital": MARITAL_BLOCK, "hadwiger": HADWIGER_BLOCK}
+NO_BLOCK = {"becker_coefficients": BECKER_ZERO}
+# The message must name both paths, so a template author sees which block to
+# add or remove (FR-003).
+BOTH_PATHS_NAMED = r"fertility\.marital.*fertility\.hadwiger"
+
+
+def test_requires_couple_iff_marital_block():
+    assert requires_couple_for_birth(MARITAL_SECTION) is True
+    assert requires_couple_for_birth(HADWIGER_SECTION) is False
+
+
+def test_annual_base_rate_uses_the_marital_rate_with_the_marital_block():
+    assert annual_base_rate(25.0, MARITAL_SECTION) == marital_fertility_rate(25.0, MARITAL_BLOCK)
+
+
+def test_annual_base_rate_uses_hadwiger_with_the_hadwiger_block():
+    assert annual_base_rate(25.0, HADWIGER_SECTION) == hadwiger_asfr(25.0, HADWIGER_BLOCK)
+
+
+_DISPATCHERS = [
+    pytest.param(lambda cfg: annual_base_rate(25.0, cfg), id="annual_base_rate"),
+    pytest.param(requires_couple_for_birth, id="requires_couple_for_birth"),
+]
+
+
+@pytest.mark.parametrize("dispatch", _DISPATCHERS)
+def test_both_blocks_raise(dispatch):
+    with pytest.raises(FertilityScheduleError, match=BOTH_PATHS_NAMED):
+        dispatch(BOTH_BLOCKS)
+
+
+@pytest.mark.parametrize("dispatch", _DISPATCHERS)
+def test_no_block_raises(dispatch):
+    with pytest.raises(FertilityScheduleError, match=BOTH_PATHS_NAMED):
+        dispatch(NO_BLOCK)
+
+
+def test_schedule_error_is_a_value_error():
+    assert issubclass(FertilityScheduleError, ValueError)
