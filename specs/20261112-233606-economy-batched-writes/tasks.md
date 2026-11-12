@@ -1,0 +1,62 @@
+# Tasks: per-tick writes linear in the number of agents
+
+**Input**: `specs/20261112-233606-economy-batched-writes/spec.md` (Italian, normative, revision 2) and `plan.md`.
+
+**API contract**: contract unchanged.
+
+**Run everything** in the session's own Docker project, never `epocha`:
+
+```bash
+W=<this worktree>
+docker compose --project-directory $W -p epocha-economy-scale \
+  -f $W/docker-compose.local.yml -f <night override or the day equivalent> \
+  run --rm web sh -c '<command>'
+```
+
+**Bars for every code task**: functions about 40 lines at most, nesting at most 3, no catch-all `except`, typed errors, no dead code, no duplicated logic, every constant named and documented, English identifiers, docstrings with the reason. A test that passes on its first run is proven by a named mutation of production code. Commits in Conventional Commits, scope `economy` (or `config` for spec-only commits), with a `CHANGE:` paragraph and, for every new function, the reuse statement in the body; no attribution lines.
+
+## Phase 1: Measure before choosing (plan PD-01)
+
+- [ ] **T001**: Create `epocha/common/testing.py` with a module docstring (imported only by tests; why `WHEN` counts rows: Django 5.1 `QuerySet.bulk_update` writes one `When(pk=...)` per object per field, and on PostgreSQL the cast renders as `(CASE WHEN ...)::type`, verified in the image's source) and one function `case_update_rows(captured_queries, model, field_count: int) -> list[int]`: from `CaptureQueriesContext.captured_queries`, keep the statements whose SQL starts with `UPDATE "<model._meta.db_table>"` and contains `CASE WHEN`, and return, in execution order, `sql.count("WHEN") // field_count`. No test of its own: the guards of T004, T005 and T006 assert exact lists, so a helper returning a wrong list fails them. Files: the new module only.
+
+- [ ] **T002**: Create `scripts/measure_economy_write_cost.py` per plan PD-03 and PD-01, first part: module docstring (purpose, spec SC-002 to SC-004, how to run it: `pytest scripts/measure_economy_write_cost.py -s -p no:cacheprovider -k <function>`, one function per invocation, never collected by the suite); constants `FOUNDERS`, `TICKS`, `SEED` from `ECONOMY_COST_FOUNDERS` (2000), `ECONOMY_COST_TICKS` (5), `ECONOMY_COST_SEED` (20261112); `CANDIDATE_BATCH_SIZES = (5, 10, 15, 25, 50, 100, 200, 500)`, `REPETITIONS = 3`, `DRIFT_TOLERANCE = 0.20`, `ONE_ROW_SAMPLES = 20`, each with the plan reference; a builder `founded_economy_simulation(founders: int, seed: int) -> Simulation` (user, simulation with `seed=seed`, `World` with `tick_duration_hours=730`, `Government`, two zones, founders through one `Agent.objects.bulk_create` with role and personality drawn from `random.Random(seed)`, following the agent fields of `epocha/apps/economy/tests/test_engine.py:145-163`, then `initialize_economy(simulation, template_name="pre_industrial")`); and `test_batch_size_candidates`, marked `@pytest.mark.django_db(transaction=True)`, which runs `process_economy_tick_new(simulation, 1)`, loads the expectation rows in `id` order, times the full `bulk_update(rows, FIVE_FIELDS, batch_size=B)` per candidate and repetition, times the first candidate again (drift check), times b as the median of the one-row updates, and prints R, b, per candidate the median total and the per-statement time, the drift ratio, and the least-squares fit of a, c, b (report only). Split into functions under the bars. Files: the new script only.
+
+- [ ] **T003**: Run `test_batch_size_candidates` at 2,000 founders in `epocha-economy-scale`. Apply the PD-01 rules in order: drift above 20% → rerun T002's run; minimum at a grid edge → rerun once with the grid extended past it; no candidate under 5 s → stop and escalate to the user with the table. Otherwise copy the table into `plan.md`, *Measurements*, with date, commit and machine, and choose B (lowest median total; ties within 10% to the larger B). Commit T001-T003: `test(economy): measure the bulk update cost by batch size`.
+
+## Phase 2: User Story 1 and User Story 2, guards and fix
+
+- [ ] **T004**: RED. In `epocha/apps/economy/tests/test_expectations.py`, class `TestUpdateAgentExpectations`, add `test_update_writes_in_batches_of_the_batch_size`, parametrized on `(batch_size, expected_rows)` = `(2, [2, 2, 2])` and `(4, [4, 2])`: three agents built like the `agent` fixture, plus the `goods` and `zone_economy` fixtures (6 rows); a first `update_agent_expectations(simulation, tick=1)` creates the rows; `settings.EPOCHA_BULK_UPDATE_BATCH_SIZE = batch_size` through the pytest-django `settings` fixture; the second call, `tick=2`, under `CaptureQueriesContext(connection)`; assert `case_update_rows(ctx.captured_queries, AgentExpectation, 5) == expected_rows`. Run it and see it fail with `[6] != [2, 2, 2]` and `[6] != [4, 2]`; paste the failure lines into the commit body.
+
+- [ ] **T005**: RED. In `epocha/apps/economy/tests/test_engine.py`, class `TestProcessEconomyTick`, add `test_wealth_and_mood_written_in_batches`, parametrized on `(2, [2, 2, 1])` and `(4, [4, 1])`: the `setup_economy` fixture plus three agents with an `AgentInventory` each, built like `farmer` (lines 145-170), five living agents with inventory in all; the setting through `settings`; `process_economy_tick_new(simulation, tick=1)` under `CaptureQueriesContext(connection)`; assert `case_update_rows(ctx.captured_queries, Agent, 2) == expected_rows`. Run it and see it fail with `[5] != ...` in both cases.
+
+- [ ] **T006**: RED. In `epocha/apps/world/tests/test_stratification.py`, class `TestUpdateSocialClasses`, add `test_social_classes_written_in_batches`, parametrized on `(2, [2, 2, 2, 2, 2])` and `(4, [4, 4, 2])` on the `agents_with_wealth` fixture (10 living agents; count them in the fixture before writing the lists); the setting through `settings`; `update_social_classes(simulation)` under `CaptureQueriesContext(connection)`; assert `case_update_rows(ctx.captured_queries, Agent, 1) == expected_rows`. Run it and see it fail with `[10] != ...`.
+
+- [ ] **T007**: In `config/settings/base.py`, next to the other tunable quantities, add `EPOCHA_BULK_UPDATE_BATCH_SIZE = env.int("EPOCHA_BULK_UPDATE_BATCH_SIZE", default=<the B of T003>)` and, right after it, `if EPOCHA_BULK_UPDATE_BATCH_SIZE < 1: raise ImproperlyConfigured(...)` naming the setting and the value. Comment: Django's `bulk_update` writes one `CASE` branch per row per column and PostgreSQL scans the branches per row, so one statement over N rows costs about a·N² (measured 2026-11-12: 285 s for 10,020 rows and five columns); batches of B rows cost about N·(a·B + c + b/B); the measured table is in `specs/20261112-233606-economy-batched-writes/plan.md`, *Measurements*; a tunable engineering heuristic that changes time, never values. Add a test in the settings tests if the project has one for other validated settings (search `ImproperlyConfigured` in `config/` and the test suites first); otherwise, state in the commit body why none is added.
+
+- [ ] **T008**: Pass `batch_size=settings.EPOCHA_BULK_UPDATE_BATCH_SIZE` at the three call sites, adding `from django.conf import settings` where missing and one comment line with the reason (quadratic `CASE`, spec FR-001, FR-002, FR-008): `epocha/apps/economy/expectations.py` (today line 235), `epocha/apps/economy/engine.py` (today line 898), `epocha/apps/world/stratification.py` (today line 192). Run T004, T005, T006: green. Check that the comment at `engine.py` lines 778-780 ("bulk_update write order should be reproducible too") is still true: the batches follow the list order, so it is; leave it.
+
+- [ ] **T009**: Whitepapers, same commit as T007-T008 (spec FR-007, plan *Documentation impact*): in `docs/whitepaper/epocha-whitepaper.md` (today line 1162) replace "flushed in two terminal `bulk_create` and `bulk_update` calls so the entire pass is two writes per tick regardless of the agent count" with a sentence saying the new rows go in one `bulk_create` and the updated rows in one `bulk_update` in batches of `EPOCHA_BULK_UPDATE_BATCH_SIZE` rows, 1 + ⌈R/B⌉ statements per tick, because one statement over all rows costs time quadratic in the rows; the same in `docs/whitepaper/epocha-whitepaper.it.md` (today line 1199), in Italian. Then update the 13 line citations per file listed in plan *Documentation impact* to the new line numbers, read from the edited sources (`grep -n` on the cited constants and functions, never by adding one blindly). Then re-grep both files for `expectations.py:` and `engine.py:` and confirm that every economy citation points at the code it names and that the `engine.py:265-310` citations of another module did not move.
+
+- [ ] **T010**: Run `pytest epocha/apps/economy/ epocha/apps/world/ -v` and `ruff check . && ruff format --check .`: zero failures. Run the taste measures on the changed files (function length, nesting, complexity) and fix or justify each hit with file:line.
+
+- [ ] **T011**: Commit T004-T010 together: `perf(economy): write per-tick bulk updates in bounded batches`, `CHANGE:` paragraph with the measured 285 s, the chosen B, the three sites, the reuse statement for `case_update_rows`, the three red failure lines.
+
+## Phase 3: Measurement and judgment (SC-002 to SC-004)
+
+- [ ] **T012**: In `scripts/measure_economy_write_cost.py`, add `test_economy_step_cost`, marked `@pytest.mark.django_db(transaction=True)`, per plan PD-03: build the world, run tick 1 untimed, then for ticks 2..1+TICKS time `process_economy_tick_new` with `time.perf_counter()` under `CaptureQueriesContext`, print per tick the time, the total `UPDATE` count, and count and maximum of `case_update_rows` for `AgentExpectation` (5 fields) and `Agent` (2 fields); then the median time, `simulation.id`, the seed and the SHA-256 fingerprint of spec FR-006 (agents in `id` order by ordinal: wealth, mood; expectations in (agent ordinal, good code) order: the five fields; floats as `float.hex`). Split into functions under the bars (timing, shape summary, fingerprint).
+
+- [ ] **T013**: Smoke: run `test_economy_step_cost` once at 200 founders with `ECONOMY_COST_TICKS=2`; it must print every field above.
+
+- [ ] **T014**: Measure and judge (plan PD-04). Base: `git worktree add <scratch>/economy-base 2223968`, copy the script and `epocha/common/testing.py` into it unmodified, run at 200 founders twice and at 2,000 founders with `ECONOMY_COST_TICKS=2`, each a separate pytest invocation, then remove that worktree. Head: run at 200 and at 2,000 founders with the default 5 ticks. Judge SC-002 (ratio of medians at most 15), SC-003 (median at 2,000 at most 15 s) and SC-004 (same `simulation.id` and seed, the two base fingerprints equal, head equal to base; otherwise "not judgeable" with the values). If SC-002 or SC-003 fails, run the step at 2,000 founders under `cProfile` and record the top 15 functions by cumulative time together with the per-tick `UPDATE` count; do not close. Record every number in `plan.md` *Measurements* and in the spec status line.
+
+- [ ] **T015**: Full suite `pytest --cov=epocha -v`: zero failures, zero xfail; the count goes in the commit body.
+
+- [ ] **T016**: Commit T012-T015: `test(economy): measure the economy step before and after batching`.
+
+## Phase 4: Gate and closure
+
+- [ ] **T017**: Phase 6: adversarial code audit with `critical-analyzer` (Opus) on the branch diff, fix and re-audit until CONVERGED, then the user's validation. After the merge, update the frozen-at-commit pin of both whitepapers. Tell the coordinator to update build-map node `spine2.n14` on the Plan 4 branch (the three sites leave the node; the every-tick political cycle enters it as its own defect; `world/economy.py` stays). SC-005 is measured after the user decides to bring this branch into the marital-fertility branch, with a `cProfile` of one tick, and is reported with its number.
+
+## Dependencies
+
+T001 → T002 → T003 → (T004, T005, T006) → T007 → T008 → T009 → T010 → T011 → T012 → T013 → T014 → T015 → T016 → T017. T004, T005 and T006 are independent of each other; everything else is sequential.
