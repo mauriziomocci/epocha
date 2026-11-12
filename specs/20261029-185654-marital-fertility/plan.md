@@ -1,6 +1,6 @@
 # Implementation Plan: marital fertility schedule for the eras that require a couple
 
-**Branch**: `20261029-185654-marital-fertility` | **Date**: 2026-10-29 | **Spec**: [spec.md](spec.md) (phase 2 approved provisionally by the Trinity, decision D-29-31; audit CONVERGED at round 5, delta round 6 CONVERGED, log in [checklists/audit.md](checklists/audit.md))
+**Branch**: `20261029-185654-marital-fertility` | **Date**: 2026-10-29 | **Spec**: [spec.md](spec.md) (phase 2 approved provisionally by the Trinity, decision D-29-31; audit CONVERGED at round 10 on 2026-11-12 (rounds 7-10 ran that day, decisions D-12-E-3 to D-12-E-7), log in [checklists/audit.md](checklists/audit.md))
 
 **Input**: Feature specification from `specs/20261029-185654-marital-fertility/spec.md`
 
@@ -8,7 +8,7 @@
 
 **Data model**: no database field and no migration. The `fertility` section of the era templates changes (FR-003, FR-004): three templates replace `hadwiger` with `marital`, all five lose `require_couple_for_birth` (D-MF-03).
 
-**Prerequisite (D-MF-06)**: phase 5 starts only after the rule-based couples branch (`20261029-123404-rule-based-couples`) is merged into `develop`, which itself waits for the user's merge of Plan 4 (PR #18, branch `20260826-144432-demography-plan4-wiring`). Verified on 2026-10-29: this branch's base is `develop` at `2223968`; neither the Plan 4 head `3677f7f` nor the couples head `8c43c9c` is an ancestor of `develop`, and the couples branch does not contain Plan 4. Every code reference in this plan was read on the Plan 4 head `3677f7f` and on the couples head `8c43c9c`; T003 re-verifies all of them on the merged tree, because both branches still move.
+**Prerequisite (D-MF-06)**: phase 5 starts only after the rule-based couples branch (`20261029-123404-rule-based-couples`) is merged into `develop`, which itself waits for the user's merge of Plan 4 (PR #18, branch `20260826-144432-demography-plan4-wiring`). Verified on 2026-10-29: this branch's base is `develop` at `2223968`; neither the Plan 4 head `3677f7f` nor the couples head `8c43c9c` was an ancestor of `develop`. Corrected on 2026-11-12: Plan 4 was merged into the couples branch at `99b7b7b` on 2026-11-05 (D-05-E-1), so the couples branch contains Plan 4; the couples head is now `2282ed8`. Every code reference in this plan was read on the Plan 4 head `3677f7f` and on the couples head `8c43c9c`; T003 re-verifies all of them on the merged tree, because both branches still move.
 
 ## Summary
 
@@ -40,7 +40,7 @@ In the three eras that require a couple for birth, the base fertility schedule b
 |---|---|
 | I. Scientific method | Every formula (N1)-(N4) and every constant carries its source in the code comment, with the verification status the spec records (IUSSP page read, Coale-Trussell primary not read). The two heuristics (D-MF-04 extension to 15-19, the 12 upper bound of the loader) are named as tunable heuristics in code and whitepaper. PASS |
 | II. Verify before asserting | T003 is the code-verification preflight on the merged tree; every symbol named below is re-read there, and any mismatch stops phase 5. The spec numbers that tests assert (8.995, 0.0061568, 4.306 for both the monthly propagation and the continuous integral, 2.384) were recomputed with the couples `nuptiality.py` (`location` 25.580): on 2026-10-29 for this plan, and on 2026-11-12 for the monthly propagation in the engine's step order, couple formation before fertility (decisions D-05-E-12 and D-12-E-3; the earlier 4.283 and 2.363 counted the married share one tick late). PASS |
-| III. Adversarial audit | Spec audit CONVERGED (rounds 5 and 6). The code audit is T053 (phase 6, `critical-analyzer` on the branch diff, convergence loop). PASS, pending phase 6 |
+| III. Adversarial audit | Spec audit CONVERGED (round 10, 2026-11-12). The code audit is T053 (phase 6, `critical-analyzer` on the branch diff, convergence loop). PASS, pending phase 6 |
 | IV. Three-step design | Done in the spec (Registro del design). The plan decisions below are implementation choices inside the approved design, each with its rejected alternative. PASS |
 | V. Evidence-based verification | SC-005 and SC-006 are run in phase 6 and reported with the commit they ran on; confidence levels stated in the phase-6 report. PASS |
 
@@ -91,7 +91,7 @@ These choices are inside the approved design and not settled by the spec text; e
 | `scripts/measure_nuptiality_fertility.py` (couples) | Base rate through `annual_base_rate`; the coherence failure condition of SC-005 | FR-008, SC-005 |
 | `scripts/measure_marital_schedule_run.py` | New phase-6 harness | SC-006 |
 | `docs/whitepaper/epocha-whitepaper.md`, `.it.md` | §4.1.2, §6.1, §6.2, §6.3, §7.1, §7.3, §9, §10, §11, §13, Appendices A.2 and C | FR-006 |
-| `README.md`, `README.it.md` | Roadmap paragraph (line 125 on the Plan 4 head) | FR-006 |
+| `README.md`, `README.it.md` | Roadmap paragraph (located by its text "2.374" on the couples head `2282ed8`) | FR-006 |
 | `.specify/feature.json`, `CLAUDE.md` (SPECKIT block) | Point to this feature | PD-10 |
 
 ## Pipeline ordering and integration surface
@@ -114,7 +114,7 @@ Parity-dependent control m ≠ 0 (deferral 1); birth intervals (deferral 2, to r
 
 ## Phase 0 and Phase 1 artifacts
 
-`research.md`, `data-model.md`, `contracts/` and `quickstart.md` are not generated. The research (sources, verification status, alternatives) is the spec's "Fondamenti scientifici" and "Alternative considerate", audited six rounds; a copy would drift. There is no database entity, and the template schema change is fully specified by FR-003 and FR-004. There is no external interface (contract unchanged). The quickstart is the test command above and the two phase-6 commands in `tasks.md`. Same choice as the couples work item.
+`research.md`, `data-model.md`, `contracts/` and `quickstart.md` are not generated. The research (sources, verification status, alternatives) is the spec's "Fondamenti scientifici" and "Alternative considerate", audited ten rounds, converged at round 10 on 2026-11-12; a copy would drift. There is no database entity, and the template schema change is fully specified by FR-003 and FR-004. There is no external interface (contract unchanged). The quickstart is the test command above and the two phase-6 commands in `tasks.md`. Same choice as the couples work item.
 
 ## Project Structure
 
@@ -123,7 +123,7 @@ Parity-dependent control m ≠ 0 (deferral 1); birth intervals (deferral 2, to r
 ```text
 specs/20261029-185654-marital-fertility/
 ├── spec.md              # Italian, phase 2
-├── checklists/audit.md  # spec audit log, rounds 1-6
+├── checklists/audit.md  # spec audit log, rounds 1-10
 ├── plan.md              # this file
 ├── tasks.md             # phase 4
 └── phase6-measurements.md  # written by T052 in phase 6
