@@ -13,6 +13,7 @@ Sources:
 
 from __future__ import annotations
 
+import bisect
 import math
 from collections.abc import Mapping
 
@@ -40,6 +41,78 @@ def hadwiger_asfr(age: float, params: Mapping[str, float]) -> float:
     shape = ratio**1.5
     tail = math.exp(-(T**2) * (ratio + age / R - 2.0))
     return coef * shape * tail
+
+
+# Width in years of the age groups the natural fertility schedule is
+# published on (Coale and Trussell 1974, five-year groups 20-24 ... 45-49).
+FIVE_YEAR_GROUP_WIDTH = 5.0
+
+# Natural fertility schedule n(a), pairs (start age of the five-year group,
+# value): Coale and Trussell (1974) derived it from the populations Henry
+# (1961) defined as natural, whose couples do not stop childbearing at a
+# target number of children. Values read on the IUSSP Population Analysis for
+# Planners page (PAPP103, session 3, "The Coale-Trussell model") on
+# 2026-10-29; the primary sources were not read. The source gives no value
+# for 15-19: MARITAL_SCHEDULE_MIN_AGE extends the 20-24 value below 20.
+HENRY_NATURAL_FERTILITY: tuple[tuple[float, float], ...] = (
+    (20.0, 0.460),
+    (25.0, 0.431),
+    (30.0, 0.395),
+    (35.0, 0.322),
+    (40.0, 0.167),
+    (45.0, 0.024),
+)
+
+# (N1a), 8.995, the 9 children per woman between 20 and 49 of the IUSSP page;
+# computed, never written by hand (spec R2-09). Only the six groups 20-49 are
+# summed: the 15-19 extension is a rule of the function, not a seventh group,
+# which would give 11.295.
+HENRY_TMFR_20_49 = FIVE_YEAR_GROUP_WIDTH * sum(value for _, value in HENRY_NATURAL_FERTILITY)
+
+# Youngest age with a positive marital rate: tunable heuristic (spec D-MF-04),
+# the 20-24 value extended to 15-19, zero below 15. Adolescent subfecundity
+# (Wood 1994, chapter on menarche and menopause, cited qualitatively, not
+# read) argues against extending it further down to the orchestrator's
+# fertile window of 12.
+MARITAL_SCHEDULE_MIN_AGE = 15.0
+
+# End of the last published group, 45-49, exclusive: the rate is zero at 50.
+MARITAL_SCHEDULE_END_AGE = 50.0
+
+_HENRY_GROUP_STARTS = tuple(start for start, _ in HENRY_NATURAL_FERTILITY)
+
+
+def marital_fertility_rate(age: float, marital_cfg: Mapping[str, float]) -> float:
+    """Annual marital fertility rate r(a) of a partnered woman at age a.
+
+    Coale and Trussell (1974) model with no fertility control (m = 0):
+
+        r(a) = M * n(a)                                              (N1)
+        M = T_m / TMFR_Henry,  TMFR_Henry = 5 * sum(n) = 8.995       (N1a)
+
+    where n(a) is HENRY_NATURAL_FERTILITY, M the level relative to it and
+    T_m = `marital_cfg["total_marital_fertility_20_49"]` the marital total
+    fertility rate between 20 and 49 that the reconstitutions publish. The
+    result is in births per partnered woman per year, at Becker factor 1;
+    the caller composes it with the couple gate, Becker and the Malthusian
+    ceiling.
+
+    Piecewise constant on the published groups, never interpolated: the
+    sources give group means only, and a natural cubic spline on the group
+    centres extended to 50 gives -0.044 at 50, a negative rate. Ages in
+    [15, 20) take the 20-24 value (D-MF-04); the rate is 0.0 outside
+    [MARITAL_SCHEDULE_MIN_AGE, MARITAL_SCHEDULE_END_AGE).
+
+    Verification: n(a) read on the IUSSP PAPP103 page, Coale and Trussell
+    (1974) and Henry (1961) not read; the structure r = M * n(a) verified on
+    that page and on Rodriguez (2017), Fertility Models, Princeton lecture
+    notes, pp. 1-2.
+    """
+    if not MARITAL_SCHEDULE_MIN_AGE <= age < MARITAL_SCHEDULE_END_AGE:
+        return 0.0
+    group = bisect.bisect_right(_HENRY_GROUP_STARTS, max(age, _HENRY_GROUP_STARTS[0])) - 1
+    level = float(marital_cfg["total_marital_fertility_20_49"]) / HENRY_TMFR_20_49
+    return level * HENRY_NATURAL_FERTILITY[group][1]
 
 
 def _female_role_employment_fraction(zone, simulation) -> float:
