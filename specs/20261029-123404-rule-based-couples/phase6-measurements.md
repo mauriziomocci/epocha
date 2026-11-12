@@ -15,7 +15,9 @@ tick addebita la mortalità con `orchestrator.mortality_probability_for`, cioè
 dell'intervallo del tick, e `mortality.py` legge q_x all'età compiuta senza il
 vecchio limite `max(age, 0.01)`. Con questa mortalità la tavola per età intere
 dà l(25) = 0,9297 e il ciclo dei tick a tick mensili la realizza esattamente
-(l(12) della tavola 0,9480, l_tick(12) del ciclo 0,9480). I numeri di prima di
+(l(12) della tavola 0,9480, l_tick(12) del ciclo 0,9480; dopo la correzione
+D-12-E-5 descritta sotto l_tick(12) si ferma prima della mortalità del tick a
+cui la donna ha 12 anni e vale 0,9481). I numeri di prima di
 `0e83df4` non sono confrontabili con questi.
 
 ## Correzione dell'harness prima della misura (`7d3569b`)
@@ -37,6 +39,31 @@ B passa da TFR 2,3600 a 2,3596 e il NRR dell'harness da [1,0035, 1,1235] a
 [1,0033, 1,1232]: le estrazioni sono le stesse, si è spostato solo il punto in
 cui si conta. La configurazione A non cambia (2,3833 contro il riferimento
 2,3841).
+
+## Correzione dell'età di esposizione (`f9e997a`, D-12-E-5)
+
+Il 12/11/2026 ho corretto un secondo difetto della stessa classe. Nel motore
+il mercato e la fecondità leggono l'età al tick corrente, mentre la mortalità
+è addebitata a `orchestrator.exposure_age`, l'età al tick **precedente**: una
+madre che al tick ha l'età fertile a è quindi sopravvissuta fino a l(a).
+L'harness invece addebitava la mortalità del tick all'età fertile stessa, un
+tick avanti, e pesava le nascite con l(a + 1/12); il suo l_tick(12)
+comprendeva per giunta la mortalità del primo tick dell'harness. Ora
+`death_probability_by_month` ha per chiave l'età in mesi al tick e chiama
+`orchestrator.mortality_probability_for` con il contesto a quel tick, così lo
+spostamento di un tick lo fa la funzione di produzione e non una sua copia, e
+`survival_to_twelve` moltiplica sui tick da 1 a 143. Due test nuovi di
+`test_measurement_harness_rules.py` sono andati rossi sull'harness vecchio
+(probabilità del tick a 25 anni 0,00014620 contro 0,00014900 del motore;
+l_tick(12) 0,948017 contro 0,948115) e sono verdi su quello corretto.
+
+L'effetto atteso l'ho calcolato prima della misura, con la propagazione
+deterministica a tick mensili nell'ordine del motore e le funzioni di
+produzione, senza vedovanza: NRR 1,074754 con la convenzione del motore e
+1,074601 con quella vecchia dell'harness, cioè +0,000153 (non 3·10⁻⁴, la
+stima con cui era stata aperta la correzione). La configurazione A non ha
+mortalità e non cambia: i numeri qui sotto sono identici a quelli di
+`7d3569b`.
 
 ## SC-005, costo del mercato (`scripts/measure_marriage_market_cost.py`)
 
@@ -73,13 +100,24 @@ misura, come la spec chiede.
 ## SC-007, nuzialità e fecondità (`scripts/measure_nuptiality_fertility.py --replicates 20`)
 
 Venti repliche di 20.000 donne, 456 tick mensili, semi da 1 a 20, raggio
-`world`, sul commit `7d3569b` (ordine del motore: mercato, mortalità,
-fecondità). La configurazione A ha richiesto 302 s, la B 309 s.
+`world`, sul commit `f9e997a` (ordine del motore: mercato, mortalità,
+fecondità; mortalità all'età di esposizione del motore, D-12-E-5), eseguite il
+12/11/2026 fra le 19:42 e le 19:52 nel progetto isolato `epocha-couples`, con
+il load average della macchina intorno a 5 (non quieta: i tempi sono solo
+riportati). La configurazione A ha richiesto 288 s, la B 305 s.
 
 | Configurazione | TFR, media ± semiampiezza t al 95% | Riferimento | Scarto | NRR dell'harness [t al 95%] | NRR analitico | l(25) |
 |---|---|---|---|---|---|---|
 | A, senza mortalità | 2,3866 ± 0,0060 | 2,3841 (propagazione) | +0,0024 | — | — | — |
-| B, mortalità, vedovanza, lutto, r_f | 2,3688 ± 0,0056 | nessuno (senza soglia) | — | 1,0677 [1,0652, 1,0702] | 1,0700 (scarto −0,0023) | 0,9297 |
+| B, mortalità, vedovanza, lutto, r_f | 2,3689 ± 0,0052 | nessuno (senza soglia) | — | 1,0680 [1,0657, 1,0703] | 1,0700 (scarto −0,0020) | 0,9297 |
+
+Sul commit `7d3569b`, prima di D-12-E-5, la configurazione B dava TFR
+2,3688 ± 0,0056 e NRR 1,0677 [1,0652, 1,0702], con il
+massimo di 171 cercatrici; la A era identica a quella di sopra. Lo
+spostamento del NRR, +0,0003, è dello stesso ordine dei +0,000153 attesi
+dalla propagazione deterministica: le probabilità di morte cambiano, quindi
+cambiano anche le estrazioni, e la differenza residua sta dentro l'errore
+standard delle repliche (0,0011).
 
 Nella configurazione A l'errore standard delle repliche è 0,0029, quindi lo
 scarto di +0,0024 dalla propagazione deterministica vale 0,85 errori
@@ -92,16 +130,21 @@ fallimento di A non scatta.
 Nella configurazione B il TFR è calcolato con M(a) fra le donne vive
 (SC-007, D-05-E-12) e non ha soglia, perché vedovanza e r_f sono euristiche.
 Il NRR dell'harness è l_tick(12) per le nascite per donna iniziale divise per
-1 + 1,05; il suo intervallo al 95% è [1,0652, 1,0702], con il limite
+1 + 1,05; il suo intervallo al 95% è [1,0657, 1,0703], con il limite
 superiore sopra 1, quindi la condizione di fallimento di B non scatta. Il
-valore analitico 1,0700 (u = 25,580, senza vedovanza) cade dentro
-l'intervallo, 0,0002 sotto il bordo superiore: la vedovanza abbassa il NRR di 0,0023 rispetto al
-calcolo analitico, al netto del rimatrimonio con r_f. La mortalità materna
+valore analitico continuo 1,0700 (u = 25,580, senza vedovanza) cade dentro
+l'intervallo, 0,0003 sotto il bordo superiore. Lo scarto di −0,0020 dal
+valore continuo somma però due effetti di segno opposto: la discretizzazione
+mensile alza il valore senza vedovanza da 1,0700 a 1,0748 (propagazione
+deterministica agli stessi tick, nell'ordine del motore e con l'età di
+esposizione del motore, calcolata con le funzioni di produzione), e la
+vedovanza con le estrazioni lo abbassa di 0,0068 rispetto a quel 1,0748, al
+netto del rimatrimonio con r_f. La mortalità materna
 del template (0,008 per nascita) non è modellata, né nell'harness né nel
-valore analitico. Il massimo di cercatrici in un tick è 171 (limite 500).
+valore analitico. Il massimo di cercatrici in un tick è 172 (limite 500).
 
 Il margine del NRR sopra 1 resta del 6,8% (limite inferiore dell'intervallo
-6,5%). Questo controllo va **rieseguito quando la mortalità del template
+6,6%). Questo controllo va **rieseguito quando la mortalità del template
 viene ricalibrata** (rinvii 2 e 9 della spec): il margine dipende da quella
 mortalità, che D-29-18 giudica troppo leggera rispetto ai valori storici, e
 una mortalità più pesante lo riduce. Né questo work item né quello della
@@ -188,7 +231,11 @@ l'utente. D-05-E-12 (provvisoria, Matteo, 06/11 00:40) ha corretto D-05-E-11:
 l'harness segue l'ordine dei passi del motore, con la formazione delle coppie
 prima della fecondità, il riferimento di A è 2,384 e il TFR di B si calcola
 fra le donne vive. La correzione di `7d3569b` estende la stessa regola alla
-mortalità, che nel motore precede la fecondità.
+mortalità, che nel motore precede la fecondità. D-12-E-5 (provvisoria, Trinità, 12/11) porta
+nell'harness anche l'età a cui il motore addebita la mortalità, quella al tick
+precedente (`orchestrator.exposure_age`), e chiede di ripetere la misura di
+SC-007 con 20 repliche: è la tabella della sezione SC-007, sul commit
+`f9e997a`.
 
 ## Condizioni di fallimento
 
