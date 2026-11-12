@@ -2978,6 +2978,8 @@ def _run_process_emergency_flight_in_subprocess(
     import subprocess
     import sys
 
+    from django.conf import settings
+
     env = {
         **os.environ,
         "DJANGO_SETTINGS_MODULE": "config.settings.test",
@@ -2989,7 +2991,9 @@ def _run_process_emergency_flight_in_subprocess(
     }
     result = subprocess.run(
         [sys.executable, "manage.py", "shell", "-c", _SUBPROCESS_FLIGHT_RUNNER_SCRIPT],
-        cwd="/app",
+        # The repository root, not the Docker-only "/app": the CI runner checks
+        # the code out elsewhere.
+        cwd=str(settings.ROOT_DIR),
         env=env,
         capture_output=True,
         text=True,
