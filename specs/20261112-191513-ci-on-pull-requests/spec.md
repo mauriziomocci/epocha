@@ -22,8 +22,11 @@ mancante, quindi è un difetto.
 1. Il trigger `pull_request` perde il filtro sui branch: la CI parte su ogni pull
    request, qualunque sia il branch di destinazione. Il trigger `push` su `main`
    resta com'è.
-2. Nient'altro nel workflow, salvo ciò che la prima esecuzione su questa pull
-   request dimostra necessario perché i job possano girare (sezione *Esito*).
+2. Nient'altro nel workflow, salvo ciò che una esecuzione su questa pull request
+   dimostra necessario perché i job possano girare (sezione *Esito*), e il
+   permesso `contents: read` (commit ba644a4), un rafforzamento deliberato: il
+   workflow legge soltanto il repository, quindi il token dell'esecuzione non
+   deve poterlo scrivere.
 
 ## Criterio di successo
 
@@ -65,8 +68,13 @@ del repository.
 fallimenti sono esattamente quelli noti: 5 in `TestGenerateWorldFromPrompt`
 (`IndexError: list index out of range`) e 2 in
 `tests/test_integration.py::TestFullMVPFlow` (HTTP 500 e `KeyError:
-'simulation_id'`). Hanno bisogno del merge del Plan 4 (PR #18), che svuota le
-chiavi LLM nelle impostazioni di test e simula l'arricchimento: l'ho verificato su
+'simulation_id'`). Il legame con il codice è questo: quei 7 test arrivavano al
+client LLM attraverso le chiavi dello sviluppatore, presenti nell'ambiente dei
+container locali; il runner non ha nessuna chiave, quindi lì falliscono. La
+correzione sta nel Plan 4 (PR #18): il commit 73385af svuota le chiavi LLM in
+`config/settings/test.py` e il commit 03d3d28 mette la fixture `no_enrichment`,
+che esclude l'arricchimento dalla generazione del mondo, nel `conftest.py`
+radice. Sono i due commit che questi 7 test richiedono; l'ho verificato anche su
 un albero con tutti e cinque i branch in attesa fusi. Il test con `cwd="/app"`,
 corretto in 3909c3a, è passato.
 
@@ -77,8 +85,9 @@ il repository per bullseye; la 43282461996, sul commit 297c3ea, aveva `lint`
 verde in 9 secondi e `test` rosso con 1574 passati e 8 falliti (i 7 sopra più il
 test con `cwd="/app"`).
 
-**Verdetto.** CI rossa per causa preesistente, che si chiude con il merge del
-Plan 4. Il criterio di successo è soddisfatto nella forma alternativa: la CI
+**Verdetto.** CI rossa per causa preesistente, già corretta su un branch in
+attesa (il Plan 4) e quindi non duplicata qui; si chiude con il merge della #18.
+Il criterio di successo è soddisfatto nella forma alternativa: la CI
 parte, `lint` è verde e `test` è rosso solo per cause che stanno nel codice di
 `develop`, non nella CI. Ordine di merge consigliato: la #18 prima della #20,
 oppure rilanciare la CI della #20 dopo la #18.
@@ -110,6 +119,10 @@ resta il controllo del rilascio.
 
 **Cosa succede se la CI è rossa per una causa che esisteva già?**
 La causa viene letta dal log del job fallito e dichiarata nella sezione
-*Esito*: se sta nel workflow o nel repository e si corregge in poco, la correggo
-qui; se dipende dall'ambiente (un segreto mancante, la rete) la dichiaro e la
-CI resta rossa finché non c'è una decisione.
+*Esito*, e i casi sono tre. Se sta nel workflow o nel repository e si corregge in
+poco, la correggo qui. Se è già corretta su un branch in attesa (è il caso dei 7
+test del Plan 4: commit 73385af e 03d3d28), non la duplico qui, perché una
+seconda correzione dello stesso difetto darebbe conflitti nel merge; la dichiaro
+e l'ordine di merge (la #18 prima della #20) è la decisione del proprietario. Se
+dipende dall'ambiente (un segreto mancante, la rete) la dichiaro e la CI resta
+rossa finché non c'è una decisione.
