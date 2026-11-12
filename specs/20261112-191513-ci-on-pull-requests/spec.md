@@ -68,7 +68,21 @@ l'immagine con cui è stato creato il volume del database di sviluppo.
 `.pre-commit-config.yaml` fissa ruff alla 0.15.11, così nel repository c'è una
 sola versione. Il workflow dichiara `permissions: contents: read`.
 
-**Esecuzione sull'ultimo push.** VERDETTO_DA_COMPILARE
+**Esecuzione sull'ultimo push.** La 43282461996, sul commit 297c3ea: `lint` verde in 9 secondi, `test` rosso
+dopo 11 minuti e 48 secondi, con 1574 test passati e 8 falliti. Il database
+(PostGIS con pgvector) e le librerie geografiche ora funzionano, e la
+suite gira fino in fondo. Dei 8 fallimenti, 7 sono quelli noti del residuo
+sotto: 5 in `TestGenerateWorldFromPrompt` (`IndexError: list index out of
+range`) e 2 in `tests/test_integration.py` (HTTP 500 e `KeyError:
+'simulation_id'`). L'ottavo è nuovo e dipende dall'ambiente:
+`TestFlightPathDeterminismAcrossHashSeeds` in
+`epocha/apps/demography/tests/test_migration.py` lancia un sottoprocesso con
+`cwd="/app"` (riga 2992), il percorso dell'immagine Docker, che sul runner non
+esiste (`FileNotFoundError: '/app'`). Va corretto in un lavoro a parte, con il
+percorso ricavato dal file del test; qui resta dichiarato. Il criterio di
+successo è quindi soddisfatto nella forma alternativa: la CI parte, `lint` è
+verde e `test` è rosso solo per cause preesistenti nel codice di `develop`,
+non nella CI.
 
 **Residuo noto.** Su `develop` sette test hanno bisogno del merge del Plan 4
 (PR #18): cinque in `TestGenerateWorldFromPrompt` e due in
@@ -76,7 +90,8 @@ sola versione. Il workflow dichiara `permissions: contents: read`.
 test e simula l'arricchimento; senza quel merge il job `test` di questa pull
 request può restare rosso su quei sette, per una causa che sta nel codice di
 `develop` e non nella CI. Consiglio di fondere la #18 prima della #20, oppure di
-rilanciare la CI della #20 dopo la #18.
+rilanciare la CI della #20 dopo la #18. Resta comunque rosso l'ottavo test,
+quello con `cwd="/app"`, finché non viene corretto.
 
 ## FAQ
 
