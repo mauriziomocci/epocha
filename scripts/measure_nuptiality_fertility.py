@@ -32,8 +32,9 @@ Harness assumptions, every one declared:
   (`replicate_tick`, held by `test_measurement_harness_rules.py`). The
   Hadwiger rate is evaluated at the age at the start of the tick
   (`_effective_age_in_years`). The reference of configuration A follows the
-  same order and age, 2.384 against 2.352 (rate at the mid-tick age) and 2.363
-  (married share one tick late), decision D-05-E-12.
+  same order and age, 2.384 against 2.363 (married share one tick late) and
+  2.352 (married share one tick late and rate at the mid-tick age together),
+  decisions D-05-E-12 and D-12-E-4.
 - Men are female-dominant and always available: each tick the candidates
   are 500 never-married men redrawn from the template `age_pyramid` above
   `min_marriage_age_male` (a bracket partly below it is cut at it), not a
