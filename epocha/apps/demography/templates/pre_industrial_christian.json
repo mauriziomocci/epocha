@@ -123,16 +123,18 @@
   "couple": {
     "min_marriage_age_male": 16,
     "min_marriage_age_female": 14,
-    "allowed_types": [
-      "monogamous",
-      "arranged"
-    ],
     "default_type": "monogamous",
     "divorce_enabled": false,
     "marriage_market_type": "autonomous",
     "marriage_market_radius": "same_zone",
     "implicit_mutual_consent": true,
-    "mourning_ticks": 365,
+    "mourning_days": 365,
+    "first_marriage": {
+      "mean_age_female": 25.5,
+      "sd_age_female": 5.5,
+      "proportion_ever_married_female": 0.88
+    },
+    "remarriage_annual_rate_female": 0.1,
     "homogamy_weights": {
       "w_class": 0.4,
       "w_edu": 0.25,
@@ -248,5 +250,35 @@
   "migration": {
     "flight_trigger_ticks": 30,
     "adulthood_age": 16
+  },
+  "names": {
+    "male": [
+      "Giovanni",
+      "Pietro",
+      "Antonio",
+      "Matteo",
+      "Nicola",
+      "Domenico",
+      "Bartolomeo",
+      "Simone",
+      "Tommaso",
+      "Lorenzo",
+      "Iacopo",
+      "Guglielmo"
+    ],
+    "female": [
+      "Maria",
+      "Caterina",
+      "Margherita",
+      "Lucia",
+      "Agnese",
+      "Chiara",
+      "Francesca",
+      "Elena",
+      "Benedetta",
+      "Giovanna",
+      "Anna",
+      "Bartolomea"
+    ]
   }
 }

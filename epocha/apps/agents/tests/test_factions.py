@@ -1,6 +1,7 @@
 """Tests for the faction dynamics engine."""
 
 import itertools
+import json
 
 import pytest
 from django.conf import settings
@@ -13,6 +14,7 @@ from epocha.apps.agents.factions import (
     _check_schism,
     _create_faction,
     _detect_and_propose_factions,
+    _process_formation_decisions,
     compute_leadership_score,
     update_group_cohesion,
     update_group_leadership,
@@ -200,6 +202,49 @@ class TestCohesionUpdate:
         update_group_cohesion(group, simulation, tick=10)
         group.refresh_from_db()
         assert group.cohesion < initial_cohesion
+
+    def test_a_non_string_target_does_not_stop_the_cohesion_update(
+        self, simulation, world, group_with_members
+    ):
+        group, marco, elena, carlo = group_with_members
+        # Baseline: the same group with no decision in the window.
+        update_group_cohesion(group, simulation, tick=10)
+        group.refresh_from_db()
+        cohesion_without_decision = group.cohesion
+        group.cohesion = 0.6
+        group.save(update_fields=["cohesion"])
+        # A dict target is the arranged-marriage payload the pair-bond
+        # resolver accepts; it names no member and must be ignored. The
+        # action is "help", a cooperative one, so that counting the dict as
+        # a member would add +0.10 (cooperation ratio 1 times 0.10) and fail
+        # the equality below.
+        DecisionLog.objects.create(
+            simulation=simulation,
+            agent=marco,
+            tick=9,
+            input_context="",
+            output_decision=json.dumps(
+                {"action": "help", "target": {"for_child": "X", "match": "Y"}}
+            ),
+            llm_model="test",
+        )
+        update_group_cohesion(group, simulation, tick=10)
+        group.refresh_from_db()
+        assert group.cohesion == pytest.approx(cohesion_without_decision)
+
+    def test_a_dict_join_target_does_not_stop_the_formation_step(self, simulation, world):
+        outsider = Agent.objects.create(simulation=simulation, name="Giulia", role="farmer")
+        DecisionLog.objects.create(
+            simulation=simulation,
+            agent=outsider,
+            tick=9,
+            input_context="",
+            output_decision=json.dumps({"action": "join_group", "target": {"name": "The Guild"}}),
+            llm_model="test",
+        )
+        _process_formation_decisions(simulation, tick=10)
+        outsider.refresh_from_db()
+        assert outsider.group is None
 
     def test_cohesion_clamped_to_range(self, simulation, world, group_with_members):
         group, marco, elena, carlo = group_with_members

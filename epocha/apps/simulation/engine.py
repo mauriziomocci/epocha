@@ -3,7 +3,7 @@ analytics, and events.
 
 Each tick is a discrete time step where:
 1. The economy updates (income, costs, mood effects)
-2. Each living agent makes a decision via LLM
+2. Each protagonist (at most max_protagonists agents) makes a decision via LLM
 3. Decision consequences are applied (mood, health adjustments)
 4. Memories are created from actions
 5. Information propagates through the social network (hearsay, rumors)
@@ -27,6 +27,7 @@ import logging
 import math
 
 from epocha.apps.agents.decision import process_agent_decision
+from epocha.apps.agents.deliberation import select_deliberating_agents
 from epocha.apps.agents.factions import process_faction_dynamics
 from epocha.apps.agents.information_flow import propagate_information
 from epocha.apps.agents.memory import decay_memories
@@ -502,7 +503,9 @@ class SimulationEngine:
             process_economy_tick(world, tick)
 
         # 2. Agent decisions (sequential fallback)
-        agents = list(Agent.objects.filter(simulation=self.simulation, is_alive=True))
+        # At most K protagonists decide, minors excluded (see
+        # `select_deliberating_agents`).
+        agents = select_deliberating_agents(self.simulation, tick)
         tick_events = []
         for agent in agents:
             agent.refresh_from_db()

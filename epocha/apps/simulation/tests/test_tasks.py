@@ -131,7 +131,7 @@ class TestFinalizeTick:
 class TestRunSimulationLoopChord:
     @patch("epocha.apps.simulation.tasks.chord")
     def test_dispatches_chord_for_all_agents(self, mock_chord, sim_with_agents):
-        """The loop should build a chord with one task per living agent."""
+        """The loop should build a chord with one task per selected agent."""
         sim_with_agents.status = Simulation.Status.RUNNING
         sim_with_agents.save()
         run_simulation_loop(sim_with_agents.id)
@@ -140,6 +140,25 @@ class TestRunSimulationLoopChord:
         mock_chord.assert_called_once()
         header = mock_chord.call_args[0][0]
         assert len(header) == 2  # Marco + Elena
+
+    @patch("epocha.apps.simulation.tasks.chord")
+    def test_the_header_holds_only_the_k_lowest_ids(self, mock_chord, sim_with_agents):
+        """`max_protagonists = 2` caps the chord header at the two lowest ids."""
+        for index in range(3):
+            Agent.objects.create(simulation=sim_with_agents, name=f"Extra{index}")
+        sim_with_agents.status = Simulation.Status.RUNNING
+        sim_with_agents.config = {"max_protagonists": 2}
+        sim_with_agents.save()
+        lowest_two = list(
+            Agent.objects.filter(simulation=sim_with_agents)
+            .order_by("id")
+            .values_list("id", flat=True)[:2]
+        )
+
+        run_simulation_loop(sim_with_agents.id)
+
+        header = mock_chord.call_args[0][0]
+        assert [signature.args[0] for signature in header] == lowest_two
 
     @patch("epocha.apps.simulation.tasks.chord")
     def test_runs_economy_before_chord(self, mock_chord, sim_with_agents):

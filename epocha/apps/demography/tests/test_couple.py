@@ -21,14 +21,20 @@ from unittest.mock import patch
 import pytest
 from django.contrib.gis.geos import Point, Polygon
 
-from epocha.apps.agents.models import Agent, DecisionLog
+from epocha.apps.agents.models import Agent, DecisionLog, Relationship
 from epocha.apps.demography.couple import (
+    MarriageHistory,
     _ordered_pair,
     active_couple_for,
     dissolve_on_death,
     form_couple,
     homogamy_score,
     is_in_active_couple,
+    marriage_ineligibility,
+    mourning_ticks,
+    pair_key,
+    read_marriage_history,
+    read_sentiments,
     resolve_pair_bond_intents,
     resolve_separate_intents,
     stable_matching,
@@ -68,21 +74,33 @@ def sim_with_zone(db):
     return sim, zone
 
 
+# Ticks in a year on the default 24-hour world, at the acceleration of 1.0
+# every shipped era declares.
+TICKS_PER_YEAR = 365
+
+
 def _make_agent(sim, zone, name, **kwargs):
-    """Helper: create an Agent with sensible defaults."""
+    """Helper: create an Agent with sensible defaults.
+
+    `birth_tick` is derived from `age` unless given, so the two agree. They
+    used to disagree -- `birth_tick=0` against `age=25` on a simulation at
+    tick 5 -- which made every agent here five days old by `age_in_years`,
+    the canonical reading, and would have made any age rule in the resolver
+    untestable from this file.
+    """
     defaults = dict(
         role="farmer",
         location=Point(50, 50),
         health=1.0,
         wealth=100.0,
         age=25,
-        birth_tick=0,
         mood=0.5,
         education_level=0.5,
         social_class="working",
         gender=Agent.Gender.FEMALE,
     )
     defaults.update(kwargs)
+    defaults.setdefault("birth_tick", sim.current_tick - defaults["age"] * TICKS_PER_YEAR)
     return Agent.objects.create(simulation=sim, name=name, zone=zone, **defaults)
 
 
@@ -250,12 +268,135 @@ def test_homogamy_score_higher_for_similar_pair(sim_with_zone):
     b2 = _make_agent(sim, zone, "Disparate2", age=50, education_level=0.9, social_class="elite")
 
     weights = {"w_class": 0.4, "w_edu": 0.25, "w_age": 0.20, "w_relationship": 0.15}
-    score_similar = homogamy_score(a1, a2, weights)
-    score_disparate = homogamy_score(b1, b2, weights)
+    ages = {a.id: float(a.age) for a in (a1, a2, b1, b2)}
+    score_similar = homogamy_score(a1, a2, weights, sentiments={}, ages=ages)
+    score_disparate = homogamy_score(b1, b2, weights, sentiments={}, ages=ages)
 
     assert score_similar > score_disparate, (
         f"Similar score {score_similar:.3f} should exceed disparate {score_disparate:.3f}"
     )
+
+
+@pytest.mark.django_db
+def test_homogamy_score_reads_the_sentiment_map_not_the_database(
+    sim_with_zone, django_assert_num_queries
+):
+    """A Relationship row in the database is invisible to the score: only the
+    per-tick map it is handed counts, an absent pair reads the neutral 0.5,
+    and the score issues no query."""
+    sim, zone = sim_with_zone
+    a = _make_agent(sim, zone, "A")
+    b = _make_agent(sim, zone, "B", gender=Agent.Gender.MALE)
+    _relationship(sim, a, b, 1.0)
+    weights = {"w_class": 0.0, "w_edu": 0.0, "w_age": 0.0, "w_relationship": 1.0}
+    ages = {a.id: 25.0, b.id: 25.0}
+
+    with django_assert_num_queries(0):
+        absent = homogamy_score(a, b, weights, sentiments={}, ages=ages)
+        present = homogamy_score(a, b, weights, sentiments={pair_key(a.id, b.id): 1.0}, ages=ages)
+
+    assert absent == 0.5
+    assert present == 1.0
+
+
+@pytest.mark.django_db
+def test_homogamy_score_finds_the_sentiment_whichever_agent_is_named_first(sim_with_zone):
+    """The map is keyed by the ordered pair, so scoring (higher id, lower id)
+    finds the same sentiment as scoring (lower id, higher id)."""
+    sim, zone = sim_with_zone
+    a = _make_agent(sim, zone, "A")
+    b = _make_agent(sim, zone, "B", gender=Agent.Gender.MALE)
+    assert a.id < b.id
+    weights = {"w_class": 0.0, "w_edu": 0.0, "w_age": 0.0, "w_relationship": 1.0}
+    ages = {a.id: 25.0, b.id: 25.0}
+    sentiments = {pair_key(a.id, b.id): 1.0}
+
+    assert homogamy_score(b, a, weights, sentiments=sentiments, ages=ages) == 1.0
+
+
+@pytest.mark.django_db
+def test_homogamy_score_takes_the_age_from_the_ages_map(sim_with_zone):
+    """The age term reads the canonical age map, not the cached `age` column:
+    columns of 20 and 60 with mapped ages of 30 and 30 give a perfect term."""
+    sim, zone = sim_with_zone
+    a = _make_agent(sim, zone, "A", age=20)
+    b = _make_agent(sim, zone, "B", age=60, gender=Agent.Gender.MALE)
+    weights = {"w_class": 0.0, "w_edu": 0.0, "w_age": 1.0, "w_relationship": 0.0}
+
+    score = homogamy_score(a, b, weights, sentiments={}, ages={a.id: 30.0, b.id: 30.0})
+
+    assert score == 1.0
+
+
+# ---------------------------------------------------------------------------
+# pair_key and read_sentiments
+# ---------------------------------------------------------------------------
+
+
+def _relationship(sim, agent_from, agent_to, sentiment, relation_type="friendship"):
+    return Relationship.objects.create(
+        agent_from=agent_from,
+        agent_to=agent_to,
+        relation_type=relation_type,
+        sentiment=sentiment,
+        since_tick=0,
+    )
+
+
+def test_pair_key_is_the_ordered_pair_of_ids():
+    assert pair_key(7, 3) == (3, 7)
+    assert pair_key(3, 7) == (3, 7)
+
+
+@pytest.mark.django_db
+def test_read_sentiments_issues_one_query(sim_with_zone, django_assert_num_queries):
+    sim, zone = sim_with_zone
+    women = [_make_agent(sim, zone, f"W{i}") for i in range(3)]
+    men = [_make_agent(sim, zone, f"M{i}", gender=Agent.Gender.MALE) for i in range(3)]
+    _relationship(sim, women[0], men[0], 0.5)
+
+    with django_assert_num_queries(1):
+        read_sentiments([w.id for w in women], [m.id for m in men])
+
+
+@pytest.mark.django_db
+def test_read_sentiments_finds_a_row_from_candidate_to_seeker(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    _relationship(sim, man, woman, -0.4)
+
+    sentiments = read_sentiments([woman.id], [man.id])
+
+    assert sentiments == {pair_key(woman.id, man.id): -0.4}
+
+
+@pytest.mark.django_db
+def test_read_sentiments_keeps_the_lowest_id_row_of_a_pair(sim_with_zone):
+    """Two relation types on one pair: the lower-id row wins, the row
+    `.first()` returned when the score read the database one pair at a time."""
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    _relationship(sim, man, woman, 0.8, relation_type="friendship")
+    _relationship(sim, woman, man, -0.9, relation_type="rivalry")
+
+    sentiments = read_sentiments([woman.id], [man.id])
+
+    assert sentiments == {pair_key(woman.id, man.id): 0.8}
+
+
+@pytest.mark.django_db
+def test_read_sentiments_omits_a_pair_without_a_row(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    other = _make_agent(sim, zone, "Other", gender=Agent.Gender.MALE)
+    _relationship(sim, woman, other, 0.3)
+
+    sentiments = read_sentiments([woman.id], [man.id])
+
+    assert sentiments == {}
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +465,21 @@ def test_stable_matching_3x3_is_stable():
                 f"Blocking pair found: proposer {p} and respondent {r} prefer each other "
                 f"over their current matches — matching is not stable"
             )
+
+
+def test_stable_matching_evaluates_the_score_twice_per_pair():
+    """The score function is called 2 * n * m times for n proposers and m
+    respondents: once per pair to rank each proposer's list and once per pair
+    to build each respondent's table. The docstring's cost figure pins this."""
+    calls = []
+
+    def counting_score(proposer, respondent):
+        calls.append((proposer, respondent))
+        return float(proposer + 1) / (respondent + 1)
+
+    stable_matching(proposers=[0, 1, 2], respondents=[0, 1, 2, 3], score_fn=counting_score)
+
+    assert len(calls) == 2 * 3 * 4
 
 
 def test_stable_matching_asymmetric_3_proposers_2_respondents():
@@ -407,6 +563,8 @@ def test_resolve_pair_bond_implicit_consent_forms_couple(sim_with_zone):
             "implicit_mutual_consent": True,
             "default_type": "monogamous",
             "divorce_enabled": False,
+            "min_marriage_age_male": 16,
+            "min_marriage_age_female": 14,
         }
     }
 
@@ -444,6 +602,8 @@ def test_resolve_pair_bond_explicit_consent_requires_both(sim_with_zone):
             "implicit_mutual_consent": False,
             "default_type": "monogamous",
             "divorce_enabled": False,
+            "min_marriage_age_male": 16,
+            "min_marriage_age_female": 14,
         }
     }
 
@@ -662,3 +822,641 @@ def test_dissolve_on_death_both_partners_same_tick(sim_with_zone):
     assert couple.agent_b_name_snapshot == "Tobias"
     assert couple.dissolved_at_tick == 7
     assert couple.dissolution_reason == Couple.DissolutionReason.DEATH
+
+
+@pytest.mark.django_db
+def test_resolve_pair_bond_refuses_an_ambiguous_name(sim_with_zone, caplog):
+    """Two living agents share a name: bind neither, and say so.
+
+    Found by round 9 of the demography Plan 4 phase-6 gate. The resolver used
+    `filter(name=...).first()`, so on a collision the lowest id won in
+    silence and an agent was bound to somebody it never named. Before Plan 4
+    nothing in production created agents after world generation; Plan 4 makes
+    newborns, and `pick_newborn_name` draws from an era pool of TWELVE names
+    per sex with no uniqueness check, so a collision stops being unlikely and
+    becomes certain at the thirteenth birth of a sex.
+
+    Refusing is the ratified fix: it does not remove the ambiguity, it stops
+    the wrong marriage and leaves a record. Resolving by id instead of by
+    name would remove it, and is a separate work item because it changes the
+    action schema the decision loop hands the model.
+    """
+    import logging
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.current_tick = 5
+    sim.save()
+
+    suitor = _make_agent(sim, zone, "Bruno", gender=Agent.Gender.MALE)
+    first_amelia = _make_agent(sim, zone, "Amelia")
+    second_amelia = _make_agent(sim, zone, "Amelia")
+
+    # ONLY the ambiguous intent is filed. Under this era's implicit mutual
+    # consent a single intent suffices to form a couple, so if the second
+    # Amelia also named Bruno the pair would form from HER unambiguous side
+    # and this test would pass while proving nothing about the resolver.
+    _decision_log(sim, suitor, tick=4, action="pair_bond", target="Amelia")
+
+    with caplog.at_level(logging.WARNING, logger="epocha.apps.demography.couple"):
+        formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(42))
+
+    assert formed == [], (
+        "an ambiguous name was resolved: one of the two Amelias was married "
+        "off without ever being named"
+    )
+    assert not Couple.objects.filter(simulation=sim).exists()
+    assert any("Amelia" in record.message for record in caplog.records), (
+        "an ambiguous match must leave a record, or the intent vanishes with "
+        "no explanation in any log"
+    )
+    assert second_amelia.id != first_amelia.id
+
+
+# ---------------------------------------------------------------------------
+# The era's minimum marriage age, on the intent path
+# ---------------------------------------------------------------------------
+#
+# Found by round 9 of the demography Plan 4 phase-6 gate: `min_marriage_age_*`
+# was read only by `initialization.form_initial_couples`, so the founding
+# pairing respected the era's threshold while every couple formed afterwards
+# by intent did not. One rule, applied on one of the two paths that form
+# couples -- the class of defect the gate had found seven times. The default
+# era, `pre_industrial_christian`, sets the thresholds at 16 for men and 14
+# for women, which is what the boundaries below sit on.
+
+
+def _pair_bond_both_ways(sim, a, b):
+    _decision_log(sim, a, tick=4, action="pair_bond", target=b.name)
+    _decision_log(sim, b, tick=4, action="pair_bond", target=a.name)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("minor_gender", "minor_age", "adult_gender"),
+    [
+        (Agent.Gender.FEMALE, 13, Agent.Gender.MALE),
+        (Agent.Gender.MALE, 15, Agent.Gender.FEMALE),
+    ],
+)
+def test_an_intent_one_year_below_the_era_threshold_is_refused(
+    sim_with_zone, caplog, minor_gender, minor_age, adult_gender
+):
+    """One year under the threshold of the minor's own sex: no couple, a record.
+
+    Both sides pair-bond each other, so the only thing that can stop the
+    couple is the age rule -- and the minor is the TARGET of one intent and
+    the PROPOSER of the other, which is why a rule applied to one role only
+    still fails this test.
+    """
+    import logging
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+
+    minor = _make_agent(sim, zone, "Minore", age=minor_age, gender=minor_gender)
+    adult = _make_agent(sim, zone, "Adulto", age=30, gender=adult_gender)
+    _pair_bond_both_ways(sim, minor, adult)
+
+    with caplog.at_level(logging.WARNING, logger="epocha.apps.demography.couple"):
+        formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(42))
+
+    assert formed == [], f"a {minor_age}-year-old was married under the era's threshold"
+    assert not Couple.objects.filter(simulation=sim).exists()
+    assert any("Minore" in record.message for record in caplog.records), (
+        "a refused intent must leave a record, as an ambiguous one does"
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("proposer_gender", "proposer_age", "target_gender", "target_age"),
+    [
+        # Each side exactly at its own threshold, in both roles.
+        (Agent.Gender.FEMALE, 14, Agent.Gender.MALE, 16),
+        (Agent.Gender.MALE, 16, Agent.Gender.FEMALE, 14),
+    ],
+)
+def test_an_intent_exactly_at_the_era_threshold_is_accepted(
+    sim_with_zone, proposer_gender, proposer_age, target_gender, target_age
+):
+    """The other side of the boundary: the threshold is a minimum, inclusive.
+
+    One-sided on purpose -- the era's implicit mutual consent forms the couple
+    from a single intent -- so the proposer and the target are two distinct
+    roles and each is exercised at its own threshold.
+    """
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+
+    proposer = _make_agent(sim, zone, "Proponente", age=proposer_age, gender=proposer_gender)
+    target = _make_agent(sim, zone, "Bersaglio", age=target_age, gender=target_gender)
+    _decision_log(sim, proposer, tick=4, action="pair_bond", target=target.name)
+
+    formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(42))
+
+    assert len(formed) == 1, (
+        f"a {proposer_age}-year-old {proposer_gender} and a {target_age}-year-old "
+        f"{target_gender}, each exactly at the era's threshold, were refused"
+    )
+
+
+@pytest.mark.django_db
+def test_an_arranged_marriage_of_a_child_below_the_threshold_is_refused(sim_with_zone):
+    """Goode's arranged marriage is the path a minor is most likely to take.
+
+    A parent proposing on behalf of a twelve-year-old daughter: the intent is
+    re-attributed to the child, and the child is under the era's threshold.
+    """
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+
+    parent = _make_agent(sim, zone, "Genitore", age=45)
+    child = _make_agent(sim, zone, "Figlia", age=12)
+    match = _make_agent(sim, zone, "Promesso", age=25, gender=Agent.Gender.MALE)
+    _decision_log(
+        sim,
+        parent,
+        tick=4,
+        action="pair_bond",
+        target={"for_child": child.name, "match": match.name},
+    )
+
+    formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(3))
+
+    assert formed == [], "an arranged marriage bound a child under the era's threshold"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("age", "expected_couples"), [(15, 0), (16, 1)])
+def test_a_non_binary_agent_meets_the_higher_of_the_two_thresholds(
+    sim_with_zone, age, expected_couples
+):
+    """The templates carry a male and a female threshold and nothing else.
+
+    The higher of the two applies, declared as the conservative choice: 15
+    clears the female 14 of the default era and must still be refused, 16
+    clears both.
+    """
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+
+    agent = _make_agent(sim, zone, "Nonbinario", age=age, gender=Agent.Gender.NON_BINARY)
+    partner = _make_agent(sim, zone, "Partner", age=30)
+    _pair_bond_both_ways(sim, agent, partner)
+
+    formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(5))
+
+    assert len(formed) == expected_couples
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("column_age", "years_since_birth", "expected_couples"),
+    [(30, 13, 0), (10, 20, 1)],
+)
+def test_the_age_is_read_from_the_birth_tick_not_the_age_column(
+    sim_with_zone, column_age, years_since_birth, expected_couples
+):
+    """`birth_tick` is the canonical age; the `age` column is a cache of it.
+
+    The two are driven apart in both directions, so a rule that reads the
+    column -- which is what the founding pairing did -- fails one of the two.
+    """
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+
+    agent = _make_agent(
+        sim,
+        zone,
+        "Colonna",
+        age=column_age,
+        birth_tick=sim.current_tick - years_since_birth * TICKS_PER_YEAR,
+    )
+    partner = _make_agent(sim, zone, "Partner", age=30, gender=Agent.Gender.MALE)
+    _pair_bond_both_ways(sim, agent, partner)
+
+    formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(9))
+
+    assert len(formed) == expected_couples
+
+
+@pytest.mark.django_db
+def test_the_age_carries_the_eras_acceleration(sim_with_zone):
+    """Seven calendar years at acceleration 2.0 are fourteen years of age.
+
+    `age_in_years` multiplies by the era's factor; an age rule that computed
+    its own years would reproduce the two-clocks defect round 9 found in the
+    backfill.
+    """
+    import copy
+    import random
+
+    from epocha.apps.demography.template_loader import load_template
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+
+    template = copy.deepcopy(load_template("pre_industrial_christian"))
+    template["acceleration"] = 2.0
+    bride = _make_agent(sim, zone, "Sposa", birth_tick=sim.current_tick - 7 * TICKS_PER_YEAR)
+    groom = _make_agent(sim, zone, "Sposo", age=30, gender=Agent.Gender.MALE)
+    _pair_bond_both_ways(sim, bride, groom)
+
+    with patch("epocha.apps.demography.template_loader.load_template", return_value=template):
+        formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(11))
+
+    assert len(formed) == 1, (
+        "fourteen years of age at acceleration 2.0 were read as seven: the "
+        "age rule is not on the orchestrator's clock"
+    )
+
+
+@pytest.mark.django_db
+def test_a_refused_target_does_not_end_the_proposers_other_intents(sim_with_zone):
+    """The rule refuses a PAIRING, not a proposer.
+
+    An adult who filed two intents, the first toward a minor and the second
+    toward an adult, must still marry the second. Round 10 of the phase-6
+    gate measured that turning the refusal's `continue` into a `break` left
+    every test green, because no fixture gave a proposer a second target.
+    The minor is created first so her intent is read first.
+    """
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+
+    minor = _make_agent(sim, zone, "Tredicenne", age=13)
+    adult = _make_agent(sim, zone, "Adulta", age=24)
+    suitor = _make_agent(sim, zone, "Pretendente", age=30, gender=Agent.Gender.MALE)
+    _decision_log(sim, suitor, tick=4, action="pair_bond", target=minor.name)
+    _decision_log(sim, suitor, tick=4, action="pair_bond", target=adult.name)
+
+    formed = resolve_pair_bond_intents(sim, tick=5, rng=random.Random(13))
+
+    assert [{c.agent_a_id, c.agent_b_id} for c in formed] == [{suitor.id, adult.id}], (
+        "refusing the minor ended the suitor's turn before his valid second intent"
+    )
+
+
+# ---------------------------------------------------------------------------
+# read_marriage_history
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_a_widow_is_ever_partnered_and_widowed_at_the_death_tick(
+    sim_with_zone, django_assert_num_queries
+):
+    sim, zone = sim_with_zone
+    widow = _make_agent(sim, zone, "Widow")
+    husband = _make_agent(sim, zone, "Husband", gender=Agent.Gender.MALE)
+    form_couple(widow, husband, formed_at_tick=1)
+    dissolve_on_death(husband, tick=40)
+
+    with django_assert_num_queries(1):
+        history = read_marriage_history(sim)
+
+    assert history.widowed_at_tick == {widow.id: 40}
+    assert history.ever_partnered == frozenset({widow.id})
+
+
+@pytest.mark.django_db
+def test_a_separated_woman_is_ever_partnered_but_not_widowed(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    couple = form_couple(woman, man, formed_at_tick=1)
+    couple.dissolved_at_tick = 30
+    couple.dissolution_reason = "separate"
+    couple.save(update_fields=["dissolved_at_tick", "dissolution_reason"])
+
+    history = read_marriage_history(sim)
+
+    assert history.ever_partnered == frozenset({woman.id, man.id})
+    assert history.widowed_at_tick == {}
+
+
+@pytest.mark.django_db
+def test_a_twice_widowed_woman_carries_the_later_death_tick(sim_with_zone):
+    """The widow sits on the higher-id side of her first couple and on the
+    lower-id side of her second, so both sides of the canonical order are read."""
+    sim, zone = sim_with_zone
+    first_husband = _make_agent(sim, zone, "First", gender=Agent.Gender.MALE)
+    widow = _make_agent(sim, zone, "Widow")
+    second_husband = _make_agent(sim, zone, "Second", gender=Agent.Gender.MALE)
+    form_couple(widow, first_husband, formed_at_tick=1)
+    dissolve_on_death(first_husband, tick=10)
+    form_couple(widow, second_husband, formed_at_tick=20)
+    dissolve_on_death(second_husband, tick=30)
+
+    history = read_marriage_history(sim)
+
+    assert history.widowed_at_tick == {widow.id: 30}
+
+
+@pytest.mark.django_db
+def test_the_later_death_wins_even_when_its_couple_has_the_lower_id(sim_with_zone):
+    """`read_marriage_history` has no ORDER BY, so the order the rows arrive in
+    is unspecified and a plain assignment could keep either one. `max` makes
+    the result independent of that order. Here the later death (tick 30)
+    belongs to the first couple created, the earlier one (tick 10) to the
+    second: whichever row comes last, only `max` returns 30."""
+    sim, zone = sim_with_zone
+    widow = _make_agent(sim, zone, "Widow")
+    husband_of_the_first_couple = _make_agent(sim, zone, "First", gender=Agent.Gender.MALE)
+    husband_of_the_second_couple = _make_agent(sim, zone, "Second", gender=Agent.Gender.MALE)
+    form_couple(widow, husband_of_the_first_couple, formed_at_tick=1)
+    form_couple(widow, husband_of_the_second_couple, formed_at_tick=2)
+    dissolve_on_death(husband_of_the_first_couple, tick=30)
+    dissolve_on_death(husband_of_the_second_couple, tick=10)
+
+    history = read_marriage_history(sim)
+
+    assert history.widowed_at_tick == {widow.id: 30}
+
+
+@pytest.mark.django_db
+def test_an_agent_only_in_an_active_couple_is_in_neither_set(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    man = _make_agent(sim, zone, "Man", gender=Agent.Gender.MALE)
+    form_couple(woman, man, formed_at_tick=1)
+
+    history = read_marriage_history(sim)
+
+    assert history.ever_partnered == frozenset()
+    assert history.widowed_at_tick == {}
+
+
+@pytest.mark.django_db
+def test_the_history_ignores_the_couples_of_another_simulation(sim_with_zone):
+    sim, zone = sim_with_zone
+    other = Simulation.objects.create(name="Other", seed=1, owner=sim.owner, current_tick=5)
+    woman = _make_agent(other, zone, "Woman")
+    man = _make_agent(other, zone, "Man", gender=Agent.Gender.MALE)
+    form_couple(woman, man, formed_at_tick=1)
+    dissolve_on_death(man, tick=9)
+
+    history = read_marriage_history(sim)
+
+    assert history.ever_partnered == frozenset()
+    assert history.widowed_at_tick == {}
+
+
+# ---------------------------------------------------------------------------
+# mourning_ticks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("mourning_days", "tick_duration_hours", "acceleration", "expected"),
+    [
+        (365, 168.0, 1.0, 53),  # a weekly world: 365 / 7 = 52.14 ticks, rounded up
+        (365, 24.0, 1.0, 365),  # a daily world: one tick a day
+        (365, 24.0, 2.0, 183),  # twice the pace: 182.5 ticks, rounded up
+        (0, 24.0, 1.0, 0),  # no mourning interval
+    ],
+)
+def test_mourning_ticks_converts_days_to_ticks_rounding_up(
+    mourning_days, tick_duration_hours, acceleration, expected
+):
+    couple_config = {"mourning_days": mourning_days}
+
+    assert mourning_ticks(couple_config, tick_duration_hours, acceleration) == expected
+
+
+# ---------------------------------------------------------------------------
+# marriage_ineligibility
+# ---------------------------------------------------------------------------
+
+DAILY_WORLD_HOURS = 24.0
+ELIGIBILITY_TICK = 1000
+ELIGIBILITY_TEMPLATE = {
+    "acceleration": 1.0,
+    "couple": {
+        "min_marriage_age_male": 16,
+        "min_marriage_age_female": 14,
+        "mourning_days": 365,
+    },
+}
+
+
+def _widowed(agent_id, ticks_ago):
+    return MarriageHistory(
+        ever_partnered=frozenset({agent_id}),
+        widowed_at_tick={agent_id: ELIGIBILITY_TICK - ticks_ago},
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("ticks_since_the_death", "expected"),
+    [(100, "in mourning"), (364, "in mourning"), (365, None), (400, None)],
+)
+def test_a_widow_is_ineligible_until_the_mourning_interval_has_passed(
+    sim_with_zone, ticks_since_the_death, expected
+):
+    """One tick per day, 365 days of mourning: the death tick itself counts
+    as day 0, so exactly 365 ticks later the widow may marry again."""
+    sim, zone = sim_with_zone
+    widow = _make_agent(sim, zone, "Widow")
+
+    reason = marriage_ineligibility(
+        widow,
+        ELIGIBILITY_TEMPLATE,
+        ELIGIBILITY_TICK,
+        DAILY_WORLD_HOURS,
+        _widowed(widow.id, ticks_since_the_death),
+    )
+
+    assert reason == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("ticks_since_the_death", "expected"), [(182, "in mourning"), (183, None)])
+def test_the_mourning_interval_follows_the_eras_acceleration(
+    sim_with_zone, ticks_since_the_death, expected
+):
+    """At acceleration 2.0 a daily tick covers two days, so 365 days of
+    mourning are ceil(182.5) = 183 ticks: the widow is still in mourning at
+    182 ticks and free at 183."""
+    sim, zone = sim_with_zone
+    widow = _make_agent(sim, zone, "Widow")
+    template = {**ELIGIBILITY_TEMPLATE, "acceleration": 2.0}
+
+    reason = marriage_ineligibility(
+        widow,
+        template,
+        ELIGIBILITY_TICK,
+        DAILY_WORLD_HOURS,
+        _widowed(widow.id, ticks_since_the_death),
+    )
+
+    assert reason == expected
+
+
+@pytest.mark.django_db
+def test_a_girl_below_the_era_minimum_age_is_ineligible_for_her_age(sim_with_zone):
+    sim, zone = sim_with_zone
+    girl = _make_agent(sim, zone, "Girl", age=13)
+    no_history = MarriageHistory(frozenset(), {})
+
+    reason = marriage_ineligibility(
+        girl, ELIGIBILITY_TEMPLATE, sim.current_tick, DAILY_WORLD_HOURS, no_history
+    )
+
+    assert reason == "below the era's minimum marriage age"
+
+
+@pytest.mark.django_db
+def test_an_unmarried_adult_is_eligible(sim_with_zone):
+    sim, zone = sim_with_zone
+    woman = _make_agent(sim, zone, "Woman")
+    no_history = MarriageHistory(frozenset(), {})
+
+    reason = marriage_ineligibility(
+        woman, ELIGIBILITY_TEMPLATE, sim.current_tick, DAILY_WORLD_HOURS, no_history
+    )
+
+    assert reason is None
+
+
+# ---------------------------------------------------------------------------
+# Mourning on the intent path (User Story 3, scenario 1, resolver part)
+# ---------------------------------------------------------------------------
+
+
+def _widow_and_suitor(sim, zone, husband_died_at_tick):
+    """A widow of the default era and an unmarried suitor, each naming the other
+    at tick 499; the resolver runs at tick 500 on the daily world."""
+    husband = _make_agent(sim, zone, "Marito", gender=Agent.Gender.MALE)
+    widow = _make_agent(sim, zone, "Vedova")
+    suitor = _make_agent(sim, zone, "Pretendente", gender=Agent.Gender.MALE)
+    form_couple(widow, husband, formed_at_tick=1)
+    dissolve_on_death(husband, tick=husband_died_at_tick)
+    _decision_log(sim, widow, tick=499, action="pair_bond", target=suitor.name)
+    _decision_log(sim, suitor, tick=499, action="pair_bond", target=widow.name)
+    return widow, suitor
+
+
+@pytest.mark.django_db
+def test_an_intent_naming_a_widow_in_mourning_is_refused_and_logged(sim_with_zone, caplog):
+    import logging
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+    _widow_and_suitor(sim, zone, husband_died_at_tick=400)  # 100 days before tick 500
+
+    with caplog.at_level(logging.WARNING, logger="epocha.apps.demography.couple"):
+        formed = resolve_pair_bond_intents(sim, tick=500, rng=random.Random(42))
+
+    assert formed == []
+    assert any("in mourning" in record.message for record in caplog.records)
+
+
+@pytest.mark.django_db
+def test_an_intent_naming_a_widow_after_the_mourning_interval_forms_the_couple(sim_with_zone):
+    import random
+
+    sim, zone = sim_with_zone
+    sim.config = {"demography_template": "pre_industrial_christian"}
+    sim.save()
+    widow, suitor = _widow_and_suitor(sim, zone, husband_died_at_tick=100)  # 400 days before
+
+    formed = resolve_pair_bond_intents(sim, tick=500, rng=random.Random(42))
+
+    assert len(formed) == 1
+    assert {formed[0].agent_a_id, formed[0].agent_b_id} == {widow.id, suitor.id}
+
+
+# ---------------------------------------------------------------------------
+# SC-002 on the production draw (User Story 1, scenario 1)
+# ---------------------------------------------------------------------------
+
+
+class _CohortAges(dict):
+    """Age map of a cohort that ages together: every woman has the same age.
+
+    Holding one number instead of a 20,000-entry dict rebuilt every tick keeps
+    the test about the draw, not about dictionary construction.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.age = 12.0
+
+    def __getitem__(self, agent_id):
+        return self.age
+
+
+def test_a_seeded_cohort_realizes_the_calendar():
+    """20,000 never-married women, weekly ticks, no mortality, candidates
+    always available: the production draw (`seek_probability_for` and
+    `draw_seekers`) reproduces the template mean age at first marriage and the
+    share married at 50. The loop only removes the married women and records
+    their ages; it computes no probability and draws no number.
+
+    Tolerances are three standard errors (SC-002): b/sqrt(n*C) = 0.042 on the
+    mean, sqrt(0.88*0.12/20000) = 0.0023 on the share.
+    """
+    import random
+    import types
+
+    from epocha.apps.demography.couple import (
+        MarketPopulation,
+        draw_seekers,
+        seek_probability_for,
+    )
+    from epocha.apps.demography.nuptiality import first_marriage_schedule
+    from epocha.apps.demography.template_loader import load_template
+
+    couple_cfg = load_template("pre_industrial_christian")["couple"]
+    schedule = first_marriage_schedule(couple_cfg)
+    years_per_tick = 168 / 8760
+    cohort_size, start_age, end_age = 20_000, 12.0, 50.0
+    ages = _CohortAges()
+    pool = [types.SimpleNamespace(id=index) for index in range(cohort_size)]
+    population = MarketPopulation(
+        women=pool, men=[], ages=ages, history=MarriageHistory(frozenset(), {})
+    )
+    rng = random.Random(2026)
+    marriage_ages: list[float] = []
+
+    tick = 0
+    ages.age = start_age
+    while ages.age < end_age:
+        probability = seek_probability_for(
+            population,
+            schedule,
+            couple_cfg["remarriage_annual_rate_female"],
+            years_per_tick,
+        )
+        married = {w.id for w in draw_seekers(pool, probability, rng)}
+        marriage_ages.extend([ages.age] * len(married))
+        pool = [w for w in pool if w.id not in married]
+        tick += 1
+        ages.age = start_age + tick * years_per_tick
+
+    assert sum(marriage_ages) / len(marriage_ages) == pytest.approx(25.50, abs=0.13)
+    assert len(marriage_ages) / cohort_size == pytest.approx(0.878, abs=0.007)

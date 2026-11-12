@@ -404,8 +404,17 @@ def process_agent_decision(agent, world_state, tick: int) -> dict:
     try:
         action = json.loads(cleaned)
     except json.JSONDecodeError:
+        action = None
+    # Valid JSON is not enough: every consumer of the decision (faction
+    # dynamics, the pair-bond resolver) calls .get() on it, so an array,
+    # string, number or null from the LLM would raise AttributeError and
+    # stop the tick. Anything that is not an object takes the fallback.
+    if not isinstance(action, dict):
         logger.warning(
-            "Agent %s returned non-JSON at tick %d: %s", agent.name, tick, raw_response[:100]
+            "Agent %s returned a non-object decision at tick %d: %s",
+            agent.name,
+            tick,
+            raw_response[:100],
         )
         action = {**_FALLBACK_ACTION, "raw": raw_response}
 

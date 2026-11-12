@@ -462,3 +462,266 @@ class TestTheLoaderCacheDoesNotLeakMutations:
         assert again["social_inheritance"]["education_regression_rho"] == pytest.approx(0.60), (
             "the temporary directory's template poisoned the shipped entry"
         )
+
+
+class TestOnlyShippedTemplateNamesAreRead:
+    """The template name comes from `simulation.config`, which the API lets
+    the owner write, so it is untrusted input that reaches a file path.
+
+    Round 16 of the Plan 4 phase-6 gate found `load_template` joining it
+    straight onto the templates folder: `../` or an absolute path read any
+    JSON file the process can open, and the tick reaches the loader on every
+    run. A file planted outside the folder makes the escape observable: it
+    is a valid template, so only the name check can refuse it.
+    """
+
+    @pytest.fixture
+    def outside(self, tmp_path):
+        from epocha.apps.demography import template_loader
+
+        template_loader.load_template.cache_clear()
+        planted = tmp_path / "planted.json"
+        planted.write_text(json.dumps(load_template("industrial")))
+        yield planted.with_suffix("")
+        template_loader.load_template.cache_clear()
+
+    def test_a_relative_path_out_of_the_folder_is_refused(self, outside):
+        import os
+
+        from epocha.apps.demography.template_loader import TEMPLATES_DIR
+
+        escape = os.path.relpath(outside, TEMPLATES_DIR)
+        assert escape.startswith("..")
+        with pytest.raises(FileNotFoundError, match="not a shipped template"):
+            load_template(escape)
+
+    def test_an_absolute_path_is_refused(self, outside):
+        with pytest.raises(FileNotFoundError, match="not a shipped template"):
+            load_template(str(outside))
+
+    def test_an_unknown_name_is_refused(self):
+        with pytest.raises(FileNotFoundError, match="not a shipped template"):
+            load_template("atlantis")
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            pytest.param(["industrial"], id="list"),
+            pytest.param({"name": "industrial"}, id="dict"),
+        ],
+    )
+    def test_a_name_that_is_not_a_string_is_refused_by_the_same_error(self, name):
+        """`simulation.config` is JSON, so the name can be a list or an
+        object. Unhashable, it raised `TypeError` at the cache, which the
+        callers' `FileNotFoundError` and `ValueError` branches do not catch,
+        and aborted the tick (scoped review of the round-16 closure)."""
+        with pytest.raises(FileNotFoundError, match="not a shipped template"):
+            load_template(name)
+
+
+class TestCoupleSectionKeys:
+    """The `couple` section after the rule-based couples work item.
+
+    `mourning_ticks` became `mourning_days` (FR-012): the old name said ticks
+    while the number is days, so one era value meant different durations on a
+    weekly and on a daily world.
+    """
+
+    ERA_MOURNING_DAYS = {
+        "pre_industrial_christian": 365,
+        "pre_industrial_islamic": 365,
+        "industrial": 180,
+        "modern_democracy": 90,
+        "sci_fi": 30,
+    }
+
+    def test_the_old_mourning_key_is_rejected(self, template):
+        template["couple"].pop("mourning_days", None)
+        template["couple"]["mourning_ticks"] = 180
+        with pytest.raises(ValueError, match="unknown key in couple: mourning_ticks"):
+            validate_template(template, source="test")
+
+    @pytest.mark.parametrize("name", sorted(ERA_MOURNING_DAYS))
+    def test_every_shipped_template_carries_mourning_days_with_its_old_value(self, name):
+        couple = load_template(name)["couple"]
+        assert couple["mourning_days"] == self.ERA_MOURNING_DAYS[name]
+        assert "mourning_ticks" not in couple
+
+    def test_allowed_types_is_rejected_as_an_unknown_key(self, template):
+        """FR-015: no code read it and the couple types are the model enum."""
+        template["couple"]["allowed_types"] = ["monogamous", "arranged"]
+        with pytest.raises(ValueError, match="unknown key in couple: allowed_types"):
+            validate_template(template, source="test")
+
+    @pytest.mark.parametrize("name", sorted(ERA_MOURNING_DAYS))
+    def test_no_shipped_template_carries_allowed_types(self, name):
+        assert "allowed_types" not in load_template(name)["couple"]
+
+
+class TestMarriageMarketRadius:
+    """FR-013: only the radii the market implements are admitted.
+
+    `adjacent_zones` was shipped by the industrial template but the market
+    has no adjacency to read: generated zones are squares 120 units apart,
+    so `touches` is never true and the radius would silently behave as
+    `same_zone` under a name that promises more.
+    """
+
+    @pytest.mark.parametrize("radius", ["same_zone", "world"])
+    def test_the_two_implemented_radii_are_accepted(self, template, radius):
+        template["couple"]["marriage_market_radius"] = radius
+        validate_template(template, source="test")
+
+    def test_adjacent_zones_is_rejected_naming_the_field_and_the_admitted_set(self, template):
+        template["couple"]["marriage_market_radius"] = "adjacent_zones"
+        with pytest.raises(ValueError) as excinfo:
+            validate_template(template, source="test")
+        message = str(excinfo.value)
+        assert "couple.marriage_market_radius" in message
+        assert "adjacent_zones" in message
+        assert "['same_zone', 'world']" in message
+
+    def test_the_industrial_template_ships_same_zone(self):
+        assert load_template("industrial")["couple"]["marriage_market_radius"] == "same_zone"
+
+
+class TestFirstMarriageAndRemarriageKeys:
+    """FR-016, SC-012: the keys the rule-based marriage market reads.
+
+    Every missing key has its own rejection: a criterion that covers four of
+    five is how SC-015 came to pass against an empty section (see the module
+    docstring).
+    """
+
+    # mean_age_female, sd_age_female, proportion_ever_married_female
+    ERA_FIRST_MARRIAGE = {
+        "pre_industrial_christian": (25.5, 5.5, 0.88),
+        "pre_industrial_islamic": (19.0, 4.0, 0.97),
+        "industrial": (25.5, 5.5, 0.88),
+        "modern_democracy": (28.0, 6.0, 0.80),
+        "sci_fi": (28.0, 6.0, 0.80),
+    }
+    FIRST_MARRIAGE_KEYS = (
+        "mean_age_female",
+        "sd_age_female",
+        "proportion_ever_married_female",
+    )
+
+    @pytest.mark.parametrize("name", sorted(ERA_FIRST_MARRIAGE))
+    def test_every_shipped_template_carries_the_spec_values(self, name):
+        couple = load_template(name)["couple"]
+        mean, sd, proportion = self.ERA_FIRST_MARRIAGE[name]
+        assert couple["first_marriage"] == {
+            "mean_age_female": mean,
+            "sd_age_female": sd,
+            "proportion_ever_married_female": proportion,
+        }
+        assert couple["remarriage_annual_rate_female"] == 0.10
+
+    def test_a_missing_first_marriage_section_is_rejected(self, template):
+        del template["couple"]["first_marriage"]
+        with pytest.raises(
+            ValueError, match="mandatory section or field missing: couple.first_marriage"
+        ):
+            validate_template(template, source="test")
+
+    @pytest.mark.parametrize("key", FIRST_MARRIAGE_KEYS)
+    def test_each_missing_first_marriage_subkey_is_rejected(self, template, key):
+        del template["couple"]["first_marriage"][key]
+        with pytest.raises(ValueError, match=f"missing: couple.first_marriage.{key}"):
+            validate_template(template, source="test")
+
+    def test_a_missing_remarriage_rate_is_rejected(self, template):
+        del template["couple"]["remarriage_annual_rate_female"]
+        with pytest.raises(ValueError, match="missing: couple.remarriage_annual_rate_female"):
+            validate_template(template, source="test")
+
+    def test_a_remarriage_rate_above_five_is_rejected(self, template):
+        template["couple"]["remarriage_annual_rate_female"] = 5.1
+        with pytest.raises(ValueError, match="couple.remarriage_annual_rate_female"):
+            validate_template(template, source="test")
+
+    def test_the_remarriage_rate_endpoints_are_accepted(self, template):
+        for rate in (0.0, 5.0):
+            template["couple"]["remarriage_annual_rate_female"] = rate
+            validate_template(template, source="test")
+
+
+class TestCoupleRanges:
+    """FR-016: the ranges a leaf type and interval cannot express.
+
+    Each rejection names the full path and the admitted interval, one case per
+    bound, so that a bound dropped from the check turns exactly one test red.
+    """
+
+    @pytest.mark.parametrize(
+        ("path", "value", "interval"),
+        [
+            ("mean_age_female", 14, "(14, 50)"),
+            ("mean_age_female", 50, "(14, 50)"),
+            ("sd_age_female", 0, "(0, 15]"),
+            ("sd_age_female", 15.1, "(0, 15]"),
+            ("proportion_ever_married_female", 0, "(0, 1]"),
+            ("proportion_ever_married_female", 1.1, "(0, 1]"),
+        ],
+    )
+    def test_a_first_marriage_value_outside_its_interval_is_rejected(
+        self, template, path, value, interval
+    ):
+        template["couple"]["min_marriage_age_female"] = 14
+        template["couple"]["first_marriage"][path] = value
+        with pytest.raises(ValueError) as excinfo:
+            validate_template(template, source="test")
+        message = str(excinfo.value)
+        assert f"couple.first_marriage.{path}" in message
+        assert interval in message
+
+    def test_a_negative_mourning_is_rejected_naming_the_path(self, template):
+        template["couple"]["mourning_days"] = -1
+        with pytest.raises(ValueError, match=r"couple\.mourning_days = -1.*0 or more"):
+            validate_template(template, source="test")
+
+    def test_the_closed_ends_are_accepted(self, template):
+        # Minimum age 14, not the industrial 16: with a spread of 15 years the
+        # observed mean 25.5 is reachable only from 14 (the reachable interval
+        # at 16 is [26.36, 40.40], which the solvability check rejects, as it
+        # should). This test pins the range bounds, not the solvability.
+        template["couple"]["min_marriage_age_female"] = 14
+        template["couple"]["first_marriage"]["sd_age_female"] = 15
+        template["couple"]["first_marriage"]["proportion_ever_married_female"] = 1.0
+        template["couple"]["mourning_days"] = 0
+        validate_template(template, source="test")
+
+
+class TestFirstMarriageIsSolvable:
+    """FR-016: the observed mean must have a location parameter (R5).
+
+    The observed mean of the women who marry between the minimum age and 50
+    cannot go below what the density reaches with its location pushed to the
+    bottom of the search bracket. A template asking for less has no schedule,
+    and the loader must say so where the template is written.
+    """
+
+    def test_an_unreachable_observed_mean_is_rejected_with_the_reachable_interval(self):
+        template = copy.deepcopy(load_template("pre_industrial_christian"))
+        template["couple"]["first_marriage"]["mean_age_female"] = 18.5
+        with pytest.raises(ValueError) as excinfo:
+            validate_template(template, source="test")
+        message = str(excinfo.value)
+        assert "couple.first_marriage.mean_age_female" in message
+        assert "18.78" in message
+
+    def test_the_rejection_leaves_the_template_untouched(self):
+        """The location is derived, never written into the shared dict (PD-10).
+
+        This covers the rejection path only; that a successful load leaves
+        the shipped templates exactly as written is pinned by
+        `test_every_shipped_template_carries_the_spec_values`, which compares
+        the loaded `first_marriage` block to the values in the spec.
+        """
+        template = copy.deepcopy(load_template("pre_industrial_christian"))
+        template["couple"]["first_marriage"]["mean_age_female"] = 18.5
+        before = copy.deepcopy(template)
+        with pytest.raises(ValueError):
+            validate_template(template, source="test")
+        assert template == before

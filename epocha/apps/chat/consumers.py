@@ -67,6 +67,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         from epocha.apps.agents.memory import get_relevant_memories
         from epocha.apps.agents.models import Agent
         from epocha.apps.agents.personality import build_personality_prompt
+        from epocha.apps.demography.orchestrator import describe_speaker
         from epocha.apps.llm_adapter.client import get_chat_llm_client
 
         try:
@@ -89,7 +90,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         system_prompt = (
             f"{personality_prompt}\n\n"
-            f"You are {agent.name}, a {agent.role}. "
+            f"{describe_speaker(agent)}"
             f"Someone is talking to you. Respond in character, "
             f"consistently with your personality and memories."
             f"{memory_text}"

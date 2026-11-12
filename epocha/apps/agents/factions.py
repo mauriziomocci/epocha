@@ -597,8 +597,13 @@ def update_group_cohesion(group: Group, simulation, tick: int) -> None:
         action = data.get("action", "")
         target = data.get("target", "")
         # Check if target matches any group member's name (case-insensitive).
-        target_is_member = target and any(
-            target.lower() in name.lower() for name in member_names.values()
+        # The target is not always a name: the arranged-marriage payload of
+        # the pair-bond resolver is a dict, and a string-only check would
+        # raise AttributeError and stop the whole faction step.
+        target_is_member = (
+            isinstance(target, str)
+            and bool(target)
+            and any(target.lower() in name.lower() for name in member_names.values())
         )
         if not target_is_member:
             continue
@@ -1200,7 +1205,9 @@ def _process_formation_decisions(simulation, tick: int) -> None:
             formers.append(agent)
         elif action == "join_group" and agent.group is None:
             target = data.get("target", "")
-            if target:
+            # A non-string target (e.g. the dict payload of a pair-bond) is
+            # unhashable and names no group: ignore it.
+            if isinstance(target, str) and target:
                 joiners.setdefault(target, []).append(agent)
 
     # Process join requests for existing groups.

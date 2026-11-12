@@ -1,7 +1,7 @@
 """Celery tasks for the simulation tick loop.
 
 Production path: run_simulation_loop runs the economy tick, then launches
-a Celery chord of process_agent_turn tasks (one per living agent). When
+a Celery chord of process_agent_turn tasks (one per protagonist, at most K). When
 all agent tasks complete, the finalize_tick callback advances the tick,
 decays memories, broadcasts via WebSocket, and re-enqueues the loop.
 
@@ -27,10 +27,9 @@ def run_simulation_loop(simulation_id: int) -> None:
     Steps:
     1. Verify simulation is still running
     2. Run economy tick (synchronous, fast)
-    3. Launch chord: one process_agent_turn per living agent
+    3. Launch chord: one process_agent_turn per protagonist (at most K)
     4. Chord callback (finalize_tick) handles the rest
     """
-    from epocha.apps.agents.models import Agent
     from epocha.apps.simulation.engine import run_economy
     from epocha.apps.simulation.models import Simulation
 
@@ -45,12 +44,34 @@ def run_simulation_loop(simulation_id: int) -> None:
     # 1. Economy tick (fast, synchronous)
     run_economy(simulation)
 
-    # 2. Build chord of agent tasks
+    # 2. Demography tick (synchronous, and BEFORE the chord on purpose).
+    #
+    # The block is a set-based mutation of tick state, like the economy and
+    # unlike the per-agent decisions. Running it here means the agents
+    # deciding at tick T see the population tick T actually has: the dead are
+    # dead, the newborns exist, the estates are settled, the forced moves have
+    # happened. Running it after the chord would have every agent decide
+    # against a population one tick stale.
+    #
+    # A consequence worth stating rather than discovering: an agent who dies
+    # in the demography block is not in this tick's chord header, because the
+    # header is built below, after the block. That is the correct reading of
+    # "whoever dies at T does not act at T".
+    #
+    # The block returns immediately when the simulation has not opted in, so
+    # simulations without demography keep their exact previous query count.
+    from epocha.apps.demography.orchestrator import run_demography_tick
+
+    run_demography_tick(simulation, tick)
+
+    # 3. Build chord of agent tasks
+    from epocha.apps.agents.deliberation import select_deliberating_agents
     from epocha.apps.agents.tasks import process_agent_turn
 
-    agent_ids = list(
-        Agent.objects.filter(simulation=simulation, is_alive=True).values_list("id", flat=True)
-    )
+    # At most K protagonists deliberate (`max_protagonists`), minors excluded;
+    # read AFTER the demography block, so a child born this tick is already in
+    # the population. See `select_deliberating_agents`.
+    agent_ids = [agent.id for agent in select_deliberating_agents(simulation, tick)]
 
     if not agent_ids:
         finalize_tick([], simulation_id, tick)

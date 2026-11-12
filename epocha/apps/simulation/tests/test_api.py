@@ -143,3 +143,103 @@ class TestExpressEndpoint:
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         sim = Simulation.objects.first()
         assert sim.status == "error"
+
+
+MAX_PROTAGONISTS_BODY = {
+    "config": {
+        "max_protagonists": [
+            "Must be a whole number of 0 or more; omit the key to use the default of 30."
+        ]
+    }
+}
+
+
+# The five keys the economy writes at creation (economy/initialization.py): a client
+# that writes ``config`` must send them back, or the write drops them.
+ECONOMY_CONFIG = {
+    "production_config": {"alpha": 1},
+    "credit_config": {"rate": 0.05},
+    "banking_config": {"reserve_ratio": 0.1},
+    "expectations_config": {"adaptation_rate": 0.3},
+    "expropriation_policies": {"tax": 0.2},
+}
+
+
+@pytest.mark.django_db
+class TestMaxProtagonistsValidation:
+    """FR-020: max_protagonists is validated at the API boundary (D-RBC-09)."""
+
+    @pytest.fixture
+    def simulation(self, user):
+        return Simulation.objects.create(
+            name="Cfg", seed=1, owner=user, config=dict(ECONOMY_CONFIG)
+        )
+
+    @pytest.mark.parametrize("value", [-1, None, True, 2.5, 5.0])
+    def test_a_patch_with_an_invalid_value_answers_400_and_changes_nothing(
+        self, authenticated_client, simulation, value
+    ):
+        url = f"/api/v1/simulations/{simulation.id}/"
+        config = authenticated_client.get(url).json()["config"]
+        config["max_protagonists"] = value
+
+        response = authenticated_client.patch(url, {"config": config}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == MAX_PROTAGONISTS_BODY
+        simulation.refresh_from_db()
+        assert simulation.config == ECONOMY_CONFIG
+
+    @pytest.mark.parametrize("value", [-1, None, True, 2.5, 5.0])
+    def test_a_put_with_an_invalid_value_answers_the_same_400(
+        self, authenticated_client, simulation, value
+    ):
+        url = f"/api/v1/simulations/{simulation.id}/"
+        body = {
+            "name": "Cfg",
+            "seed": 1,
+            "config": {**ECONOMY_CONFIG, "max_protagonists": value},
+        }
+
+        response = authenticated_client.put(url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == MAX_PROTAGONISTS_BODY
+        simulation.refresh_from_db()
+        assert simulation.config == ECONOMY_CONFIG
+
+    def test_a_post_with_an_invalid_value_answers_the_same_400(self, authenticated_client):
+        response = authenticated_client.post(
+            "/api/v1/simulations/",
+            {"name": "Bad", "seed": 1, "config": {"max_protagonists": -1}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == MAX_PROTAGONISTS_BODY
+        assert not Simulation.objects.filter(name="Bad").exists()
+
+    def test_the_whole_config_with_a_valid_value_is_stored_as_sent(
+        self, authenticated_client, simulation
+    ):
+        url = f"/api/v1/simulations/{simulation.id}/"
+        config = authenticated_client.get(url).json()["config"]
+        config["max_protagonists"] = 5
+
+        response = authenticated_client.patch(url, {"config": config}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        simulation.refresh_from_db()
+        assert simulation.config == {**ECONOMY_CONFIG, "max_protagonists": 5}
+
+    def test_a_patch_of_config_replaces_the_whole_object(self, authenticated_client, simulation):
+        """Pins today's behaviour: ``config`` is replaced, never merged (FR-020)."""
+        url = f"/api/v1/simulations/{simulation.id}/"
+
+        response = authenticated_client.patch(
+            url, {"config": {"max_protagonists": 5}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        simulation.refresh_from_db()
+        assert simulation.config == {"max_protagonists": 5}
