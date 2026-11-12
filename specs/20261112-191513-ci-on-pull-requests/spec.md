@@ -3,7 +3,7 @@
 **Branch**: `20261112-191513-ci-on-pull-requests`
 **Creata**: 2026-11-12
 **Stato**: bozza, decisione della Trinità D-12-E-2 in una finestra di modalità totalmente autonoma
-**Contratto API**: invariato (il lavoro tocca solo `.github/workflows/ci.yml`)
+**Contratto API**: invariato (il lavoro tocca la CI, le sue dipendenze di sviluppo, un test e il puntatore di Spec Kit; nessun codice di produzione né API)
 
 ## Perché
 
@@ -34,72 +34,65 @@ un servizio che il runner non ha) e non introdotta da questo cambiamento.
 
 ## Esito
 
-Il lavoro tocca cinque file: `.github/workflows/ci.yml`, `requirements/local.txt`,
-`.pre-commit-config.yaml`, `compose/postgres/Dockerfile` e
-`.specify/feature.json` (il puntatore di Spec Kit alla feature corrente).
-Il criterio di successo ha richiesto più esecuzioni, perché ogni giro ha
-mostrato una causa nuova e preesistente.
+Stato al commit 3909c3a. Il lavoro tocca sette file: `.github/workflows/ci.yml`,
+`requirements/local.txt`, `.pre-commit-config.yaml`, `compose/postgres/Dockerfile`,
+`.specify/feature.json` (il puntatore di Spec Kit alla feature corrente),
+`epocha/apps/demography/tests/test_migration.py` e questa spec.
 
-**Esecuzione 43278450837.** Prima esecuzione sulla pull request #20, rossa in
-entrambi i job. Il job `lint` installava `ruff` senza versione e ha preso la
-0.17.5, che riformatta anche i blocchi Python dentro i file Markdown
-(`CLAUDE.md`, i piani e le spec in `docs/superpowers/`): `ruff format --check .`
-è fallito su file che la 0.15.11 dell'immagine di sviluppo accetta («All checks
-passed!», «324 files already formatted»). Il job `test` si è fermato prima di
-raccogliere i test con `ImproperlyConfigured: Could not find the GDAL library`:
-il progetto usa GeoDjango (la parte di Django per i dati geografici), che
-richiede sul runner le librerie GDAL, GEOS e PROJ.
+**Cosa ho cambiato.** Il trigger `pull_request` non ha più il filtro sui branch.
+Ruff è fissato alla 0.15.11 in `requirements/local.txt` (il workflow installa
+esattamente quella riga) e in `.pre-commit-config.yaml`: senza versione il job
+`lint` prendeva la 0.17.5, che riformatta anche i blocchi Python dentro i file
+Markdown e falliva su file che la 0.15.11 dell'immagine di sviluppo accetta. Il
+job `test` installa i pacchetti di sistema di `compose/django/Dockerfile` (GDAL,
+GEOS e PROJ, le librerie che GeoDjango, la parte di Django per i dati geografici,
+richiede sul runner), usa lo schema `postgis://` e costruisce
+`compose/postgres/Dockerfile` al posto di `postgres:16-alpine`, che non ha né
+PostGIS né pgvector (l'estensione per i vettori creata dalla migrazione
+`knowledge.0001_initial`). Quel Dockerfile legge ora i pacchetti dall'archivio
+congelato `apt-archive.postgresql.org`, perché `apt.postgresql.org` non serve più
+Debian bullseye, la base di `postgis/postgis:16-3.4`; base e versioni sono
+invariate, e passare a una base più recente è una decisione del proprietario,
+perché cambia l'immagine con cui è stato creato il volume del database di
+sviluppo. Il workflow dichiara `permissions: contents: read`. Il test
+`TestFlightPathDeterminismAcrossHashSeeds` lanciava un sottoprocesso con
+`cwd="/app"`, il percorso che esiste solo nell'immagine Docker
+(`FileNotFoundError: '/app'` sul runner): ora usa `settings.ROOT_DIR`, la radice
+del repository.
 
-**Esecuzione 43279153319.** Dopo aver fissato `ruff==0.15.11` in
-`requirements/local.txt` (il workflow ne installa esattamente quella riga) e aver
-aggiunto al job `test` i pacchetti di sistema di `compose/django/Dockerfile`, lo
-schema `postgis://` e la costruzione di `compose/postgres/Dockerfile` al posto
-dell'immagine `postgres:16-alpine` (che non ha né PostGIS né pgvector, l'estensione
-per i vettori creata dalla migrazione `knowledge.0001_initial`), `lint` è
-diventato verde. `test` è rimasto rosso perché `apt-get update` dell'immagine del
-database non trova più il repository `apt.postgresql.org` per Debian bullseye,
-la base di `postgis/postgis:16-3.4`.
+**Stato attuale, esecuzione 43284913652 su 3909c3a.** `lint` è verde in 6 secondi.
+`test` è rosso: 1575 test passati e 7 falliti in 9 minuti e 42 secondi. I 7
+fallimenti sono esattamente quelli noti: 5 in `TestGenerateWorldFromPrompt`
+(`IndexError: list index out of range`) e 2 in
+`tests/test_integration.py::TestFullMVPFlow` (HTTP 500 e `KeyError:
+'simulation_id'`). Hanno bisogno del merge del Plan 4 (PR #18), che svuota le
+chiavi LLM nelle impostazioni di test e simula l'arricchimento: l'ho verificato su
+un albero con tutti e cinque i branch in attesa fusi. Il test con `cwd="/app"`,
+corretto in 3909c3a, è passato.
 
-**Correzioni successive.** `compose/postgres/Dockerfile` legge ora i pacchetti
-dall'archivio congelato `apt-archive.postgresql.org`, che serve ancora
-`bullseye-pgdg` con `postgresql-16-pgvector`; base e versioni sono invariate.
-Passare a una base più recente è una decisione del proprietario, perché cambia
-l'immagine con cui è stato creato il volume del database di sviluppo.
-`.pre-commit-config.yaml` fissa ruff alla 0.15.11, così nel repository c'è una
-sola versione. Il workflow dichiara `permissions: contents: read`.
+**Storia delle esecuzioni precedenti.** La 43278450837 era rossa in entrambi i job
+(ruff 0.17.5 senza versione e GDAL mancante); la 43279153319 aveva `lint` verde e
+`test` rosso perché `apt-get update` dell'immagine del database non trovava più
+il repository per bullseye; la 43282461996, sul commit 297c3ea, aveva `lint`
+verde in 9 secondi e `test` rosso con 1574 passati e 8 falliti (i 7 sopra più il
+test con `cwd="/app"`).
 
-**Esecuzione sull'ultimo push.** La 43282461996, sul commit 297c3ea: `lint` verde in 9 secondi, `test` rosso
-dopo 11 minuti e 48 secondi, con 1574 test passati e 8 falliti. Il database
-(PostGIS con pgvector) e le librerie geografiche ora funzionano, e la
-suite gira fino in fondo. Dei 8 fallimenti, 7 sono quelli noti del residuo
-sotto: 5 in `TestGenerateWorldFromPrompt` (`IndexError: list index out of
-range`) e 2 in `tests/test_integration.py` (HTTP 500 e `KeyError:
-'simulation_id'`). L'ottavo è nuovo e dipende dall'ambiente:
-`TestFlightPathDeterminismAcrossHashSeeds` in
-`epocha/apps/demography/tests/test_migration.py` lancia un sottoprocesso con
-`cwd="/app"` (riga 2992), il percorso dell'immagine Docker, che sul runner non
-esiste (`FileNotFoundError: '/app'`). Va corretto in un lavoro a parte, con il
-percorso ricavato dal file del test; qui resta dichiarato. Il criterio di
-successo è quindi soddisfatto nella forma alternativa: la CI parte, `lint` è
-verde e `test` è rosso solo per cause preesistenti nel codice di `develop`,
-non nella CI.
+**Verdetto.** CI rossa per causa preesistente, che si chiude con il merge del
+Plan 4. Il criterio di successo è soddisfatto nella forma alternativa: la CI
+parte, `lint` è verde e `test` è rosso solo per cause che stanno nel codice di
+`develop`, non nella CI. Ordine di merge consigliato: la #18 prima della #20,
+oppure rilanciare la CI della #20 dopo la #18.
 
-**Residuo noto.** Su `develop` sette test hanno bisogno del merge del Plan 4
-(PR #18): cinque in `TestGenerateWorldFromPrompt` e due in
-`tests/test_integration.py`. Il Plan 4 svuota le chiavi LLM nelle impostazioni di
-test e simula l'arricchimento; senza quel merge il job `test` di questa pull
-request può restare rosso su quei sette, per una causa che sta nel codice di
-`develop` e non nella CI. Consiglio di fondere la #18 prima della #20, oppure di
-rilanciare la CI della #20 dopo la #18. L'ottavo test, quello con `cwd="/app"`
-(`TestFlightPathDeterminismAcrossHashSeeds`, `FileNotFoundError: '/app'` sul
-runner), è corretto in `epocha/apps/demography/tests/test_migration.py`: la
-directory di lavoro del sottoprocesso è ora `settings.ROOT_DIR`, la radice del
-repository, invece del percorso che esiste solo nell'immagine Docker. Nel
-container `epocha-ci` i due test `TestFlightPathDeterminism*` passano anche
-lanciati da `/tmp` (2 passed). Il ramo del Plan 4 contiene la stessa funzione,
-identica riga per riga nel punto toccato, quindi la correzione si fonde senza
-conflitto: cambia una riga e ne aggiunge un'importazione locale, mentre il
-Plan 4 modifica solo un commento poco sopra.
+## Limiti noti
+
+- Ruff è fissato in due posti (`requirements/local.txt` e
+  `.pre-commit-config.yaml`) e nessun controllo verifica che restino uguali.
+- L'elenco dei pacchetti GDAL in `ci.yml` copia quello di
+  `compose/django/Dockerfile`: se uno cambia, l'altro va aggiornato a mano.
+- `.specify/feature.json` viene riscritto da ogni branch in attesa, quindi darà
+  conflitto nei merge.
+- L'archivio apt congelato non riceve aggiornamenti di sicurezza: l'immagine del
+  database di sviluppo non ne avrà più.
 
 ## FAQ
 
