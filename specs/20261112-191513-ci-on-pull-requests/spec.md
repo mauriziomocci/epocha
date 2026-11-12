@@ -90,8 +90,16 @@ non nella CI.
 test e simula l'arricchimento; senza quel merge il job `test` di questa pull
 request può restare rosso su quei sette, per una causa che sta nel codice di
 `develop` e non nella CI. Consiglio di fondere la #18 prima della #20, oppure di
-rilanciare la CI della #20 dopo la #18. Resta comunque rosso l'ottavo test,
-quello con `cwd="/app"`, finché non viene corretto.
+rilanciare la CI della #20 dopo la #18. L'ottavo test, quello con `cwd="/app"`
+(`TestFlightPathDeterminismAcrossHashSeeds`, `FileNotFoundError: '/app'` sul
+runner), è corretto in `epocha/apps/demography/tests/test_migration.py`: la
+directory di lavoro del sottoprocesso è ora `settings.ROOT_DIR`, la radice del
+repository, invece del percorso che esiste solo nell'immagine Docker. Nel
+container `epocha-ci` i due test `TestFlightPathDeterminism*` passano anche
+lanciati da `/tmp` (2 passed). Il ramo del Plan 4 contiene la stessa funzione,
+identica riga per riga nel punto toccato, quindi la correzione si fonde senza
+conflitto: cambia una riga e ne aggiunge un'importazione locale, mentre il
+Plan 4 modifica solo un commento poco sopra.
 
 ## FAQ
 
