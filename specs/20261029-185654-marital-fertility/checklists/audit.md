@@ -142,3 +142,12 @@ attributed to this spec, not to A9.
 | R6-01 | MISSING | The raise of `annual_base_rate` and `requires_couple_for_birth` on a section without exactly one block (FR-002) had no acceptance scenario or SC. | US3 scenario 4 and SC-007 now cover it. |
 
 **Verdict round 6: CONVERGED** (0 INCORRECT, 0 UNJUSTIFIED, 0 INCONSISTENT, 1 MISSING, minor, applied).
+
+## Round 7 (12/11/2026, delta 5ffd9d1..505f301, D-12-E-3)
+
+Audit avversariale del solo delta che porta SC-002 e SC-005 nell'ordine dei passi del motore (formazione delle coppie e mortalità prima della fertilità nello stesso tick). Il revisore ha ricalcolato ogni numero con script propri sulle funzioni del ramo delle coppie a `36d8864`: TFR₀ cristiano 4,306331 mensile e 4,306340 continuo, 4,282783 con un tick di ritardo, 4,318113 con il rischio a metà tick; NRR 1,926561 con `l(a + dt)`; islamica 6,815559 / 6,810933; industriale 3,997582 / 3,997356; sentinella di Hadwiger 2,384133. VERIFIED 6.
+
+- INCORRECT (minore): SC-002 attribuiva il 2,352 al solo tasso a metà tick; il valore richiede insieme un tick di ritardo e il tasso a metà tick. Corretto.
+- MISSING (minore): il controllo di T041 a 0,002 non distingueva il NRR mensile con `l(a + dt)` (1,92656) da quello con `l(a)` (1,92686) e dal continuo (1,92672). T041 ora sostituisce `analytic_nrr` e chiede 1,92656 entro 5e-5. Corretto.
+
+Verdetto del round 7: NOT CONVERGED per un INCORRECT minore, convergente dopo la correzione di una frase. COVERAGE: partial (rounds 1-6 fuori dal delta non riauditati; banco stocastico e motore non eseguiti; `exposure_age` della mortalità non controllato). Segue il round 8 sulla correzione.
