@@ -129,3 +129,32 @@ def test_the_test_settings_configure_no_reachable_llm_provider(key_setting, base
     base_url_is_blank = getattr(settings, base_url_setting) == ""
     assert key_is_blank, f"{key_setting} is set in the test settings"
     assert base_url_is_blank, f"{base_url_setting} is set in the test settings"
+
+
+# Settings the factories or the provider selection read from the environment
+# and that must not vary with it, with the fixed value the suite runs on.
+# The values are the defaults of `config/settings/base.py`.
+_PINNED_LLM_SETTINGS = [
+    ("EPOCHA_DEFAULT_LLM_PROVIDER", "openai"),
+    ("EPOCHA_LLM_MODEL", "gpt-4o-mini"),
+]
+
+
+@pytest.mark.parametrize(("setting", "pinned_value"), _PINNED_LLM_SETTINGS)
+def test_the_test_settings_pin_the_provider_and_model_against_the_environment(
+    setting, pinned_value
+):
+    """The provider and model the suite runs on do not come from the environment.
+
+    The suite runs in containers that carry the developer's real environment.
+    A non-default `EPOCHA_LLM_PROVIDER` or `EPOCHA_LLM_MODEL` there would
+    change the configuration every test runs under, and a provider selection
+    added to the factories later would be reachable with no key guard in
+    front of it. `config/settings/test.py` fixes both to the defaults of
+    `base.py`. A boolean is asserted so a failure never prints an environment
+    value.
+    """
+    from django.conf import settings
+
+    is_pinned = getattr(settings, setting) == pinned_value
+    assert is_pinned, f"{setting} is not pinned in the test settings"
