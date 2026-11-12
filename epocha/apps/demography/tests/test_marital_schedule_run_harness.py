@@ -124,3 +124,25 @@ def test_configuration_a_fails_on_a_group_20_44_without_exposure():
     groups[30] = SimpleNamespace(exposure=0.0, births=0, weighted=0.0)
     groups[15] = SimpleNamespace(exposure=0.0, births=0, weighted=0.0)
     assert run_script.evaluate_configuration_a(groups, template) == [30]
+
+
+def test_the_summed_probabilities_give_the_expected_written_births():
+    # Two partnered calls in 25-29 and one unpartnered (no exposure, p = 0):
+    # sum(p) = 0.9, so the expected written births are 0.9 * c.
+    template = load_template(run_script.TEMPLATE_NAME)
+    recorder = run_script.Recorder()
+    month = 1 / 12
+    recorder.calls = {
+        (1, 1): run_script.CallRecord(26.0, 0.5, 1.0, 0.4, month),
+        (1, 2): run_script.CallRecord(27.0, 0.5, 1.0, 0.5, month),
+        (1, 3): run_script.CallRecord(27.0, 0.5, None, 0.0, 0),
+    }
+    groups = run_script.exposure_by_group(recorder)
+    groups[25].births = 1
+    expected = 0.9 * run_script.survival_correction(template)
+
+    lines = run_script.expected_birth_lines("A", groups, template)
+
+    assert groups[25].probability == 0.9
+    assert groups[25].exposure == 2 * month
+    assert f"A 25-29: births 1, sum(p) * c {expected:.2f}" in lines

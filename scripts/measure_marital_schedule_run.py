@@ -57,9 +57,11 @@ tick, the mother's id, her age (`orchestrator.age_in_years` with the call's
 arguments), whether she is in a couple, the Becker factor returned during
 that call and the probability returned. The exposure of a call is
 `years_per_tick` when she is in a couple and the base rate is positive: the
-woman-years in a couple the model used.
-Births are the BIRTH events of the run joined to the mother's age recorded
-at the same tick.
+woman-years in a couple the model used. Births are the BIRTH events of the
+run joined to the mother's age recorded at the same tick. Both
+configurations also print, per group, the births next to sum(p) * c over the
+group's calls, the expected written births given the probabilities the model
+used (`expected_birth_lines`, reported and not judged).
 
 How to run it (never collected by the suite, since its name does not match
 `test_*.py`):
@@ -293,16 +295,27 @@ def group_of(age: float) -> int | None:
     return start if start in GROUP_STARTS else None
 
 
-def group_statistics(simulation: Simulation, recorder: Recorder, first_tick: int) -> dict:
-    """Per group: woman-years in a couple, births, Becker-weighted exposure, factors."""
+def exposure_by_group(recorder: Recorder) -> dict:
+    """Per group: woman-years in a couple, Becker-weighted exposure, summed probability.
+
+    Births start at 0; `group_statistics` adds them from the run's events.
+    """
     groups = {
-        start: SimpleNamespace(exposure=0.0, births=0, weighted=0.0) for start in GROUP_STARTS
+        start: SimpleNamespace(exposure=0.0, births=0, weighted=0.0, probability=0.0)
+        for start in GROUP_STARTS
     }
     for record in recorder.calls.values():
         group = group_of(record.age)
         if group is not None and record.exposure > 0:
             groups[group].exposure += record.exposure
             groups[group].weighted += record.exposure * record.becker
+            groups[group].probability += record.probability
+    return groups
+
+
+def group_statistics(simulation: Simulation, recorder: Recorder, first_tick: int) -> dict:
+    """`exposure_by_group` with the births of the run, joined to the age recorded at their tick."""
+    groups = exposure_by_group(recorder)
     births = DemographyEvent.objects.filter(
         simulation=simulation,
         event_type=DemographyEvent.EventType.BIRTH,
@@ -313,6 +326,28 @@ def group_statistics(simulation: Simulation, recorder: Recorder, first_tick: int
         if group is not None:
             groups[group].births += 1
     return groups
+
+
+def expected_birth_lines(label: str, groups: dict, template: dict) -> list[str]:
+    """Per group the births against sum(p) * c, reported and not judged.
+
+    Each call draws a birth with the probability p it returned and the BIRTH
+    event is written with probability c (`survival_correction`), so sum(p) * c
+    over a group's calls is the expected count of written births given the
+    probabilities the model used, Becker factor included: in configuration B
+    the only expected count there is. It cross-checks the join of births to
+    calls; in configuration A, read next to the expected births of the A
+    lines, it also shows any multiplier on the rate other than the schedule
+    (the Malthusian ceiling, avoid_conception), which would set the two apart.
+    """
+    correction = survival_correction(template)
+    lines = [f"{label} births against sum(p) * c, the expected written births (not judged):"]
+    for start, group in groups.items():
+        lines.append(
+            f"{label} {start}-{start + 4}: births {group.births},"
+            f" sum(p) * c {group.probability * correction:.2f}"
+        )
+    return lines
 
 
 def survival_correction(template: dict) -> float:
@@ -401,7 +436,9 @@ def measure(tmp_path, monkeypatch, label: str, zero_becker: bool):
     simulation.refresh_from_db()
     assert simulation.current_tick == first_tick + TICKS
     print(f"\n{label}: {seconds:.0f} s for {TICKS} ticks; {configuration_line()}")
-    return group_statistics(simulation, recorder, first_tick), template, recorder
+    groups = group_statistics(simulation, recorder, first_tick)
+    print("\n".join(expected_birth_lines(label, groups, template)))
+    return groups, template, recorder
 
 
 # Real transactions, as in the couples integration run (decision D-05-E-14):
