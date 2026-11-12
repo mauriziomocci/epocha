@@ -140,7 +140,6 @@ CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localho
 
 # EPOCHA SETTINGS
 # Main LLM provider (used for ticks, world generation, reports)
-EPOCHA_DEFAULT_LLM_PROVIDER = env("EPOCHA_LLM_PROVIDER", default="openai")
 EPOCHA_LLM_API_KEY = env("EPOCHA_LLM_API_KEY", default="")
 EPOCHA_LLM_MODEL = env("EPOCHA_LLM_MODEL", default="gpt-4o-mini")
 EPOCHA_LLM_BASE_URL = env("EPOCHA_LLM_BASE_URL", default="")
