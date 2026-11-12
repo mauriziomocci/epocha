@@ -30,10 +30,3 @@ EPOCHA_LLM_BASE_URL = ""
 EPOCHA_CHAT_LLM_API_KEY = ""
 EPOCHA_CHAT_LLM_MODEL = ""
 EPOCHA_CHAT_LLM_BASE_URL = ""
-
-# Provider and model are fixed to the defaults of `base.py` as well, so the
-# configuration the suite runs under never depends on the developer's
-# environment (`EPOCHA_LLM_PROVIDER`, `EPOCHA_LLM_MODEL`). Guarded by
-# `llm_adapter/tests/test_client.py`.
-EPOCHA_DEFAULT_LLM_PROVIDER = "openai"
-EPOCHA_LLM_MODEL = "gpt-4o-mini"
