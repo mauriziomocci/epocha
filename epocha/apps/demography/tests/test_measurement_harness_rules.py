@@ -12,6 +12,11 @@ The harness must also follow the engine's step order: `DEMOGRAPHY_STEPS` runs
 mortality (step 3, with the couple dissolved by succession at step 4) before
 fertility (step 7), so a woman or a husband who dies at a tick does not count
 for that tick's births. The second and third tests hold the harness to it.
+
+Mortality is charged at the engine's exposure age: `orchestrator.exposure_age`
+reads the age at the PREVIOUS tick, while the market and fertility read the age
+at the current one (decision D-12-E-5). The last two tests hold the harness's
+per-tick death probability and its survival to 12 to the production function.
 """
 
 import random
@@ -20,6 +25,7 @@ from types import SimpleNamespace
 import pytest
 
 from epocha.apps.demography.couple import MarriageHistory, marriage_ineligibility
+from epocha.apps.demography.orchestrator import mortality_probability_for
 from epocha.apps.demography.template_loader import load_template
 from scripts.measure_nuptiality_fertility import (
     NEVER,
@@ -32,6 +38,7 @@ from scripts.measure_nuptiality_fertility import (
     build_context,
     is_ineligible,
     replicate_tick,
+    survival_to_twelve,
 )
 
 
@@ -118,3 +125,50 @@ def test_without_mortality_the_married_woman_counts_for_the_tick_fertility():
         cohort, TICK_AT_25, context, random.Random(1), 10**6, with_mortality=False
     )
     assert (in_couple, alive) == (1, 1)
+
+
+def test_the_harness_charges_each_death_at_the_engine_exposure_age():
+    """The woman and the husband of a harness tick die with the probability the
+    tick loop gives an agent of their age at that tick (D-12-E-5).
+
+    With the cohort born START_AGE years before tick 0 a harness tick is the
+    engine tick of the same number, so the production call is made on agents
+    born at the ticks the harness implies. The recorder returns 0 so that both
+    draws happen and nobody dies; the real harness function is then evaluated
+    on the arguments the tick passed.
+    """
+    template = load_template(TEMPLATE_NAME)
+    harness_probability = build_context(template).death_probability
+    passed = []
+
+    def recorder(months):
+        passed.append(months)
+        return 0.0
+
+    cohort = one_married_woman_cohort()
+    replicate_tick(cohort, TICK_AT_25, context_with_death(recorder), random.Random(1), 10**6, True)
+
+    engine_context = SimpleNamespace(tick=TICK_AT_25, template=template)
+    woman = SimpleNamespace(birth_tick=-START_AGE * TICKS_PER_YEAR, age=None)
+    husband = SimpleNamespace(birth_tick=cohort.husband_birth[0], age=None)
+    expected = [
+        mortality_probability_for(agent, engine_context, TICK_HOURS) for agent in (woman, husband)
+    ]
+    assert [harness_probability(months) for months in passed] == expected
+
+
+def test_the_survival_to_twelve_stops_before_the_mortality_of_the_first_harness_tick():
+    """l_tick(12) is the engine survival of a newborn of tick 0 up to the tick at
+    which it is 12, BEFORE that tick's mortality, which the first harness tick
+    charges: ticks 1 to 143, the newborn being first exposed at the tick after
+    its birth (`orchestrator.exposure_age`)."""
+    template = load_template(TEMPLATE_NAME)
+    newborn = SimpleNamespace(birth_tick=0, age=None)
+    expected = 1.0
+    for tick in range(1, START_AGE * TICKS_PER_YEAR):
+        context = SimpleNamespace(tick=tick, template=template)
+        expected *= 1.0 - mortality_probability_for(newborn, context, TICK_HOURS)
+
+    assert survival_to_twelve(build_context(template).death_probability) == pytest.approx(
+        expected, rel=1e-12
+    )

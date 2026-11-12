@@ -56,8 +56,11 @@ Harness assumptions, every one declared:
   (`remarriage_annual_rate_female`), a never-married one on the first-marriage
   schedule (plan PD-07). Separation does not exist in the harness.
 - Mortality uses the function the tick loop uses after D-29-20,
-  `orchestrator.mortality_probability_for`, evaluated at the age at the
-  start of the tick's interval and cached per whole month of age.
+  `orchestrator.mortality_probability_for`, cached per whole month of age. It
+  charges the engine's exposure age, the age at the PREVIOUS tick
+  (`orchestrator.exposure_age`), while the market and fertility read the age
+  at the current tick: a mother of fertility age a has survived to l(a), not
+  to l(a + 1/12) (D-12-E-5, held by `test_measurement_harness_rules.py`).
 
 Cost: about 2 score evaluations per seeker and candidate, roughly 2 * 10^7 per
 replicate, acceptable for a script and not for the suite.
@@ -113,20 +116,23 @@ def tick_age(tick: int) -> float:
 
 
 def death_probability_by_month(template: dict):
-    """Return the tick-loop death probability as a cached function of age in months.
+    """Return the tick-loop death probability at a tick, keyed by the age in months at that tick.
 
-    It calls `orchestrator.mortality_probability_for`, the function the tick
-    loop uses after D-29-20, on a stand-in agent born at tick 0 and a stand-in
-    context at the tick whose interval opens at that age (exposure age is
-    `age_in_years(agent, tick - 1, ...)`). The monthly tick makes the age
-    exactly `months / 12`.
+    The key is the age the market and fertility read at the tick
+    (`age_in_years(agent, tick)`). The probability is the one the tick loop
+    charges at that tick, `orchestrator.mortality_probability_for` (D-29-20),
+    called on a stand-in agent born at tick 0 and a stand-in context at tick
+    `months`: the production `exposure_age` then reads the age at the previous
+    tick, `(months - 1) / 12`, so the shift between the two ages is the
+    engine's own and not a copy of it (D-12-E-5). Defined for `months >= 1`,
+    since a newborn is first exposed at the tick after its birth.
     """
     cache: dict[int, float] = {}
 
     def probability(months: int) -> float:
         if months not in cache:
             agent = SimpleNamespace(birth_tick=0, age=0)
-            context = SimpleNamespace(tick=months + 1, template=template)
+            context = SimpleNamespace(tick=months, template=template)
             cache[months] = mortality_probability_for(agent, context, TICK_HOURS)
         return cache[months]
 
@@ -134,10 +140,15 @@ def death_probability_by_month(template: dict):
 
 
 def survival_to_twelve(death_probability) -> float:
-    """l_tick(12): the product of 1 - p_tick over the monthly ticks from age 0 to 12."""
+    """l_tick(12): survival of a newborn of tick 0 to the tick it is 12, before that mortality.
+
+    The product of 1 - p over ticks 1 to 143: the newborn is first exposed at
+    the tick after its birth, and the mortality of the tick at which it is 12
+    (exposure age 143/12) is charged by the first harness tick, not here.
+    """
     result = 1.0
-    for month in range(START_AGE * TICKS_PER_YEAR):
-        result *= 1.0 - death_probability(month)
+    for months in range(1, START_AGE * TICKS_PER_YEAR):
+        result *= 1.0 - death_probability(months)
     return result
 
 
@@ -239,7 +250,11 @@ def tick_market(cohort, tick, context, rng, next_id) -> tuple[int, int]:
 
 
 def tick_mortality(cohort, tick, death_probability, rng) -> None:
-    """Women and their husbands die at their own ages; a widow starts mourning."""
+    """Women and their husbands die at their own ages; a widow starts mourning.
+
+    `death_probability` is keyed by the age in months at this tick (the
+    fertility age) and charges the engine's exposure age, one tick younger.
+    """
     woman_p = death_probability(tick + START_AGE * TICKS_PER_YEAR)
     for index in range(COHORT_SIZE):
         if not cohort.alive[index]:
