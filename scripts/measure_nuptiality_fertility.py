@@ -1,27 +1,36 @@
-"""Measure the realized nuptiality and fertility of the rule-based couples (spec SC-007).
+"""Measure realized nuptiality and fertility of a couple era (couples SC-007, marital SC-005).
 
 Run from the repository root, outside the test suite:
 
     PYTHONPATH=. python scripts/measure_nuptiality_fertility.py [--replicates 20] [--seed-base 1]
 
-What it answers. With `require_couple_for_birth` the Hadwiger schedule of
-equation (4.2) applies to married women only, so the fertility a cohort
-realizes is the integral of the schedule weighted by the share of women in a
-couple at each age. This script follows a cohort of 20,000 women from 12 to
-50 years at monthly ticks and reports that fertility, in two configurations:
+What it answers. In an era that requires a couple for a birth the base
+schedule applies to women in a couple only, so the fertility a cohort realizes
+is the integral of that schedule weighted by the share of women in a couple at
+each age. The base schedule is the one the template's `fertility` block
+selects through the single dispatch point `fertility.annual_base_rate` (N4):
+the marital schedule r(a) = M * n(a) of Coale and Trussell (1974) in the three
+eras that require a couple (`pre_industrial_christian` among them), equation
+(4.2) of Hadwiger (1940) elsewhere. The script never reads a block by name.
+This script follows a cohort of 20,000 women from 12 to 50 years at monthly
+ticks and reports that fertility, in two configurations:
 
 - A, no mortality (hence no widowhood and no remarriage). Failure when the
   mean TFR of the replicates is further than 3 standard errors (sd /
   sqrt(replicates)) from the reference, the deterministic propagation of the
-  first-marriage hazard at the same monthly ticks, or when a tick has more
-  than 500 seekers (the always-available-men assumption would not hold).
+  first-marriage hazard at the same monthly ticks, computed here with the
+  same `annual_base_rate` (`propagated_reference_tfr`, 4.306 for the
+  Christian era, SC-002; never a hand-written number), or when a tick has
+  more than 500 seekers (the always-available-men assumption would not hold).
 - B, with mortality, widowhood, mourning and the remarriage rate. The TFR,
   with M(a) the share in a couple among the women alive at that age (SC-007),
   has no threshold (widowhood and the remarriage rate are heuristics); the net
-  reproduction rate has one: failure when the upper bound of its 95%
-  Student t interval is below 1, because choice A of D-RBC-04 (keep the
-  Hadwiger rate for married women for now) rests on the population not
-  dying out under the wrong model.
+  reproduction rate has two, failure when the upper bound of its 95% Student
+  t interval is below 1 (inherited from the couples SC-007) or when its lower
+  bound exceeds the analytic NRR without widowhood at the same monthly ticks
+  in the engine's order (`analytic_nrr`, 1.92686 for the Christian era;
+  marital fertility SC-005), because widowhood and mourning can only remove
+  years in a couple.
 
 Harness assumptions, every one declared:
 
@@ -29,12 +38,13 @@ Harness assumptions, every one declared:
   the market (couple formation, step 2) runs first, then mortality (step 3),
   then fertility (step 7), so a woman who marries at a tick counts for that
   tick's births and a woman or a husband who dies at it does not
-  (`replicate_tick`, held by `test_measurement_harness_rules.py`). The
-  Hadwiger rate is evaluated at the age at the start of the tick
+  (`replicate_tick`, held by `test_measurement_harness_rules.py`). The base
+  rate is evaluated at the age at the start of the tick
   (`_effective_age_in_years`). The reference of configuration A follows the
-  same order and age, 2.384 against 2.363 (married share one tick late) and
-  2.352 (married share one tick late and rate at the mid-tick age together),
-  decisions D-05-E-12 and D-12-E-4.
+  same order and age: 4.306 against 4.283 with the married share one tick
+  late and 4.318 with the marriage hazard at mid-tick (SC-002, decisions
+  D-05-E-12 and D-12-E-3); `test_marital_fertility.py` ties it to the SC-002
+  propagation of the tests.
 - Men are female-dominant and always available: each tick the candidates
   are 500 never-married men redrawn from the template `age_pyramid` above
   `min_marriage_age_male` (a bracket partly below it is cut at it), not a
@@ -44,7 +54,8 @@ Harness assumptions, every one declared:
 - One Heligman-Pollard schedule is used for both sexes, as `mortality.py` has
   no sex term. The husband dies at his own age.
 - Becker modulation and the Malthusian ceiling are excluded by construction:
-  the measure concerns the interaction of nuptiality and equation (4.2).
+  the measure concerns the interaction of nuptiality and the base schedule
+  (the realized Becker level is measured in a run by SC-006).
 - Maternal mortality (0.008 per birth in the template) is not modelled, in
   both the harness and the analytic values.
 - The seek probability is the production function `couple.seek_probability_for`.
@@ -276,11 +287,11 @@ def replicate_tick(
     `orchestrator.DEMOGRAPHY_STEPS` runs couple formation (step 2), then
     mortality (step 3, the couple dissolved by succession at step 4), then
     fertility (step 7) on the living women and the active couples. So a woman
-    who marries at this tick is already married when the Hadwiger rate is
+    who marries at this tick is already married when the base rate is
     applied, and a woman or a husband who dies at this tick is not.
 
     Returns the seekers drawn, the next free candidate id, and the women in a
-    couple and alive at the moment the Hadwiger rate is applied.
+    couple and alive at the moment the base rate is applied.
     """
     seekers, next_id = tick_market(cohort, tick, context, rng, next_id)
     if with_mortality:
@@ -291,7 +302,7 @@ def replicate_tick(
 def run_replicate(context, seed: int, with_mortality: bool) -> tuple[float, float, int]:
     """Follow one cohort; return its TFR, its births per initial woman, its busiest tick.
 
-    The TFR weighs the Hadwiger rate by the share of the women ALIVE who are in
+    The TFR weighs the base rate by the share of the women ALIVE who are in
     a couple, M(a) of SC-007 (survivors only). The births per initial woman
     weigh it by the share of the INITIAL cohort in a couple: that is the
     quantity the net reproduction rate needs, since it multiplies by the
@@ -338,29 +349,45 @@ def build_context(template: dict) -> SimpleNamespace:
     )
 
 
+def married_share_by_tick(context) -> list[float]:
+    """The deterministic share of the cohort in a couple at each tick, as fertility reads it.
+
+    At each monthly tick the share M first grows by the single share times the
+    tick probability of the first-marriage schedule (couple formation, step 2)
+    and is then read by fertility (step 7), the engine's step order
+    (D-05-E-12), with the hazard at the age at the start of the tick. No random
+    draws and no mortality: the propagation of SC-002.
+    """
+    married = 0.0
+    shares = []
+    for probability in context.first_marriage_probability:
+        married += (1.0 - married) * probability
+        shares.append(married)
+    return shares
+
+
 def propagated_reference_tfr(context) -> float:
     """The TFR of the deterministic propagation of the first-marriage hazard.
 
-    At each monthly tick the share of women in a couple, M, first grows by the
-    single share times the tick probability of the schedule (couple formation)
-    and then weighs the Hadwiger rate (fertility), the engine's step order,
-    with the rate at the age at the start of the tick. This is the SC-002
-    propagation at the same ticks as the harness, with no random draws, so it
-    measures what the draws should reproduce and not the discretization.
+    The base rate at the age at the start of each tick weighted by the share in
+    a couple after that tick's market (`married_share_by_tick`). This is the
+    SC-002 propagation at the same ticks as the harness, with no random draws,
+    so it measures what the draws should reproduce and not the discretization.
     """
-    married = 0.0
-    tfr = 0.0
-    for tick in range(TICKS):
-        married += (1.0 - married) * context.first_marriage_probability[tick]
-        tfr += annual_base_rate(tick_age(tick), context.fertility) * married / TICKS_PER_YEAR
-    return tfr
+    shares = married_share_by_tick(context)
+    total = sum(
+        annual_base_rate(tick_age(tick), context.fertility) * share
+        for tick, share in enumerate(shares)
+    )
+    return total / TICKS_PER_YEAR
 
 
 def continuous_tfr(context) -> float:
-    """The continuous value, the integral of the Hadwiger rate times F*(a) on [m, 50].
+    """The continuous value (N3), the integral of the base rate times F*(a) on [m, 50].
 
-    The integral is split in whole years for `quad` because the schedule has
-    a kink at the minimum marriage age and at the Hadwiger bounds.
+    The integral is split in whole years for `quad` because the integrand has
+    a kink at the minimum marriage age and the marital schedule jumps at the
+    five-year group edges, which fall on whole years.
     """
     low = int(context.min_age)
     return sum(
@@ -394,25 +421,24 @@ def life_table(template: dict):
 
 
 def analytic_nrr(context, template: dict, survival) -> float:
-    """The analytic net reproduction rate, without widowhood and maternal mortality.
+    """The analytic net reproduction rate without widowhood, at the harness ticks (SC-005).
 
-    NRR = integral on [m, 50] of f_H(a) F*(a) l(a) da / (1 + sex_ratio_at_birth),
-    f_H the Hadwiger rate, F* the conditioned share married, l the life table.
+    NRR = sum over ticks k of f(a_k) M_k l(a_k) / 12 / (1 + sex_ratio_at_birth),
+    with a_k the age at the start of tick k, f the base rate
+    (`annual_base_rate`), M_k the share in a couple after the tick's market
+    (`married_share_by_tick`) and l the whole-age life table (`life_table`).
+    The engine's step order: market, then mortality, then fertility, with the
+    tick's mortality charged at the previous tick's age
+    (`orchestrator.exposure_age`), so a mother of fertility age a has survived
+    to l(a), not to l(a + 1/12) (D-12-E-5). Maternal mortality is not modelled.
+    For the Christian era it is 1.92686, against 1.92656 with l(a + 1/12) and
+    1.92672 for the continuous integral (D-12-E-4, D-12-E-5).
     """
-    low = int(context.min_age)
     total = sum(
-        quad(
-            lambda a: (
-                annual_base_rate(a, context.fertility)
-                * context.schedule.conditional_cdf(a)
-                * survival(a)
-            ),
-            year,
-            year + 1,
-        )[0]
-        for year in range(low, END_AGE)
+        annual_base_rate(tick_age(tick), context.fertility) * share * survival(tick_age(tick))
+        for tick, share in enumerate(married_share_by_tick(context))
     )
-    return total / (1.0 + template["sex_ratio_at_birth"])
+    return total / TICKS_PER_YEAR / (1.0 + template["sex_ratio_at_birth"])
 
 
 def interval(values: list[float]) -> tuple[float, float, float]:
@@ -476,13 +502,14 @@ def summarize_configuration_b(
     )
     tfr_mean, _, tfr_half = interval(result["tfr"])
     analytic = analytic_nrr(context, template, survival)
+    lower, upper = nrr_mean - nrr_half, nrr_mean + nrr_half
     busiest = result["most_seekers"]
     row = {
         "configuration": "B, mortality, widowhood",
         "tfr": f"{tfr_mean:.4f} +- {tfr_half:.4f}",
         "tfr_value": "none (no threshold)",
         "gap": "-",
-        "nrr": f"{nrr_mean:.4f} [{nrr_mean - nrr_half:.4f}, {nrr_mean + nrr_half:.4f}]",
+        "nrr": f"{nrr_mean:.4f} [{lower:.4f}, {upper:.4f}]",
         "nrr_value": f"{analytic:.4f} (gap {nrr_mean - analytic:+.4f})",
         "l25": f"{survival(25):.4f}",
         "seconds": f"{result['seconds']:.0f}",
@@ -491,9 +518,14 @@ def summarize_configuration_b(
         f"B: survival to the first harness tick (engine exposure age 143/12, not the table"
         f" l(12) = {survival(12):.4f}) = {l12:.4f}; the analytic NRR"
         " has no widowhood and no maternal mortality (not modelled)",
+        f"B: NRR upper bound {upper:.4f} (fails below 1, couples SC-007); lower bound"
+        f" {lower:.4f} (fails above the analytic NRR without widowhood {analytic:.5f}, SC-005)",
         f"B: most seekers in a tick {busiest} (limit {MAX_SEEKERS})",
     ]
-    return row, notes, nrr_mean + nrr_half >= 1.0 and busiest <= MAX_SEEKERS
+    # Widowhood and mourning can only remove years in a couple, so the
+    # measured NRR cannot exceed the analytic value without widowhood (SC-005).
+    coherent = lower <= analytic
+    return row, notes, bool(upper >= 1.0 and coherent and busiest <= MAX_SEEKERS)
 
 
 TABLE_COLUMNS = (

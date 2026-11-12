@@ -13,6 +13,9 @@ non-increasing from 25, zero outside [15, 50)) and the level
 (M = T_m / 8.995, with 8.995 computed from the six values, never written by
 hand), and the single dispatch point (N4) that chooses the base schedule
 from the block a `fertility` section carries. All tests are pure: no database, no Django models.
+One test also ties the configuration-A reference of the SC-005 measurement
+script (`scripts/measure_nuptiality_fertility.py`) to the SC-002 propagation
+of this file.
 """
 
 import pytest
@@ -29,6 +32,11 @@ from epocha.apps.demography.fertility import (
 )
 from epocha.apps.demography.nuptiality import first_marriage_schedule
 from epocha.apps.demography.template_loader import load_template
+from scripts.measure_nuptiality_fertility import (
+    TEMPLATE_NAME,
+    build_context,
+    propagated_reference_tfr,
+)
 
 # The English level of the spec, the marital TMFR 20-49 that the Christian
 # template declares (spec, table "Parametri per era").
@@ -229,6 +237,17 @@ def test_monthly_cohort_tfr_without_mortality(christian_era):
     fertility_cfg, schedule = christian_era
     tfr = _monthly_cohort_tfr(lambda age: annual_base_rate(age, fertility_cfg), schedule)
     assert tfr == pytest.approx(4.306, abs=SC002_TOLERANCE)
+
+
+def test_the_measurement_script_reference_is_the_sc002_propagation(christian_era):
+    """The configuration-A reference of the SC-005 script and the SC-002
+    propagation of this file are one quantity computed twice; this ties them,
+    so neither can drift from the engine's step order alone."""
+    fertility_cfg, schedule = christian_era
+    expected = _monthly_cohort_tfr(lambda age: annual_base_rate(age, fertility_cfg), schedule)
+    reference = propagated_reference_tfr(build_context(load_template(TEMPLATE_NAME)))
+    assert reference == pytest.approx(expected, abs=SC002_TOLERANCE)
+    assert reference == pytest.approx(4.306, abs=SC002_TOLERANCE)
 
 
 def test_continuous_tfr_without_mortality(christian_era):

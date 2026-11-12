@@ -17,6 +17,12 @@ Mortality is charged at the engine's exposure age: `orchestrator.exposure_age`
 reads the age at the PREVIOUS tick, while the market and fertility read the age
 at the current one (decision D-12-E-5). The last two tests hold the harness's
 per-tick death probability and its survival to 12 to the production function.
+
+Configuration B has a coherence condition (marital fertility SC-005): widowhood
+and mourning can only remove years in a couple, so the lower bound of the
+measured NRR must not exceed the analytic NRR without widowhood, computed at
+the same monthly ticks in the engine's step order. The last tests hold that
+value to 1.92686 and the verdict to the condition.
 """
 
 import random
@@ -35,9 +41,12 @@ from scripts.measure_nuptiality_fertility import (
     TICKS,
     TICKS_PER_YEAR,
     Cohort,
+    analytic_nrr,
     build_context,
     is_ineligible,
+    life_table,
     replicate_tick,
+    summarize_configuration_b,
     survival_to_twelve,
 )
 
@@ -73,7 +82,7 @@ def test_the_harness_eligibility_equals_the_production_rule_on_the_whole_grid():
     assert checked == TICKS * 6
 
 
-# Harness tick 156: the women are 25, where the Hadwiger rate is near its peak.
+# Harness tick 156: the women are 25, where the base rate is near its peak.
 TICK_AT_25 = 13 * TICKS_PER_YEAR
 HUSBAND_AGE_MONTHS = 60 * TICKS_PER_YEAR
 
@@ -172,3 +181,58 @@ def test_the_survival_to_twelve_stops_before_the_mortality_of_the_first_harness_
     assert survival_to_twelve(build_context(template).death_probability) == pytest.approx(
         expected, rel=1e-12
     )
+
+
+# SC-005: the analytic NRR without widowhood at monthly ticks in the engine's
+# order, with l(a) at the fertility age a (D-12-E-5). The alternatives fall
+# outside the 5e-5 tolerance: l(a + dt) gives 1.92656, the continuous integral
+# 1.92672 (rounds 7 and 8 of the audit, D-12-E-4).
+MONTHLY_ENGINE_ORDER_NRR = 1.92686
+NRR_TOLERANCE = 5e-5
+
+
+def test_the_analytic_nrr_is_the_monthly_engine_order_value():
+    template = load_template(TEMPLATE_NAME)
+    context = build_context(template)
+
+    value = analytic_nrr(context, template, life_table(template))
+
+    assert value == pytest.approx(MONTHLY_ENGINE_ORDER_NRR, abs=NRR_TOLERANCE)
+
+
+def configuration_b_result(nrr_values, template, context):
+    """A configuration-B result whose replicates give exactly `nrr_values`.
+
+    `summarize_configuration_b` turns births per initial woman into the NRR as
+    l_tick(12) * births / (1 + sex_ratio_at_birth); this inverts it.
+    """
+    l12 = survival_to_twelve(context.death_probability)
+    divisor = 1.0 + template["sex_ratio_at_birth"]
+    return {
+        "tfr": [4.0] * len(nrr_values),
+        "births_per_initial": [nrr * divisor / l12 for nrr in nrr_values],
+        "most_seekers": 0,
+        "seconds": 0.0,
+    }
+
+
+@pytest.mark.parametrize(
+    ("nrr_values", "passes"),
+    [
+        # Interval about [1.80, 1.90]: below the analytic value, above 1.
+        ((1.84, 1.85, 1.86), True),
+        # Lower bound above the analytic value: widowhood added years in a couple.
+        ((2.04, 2.05, 2.06), False),
+        # Upper bound below 1, the condition inherited from the couples SC-007.
+        ((0.94, 0.95, 0.96), False),
+    ],
+)
+def test_the_configuration_b_verdict_holds_both_conditions(nrr_values, passes):
+    template = load_template(TEMPLATE_NAME)
+    context = build_context(template)
+
+    _, _, verdict = summarize_configuration_b(
+        context, template, configuration_b_result(nrr_values, template, context)
+    )
+
+    assert verdict is passes
