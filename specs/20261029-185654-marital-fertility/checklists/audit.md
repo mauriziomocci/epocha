@@ -165,3 +165,20 @@ COVERAGE: full
 - INCORRECT (minore): il NRR mensile nell'ordine del motore usava la sopravvivenza alla fine del tick, l(a + 1/12); con l'età di esposizione del motore è l(a). Corretto: la frase della spec sulla colonna mensile e SC-005 dicono che la mortalità è addebitata all'età del tick precedente; il NRR mensile vale 1,926861 nell'era cristiana (SC-005 passa da 1,9266 a 1,9269), 3,065736 in quella islamica (la cella passa da 3,065 a 3,066) e 1,867905 in quella industriale (cella invariata, 1,868); T041 chiede 1,92686 entro 5e-5, che lo distingue dal valore con l(a + dt), 1,92656, e dal continuo, 1,92672. Ho ricalcolato i tre valori con uno script mio sulle funzioni del ramo delle coppie dopo la correzione dell'harness (`f9e997a`): il ciclo del motore con `orchestrator.mortality_probability_for`, l'harness corretto e la tavola per età intere letta a l(a) danno lo stesso numero alla sesta cifra. La stessa correzione è stata applicata all'harness SC-007 delle coppie (D-12-E-5), dove il NRR misurato con 20 repliche passa da 1,0677 a 1,0680, intervallo [1,0657, 1,0703].
 
 Verdetto del round 8: NOT CONVERGED per un INCORRECT minore, convergente dopo la correzione dei numeri riportati sopra.
+
+## Round 9 (12/11/2026, delta 841a0a7..a292ee5, `critical-analyzer` indipendente)
+
+```
+VERDICT: NOT CONVERGED (one minor INCORRECT, a one-sentence fix; convergent after it)
+FINDINGS: INCORRECT 1, UNJUSTIFIED 0, INCONSISTENT 2, MISSING 0, VERIFIED 9 groups
+COVERAGE: full over the spec, plan and tasks text and over every number. Not done: Woods (2000) not re-read (host unreachable); the stochastic SC-005/SC-006 harnesses not run (they are phase-6 work).
+```
+
+Punteggio documentazione: 8,5.
+
+Correzioni applicate il 2026-11-12, ciascuna verificata con git prima di scriverla:
+
+- INCORRECT, D-MF-06 (spec): diceva che il ramo delle coppie è basato su `develop` e che il suo `fertility.py` è quello di `develop`, da ribasare. È falso dal commit `99b7b7b` (2026-11-05, D-05-E-1): il Plan 4 è stato fuso nel ramo delle coppie, la base di fusione con il ramo del Plan 4 è `0acd7c2` e `git diff` fra i due rami su `fertility.py` è vuoto. Il passaggio ora dice che la ribasatura è già fatta.
+- INCONSISTENT, riga di stato della spec: diceva che il delta aspettava il round 7. Ora dice che i round 7, 8 e 9 hanno girato e in che stato è la spec dopo questa correzione.
+- INCONSISTENT, FR-006 e FR-008: ancorati alla testa delle coppie `2282ed8`. Il whitepaper §9 voce 3 e `README.md` riga 126 riportano 2,374 (non più 2,394); lo script SC-007 esiste in `scripts/measure_nuptiality_fertility.py` e chiama `hadwiger_asfr` alle righe 311, 352, 365 e 403.
+- Sotto S3, `tasks.md` (limite 10): attribuiva 1,927 a D-12-E-3; la convenzione l(a) che dà 1,926861 è D-12-E-5, ora citata.
