@@ -875,7 +875,7 @@ Table 4.3b — Marital level of the eras that require a couple.
 
 | Era template                 | `T_m` (`total_marital_fertility_20_49`) | `M = T_m / 8.995` | `max_population` | `malthusian_floor_ratio` (`ρ`) | Status |
 |------------------------------|-----------------------------------------|-------------------|------------------|--------------------------------|--------|
-| `pre_industrial_christian`   | 6.7                                     | 0.74486           | 500              | 0.10                           | Provisional: Alter, Newton and Oeppen (2020, sec. 3.1.3), cumulated 1575-1849; the 1700-1749 value is read from Wrigley et al. (1997) by the validation work item |
+| `pre_industrial_christian`   | 6.7                                     | 0.74486           | 500              | 0.10                           | Provisional: Alter, Newton and Oeppen (2020); the 6.7 is read from one sentence of sec. 3.1.3, a date-precision sensitivity check ("from 6.7 to 6.8"), and the period 1575-1849 is the study's, per sec. 2.7 (not re-read for this table); the 1700-1749 value is read from Wrigley et al. (1997) by the validation work item |
 | `pre_industrial_islamic`     | 6.7                                     | 0.74486           | 500              | 0.10                           | Tunable heuristic: the Christian level, since the two pre-industrial eras share their fertility block (§6.2) and differ in nuptiality, the contrast of Hajnal (1965) |
 | `industrial`                 | 6.22                                    | 0.69150           | 500              | 0.05                           | Tunable heuristic: the value that keeps the TFR₀ of this era at 3.997 against the former `H = 4`; uniform with `m = 0`, a declared shape error, since the transition lowered marital fertility mostly at older ages |
 
@@ -3172,8 +3172,10 @@ work item.
   Cambridge Group Family Reconstitutions. *Historical Life Course
   Studies*, 9, 24–48. https://doi.org/10.51964/hlcs9311 (Read on PubMed
   Central, PMC10923557, sections 2.7 and 3.1.3; licence CC BY 4.0. The
-  marital total fertility rate 20-49 of 6.7 used in §4.1.2 is cumulated
-  over 1575-1849.)
+  marital total fertility rate 20-49 of 6.7 used in §4.1.2 is taken from
+  one sentence of section 3.1.3, a date-precision sensitivity check
+  ("from 6.7 to 6.8"); the period 1575-1849 is the study's period per
+  section 2.7, not re-read for this entry.)
 - Antonakis, J., Bastardoz, N., Jacquart, P., and Shamir, B. (2016). Charisma: an ill-defined and ill-measured gift. *Annual Review of Organizational Psychology and Organizational Behavior*, 3, 293–319. https://doi.org/10.1146/annurev-orgpsych-041015-062305
 - Arendt, H. (1951). *The Origins of Totalitarianism*. Schocken Books,
   New York. Reissued by Harcourt Brace, 1973.

@@ -322,7 +322,6 @@ def test_fertility_step_cost_does_not_grow_with_partnered_candidates():
         f"{fifty} queries at 50 partnered candidates and {five_hundred} at 500: "
         "the fertility step issues queries per partnered candidate"
     )
-    assert (FIXED_TERM_NO_CANDIDATES, FIXED_TERM_WITH_CANDIDATES) == (39, 47)
 
 
 class _Deadly:

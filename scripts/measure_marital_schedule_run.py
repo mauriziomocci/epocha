@@ -133,10 +133,11 @@ MAX_POPULATION = 10**6
 # One seed (SC-006); the age draw keeps the couples integration run's seed.
 SIMULATION_SEED = 2026
 ZONES = 2
-# SC-006, configuration A: a group is judged from 30 EXPECTED births (woman-years
-# in a couple times the expected rate), at 3 standard errors. The floor is on the
-# expected count: on the observed one it would stop judging exactly the group
-# whose births the model suppressed.
+# SC-006, configuration A: a group is judged from 30 births EXPECTED (woman-years
+# in a couple times the expected rate) OR OBSERVED, at 3 standard errors. A floor
+# on the observed count alone would stop judging the group whose births the model
+# suppressed; a floor on the expected count alone would stop judging a thin group
+# (45-49, 15-19) whose births the model inflated. The larger of the two decides.
 MIN_EXPECTED_BIRTHS_JUDGED = 30
 STANDARD_ERROR_LIMIT = 3.0
 # SC-006, configuration B and D-MF-09: the band of rho_BK (a Trinity heuristic).
@@ -379,9 +380,11 @@ def judge_group_a(start: int, group, expected: float) -> tuple[str, bool]:
     realized = group.births / group.exposure
     error = math.sqrt(group.births) / group.exposure
     distance = abs(realized - expected) / error if error else math.inf
-    judged = expected_births >= MIN_EXPECTED_BIRTHS_JUDGED
+    judged = max(expected_births, group.births) >= MIN_EXPECTED_BIRTHS_JUDGED
     fails = judged and distance > STANDARD_ERROR_LIMIT
-    verdict = ("FAIL" if fails else "judged") if judged else "not judged (< 30 expected)"
+    verdict = (
+        ("FAIL" if fails else "judged") if judged else "not judged (< 30 expected or observed)"
+    )
     return (
         f"{label}: births {group.births}, expected births {expected_births:.1f},"
         f" woman-years {group.exposure:.1f}, realized {realized:.4f}, expected {expected:.4f},"
@@ -392,10 +395,10 @@ def judge_group_a(start: int, group, expected: float) -> tuple[str, bool]:
 def evaluate_configuration_a(groups: dict, template: dict) -> list[int]:
     """Print the realized rate of each group; return the groups that fail.
 
-    A group fails when its expected births reach `MIN_EXPECTED_BIRTHS_JUDGED`
-    and its realized rate is further than 3 Poisson standard errors from the
-    expected one, or when it is in `GROUPS_REQUIRING_EXPOSURE` and has no
-    woman-year in a couple.
+    A group fails when its expected or observed births reach
+    `MIN_EXPECTED_BIRTHS_JUDGED` and its realized rate is further than 3
+    Poisson standard errors from the expected one, or when it is in
+    `GROUPS_REQUIRING_EXPOSURE` and has no woman-year in a couple.
     """
     failed = []
     for start, group in groups.items():

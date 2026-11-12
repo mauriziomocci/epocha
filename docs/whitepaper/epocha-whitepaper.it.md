@@ -919,7 +919,7 @@ Tabella 4.3b — Livello coniugale delle ere che richiedono la coppia.
 
 | Template di era              | `T_m` (`total_marital_fertility_20_49`) | `M = T_m / 8,995` | `max_population` | `malthusian_floor_ratio` (`ρ`) | Stato |
 |------------------------------|-----------------------------------------|-------------------|------------------|--------------------------------|-------|
-| `pre_industrial_christian`   | 6.7                                     | 0,74486           | 500              | 0.10                           | Provvisorio: Alter, Newton e Oeppen (2020, sez. 3.1.3), cumulato sul 1575-1849; il valore del 1700-1749 lo legge su Wrigley et al. (1997) il work item di validazione |
+| `pre_industrial_christian`   | 6.7                                     | 0,74486           | 500              | 0.10                           | Provvisorio: Alter, Newton e Oeppen (2020); il 6,7 è preso da una frase della sez. 3.1.3, un controllo di sensibilità sulla precisione delle date ("da 6,7 a 6,8"), e il periodo 1575-1849 è quello dello studio, secondo la sez. 2.7 (non riletto per questa tabella); il valore del 1700-1749 lo legge su Wrigley et al. (1997) il work item di validazione |
 | `pre_industrial_islamic`     | 6.7                                     | 0,74486           | 500              | 0.10                           | Euristica regolabile: il livello cristiano, perché le due ere preindustriali condividono il blocco di fecondità (§6.2) e differiscono nella nuzialità, il contrasto di Hajnal (1965) |
 | `industrial`                 | 6.22                                    | 0,69150           | 500              | 0.05                           | Euristica regolabile: il valore che lascia il TFR₀ di quest'era a 3,997 contro l'`H = 4` di prima; uniforme con `m = 0`, un errore di forma dichiarato, perché la transizione ha abbassato la fecondità coniugale soprattutto alle età avanzate |
 
@@ -2894,8 +2894,10 @@ Il codebase è open source sotto licenza Apache 2.0 a https://github.com/maurizi
   Cambridge Group Family Reconstitutions. *Historical Life Course
   Studies*, 9, 24–48. https://doi.org/10.51964/hlcs9311 (Read on PubMed
   Central, PMC10923557, sections 2.7 and 3.1.3; licence CC BY 4.0. The
-  marital total fertility rate 20-49 of 6.7 used in §4.1.2 is cumulated
-  over 1575-1849.)
+  marital total fertility rate 20-49 of 6.7 used in §4.1.2 is taken from
+  one sentence of section 3.1.3, a date-precision sensitivity check
+  ("from 6.7 to 6.8"); the period 1575-1849 is the study's period per
+  section 2.7, not re-read for this entry.)
 - Arendt, H. (1951). *The Origins of Totalitarianism*. Schocken Books,
   New York. Reissued by Harcourt Brace, 1973.
   ISBN 978-0-15-670153-2 (Harcourt 1973 paperback).

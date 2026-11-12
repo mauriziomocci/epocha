@@ -120,6 +120,14 @@ def test_configuration_a_does_not_judge_a_group_under_30_expected_births():
     assert run_script.evaluate_configuration_a(groups, template) == []
 
 
+def test_configuration_a_judges_a_thin_group_on_its_observed_births():
+    # 45-49 expects 17.8 births (under 30) but 60 are observed, about 5.45
+    # standard errors above: the floor is on the larger of expected and observed.
+    template = load_template(run_script.TEMPLATE_NAME)
+    groups = configuration_a_groups(template, g45=60)
+    assert run_script.evaluate_configuration_a(groups, template) == [45]
+
+
 def test_configuration_a_fails_on_a_group_20_44_without_exposure():
     template = load_template(run_script.TEMPLATE_NAME)
     groups = configuration_a_groups(template)
