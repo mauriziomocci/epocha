@@ -63,9 +63,8 @@ AGE_DRAW_SEED = 7
 FIXED_FACTION_IDENTITY = ("Faction", "Objective")
 
 
-def _draw_ages(template: dict, count: int) -> list[int]:
+def _draw_ages(template: dict, count: int, rng: random.Random) -> list[int]:
     """Whole-year ages drawn from the template pyramid: band by weight, then uniform in it."""
-    rng = random.Random(AGE_DRAW_SEED)
     bands = template["age_pyramid"]
     weights = [band[2] for band in bands]
     ages = []
@@ -73,6 +72,46 @@ def _draw_ages(template: dict, count: int) -> list[int]:
         low, high, _weight = rng.choices(bands, weights=weights)[0]
         ages.append(rng.randrange(int(low), int(high)))
     return ages
+
+
+def build_rule_only_founders(
+    simulation: Simulation, world: World, count: int, rng: random.Random
+) -> None:
+    """Create `count` founders on the world's zones, ages drawn from the era pyramid.
+
+    Women and men alternate (even index female) and each pair of founders
+    takes the next zone in id order, all heterosexual farmers with the same health, wealth and
+    education, and no `birth_tick`: `initialize_demography` backfills it from
+    the age. Module-level so that the marital-schedule run of
+    `scripts/measure_marital_schedule_run.py` builds the same population
+    instead of a copy.
+    """
+    template = load_template(simulation.config["demography_template"])
+    ages = _draw_ages(template, count, rng)
+    zones = list(world.zones.order_by("id"))
+    Agent.objects.bulk_create(
+        [
+            Agent(
+                simulation=simulation,
+                name=f"Founder{index}",
+                # Pairs of founders take the zones in turn; `index % len(zones)`
+                # would put every woman in one zone when there are two.
+                zone=zones[(index // 2) % len(zones)],
+                role="farmer",
+                location=Point(50, 50),
+                health=1.0,
+                wealth=100.0,
+                age=age,
+                birth_tick=None,  # `initialize_demography` backfills it from the age
+                education_level=0.5,
+                social_class="working",
+                gender=Agent.Gender.MALE if index % 2 else Agent.Gender.FEMALE,
+                sexual_orientation=Agent.SexualOrientation.HETEROSEXUAL,
+                personality={},
+            )
+            for index, age in enumerate(ages)
+        ]
+    )
 
 
 def _founded_simulation() -> Simulation:
@@ -96,7 +135,7 @@ def _founded_simulation() -> Simulation:
         simulation=sim, stability_index=0.7, tick_duration_hours=WEEKLY_TICK_HOURS
     )
     Government.objects.create(simulation=sim)
-    zones = [
+    for index in range(2):
         Zone.objects.create(
             world=world,
             name=f"Zone{index}",
@@ -104,32 +143,7 @@ def _founded_simulation() -> Simulation:
             boundary=Polygon.from_bbox((0, 0, 100, 100)),
             center=Point(50, 50),
         )
-        for index in range(2)
-    ]
-    ages = _draw_ages(load_template("pre_industrial_christian"), FOUNDERS)
-    Agent.objects.bulk_create(
-        [
-            Agent(
-                simulation=sim,
-                name=f"Founder{index}",
-                zone=zones[
-                    (index // 2) % 2
-                ],  # not index % 2: that would put every woman in one zone
-                role="farmer",
-                location=Point(50, 50),
-                health=1.0,
-                wealth=100.0,
-                age=age,
-                birth_tick=None,  # `initialize_demography` backfills it from the age
-                education_level=0.5,
-                social_class="working",
-                gender=Agent.Gender.MALE if index % 2 else Agent.Gender.FEMALE,
-                sexual_orientation=Agent.SexualOrientation.HETEROSEXUAL,
-                personality={},
-            )
-            for index, age in enumerate(ages)
-        ]
-    )
+    build_rule_only_founders(sim, world, FOUNDERS, random.Random(AGE_DRAW_SEED))
     initialize_demography(sim)
     return sim
 
