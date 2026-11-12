@@ -485,7 +485,8 @@ def summarize_configuration_b(
         "seconds": f"{result['seconds']:.0f}",
     }
     notes = [
-        f"B: table l(12) = {survival(12):.4f}, tick-loop l_tick(12) = {l12:.4f}; the analytic NRR"
+        f"B: survival to the first harness tick (engine exposure age 143/12, not the table"
+        f" l(12) = {survival(12):.4f}) = {l12:.4f}; the analytic NRR"
         " has no widowhood and no maternal mortality (not modelled)",
         f"B: most seekers in a tick {busiest} (limit {MAX_SEEKERS})",
     ]
