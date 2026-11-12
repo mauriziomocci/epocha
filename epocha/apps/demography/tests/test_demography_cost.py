@@ -280,6 +280,51 @@ def test_the_count_does_not_grow_with_the_number_of_births(monkeypatch):
     )
 
 
+@pytest.mark.django_db
+def test_fertility_step_cost_does_not_grow_with_partnered_candidates():
+    """SC-004 of the marital fertility work item: the schedule adds no query.
+
+    The marital rate is evaluated for every partnered candidate of a couple
+    era, inside the per-candidate loop of `run_fertility_step`, so a rate that
+    touched the database would cost one query per fertile woman in a couple.
+    The step is measured on its own at 50 and at 500 such women in the
+    Christian era (the default template), one zone each, with a stream that
+    forces no birth: the two counts must be equal.
+
+    The two pinned fixed terms are restated against the baseline recorded
+    before this work item (T002 of its tasks): the existing equalities above
+    measure the whole block against them, so they still equal 39 and 47 only
+    if the marital schedule left the block's count where it was.
+    """
+    from epocha.apps.demography.fertility import base_schedule_kind
+    from epocha.apps.demography.orchestrator import DemographyTickContext, run_fertility_step
+    from epocha.apps.demography.template_loader import load_template
+
+    template = load_template("pre_industrial_christian")
+    assert base_schedule_kind(template["fertility"]) == "marital", (
+        "the default template no longer uses the marital schedule: this guard "
+        "measures a schedule it does not name"
+    )
+
+    def _fertility_step_queries(label, couples):
+        sim, zone = _simulation(label)
+        _couples(sim, zone, couples, label.upper())
+        tick = sim.current_tick + 1
+        context = DemographyTickContext(simulation=sim, tick=tick, template=template)
+        with CaptureQueriesContext(connection) as captured:
+            run_fertility_step(context, rng=_ForcedBirths(0))
+        return len(captured.captured_queries)
+
+    fifty = _fertility_step_queries("partnered50", 50)
+    five_hundred = _fertility_step_queries("partnered500", 500)
+
+    assert fifty == five_hundred, (
+        f"{fifty} queries at 50 partnered candidates and {five_hundred} at 500: "
+        "the fertility step issues queries per partnered candidate"
+    )
+    assert (FIXED_TERM_NO_CANDIDATES, FIXED_TERM_WITH_CANDIDATES) == (39, 47)
+
+
 class _Deadly:
     """Every mortality draw kills; the cause draw is arbitrary but fixed.
 
