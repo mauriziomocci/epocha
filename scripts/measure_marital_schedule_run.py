@@ -42,14 +42,18 @@ through `initialize_economy`, its initial wealth, monthly ticks, one seed),
 and the script prints that line next to every number.
 
 Instrumentation. `fertility.tick_birth_probability` and
-`fertility.becker_modulation` are wrapped with `unittest.mock.patch(...,
-wraps=...)`: the orchestrator imports the first inside `run_fertility_step`
-at every call and the first calls the second as a module global, so both
-patches are seen. Per call the recorder keeps the tick, the mother, her age
-(`orchestrator.age_in_years` with the call's arguments), whether she is in
-a couple, the Becker factor returned during that call and the probability
-returned. The exposure of a call is `years_per_tick` when she is in a couple
-and the base rate is positive: the woman-years in a couple the model used.
+`fertility.becker_modulation` are replaced with `unittest.mock.patch(...,
+new=...)` by recorder methods that call the real functions: the orchestrator
+imports the first inside `run_fertility_step` at every call and the first
+calls the second as a module global, so both replacements are seen. The
+recorders keep scalars only, never the mother: a `wraps=` Mock would keep
+every call's arguments, hence every mother, for the whole run
+(`test_marital_schedule_run_harness.py`). Per call the recorder keeps the
+tick, the mother's id, her age (`orchestrator.age_in_years` with the call's
+arguments), whether she is in a couple, the Becker factor returned during
+that call and the probability returned. The exposure of a call is
+`years_per_tick` when she is in a couple and the base rate is positive: the
+woman-years in a couple the model used.
 Births are the BIRTH events of the run joined to the mother's age recorded
 at the same tick.
 
@@ -218,7 +222,7 @@ class CallRecord:
 
 @dataclass
 class Recorder:
-    """Records each fertility call; the wrapped functions are the real ones."""
+    """Records each fertility call in scalars; the replaced functions call the real ones."""
 
     real_probability: object = fertility.tick_birth_probability
     real_becker: object = fertility.becker_modulation
@@ -259,8 +263,10 @@ def run_instrumented(simulation: Simulation) -> tuple[Recorder, float]:
             return_value=FIXED_FACTION_IDENTITY,
         ),
         patch("epocha.apps.simulation.tasks.run_simulation_loop.apply_async"),
-        patch.object(fertility, "tick_birth_probability", wraps=recorder.probability),
-        patch.object(fertility, "becker_modulation", wraps=recorder.becker),
+        # `new=`, not `wraps=`: a wrapping Mock keeps every call's arguments,
+        # so every mother of the run would stay alive until the patch ends.
+        patch.object(fertility, "tick_birth_probability", new=recorder.probability),
+        patch.object(fertility, "becker_modulation", new=recorder.becker),
     ):
         for _ in range(TICKS):
             run_simulation_loop(simulation.id)
