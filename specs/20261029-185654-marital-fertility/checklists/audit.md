@@ -12,7 +12,7 @@ applies the fixes between rounds and records the resolution. Round cap: 10
 
 Categories: INCORRECT, UNJUSTIFIED, INCONSISTENT, MISSING, VERIFIED.
 
-**Current verdict: CONVERGED (round 5 full pass, round 6 delta verification), six rounds, all by independent `critical-analyzer` reviewers.**
+**Current verdict: CONVERGED at round 10, the closing round on the whole spec (D-12-E-7), ten rounds, all by independent `critical-analyzer` reviewers.**
 
 ## Round 1 (2026-10-29, 19:15-19:26, independent `critical-analyzer`)
 
@@ -182,3 +182,15 @@ Correzioni applicate il 2026-11-12, ciascuna verificata con git prima di scriver
 - INCONSISTENT, riga di stato della spec: diceva che il delta aspettava il round 7. Ora dice che i round 7, 8 e 9 hanno girato e in che stato è la spec dopo questa correzione.
 - INCONSISTENT, FR-006 e FR-008: ancorati alla testa delle coppie `2282ed8`. Il whitepaper §9 voce 3 e `README.md` riga 126 riportano 2,374 (non più 2,394); lo script SC-007 esiste in `scripts/measure_nuptiality_fertility.py` e chiama `hadwiger_asfr` alle righe 311, 352, 365 e 403.
 - Sotto S3, `tasks.md` (limite 10): attribuiva 1,927 a D-12-E-3; la convenzione l(a) che dà 1,926861 è D-12-E-5, ora citata.
+
+## Round 10 (12/11/2026, chiusura sull'intera spec, `critical-analyzer` indipendente)
+
+```
+VERDICT: CONVERGED (spec: 0 findings, round-9 fixes verified)
+FINDINGS: INCORRECT 0, UNJUSTIFIED 0, INCONSISTENT 2 (plan/tasks only), MISSING 0
+COVERAGE: full over spec.md, plan.md and tasks.md. Not done: I did not re-read Woods (2000) or the other primary sources, and I did not run the stochastic SC-005/SC-006 harnesses (phase-6 work).
+```
+
+Il round di chiusura ha riletto spec, plan e task per intero e ha verificato le correzioni del round 9: zero rilievi sulla spec. Le due incoerenze stavano in `plan.md` e `tasks.md` (un riferimento al README e lo stato dell'audit fermo al round 6) e sono corrette in `00614c7`, controllate con grep, senza un altro round. La Trinità ha riapprovato la spec in via provvisoria (D-12-E-7), in attesa della conferma dell'utente. Le parti non coperte dichiarate dal revisore (fonti primarie non rilette, banchi stocastici di SC-005 e SC-006) stanno fuori dal perimetro di una spec: i banchi sono lavoro della fase 6.
+
+Verdetto del round 10: CONVERGED. Il limite di dieci round (D-29-30) è raggiunto con la spec convergente.

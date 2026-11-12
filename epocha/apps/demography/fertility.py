@@ -10,7 +10,9 @@ Sources:
 - Henry, L. (1961). Some data on natural fertility. Eugenics Quarterly
   8(2), 81-91 (not read; definition verified on secondary sources).
 - Coale, A. J., Trussell, T. J. (1974). Model fertility schedules.
-  Population Index 40(2), 185-258 (primary not read; the form
+  Population Index 40(2), 185-258, doi:10.2307/2733910 (DOI, volume,
+  issue and first page verified on Crossref on 2026-11-12, last page from
+  a search result; primary not read; the form
   r(a) = M * n(a) * exp(m * v(a)) verified on Rodriguez (2017), Fertility
   Models, Princeton lecture notes, and on the IUSSP PAPP103 page, session 3,
   which gives the values of n(a)).
