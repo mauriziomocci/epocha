@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-12
 
-**Status**: Draft, revisione 4 dopo il round 3 dell'audit avversariale (VERDICT: NOT CONVERGED; FINDINGS: 2/2 round-2 resolved, 1 INCONSISTENT + 1 UNJUSTIFIED + 1 MISSING new; COVERAGE: partial; i tre rilievi nuovi corretti nella revisione 4, round 4 da eseguire); in attesa dell'approvazione dell'utente (gate pesante di fase 2). Verdetto e numeri nella sezione *Stato dell'audit* in fondo. I numeri di riga citati in questa spec sono contro `origin/develop` (per esempio `simulation/engine.py:532`, `config/settings/base.py:213`); sul ramo del Plan 4 le stesse righe stanno a 538 e 225.
+**Status**: Draft, revisione 4; round 4 dell'audit avversariale: VERDICT: NOT CONVERGED; FINDINGS: 3/3 round-3 resolved, 1 MISSING + 1 INCONSISTENT new, aperti (vedi Round 4); COVERAGE: partial; (round 3: i tre rilievi nuovi corretti nella revisione 4); in attesa dell'approvazione dell'utente (gate pesante di fase 2). Verdetto e numeri nella sezione *Stato dell'audit* in fondo. I numeri di riga citati in questa spec sono contro `origin/develop` (per esempio `simulation/engine.py:532`, `config/settings/base.py:213`); sul ramo del Plan 4 le stesse righe stanno a 538 e 225.
 
 **Contratto API**: contract unchanged. Nessuna rotta, campo, valore o codice d'errore cambia; il lavoro tocca solo la forma delle istruzioni SQL che scrivono lo stato a ogni tick.
 
@@ -193,3 +193,13 @@ COVERAGE: partial
 ```
 
 L'INCONSISTENT: SC-004(b) citava l'impronta di FR-006, che copriva solo ricchezza, umore e aspettative, mentre solo T012 vi aggiungeva classi sociali e memorie in un unico SHA-256 con la parte (a), così una differenza non era attribuibile. L'UNJUSTIFIED: la regola «(b) differisce e le parità sono maggiori di zero vuol dire il difetto di spareggio» scusava ogni differenza di (b) ogni volta che esisteva una parità, quindi (b) non poteva mai fallire. Il MISSING: nessuna transazione avvolge un tick, quindi con `batch_size` minore di 1 le scritture precedenti l'errore restano confermate. Corretti nella revisione 4: due impronte distinte (a) e (b) in FR-006, plan PD-03, T012 e T014; (b) invariante rispetto alle parità (insieme ordinato di (`wealth.hex()`, `social_class`) e memorie ordinate per ricchezza, contenuto, peso, tick), con la regola di scusa eliminata e la differenza per `id` riportata solo come informazione; il caso limite dichiara l'assenza della transazione, con `expectations.py:231-232` come esempio. Round 4 da eseguire.
+
+**Round 4** (2026-11-13, `critical-analyzer`, sulla revisione 4; ultimo round della notte per il tetto D-12-E-23):
+
+VERDICT: NOT CONVERGED. FINDINGS: 3/3 round-3 resolved, 1 MISSING + 1 INCONSISTENT new. COVERAGE: partial (diff 61e4940..72e771a e il codice citato).
+
+Restano aperti due rilievi:
+- **MISSING.** SC-004 (riga 94) e FR-006 (riga 70) dicono che la parte (b) è invariante ai pareggi e che ogni sua differenza è sempre un errore dei lotti. Questo vale solo se gli agenti in pareggio hanno la stessa classe precedente: due agenti in pareggio con classi precedenti diverse, a cavallo di un confine di classe, cambierebbero le memorie di mobilità per un puro pareggio (`stratification.py:163-184`). Correzione: una frase che dichiara la premessa (tutti i fondatori hanno la classe di default «working» e la chiamata misurata è la prima), più un'asserzione in T012 che l'insieme delle classi dei fondatori prima della chiamata sia {"working"}.
+- **INCONSISTENT, minore.** FR-006 costruisce la parte (b) su «tutti gli agenti», PD-03 su «agents» e T012 su «living agents»: va scelta una parola sola nei tre punti.
+
+Nota non bloccante: l'esempio di `expectations.py:231-232` scatta solo nei tick in cui ci sono righe da creare e righe da aggiornare. Le due correzioni restano da fare prima dell'approvazione.
