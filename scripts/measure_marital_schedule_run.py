@@ -72,12 +72,16 @@ How to run it (never collected by the suite, since its name does not match
 `SC006_FOUNDERS` and `SC006_TICKS` override the founders and the ticks for
 a smoke run only; the values in use are printed next to every result.
 
-Cost, measured on the smoke run of task T047 (200 founders, 24 ticks, the
-isolated Docker project, 2026-11-12): 79 s of ticks for configuration A and
-69 s for B. Extrapolated linearly in founders and ticks (x 150), the full run
-takes about 3.3 h for A and 2.9 h for B, 6.2 h in all; this is an
-extrapolation, not a measurement, and a population that grows by births
-makes it a lower bound.
+Cost. The smoke run of task T047 (200 founders, 24 ticks, the isolated
+Docker project, 2026-11-12) took 79 s of ticks for configuration A and 69 s
+for B, about 3.3 s per tick. The cost is NOT linear in founders: on the
+stopped full run (2,000 founders, 2026-11-12, decision D-12-E-18) a tick
+took about 330 s, so 360 ticks would take about 33 h per configuration. The
+time goes to the economy's expectation update (`economy/expectations.py`,
+the `bulk_update` without `batch_size`): Django writes one CASE branch per
+row per column, so one statement over N rows costs on the order of N**2 (one
+statement over 10,020 rows and five columns took 285 s). The full SC-006 run
+waits for the user's choice of path (D-12-E-18).
 """
 
 from __future__ import annotations
