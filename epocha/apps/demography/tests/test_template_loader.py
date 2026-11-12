@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -26,13 +27,14 @@ def test_all_default_templates_load():
         assert template_loader.load_template(name) is not None
 
 
-def test_pre_industrial_hadwiger_values():
+def test_pre_industrial_marital_level():
+    """The Christian era carries the marital level of Alter, Newton and
+    Oeppen (2020, sec. 3.1.3), 6.7, and no Hadwiger block (FR-004)."""
     tpl = template_loader.load_template("pre_industrial_christian")
     hp = tpl["mortality"]["heligman_pollard"]
     assert set(hp.keys()) == set("ABCDEFGH")
-    hadwiger = tpl["fertility"]["hadwiger"]
-    assert 4.0 <= hadwiger["H"] <= 6.0
-    assert 24 <= hadwiger["R"] <= 30
+    assert tpl["fertility"]["marital"]["total_marital_fertility_20_49"] == 6.7
+    assert "hadwiger" not in tpl["fertility"]
 
 
 def test_missing_file_raises(tmp_path, monkeypatch):
@@ -144,7 +146,8 @@ def _minimal_template() -> dict:
 
     Reads a shipped era template from disk instead of hand-listing keys.
     The hand-written version this replaced was missing whole mandatory
-    sections (`fertility.hadwiger` among them), so every test that asserted
+    sections (the `fertility` base schedule among them; exactly one of
+    `fertility.marital` and `fertility.hadwiger` is required), so every test that asserted
     `pytest.raises(ValueError)` on a deliberately broken copy was passing on
     the missing sections rather than on the defect it meant to exercise --
     a criterion that could not fail. Building the fixture from a real
@@ -153,3 +156,72 @@ def _minimal_template() -> dict:
     """
     source = _SHIPPED_TEMPLATES / "pre_industrial_christian.json"
     return json.loads(source.read_text())
+
+
+# --- The marital block and the exactly-one rule (FR-003, US3 scenarios 1-3) ---
+
+MARITAL_LEVEL_PATH = "fertility.marital.total_marital_fertility_20_49"
+
+
+def _marital_template() -> dict:
+    """A deep copy of the Christian template in the shape FR-004 ships:
+    `marital` with the spec's 6.7, no `hadwiger`, no couple key. Built
+    explicitly so these tests do not depend on the shipped file's shape."""
+    tpl = copy.deepcopy(template_loader.load_template("pre_industrial_christian"))
+    fertility = tpl["fertility"]
+    fertility.pop("hadwiger", None)
+    fertility.pop("require_couple_for_birth", None)
+    fertility["marital"] = {"total_marital_fertility_20_49": 6.7}
+    return tpl
+
+
+def test_both_schedule_blocks_are_rejected():
+    tpl = _marital_template()
+    tpl["fertility"]["hadwiger"] = {"H": 5.0, "R": 26, "T": 3.5}
+    with pytest.raises(ValueError, match=r"fertility\.marital.*fertility\.hadwiger.*exactly one"):
+        template_loader.validate_template(tpl, "test")
+
+
+def test_no_schedule_block_is_rejected():
+    tpl = _marital_template()
+    del tpl["fertility"]["marital"]
+    with pytest.raises(ValueError, match=r"fertility\.marital.*fertility\.hadwiger.*exactly one"):
+        template_loader.validate_template(tpl, "test")
+
+
+def test_the_old_couple_key_is_rejected_as_unknown():
+    """US3 scenario 2: a template written before this work item is refused,
+    not loaded with a meaning its author did not intend."""
+    tpl = _marital_template()
+    tpl["fertility"]["require_couple_for_birth"] = True
+    with pytest.raises(ValueError, match="unknown key in fertility: require_couple_for_birth"):
+        template_loader.validate_template(tpl, "test")
+
+
+@pytest.mark.parametrize("level", [0, -1, 12.5])
+def test_marital_level_out_of_range_is_rejected(level):
+    tpl = _marital_template()
+    tpl["fertility"]["marital"]["total_marital_fertility_20_49"] = level
+    with pytest.raises(ValueError, match=rf"{MARITAL_LEVEL_PATH}.*\(0, 12\]"):
+        template_loader.validate_template(tpl, "test")
+
+
+def test_marital_level_boolean_is_rejected_as_non_numeric():
+    tpl = _marital_template()
+    tpl["fertility"]["marital"]["total_marital_fertility_20_49"] = True
+    with pytest.raises(ValueError, match=rf"{MARITAL_LEVEL_PATH} must be numeric"):
+        template_loader.validate_template(tpl, "test")
+
+
+def test_marital_level_12_is_admitted():
+    """The interval (0, 12] is closed on the right."""
+    tpl = _marital_template()
+    tpl["fertility"]["marital"]["total_marital_fertility_20_49"] = 12
+    template_loader.validate_template(tpl, "test")
+
+
+def test_unknown_key_inside_marital_is_rejected():
+    tpl = _marital_template()
+    tpl["fertility"]["marital"]["parity_control_m"] = 0.0
+    with pytest.raises(ValueError, match="unknown key in fertility.marital: parity_control_m"):
+        template_loader.validate_template(tpl, "test")

@@ -332,6 +332,7 @@ def run_fertility_step(
     from epocha.apps.demography.couple import active_couple_partners
     from epocha.apps.demography.fertility import (
         build_zone_fertility_context,
+        requires_couple_for_birth,
         resolve_childbirth_event,
         tick_birth_probability,
     )
@@ -360,9 +361,7 @@ def run_fertility_step(
 
     current_population = Agent.objects.filter(simulation=context.simulation, is_alive=True).count()
     partners = active_couple_partners(context.simulation)
-    era_requires_a_couple = bool(
-        context.template["fertility"].get("require_couple_for_birth", True)
-    )
+    era_requires_a_couple = requires_couple_for_birth(context.template["fertility"])
     if era_requires_a_couple and not partners:
         # Three of the five eras return a birth probability of exactly zero
         # for a mother not in an active couple, so a population with no

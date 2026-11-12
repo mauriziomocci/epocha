@@ -6,8 +6,8 @@ deterministic state-transition assertions at each step.
 The modern_democracy template is used throughout because it has:
   fertility_agency="planned"  -> avoid_conception action is available
   divorce_enabled=true        -> separate action is available
-  require_couple_for_birth=false -> tick_birth_probability is not gated by
-      couple presence (the template is secular/planned); the test still
+  a `hadwiger` block, so no couple is required -> tick_birth_probability is
+      not gated by couple presence (the template is secular/planned); the test still
       exercises the avoid_conception gate and the fertile-age gate.
 
 No stochastic draws are made. The test asserts properties:
@@ -233,8 +233,8 @@ def test_full_pair_bond_avoid_conception_separate_cycle(setup):
     # Step 2: verify agents are in the fertile window.
     # modern_democracy: H=1.8, R=30, T=4.2, fertile ages [12, 50].
     # age=28 is well inside the window.
-    # The template has require_couple_for_birth=false, so a bare A (no
-    # couple) already has tick_birth_probability > 0 at age 28.
+    # The template has a `hadwiger` block, so no couple is required: a bare A
+    # (no couple) already has tick_birth_probability > 0 at age 28.
     # We verify this baseline to confirm the context is wired correctly.
     # -----------------------------------------------------------------
     sim.current_tick = T

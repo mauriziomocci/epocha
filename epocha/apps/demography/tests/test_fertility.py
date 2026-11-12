@@ -4,7 +4,9 @@ Covers:
 - hadwiger_asfr: boundary conditions, peak location, integral normalization
 - becker_modulation: sign and zero-coefficient cases
 - malthusian_soft_ceiling: all three branches (free, ramp-down, floor)
-- tick_birth_probability: zero returns for no-couple and avoid-conception
+- tick_birth_probability: zero returns for no-couple and avoid-conception, the
+  marital weekly probability of a partnered mother and the unchanged Hadwiger
+  probability of an era without the couple rule
 - set_avoid_conception_flag / is_avoid_conception_active_this_tick: flag persistence
   and tick+1 settlement semantics
 - resolve_childbirth_event: deterministic outcomes under seeded RNG
@@ -12,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import copy
 import random
 import sys
 import types
@@ -29,6 +32,8 @@ from epocha.apps.demography.fertility import (
     set_avoid_conception_flag,
 )
 from epocha.apps.demography.models import AgentFertilityState
+from epocha.apps.demography.orchestrator import age_in_years
+from epocha.apps.demography.template_loader import load_template
 from epocha.apps.economy.models import BankingState, GoodCategory, ZoneEconomy
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
@@ -319,11 +324,11 @@ def test_malthusian_ceiling_zero_max_pop():
 # ---------------------------------------------------------------------------
 
 # Minimal era params dict sufficient for tick_birth_probability.
-# require_couple_for_birth=True so the no-couple path is tested.
+# The `marital` block makes the era require a couple (its presence is the
+# couple rule, `requires_couple_for_birth`), so the no-couple path is tested.
 _ERA_PARAMS_WITH_COUPLE_REQUIRED = {
     "fertility": {
-        "require_couple_for_birth": True,
-        "hadwiger": PRE_INDUSTRIAL_HADWIGER,
+        "marital": {"total_marital_fertility_20_49": 6.7},
         "becker_coefficients": {
             "beta_0": 0.0,
             "beta_1": 0.0,
@@ -369,7 +374,7 @@ def _inject_couple_stub(return_value: bool):
 
 @pytest.mark.django_db
 def test_tick_birth_probability_no_couple_returns_zero(female_agent):
-    """When require_couple_for_birth=True and no active couple exists, result is 0.0.
+    """When the era has the `marital` block and no active couple exists, result is 0.0.
 
     is_in_active_couple is stubbed to return False so this test does not depend
     on the couple module being present (Task 8 creates it).
@@ -429,6 +434,65 @@ def test_tick_birth_probability_avoid_conception_returns_zero(female_agent):
             demography_acceleration=1.0,
         )
     assert result == 0.0
+
+
+# Weekly ticks, the world generator's default for the integration runs; 1330
+# of them are 25.507 years, inside the 25-29 group and away from the edge at
+# exactly 25, where the float age can read 24.999... (tasks, review item 15).
+WEEKLY_TICK_HOURS = 168.0
+MOTHER_AGE_IN_TICKS = 1330
+
+
+def _probability_with_becker_factor_one(template_name, agent, sim, zone):
+    """Per-tick birth probability of a partnered mother at Becker factor 1.
+
+    A deep copy of the cached template (never mutate the shared dict) with
+    every Becker coefficient set to 0.0, so exp(0) = 1 exactly, and a
+    population far below 0.8 * max_population, so the Malthusian ceiling (4.4)
+    is 1.
+    """
+    from epocha.apps.demography import fertility as fertility_mod
+
+    params_era = copy.deepcopy(load_template(template_name))
+    coefficients = params_era["fertility"]["becker_coefficients"]
+    for name in coefficients:
+        coefficients[name] = 0.0
+    agent.birth_tick = 0
+    return params_era, fertility_mod.tick_birth_probability(
+        agent,
+        params_era,
+        current_pop=10,
+        tick_duration_hours=WEEKLY_TICK_HOURS,
+        current_tick=MOTHER_AGE_IN_TICKS,
+        zone_context=fertility_mod.build_zone_fertility_context(sim, zone),
+        partnered_agent_ids={agent.id},
+    )
+
+
+@pytest.mark.django_db
+def test_partnered_mother_of_25_gets_the_marital_weekly_probability(
+    _full_db_for_becker, female_agent
+):
+    """US1 scenario 2: (6.7 / 8.995) * 0.431 * 168 / 8760 = 0.0061568, the
+    marital rate (N1) of the 25-29 group times the weekly dt (N4)."""
+    agent, sim, zone = female_agent
+    _, probability = _probability_with_becker_factor_one(
+        "pre_industrial_christian", agent, sim, zone
+    )
+    assert probability == pytest.approx(0.0061568, abs=1e-7)
+
+
+@pytest.mark.django_db
+def test_modern_democracy_keeps_the_hadwiger_probability(_full_db_for_becker, female_agent):
+    """US1 scenario 3: an era with the `hadwiger` block keeps (4.2), evaluated
+    at the mother's canonical age, times the same factor-one composition."""
+    agent, sim, zone = female_agent
+    params_era, probability = _probability_with_becker_factor_one(
+        "modern_democracy", agent, sim, zone
+    )
+    age = age_in_years(agent, MOTHER_AGE_IN_TICKS, WEEKLY_TICK_HOURS, 1.0)
+    expected = hadwiger_asfr(age, params_era["fertility"]["hadwiger"]) * WEEKLY_TICK_HOURS / 8760
+    assert probability == pytest.approx(expected, rel=1e-12)
 
 
 # ---------------------------------------------------------------------------

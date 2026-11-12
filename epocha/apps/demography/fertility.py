@@ -1,11 +1,24 @@
-"""Fertility model for demography: Hadwiger ASFR modulated by Becker (1991)
-economic signals, bounded by a Malthusian soft ceiling.
+"""Fertility model for demography: a base schedule, the Hadwiger ASFR or the
+marital schedule of the eras that require a couple, modulated by Becker
+(1991) economic signals and bounded by a Malthusian soft ceiling.
 
 Sources:
 - Hadwiger, H. (1940). Eine analytische Reproduktionsfunktion.
   Skandinavisk Aktuarietidskrift 23, 101-113. Canonical normalization per
   Chandola, Coleman & Hiorns (1999) Population Studies 53(3) and
   Schmertmann (2003) Demographic Research 9.
+- Henry, L. (1961). Some data on natural fertility. Eugenics Quarterly
+  8(2), 81-91 (not read; definition verified on secondary sources).
+- Coale, A. J., Trussell, T. J. (1974). Model fertility schedules.
+  Population Index 40(2), 185-258 (primary not read; the form
+  r(a) = M * n(a) * exp(m * v(a)) verified on Rodriguez (2017), Fertility
+  Models, Princeton lecture notes, and on the IUSSP PAPP103 page, session 3,
+  which gives the values of n(a)).
+- Alter, G., Newton, G., Oeppen, J. (2020). Re-introducing the Cambridge
+  Group Family Reconstitutions. Historical Life Course Studies 9, 24-48
+  (read): the marital TFR 20-49 of 6.7, provisional, cumulated 1575-1849.
+- Woods, R. (2000). The Demography of Victorian England and Wales. Cambridge
+  University Press, ch. 1 (read, pp. 8-9): If = Ig * Im + Ih * (1 - Im).
 - Becker, G.S. (1991). A Treatise on the Family. Harvard University Press.
 - Malthus-Ricardo preventive check formalization inspired by
   Ashraf & Galor (2011) AER 101(5).
@@ -378,7 +391,19 @@ def tick_birth_probability(
     zone_context: dict | None = None,
     partnered_agent_ids=None,
 ) -> float:
-    """Compute the per-tick birth probability for a female agent.
+    """Compute the per-tick birth probability for a female agent (N4).
+
+        P_tick = c_MT(b(a) * m_BK, n, n_max, rho) * dt,
+        b(a) = r(a) with the `marital` block, f_HW(a; H, R, T) otherwise
+
+    with r(a) the marital rate (N1)-(N1a) of Coale and Trussell (1974) at
+    m = 0 on Henry's (1961) natural fertility, f_HW the Hadwiger ASFR (4.2),
+    m_BK the Becker factor (4.3) and c_MT the Malthusian ceiling (4.4). The
+    base schedule is chosen by `annual_base_rate` and the couple gate by
+    `requires_couple_for_birth`: the presence of the `marital` block is the
+    couple rule, so in those eras only partnered women give birth and the
+    all-women rate is f(a) = pi(a) * r(a) (N2; Woods 2000, eq. 1.1, with
+    Ih = 0).
 
     Assumes the caller already filtered for living female agents in the
     fertile age window. Returns 0.0 when the mother is not in an active
@@ -423,8 +448,7 @@ def tick_birth_probability(
         )
 
     fertility_cfg = params_era["fertility"]
-    require_couple = bool(fertility_cfg.get("require_couple_for_birth", True))
-    if require_couple:
+    if requires_couple_for_birth(fertility_cfg):
         in_couple = (
             mother.id in partnered_agent_ids
             if partnered_agent_ids is not None
@@ -435,22 +459,22 @@ def tick_birth_probability(
     if is_avoid_conception_active_this_tick(mother, current_tick=current_tick):
         return 0.0
 
-    hadwiger_params = fertility_cfg["hadwiger"]
-    annual_asfr = hadwiger_asfr(
+    base_rate = annual_base_rate(
         _effective_age_in_years(
             mother,
             tick_duration_hours,
             demography_acceleration,
             current_tick=current_tick,
         ),
-        hadwiger_params,
+        fertility_cfg,
     )
-    if annual_asfr <= 0.0:
+    # No Becker where the base rate is zero (under 15 or at 50 when marital).
+    if base_rate <= 0.0:
         return 0.0
     becker_factor = becker_modulation(
         mother, fertility_cfg["becker_coefficients"], zone_context=zone_context
     )
-    effective = annual_asfr * becker_factor
+    effective = base_rate * becker_factor
     effective = malthusian_soft_ceiling(
         effective,
         current_pop,

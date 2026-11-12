@@ -12,7 +12,9 @@ false: running the validator against a template carrying an invented
 top-level key, an `era_noize` section with a typo, an `estate_tax_rate`
 of 40, a heritability of 5.0 and a negative regression coefficient
 accepted all five at once. A9 is the contract that makes the published
-claim true, and its six clauses are implemented here:
+claim true; its six clauses, and a seventh that spec
+20261029-185654-marital-fertility added (not part of A9), are implemented
+here:
 
 1. every unknown key, at any nesting level;
 2. every out-of-range value: rates and heritabilities in [0, 1],
@@ -29,7 +31,11 @@ claim true, and its six clauses are implemented here:
    of A1, computed by the deterministic fixed point in `truncated_moments`;
    the class-rank target dispersion is exempt and carries its own bound;
 6. every cross-section inconsistency between `heritability` and
-   `trait_inheritance.era_noise`, in that pair of sections only.
+   `trait_inheritance.era_noise`, in that pair of sections only;
+7. every `fertility` section that does not carry exactly one base schedule,
+   `marital` or `hadwiger` (spec 20261029-185654-marital-fertility, FR-003):
+   the rule is written once, in `fertility.base_schedule_kind`, and the
+   loader calls it.
 
 Every rejection names the field, its full path, and where applicable the
 admitted interval: an error that says only that something is wrong sends
@@ -42,9 +48,10 @@ verified (see the SCHEMA comment for the one provisional sourced value);
 the loader only checks that they are admissible and that the first-marriage
 schedule can be solved for them.
 
-Real calibration of the numerical parameters (Heligman-Pollard, Hadwiger)
-against historical life tables remains Plan 4's work; this module checks
-shape and admissibility, not realism.
+Real calibration of the numerical parameters (Heligman-Pollard, Hadwiger,
+the marital level `total_marital_fertility_20_49`) against historical data
+remains Plan 4's work; this module checks shape and admissibility, not
+realism.
 """
 
 from __future__ import annotations
@@ -54,8 +61,9 @@ import logging
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
+from epocha.apps.demography.fertility import FertilityScheduleError, base_schedule_kind
 from epocha.apps.demography.nuptiality import (
     OBSERVATION_CEILING_AGE,
     first_marriage_schedule,
@@ -73,12 +81,32 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # --- schema vocabulary -------------------------------------------------------
 #
-# A leaf is (python_type, interval_or_None). `UNIT` is the closed [0, 1] that
+# A leaf is (python_type, Interval_or_None). `UNIT` is the closed [0, 1] that
 # A9 names for rates, heritabilities and regression coefficients; `POSITIVE`
-# is the open (0, inf) it names for amplitudes.
+# is the open (0, inf) it names for amplitudes. Spec
+# 20261029-185654-marital-fertility (FR-003) adds the half-open (0, 12] of the
+# marital level, so an interval says whether its lower end is open instead of
+# each shape having its own branch.
 
-UNIT = (0.0, 1.0)
-POSITIVE = (0.0, None)
+
+class Interval(NamedTuple):
+    """Admitted values of a numeric leaf: `low` to `high`, `high` None = unbounded."""
+
+    low: float
+    high: float | None
+    low_open: bool
+
+
+UNIT = Interval(0.0, 1.0, low_open=False)
+POSITIVE = Interval(0.0, None, low_open=True)
+
+# Marital total fertility rate 20-49, T_m (spec 20261029-185654-marital-
+# fertility, FR-003): a tunable heuristic against typos, not a biological
+# maximum. 12 is the TMFR of the Hutterite cohort married in the 1920s, the
+# standard of Coale's Ig index, that Woods (2000, p. 9, n. 19) reports citing
+# Eaton and Mayer (1954) without the age class, probably 15-49; primaries not
+# read. A T_m 20-49 near 12 is therefore already above the Hutterite level.
+MARITAL_LEVEL_RANGE = Interval(0.0, 12.0, low_open=True)
 
 _NUMBER = (float, int)
 
@@ -111,10 +139,15 @@ SCHEMA: dict[str, Any] = {
         "maternal_mortality_rate_per_birth": (_NUMBER, UNIT),
         "neonatal_survival_when_mother_dies": (_NUMBER, UNIT),
     },
+    # Both base schedules are optional here; the seventh clause
+    # (`fertility.base_schedule_kind`, called by `validate_template`) admits
+    # exactly one. The couple rule is the presence of `marital`, so the former
+    # `require_couple_for_birth` key is no longer in the schema and a template
+    # still carrying it fails as an unknown key.
     "fertility": {
-        "hadwiger": {"H": (_NUMBER, None), "R": (_NUMBER, None), "T": (_NUMBER, None)},
+        "marital": _Optional({"total_marital_fertility_20_49": (_NUMBER, MARITAL_LEVEL_RANGE)}),
+        "hadwiger": _Optional({"H": (_NUMBER, None), "R": (_NUMBER, None), "T": (_NUMBER, None)}),
         "becker_coefficients": {f"beta_{i}": (_NUMBER, None) for i in range(5)},
-        "require_couple_for_birth": (bool, None),
         "malthusian_floor_ratio": (_NUMBER, UNIT),
     },
     "age_pyramid": (list, None),
@@ -145,7 +178,7 @@ SCHEMA: dict[str, Any] = {
             "sd_age_female": (_NUMBER, None),
             "proportion_ever_married_female": (_NUMBER, None),
         },
-        "remarriage_annual_rate_female": (_NUMBER, (0.0, 5.0)),
+        "remarriage_annual_rate_female": (_NUMBER, Interval(0.0, 5.0, low_open=False)),
         "homogamy_weights": {
             "w_class": (_NUMBER, UNIT),
             "w_edu": (_NUMBER, UNIT),
@@ -292,9 +325,16 @@ def _fail(source: str, message: str) -> None:
     raise ValueError(f"Template {source}: {message}")
 
 
-def _interval_text(interval: tuple[float, float | None]) -> str:
-    low, high = interval
-    return f"[{low:g}, {high:g}]" if high is not None else f"greater than {low:g}"
+def _interval_text(interval: Interval) -> str:
+    if interval.high is None:
+        return f"greater than {interval.low:g}"
+    opening = "(" if interval.low_open else "["
+    return f"{opening}{interval.low:g}, {interval.high:g}]"
+
+
+def _is_inside(value: float, interval: Interval) -> bool:
+    above_low = value > interval.low if interval.low_open else value >= interval.low
+    return above_low and (interval.high is None or value <= interval.high)
 
 
 def _check_leaf(value: Any, spec: tuple, path: str, source: str) -> None:
@@ -308,17 +348,14 @@ def _check_leaf(value: Any, spec: tuple, path: str, source: str) -> None:
             source,
             f"{path} must be of type {expected_type.__name__}, found {type(value).__name__}",
         )
-    if interval is None:
+    if interval is None or _is_inside(value, interval):
         return
-    low, high = interval
-    if high is None:
-        if not value > low:
-            _fail(
-                source,
-                f"{path} = {value} out of range: must be {_interval_text(interval)}",
-            )
-    elif not low <= value <= high:
-        _fail(source, f"{path} = {value} outside the admitted range {_interval_text(interval)}")
+    # Two wordings kept byte-identical to the messages before the Interval
+    # vocabulary: unbounded intervals read "out of range: must be greater
+    # than", bounded ones "outside the admitted range".
+    if interval.high is None:
+        _fail(source, f"{path} = {value} out of range: must be {_interval_text(interval)}")
+    _fail(source, f"{path} = {value} outside the admitted range {_interval_text(interval)}")
 
 
 def _walk(data: Any, schema: Any, path: str, source: str) -> None:
@@ -549,13 +586,18 @@ def _check_first_marriage_solvable(data: dict[str, Any], source: str) -> None:
 
 
 def validate_template(data: dict[str, Any], source: str) -> None:
-    """Validate a template: the six clauses of the A9 contract, plus the
-    `couple` range check and the solvability check of the first-marriage
-    schedule. Raises ValueError on any.
+    """Validate a template: seven clauses, the six of the A9 contract and
+    the seventh of spec 20261029-185654-marital-fertility (exactly one base
+    fertility schedule), plus the `couple` range check and the solvability
+    check of the first-marriage schedule. Raises ValueError on any.
     """
     if not isinstance(data, dict):
         _fail(source, "the document is not a JSON object")
     _walk(data, SCHEMA, "", source)
+    try:
+        base_schedule_kind(data["fertility"])
+    except FertilityScheduleError as exc:
+        _fail(source, str(exc))
 
     if data["fertility_agency"] not in ALLOWED_FERTILITY_AGENCY:
         _fail(

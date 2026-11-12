@@ -30,7 +30,6 @@
       "beta_3": -0.1,
       "beta_4": 0.2
     },
-    "require_couple_for_birth": false,
     "malthusian_floor_ratio": 0.0
   },
   "age_pyramid": [

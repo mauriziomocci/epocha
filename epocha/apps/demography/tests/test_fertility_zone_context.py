@@ -268,7 +268,7 @@ def test_the_injected_context_reproduces_every_probability_exactly():
     # only exercising the arithmetic branch and neither early return is
     # covered by anything.
     by_name = {w.name: p for w, p in zip(women, legacy, strict=True)}
-    assert by_name["Single"] == 0.0, "an unpartnered woman conceived under require_couple"
+    assert by_name["Single"] == 0.0, "an unpartnered woman conceived in a couple era"
     assert by_name["Avoiding"] == 0.0, "avoid_conception did not suppress the birth"
 
 
@@ -364,7 +364,10 @@ def test_membership_is_tested_by_key_and_never_by_the_truth_of_the_value():
     conceive: she IS in an active couple, which is what the requirement asks,
     and the fact that her partner's row is gone does not un-couple her.
     """
-    from epocha.apps.demography.fertility import tick_birth_probability
+    from epocha.apps.demography.fertility import (
+        requires_couple_for_birth,
+        tick_birth_probability,
+    )
     from epocha.apps.demography.models import Couple
 
     sim, zone = _world()
@@ -372,7 +375,7 @@ def test_membership_is_tested_by_key_and_never_by_the_truth_of_the_value():
     Couple.objects.create(simulation=sim, agent_a=survivor, agent_b=None, formed_at_tick=TICK - 100)
 
     template = load_template("pre_industrial_christian")
-    assert template["fertility"]["require_couple_for_birth"] is True
+    assert requires_couple_for_birth(template["fertility"]) is True
 
     probability = tick_birth_probability(
         survivor,

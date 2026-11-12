@@ -88,7 +88,7 @@ from epocha.apps.demography.couple import (
     mourning_ticks,
     seek_probability_for,
 )
-from epocha.apps.demography.fertility import hadwiger_asfr
+from epocha.apps.demography.fertility import annual_base_rate
 from epocha.apps.demography.mortality import annual_mortality_probability
 from epocha.apps.demography.nuptiality import first_marriage_schedule
 from epocha.apps.demography.orchestrator import HOURS_PER_YEAR, mortality_probability_for
@@ -308,7 +308,7 @@ def run_replicate(context, seed: int, with_mortality: bool) -> tuple[float, floa
             cohort, tick, context, rng, next_id, with_mortality
         )
         most_seekers = max(most_seekers, seekers)
-        rate = hadwiger_asfr(tick_age(tick), context.hadwiger) / TICKS_PER_YEAR
+        rate = annual_base_rate(tick_age(tick), context.fertility) / TICKS_PER_YEAR
         births_per_initial += rate * in_couple / COHORT_SIZE
         tfr += rate * in_couple / max(alive, 1)
     return tfr, births_per_initial, most_seekers
@@ -321,7 +321,10 @@ def build_context(template: dict) -> SimpleNamespace:
     years = TICK_HOURS / HOURS_PER_YEAR
     return SimpleNamespace(
         schedule=schedule,
-        hadwiger=template["fertility"]["hadwiger"],
+        # The base schedule through the single dispatch point (`marital` or
+        # `hadwiger`, whichever block the template carries), never a block
+        # read by name.
+        fertility=template["fertility"],
         weights=couple_cfg["homogamy_weights"],
         min_age=couple_cfg["min_marriage_age_female"],
         mourning=mourning_ticks(couple_cfg, TICK_HOURS, 1.0),
@@ -349,7 +352,7 @@ def propagated_reference_tfr(context) -> float:
     tfr = 0.0
     for tick in range(TICKS):
         married += (1.0 - married) * context.first_marriage_probability[tick]
-        tfr += hadwiger_asfr(tick_age(tick), context.hadwiger) * married / TICKS_PER_YEAR
+        tfr += annual_base_rate(tick_age(tick), context.fertility) * married / TICKS_PER_YEAR
     return tfr
 
 
@@ -362,7 +365,7 @@ def continuous_tfr(context) -> float:
     low = int(context.min_age)
     return sum(
         quad(
-            lambda a: hadwiger_asfr(a, context.hadwiger) * context.schedule.conditional_cdf(a),
+            lambda a: annual_base_rate(a, context.fertility) * context.schedule.conditional_cdf(a),
             year,
             year + 1,
         )[0]
@@ -400,7 +403,7 @@ def analytic_nrr(context, template: dict, survival) -> float:
     total = sum(
         quad(
             lambda a: (
-                hadwiger_asfr(a, context.hadwiger)
+                annual_base_rate(a, context.fertility)
                 * context.schedule.conditional_cdf(a)
                 * survival(a)
             ),

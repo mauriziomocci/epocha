@@ -295,7 +295,7 @@ class TestFertilityStep:
         dissolved by succession, an unpartnered man was never in one -- so
         dropping `is_alive=True` or `gender=FEMALE` from the candidate query
         survived the entire suite. `modern_democracy` has
-        `require_couple_for_birth: false`: here the query IS the gate, and a
+        a `hadwiger` block, so no couple is required: here the query IS the gate, and a
         forced-birth stream turns any leak straight into a newborn.
         """
         sim, zone = sim_with_zone

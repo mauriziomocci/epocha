@@ -17,10 +17,8 @@
     "neonatal_survival_when_mother_dies": 0.3
   },
   "fertility": {
-    "hadwiger": {
-      "H": 5.0,
-      "R": 26,
-      "T": 3.5
+    "marital": {
+      "total_marital_fertility_20_49": 6.7
     },
     "becker_coefficients": {
       "beta_0": 0.0,
@@ -29,7 +27,6 @@
       "beta_3": -0.1,
       "beta_4": 0.2
     },
-    "require_couple_for_birth": true,
     "malthusian_floor_ratio": 0.1
   },
   "age_pyramid": [

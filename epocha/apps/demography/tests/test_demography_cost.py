@@ -206,7 +206,7 @@ class _ForcedBirths:
     Each birth consumes two draws: one below the probability to conceive and
     one above the maternal-mortality rate so the mother survives. After the
     scripted pairs the stream returns 1.0, which is above every per-tick birth
-    probability the Hadwiger schedule can produce.
+    probability the base schedule (marital or Hadwiger) can produce.
     """
 
     def __init__(self, count):

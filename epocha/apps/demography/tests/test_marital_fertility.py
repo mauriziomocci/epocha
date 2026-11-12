@@ -16,6 +16,7 @@ from the block a `fertility` section carries. All tests are pure: no database, n
 """
 
 import pytest
+from scipy.integrate import quad
 
 from epocha.apps.demography.fertility import (
     HENRY_NATURAL_FERTILITY,
@@ -26,6 +27,8 @@ from epocha.apps.demography.fertility import (
     marital_fertility_rate,
     requires_couple_for_birth,
 )
+from epocha.apps.demography.nuptiality import first_marriage_schedule
+from epocha.apps.demography.template_loader import load_template
 
 # The English level of the spec, the marital TMFR 20-49 that the Christian
 # template declares (spec, table "Parametri per era").
@@ -61,6 +64,29 @@ def test_rate_at_an_inner_age_of_each_group(age, natural_value):
 @pytest.mark.parametrize("age", [15.0, 17.5, 19.999])
 def test_ages_15_to_20_take_the_20_24_value(age):
     assert marital_fertility_rate(age, MARITAL_BLOCK) == marital_fertility_rate(22.0, MARITAL_BLOCK)
+
+
+# (lower edge of a group, n of that group, n just below the edge): each group
+# is closed on the left, [a, a + 5). Below 20 the 20-24 value extends to 15.
+GROUP_LOWER_EDGES = [
+    (20.0, 0.460, 0.460),
+    (25.0, 0.431, 0.460),
+    (30.0, 0.395, 0.431),
+    (35.0, 0.322, 0.395),
+    (40.0, 0.167, 0.322),
+    (45.0, 0.024, 0.167),
+]
+
+
+@pytest.mark.parametrize(("edge", "value_at_edge", "value_below"), GROUP_LOWER_EDGES)
+def test_each_group_starts_at_its_lower_edge(edge, value_at_edge, value_below):
+    level = 6.7 / TMFR_OF_THE_PUBLISHED_VALUES
+    assert marital_fertility_rate(edge, MARITAL_BLOCK) == pytest.approx(
+        level * value_at_edge, abs=1e-12
+    )
+    assert marital_fertility_rate(edge - 0.001, MARITAL_BLOCK) == pytest.approx(
+        level * value_below, abs=1e-12
+    )
 
 
 @pytest.mark.parametrize("age", [14.99, 14.999, 50.0, 60.0, 0.0, -1.0])
@@ -129,3 +155,99 @@ def test_no_block_raises(dispatch):
 
 def test_schedule_error_is_a_value_error():
     assert issubclass(FertilityScheduleError, ValueError)
+
+
+# --- The shipped templates give a possible marital rate (SC-003) ---
+
+# Spec, table "Parametri per era": T_m and the rate at 20, 30 and 40 of each
+# era that requires a couple.
+SHIPPED_COUPLE_ERAS = [
+    pytest.param("pre_industrial_christian", 6.7, (0.343, 0.294, 0.124), id="christian"),
+    pytest.param("pre_industrial_islamic", 6.7, (0.343, 0.294, 0.124), id="islamic"),
+    pytest.param("industrial", 6.22, (0.318, 0.273, 0.115), id="industrial"),
+]
+
+
+@pytest.mark.parametrize(("name", "t_m", "rates_at_20_30_40"), SHIPPED_COUPLE_ERAS)
+def test_shipped_couple_templates_give_a_possible_marital_rate(name, t_m, rates_at_20_30_40):
+    """Through the loader and the shipped files, not a hand-built section: a
+    template carrying another level, or a dispatcher choosing the wrong
+    schedule, fails here. Under (4.2) the Christian era gave 0.241 at 20 and
+    0.398 on the grid, above the marital maximum (spec SC-003)."""
+    cfg = load_template(name)["fertility"]
+    grid = [12.0 + step / 100.0 for step in range(3801)]  # 12.00 ... 50.00
+    highest = max(annual_base_rate(age, cfg) for age in grid)
+
+    assert highest == pytest.approx((t_m / 8.995) * 0.460, abs=1e-12)
+    assert highest < 1.0
+    for age, expected in zip((20.0, 30.0, 40.0), rates_at_20_30_40, strict=True):
+        assert annual_base_rate(age, cfg) == pytest.approx(expected, abs=1e-3)
+    assert requires_couple_for_birth(cfg) is True
+
+
+# --- The era TFR is born of nuptiality and marital fertility (SC-002) ---
+
+MONTHLY_DT = 1.0 / 12.0
+COHORT_START_AGE = 12.0
+COHORT_TICKS = 456  # 12 to 50 at monthly ticks
+SC002_TOLERANCE = 0.002
+# Group boundaries of n(a): quad is told where the integrand jumps.
+MARITAL_GROUP_EDGES = [15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0]
+# The Christian Hadwiger parameters before this work item (template
+# `pre_industrial_christian.json` on the couples head 2282ed8), kept only as
+# the SC-002 mutation sentinel: no shipped template carries them any more.
+CHRISTIAN_HADWIGER_BEFORE = {"H": 5.0, "R": 26, "T": 3.5}
+
+
+def _monthly_cohort_tfr(base_rate, schedule):
+    """Deterministic TFR of a cohort without mortality, monthly ticks 12 to 50.
+
+    The engine's step order (`orchestrator.DEMOGRAPHY_STEPS`): couple
+    formation runs before fertility in the same tick, so the never-married
+    share is reduced first and the births of the tick count the share married
+    after the market; both read the age at the start of the tick,
+    a = 12 + t * dt. Both choices are part of the test: fertility before the
+    market, one tick late, gives 4.283, and the marriage hazard at mid-tick
+    gives 4.318, both outside the SC-002 tolerance of 4.306.
+    """
+    never_married = 1.0
+    tfr = 0.0
+    for tick in range(COHORT_TICKS):
+        age = COHORT_START_AGE + tick * MONTHLY_DT
+        never_married -= never_married * schedule.tick_probability(age, MONTHLY_DT)
+        tfr += base_rate(age) * (1.0 - never_married) * MONTHLY_DT
+    return tfr
+
+
+@pytest.fixture
+def christian_era():
+    template = load_template("pre_industrial_christian")
+    return template["fertility"], first_marriage_schedule(template["couple"])
+
+
+def test_monthly_cohort_tfr_without_mortality(christian_era):
+    fertility_cfg, schedule = christian_era
+    tfr = _monthly_cohort_tfr(lambda age: annual_base_rate(age, fertility_cfg), schedule)
+    assert tfr == pytest.approx(4.306, abs=SC002_TOLERANCE)
+
+
+def test_continuous_tfr_without_mortality(christian_era):
+    """(N3): TFR0 = M * integral of n(a) * F*(a) over [m, 50]."""
+    fertility_cfg, schedule = christian_era
+    tfr, _ = quad(
+        lambda age: annual_base_rate(age, fertility_cfg) * schedule.conditional_cdf(age),
+        schedule.min_age,
+        50.0,
+        points=MARITAL_GROUP_EDGES,
+    )
+    assert tfr == pytest.approx(4.306, abs=SC002_TOLERANCE)
+
+
+def test_the_hadwiger_schedule_misses_sc002(christian_era):
+    """Permanent mutation sentinel of SC-002: (4.2) in the same propagation
+    gives 2.384, the couples SC-007 reference without mortality after
+    D-05-E-12, not the 4.306 of the marital schedule."""
+    _, schedule = christian_era
+    tfr = _monthly_cohort_tfr(lambda age: hadwiger_asfr(age, CHRISTIAN_HADWIGER_BEFORE), schedule)
+    assert tfr == pytest.approx(2.384, abs=SC002_TOLERANCE)
+    assert abs(tfr - 4.306) > SC002_TOLERANCE

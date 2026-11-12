@@ -82,9 +82,10 @@ def build_rule_only_founders(
     Women and men alternate (even index female) and each pair of founders
     takes the next zone in id order, all heterosexual farmers with the same health, wealth and
     education, and no `birth_tick`: `initialize_demography` backfills it from
-    the age. Module-level so that the marital-schedule run of
-    `scripts/measure_marital_schedule_run.py` builds the same population
-    instead of a copy.
+    the age. Module-level, and taking the world and the count, so that a
+    later run on another world can build the same population instead of a
+    copy: the SC-006 harness of the marital fertility work item (its task
+    T043) is the one planned.
     """
     template = load_template(simulation.config["demography_template"])
     ages = _draw_ages(template, count, rng)
