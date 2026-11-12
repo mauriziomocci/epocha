@@ -34,7 +34,28 @@ un servizio che il runner non ha) e non introdotta da questo cambiamento.
 
 ## Esito
 
-Da compilare dopo la prima esecuzione della CI su questa pull request.
+La prima esecuzione, la 43278450837, è partita sulla pull request #20 e ha
+fallito in entrambi i job per due cause preesistenti, tutte e due nel workflow.
+
+Il job `lint` installava `ruff` senza versione e ha preso la 0.17.5, che
+riformatta anche i blocchi Python dentro i file Markdown (`CLAUDE.md`, i piani
+e le spec in `docs/superpowers/`): `ruff format --check .` ha quindi fallito su
+file che la 0.15.11 dell'immagine di sviluppo accetta («All checks passed!»,
+«324 files already formatted»). La correzione fissa `ruff==0.15.11` in
+`requirements/local.txt` e fa installare al workflow esattamente quella riga,
+così CI e sviluppo leggono la versione da un solo posto.
+
+Il job `test` si è fermato prima di raccogliere i test, con
+`ImproperlyConfigured: Could not find the GDAL library`: il progetto usa
+GeoDjango (`django.contrib.gis`, cioè la parte di Django per i dati
+geografici), che richiede le librerie GDAL, GEOS e PROJ sul runner. Superato
+quel punto avrebbe fallito anche il database, perché l'immagine
+`postgres:16-alpine` non ha né PostGIS né pgvector (l'estensione per i vettori
+che la migrazione `knowledge.0001_initial` crea) e lo schema `postgres://`
+dell'URL non sceglie il backend PostGIS. La correzione costruisce nel job la
+stessa immagine del database dello sviluppo, `compose/postgres/Dockerfile`,
+installa sul runner gli stessi pacchetti di sistema di
+`compose/django/Dockerfile` e usa lo schema `postgis://`.
 
 ## FAQ
 

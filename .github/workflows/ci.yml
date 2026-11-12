@@ -13,38 +13,54 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ruff
+      # Install the exact ruff version pinned in requirements/local.txt, so the CI
+      # formats and lints with the same rules as the development image. An
+      # unpinned install picked ruff 0.17.5, which also reformats Python blocks
+      # inside Markdown files, and failed on files that ruff 0.15.11 accepts.
+      - run: pip install "$(grep -E '^ruff==' requirements/local.txt)"
       - run: ruff check .
       - run: ruff format --check .
 
   test:
     runs-on: ubuntu-latest
     services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: epocha_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
     steps:
       - uses: actions/checkout@v4
+      # The project needs PostGIS (django.contrib.gis) and pgvector (the
+      # knowledge app's VectorExtension migration); a plain postgres image has
+      # neither. Build the same database image local development uses, so
+      # the two cannot drift.
+      - name: Start PostgreSQL with PostGIS and pgvector
+        run: |
+          docker build --tag epocha-ci-db --file compose/postgres/Dockerfile compose/postgres
+          docker run --detach --name epocha-ci-db --publish 5432:5432 \
+            --env POSTGRES_DB=epocha_test \
+            --env POSTGRES_USER=postgres \
+            --env POSTGRES_PASSWORD=postgres \
+            epocha-ci-db
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # GeoDjango loads the GDAL, GEOS and PROJ shared libraries at startup;
+      # these are the packages compose/django/Dockerfile installs.
+      - name: Install the GeoDjango system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            gdal-bin libgdal-dev libgeos-dev libproj-dev
       - run: pip install -r requirements/local.txt
+      # Probe over TCP: the image's first-boot initialisation runs a temporary
+      # server on the Unix socket only, then restarts.
+      - name: Wait for PostgreSQL
+        run: |
+          timeout 120 sh -c \
+            'until docker exec epocha-ci-db pg_isready --host 127.0.0.1 --username postgres; do sleep 2; done'
       - run: pytest --cov=epocha
         env:
           DJANGO_SETTINGS_MODULE: config.settings.test
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/epocha_test
+          DATABASE_URL: postgis://postgres:postgres@localhost:5432/epocha_test
           REDIS_URL: redis://localhost:6379/0
