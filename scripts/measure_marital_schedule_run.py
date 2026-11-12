@@ -37,9 +37,10 @@ Two configurations, each one run:
   woman-years whose effective rate r(a) * m_BK exceeds 1 birth per year.
   Failure when the point estimate of rho_BK is outside [0.90, 1.10] (D-MF-09,
   a Trinity heuristic, not a demographic quantity). The 95% interval of
-  rho_BK, variance (5 / T_m)**2 * sum_g(B_g / E_g**2) as the spec writes it,
-  is printed as conditional on one seed: it does not contain the
-  between-run variability of the economic path, and it does not decide.
+  rho_BK, variance (5 / (0.9944 * T_m))**2 * sum_g(B_g / E_g**2) (the TMFR is
+  divided by the survival factor, so its variance by its square), is printed
+  as conditional on one seed: it does not contain the between-run
+  variability of the economic path, and it does not decide.
 
 The result holds only for this configuration (economy `pre_industrial`
 through `initialize_economy`, its initial wealth, monthly ticks, one seed),
@@ -408,8 +409,13 @@ def rho_bk(groups: dict, template: dict) -> tuple[float, float]:
     if any(group.exposure == 0 for group in tmfr_groups):
         raise EmptyGroupError([start for start in TMFR_GROUP_STARTS if not groups[start].exposure])
     width = FIVE_YEAR_GROUP_WIDTH
-    tmfr = width * sum(g.births / g.exposure for g in tmfr_groups) / survival_correction(template)
-    variance = (width / t_m) ** 2 * sum(g.births / g.exposure**2 for g in tmfr_groups)
+    correction = survival_correction(template)
+    tmfr = width * sum(g.births / g.exposure for g in tmfr_groups) / correction
+    # Poisson births: Var(B_g / E_g) = B_g / E_g**2; TMFR is divided by c, so
+    # the variance of rho_BK carries 1 / c**2 (spec SC-006).
+    variance = (width / (correction * t_m)) ** 2 * sum(
+        g.births / g.exposure**2 for g in tmfr_groups
+    )
     return tmfr / t_m, NORMAL_975 * math.sqrt(variance)
 
 

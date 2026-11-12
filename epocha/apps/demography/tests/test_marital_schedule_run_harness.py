@@ -16,6 +16,8 @@ import gc
 import weakref
 from types import SimpleNamespace
 
+import pytest
+
 import scripts.measure_marital_schedule_run as run_script
 from epocha.apps.demography.fertility import annual_base_rate
 from epocha.apps.demography.template_loader import load_template
@@ -146,3 +148,20 @@ def test_the_summed_probabilities_give_the_expected_written_births():
     assert groups[25].probability == 0.9
     assert groups[25].exposure == 2 * month
     assert f"A 25-29: births 1, sum(p) * c {expected:.2f}" in lines
+
+
+def test_the_rho_bk_interval_carries_the_survival_correction():
+    # TMFR = 5 * sum(B / E) / c, so Var(rho_BK) = (5 / (c * T_m))**2 * sum(B / E**2):
+    # without the 1 / c**2 the half-width is short by the factor c.
+    template = load_template(run_script.TEMPLATE_NAME)
+    groups = configuration_a_groups(template)
+    c = run_script.survival_correction(template)
+    t_m = template["fertility"]["marital"]["total_marital_fertility_20_49"]
+    tmfr_groups = [groups[start] for start in run_script.TMFR_GROUP_STARTS]
+    rho = 5 * sum(g.births / g.exposure for g in tmfr_groups) / c / t_m
+    variance = (5 / (c * t_m)) ** 2 * sum(g.births / g.exposure**2 for g in tmfr_groups)
+
+    value, half = run_script.rho_bk(groups, template)
+
+    assert value == pytest.approx(rho, rel=1e-12)
+    assert half == pytest.approx(run_script.NORMAL_975 * variance**0.5, rel=1e-12)
