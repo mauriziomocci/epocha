@@ -34,28 +34,49 @@ un servizio che il runner non ha) e non introdotta da questo cambiamento.
 
 ## Esito
 
-La prima esecuzione, la 43278450837, è partita sulla pull request #20 e ha
-fallito in entrambi i job per due cause preesistenti, tutte e due nel workflow.
+Il lavoro tocca cinque file: `.github/workflows/ci.yml`, `requirements/local.txt`,
+`.pre-commit-config.yaml`, `compose/postgres/Dockerfile` e
+`.specify/feature.json` (il puntatore di Spec Kit alla feature corrente).
+Il criterio di successo ha richiesto più esecuzioni, perché ogni giro ha
+mostrato una causa nuova e preesistente.
 
-Il job `lint` installava `ruff` senza versione e ha preso la 0.17.5, che
-riformatta anche i blocchi Python dentro i file Markdown (`CLAUDE.md`, i piani
-e le spec in `docs/superpowers/`): `ruff format --check .` ha quindi fallito su
-file che la 0.15.11 dell'immagine di sviluppo accetta («All checks passed!»,
-«324 files already formatted»). La correzione fissa `ruff==0.15.11` in
-`requirements/local.txt` e fa installare al workflow esattamente quella riga,
-così CI e sviluppo leggono la versione da un solo posto.
+**Esecuzione 43278450837.** Prima esecuzione sulla pull request #20, rossa in
+entrambi i job. Il job `lint` installava `ruff` senza versione e ha preso la
+0.17.5, che riformatta anche i blocchi Python dentro i file Markdown
+(`CLAUDE.md`, i piani e le spec in `docs/superpowers/`): `ruff format --check .`
+è fallito su file che la 0.15.11 dell'immagine di sviluppo accetta («All checks
+passed!», «324 files already formatted»). Il job `test` si è fermato prima di
+raccogliere i test con `ImproperlyConfigured: Could not find the GDAL library`:
+il progetto usa GeoDjango (la parte di Django per i dati geografici), che
+richiede sul runner le librerie GDAL, GEOS e PROJ.
 
-Il job `test` si è fermato prima di raccogliere i test, con
-`ImproperlyConfigured: Could not find the GDAL library`: il progetto usa
-GeoDjango (`django.contrib.gis`, cioè la parte di Django per i dati
-geografici), che richiede le librerie GDAL, GEOS e PROJ sul runner. Superato
-quel punto avrebbe fallito anche il database, perché l'immagine
-`postgres:16-alpine` non ha né PostGIS né pgvector (l'estensione per i vettori
-che la migrazione `knowledge.0001_initial` crea) e lo schema `postgres://`
-dell'URL non sceglie il backend PostGIS. La correzione costruisce nel job la
-stessa immagine del database dello sviluppo, `compose/postgres/Dockerfile`,
-installa sul runner gli stessi pacchetti di sistema di
-`compose/django/Dockerfile` e usa lo schema `postgis://`.
+**Esecuzione 43279153319.** Dopo aver fissato `ruff==0.15.11` in
+`requirements/local.txt` (il workflow ne installa esattamente quella riga) e aver
+aggiunto al job `test` i pacchetti di sistema di `compose/django/Dockerfile`, lo
+schema `postgis://` e la costruzione di `compose/postgres/Dockerfile` al posto
+dell'immagine `postgres:16-alpine` (che non ha né PostGIS né pgvector, l'estensione
+per i vettori creata dalla migrazione `knowledge.0001_initial`), `lint` è
+diventato verde. `test` è rimasto rosso perché `apt-get update` dell'immagine del
+database non trova più il repository `apt.postgresql.org` per Debian bullseye,
+la base di `postgis/postgis:16-3.4`.
+
+**Correzioni successive.** `compose/postgres/Dockerfile` legge ora i pacchetti
+dall'archivio congelato `apt-archive.postgresql.org`, che serve ancora
+`bullseye-pgdg` con `postgresql-16-pgvector`; base e versioni sono invariate.
+Passare a una base più recente è una decisione del proprietario, perché cambia
+l'immagine con cui è stato creato il volume del database di sviluppo.
+`.pre-commit-config.yaml` fissa ruff alla 0.15.11, così nel repository c'è una
+sola versione. Il workflow dichiara `permissions: contents: read`.
+
+**Esecuzione sull'ultimo push.** VERDETTO_DA_COMPILARE
+
+**Residuo noto.** Su `develop` sette test hanno bisogno del merge del Plan 4
+(PR #18): cinque in `TestGenerateWorldFromPrompt` e due in
+`tests/test_integration.py`. Il Plan 4 svuota le chiavi LLM nelle impostazioni di
+test e simula l'arricchimento; senza quel merge il job `test` di questa pull
+request può restare rosso su quei sette, per una causa che sta nel codice di
+`develop` e non nella CI. Consiglio di fondere la #18 prima della #20, oppure di
+rilanciare la CI della #20 dopo la #18.
 
 ## FAQ
 
