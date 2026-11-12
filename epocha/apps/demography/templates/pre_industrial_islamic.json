@@ -249,5 +249,35 @@
   "migration": {
     "flight_trigger_ticks": 30,
     "adulthood_age": 16
+  },
+  "names": {
+    "male": [
+      "Muhammad",
+      "Ahmad",
+      "Ali",
+      "Hasan",
+      "Husayn",
+      "Umar",
+      "Uthman",
+      "Yusuf",
+      "Ibrahim",
+      "Khalid",
+      "Sulayman",
+      "Tariq"
+    ],
+    "female": [
+      "Fatima",
+      "Aisha",
+      "Khadija",
+      "Zaynab",
+      "Maryam",
+      "Amina",
+      "Layla",
+      "Ruqayya",
+      "Safiya",
+      "Hafsa",
+      "Sumayya",
+      "Nadia"
+    ]
   }
 }

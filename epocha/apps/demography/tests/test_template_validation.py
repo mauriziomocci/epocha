@@ -462,3 +462,58 @@ class TestTheLoaderCacheDoesNotLeakMutations:
         assert again["social_inheritance"]["education_regression_rho"] == pytest.approx(0.60), (
             "the temporary directory's template poisoned the shipped entry"
         )
+
+
+class TestOnlyShippedTemplateNamesAreRead:
+    """The template name comes from `simulation.config`, which the API lets
+    the owner write, so it is untrusted input that reaches a file path.
+
+    Round 16 of the Plan 4 phase-6 gate found `load_template` joining it
+    straight onto the templates folder: `../` or an absolute path read any
+    JSON file the process can open, and the tick reaches the loader on every
+    run. A file planted outside the folder makes the escape observable: it
+    is a valid template, so only the name check can refuse it.
+    """
+
+    @pytest.fixture
+    def outside(self, tmp_path):
+        from epocha.apps.demography import template_loader
+
+        template_loader.load_template.cache_clear()
+        planted = tmp_path / "planted.json"
+        planted.write_text(json.dumps(load_template("industrial")))
+        yield planted.with_suffix("")
+        template_loader.load_template.cache_clear()
+
+    def test_a_relative_path_out_of_the_folder_is_refused(self, outside):
+        import os
+
+        from epocha.apps.demography.template_loader import TEMPLATES_DIR
+
+        escape = os.path.relpath(outside, TEMPLATES_DIR)
+        assert escape.startswith("..")
+        with pytest.raises(FileNotFoundError, match="not a shipped template"):
+            load_template(escape)
+
+    def test_an_absolute_path_is_refused(self, outside):
+        with pytest.raises(FileNotFoundError, match="not a shipped template"):
+            load_template(str(outside))
+
+    def test_an_unknown_name_is_refused(self):
+        with pytest.raises(FileNotFoundError, match="not a shipped template"):
+            load_template("atlantis")
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            pytest.param(["industrial"], id="list"),
+            pytest.param({"name": "industrial"}, id="dict"),
+        ],
+    )
+    def test_a_name_that_is_not_a_string_is_refused_by_the_same_error(self, name):
+        """`simulation.config` is JSON, so the name can be a list or an
+        object. Unhashable, it raised `TypeError` at the cache, which the
+        callers' `FileNotFoundError` and `ValueError` branches do not catch,
+        and aborted the tick (scoped review of the round-16 closure)."""
+        with pytest.raises(FileNotFoundError, match="not a shipped template"):
+            load_template(name)

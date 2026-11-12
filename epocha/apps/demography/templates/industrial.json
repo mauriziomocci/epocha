@@ -248,5 +248,35 @@
   "migration": {
     "flight_trigger_ticks": 20,
     "adulthood_age": 16
+  },
+  "names": {
+    "male": [
+      "William",
+      "James",
+      "Thomas",
+      "Charles",
+      "Albert",
+      "Edward",
+      "Frederick",
+      "Arthur",
+      "Walter",
+      "Ernest",
+      "Herbert",
+      "Samuel"
+    ],
+    "female": [
+      "Mary",
+      "Elizabeth",
+      "Sarah",
+      "Emma",
+      "Alice",
+      "Florence",
+      "Edith",
+      "Harriet",
+      "Clara",
+      "Ada",
+      "Martha",
+      "Beatrice"
+    ]
   }
 }
