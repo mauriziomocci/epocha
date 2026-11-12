@@ -151,3 +151,17 @@ Audit avversariale del solo delta che porta SC-002 e SC-005 nell'ordine dei pass
 - MISSING (minore): il controllo di T041 a 0,002 non distingueva il NRR mensile con `l(a + dt)` (1,92656) da quello con `l(a)` (1,92686) e dal continuo (1,92672). T041 ora sostituisce `analytic_nrr` e chiede 1,92656 entro 5e-5. Corretto.
 
 Verdetto del round 7: NOT CONVERGED per un INCORRECT minore, convergente dopo la correzione di una frase. COVERAGE: partial (rounds 1-6 fuori dal delta non riauditati; banco stocastico e motore non eseguiti; `exposure_age` della mortalità non controllato). Segue il round 8 sulla correzione.
+
+## Round 8 (12/11/2026, delta 505f301..841a0a7, D-12-E-5)
+
+Audit avversariale della correzione del round 7, con il controllo dell'età di esposizione della mortalità che il round 7 aveva lasciato fuori. Il revisore ha trovato che il motore addebita la mortalità del tick all'età del tick precedente (`orchestrator.exposure_age`), mentre mercato e fertilità leggono l'età al tick: una madre all'età fertile a è quindi sopravvissuta fino a l(a), non fino a l(a + 1/12) come dicevano la spec e T041.
+
+```
+VERDICT: NOT CONVERGED
+FINDINGS: INCORRECT 1 (minor), UNJUSTIFIED 0, INCONSISTENT 0, MISSING 0, VERIFIED 3
+COVERAGE: full
+```
+
+- INCORRECT (minore): il NRR mensile nell'ordine del motore usava la sopravvivenza alla fine del tick, l(a + 1/12); con l'età di esposizione del motore è l(a). Corretto: la frase della spec sulla colonna mensile e SC-005 dicono che la mortalità è addebitata all'età del tick precedente; il NRR mensile vale 1,926861 nell'era cristiana (SC-005 passa da 1,9266 a 1,9269), 3,065736 in quella islamica (la cella passa da 3,065 a 3,066) e 1,867905 in quella industriale (cella invariata, 1,868); T041 chiede 1,92686 entro 5e-5, che lo distingue dal valore con l(a + dt), 1,92656, e dal continuo, 1,92672. Ho ricalcolato i tre valori con uno script mio sulle funzioni del ramo delle coppie dopo la correzione dell'harness (`f9e997a`): il ciclo del motore con `orchestrator.mortality_probability_for`, l'harness corretto e la tavola per età intere letta a l(a) danno lo stesso numero alla sesta cifra. La stessa correzione è stata applicata all'harness SC-007 delle coppie (D-12-E-5), dove il NRR misurato con 20 repliche passa da 1,0677 a 1,0680, intervallo [1,0657, 1,0703].
+
+Verdetto del round 8: NOT CONVERGED per un INCORRECT minore, convergente dopo la correzione dei numeri riportati sopra.
