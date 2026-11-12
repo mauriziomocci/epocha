@@ -18,6 +18,12 @@ reads the age at the PREVIOUS tick, while the market and fertility read the age
 at the current one (decision D-12-E-5). The last two tests hold the harness's
 per-tick death probability and its survival to 12 to the production function.
 
+Configuration A judges the gap in standard errors estimated from the
+replicates, a Student t statistic with replicates - 1 degrees of freedom: below
+`MIN_REPLICATES_JUDGED` its 3-standard-error limit fails a correct model too
+often, so the verdict is "not judged". Two tests hold that rule, one the guard
+against a single replicate, whose standard error does not exist.
+
 Configuration B has a coherence condition (marital fertility SC-005): widowhood
 and mourning can only remove years in a couple, so the lower bound of the
 measured NRR must not exceed the analytic NRR without widowhood, computed at
@@ -45,7 +51,10 @@ from scripts.measure_nuptiality_fertility import (
     build_context,
     is_ineligible,
     life_table,
+    main,
+    propagated_reference_tfr,
     replicate_tick,
+    summarize_configuration_a,
     summarize_configuration_b,
     survival_to_twelve,
 )
@@ -236,3 +245,48 @@ def test_the_configuration_b_verdict_holds_both_conditions(nrr_values, passes):
     )
 
     assert verdict is passes
+
+
+def configuration_a_result(gap, replicates, context):
+    """A configuration-A result: TFRs at reference + gap +- 0.001, `replicates` of them."""
+    reference = propagated_reference_tfr(context)
+    spread = [0.001 * (-1) ** index for index in range(replicates)]
+    return {
+        "tfr": [reference + gap + offset for offset in spread],
+        "most_seekers": 0,
+        "seconds": 0.0,
+    }
+
+
+@pytest.mark.parametrize(
+    ("replicates", "verdict"),
+    [
+        # 4 replicates: 3 degrees of freedom, a 3-SE gap is a false fail 5.8% of the time.
+        (4, None),
+        # 5 replicates and a gap of tens of standard errors: judged, FAIL.
+        (5, False),
+    ],
+)
+def test_the_configuration_a_verdict_needs_the_minimum_replicates(replicates, verdict):
+    template = load_template(TEMPLATE_NAME)
+    context = build_context(template)
+
+    _, _, judged = summarize_configuration_a(
+        context, configuration_a_result(0.05, replicates, context)
+    )
+
+    assert judged is verdict
+
+
+def test_the_configuration_a_verdict_passes_on_the_reference_with_the_minimum():
+    template = load_template(TEMPLATE_NAME)
+    context = build_context(template)
+
+    _, _, judged = summarize_configuration_a(context, configuration_a_result(0.0, 5, context))
+
+    assert judged is True
+
+
+def test_the_script_refuses_a_single_replicate_before_running():
+    with pytest.raises(SystemExit):
+        main(["--replicates", "1"])

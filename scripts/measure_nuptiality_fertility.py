@@ -15,7 +15,10 @@ eras that require a couple (`pre_industrial_christian` among them), equation
 This script follows a cohort of 20,000 women from 12 to 50 years at monthly
 ticks and reports that fertility, in two configurations:
 
-- A, no mortality (hence no widowhood and no remarriage). Failure when the
+- A, no mortality (hence no widowhood and no remarriage). Judged from 5
+  replicates (`MIN_REPLICATES_JUDGED`: with fewer, the 3-standard-error limit
+  on a Student t statistic fails a correct model more than 5% of the time);
+  below it the verdict is "not judged". Failure when the
   mean TFR of the replicates is further than 3 standard errors (sd /
   sqrt(replicates)) from the reference, the deterministic propagation of the
   first-marriage hazard at the same monthly ticks, computed here with the
@@ -116,6 +119,15 @@ TICKS = (END_AGE - START_AGE) * TICKS_PER_YEAR
 CANDIDATE_POOL = 500
 MAX_SEEKERS = CANDIDATE_POOL
 SEEKER_SD_LIMIT = 3.0
+# Configuration A judges |gap| / SE with the SE estimated from the replicates,
+# a Student t statistic with replicates - 1 degrees of freedom under a correct
+# model. Its 3-SE limit then fails a correct model with probability
+# 2 * t.sf(3, n - 1): 20.5% at 2 replicates (the T042 smoke run), 5.8% at 4,
+# 4.0% at 5, 0.74% at the 20 of the full run. 5 is the first count under the
+# conventional 5% level; below it configuration A prints "not judged".
+MIN_REPLICATES_JUDGED = 5
+# Both configurations need a standard error, undefined for one replicate.
+MIN_REPLICATES = 2
 CLASS = "working"
 EDUCATION = 0.3
 NEVER = -(10**9)
@@ -462,8 +474,11 @@ def run_configuration(context, replicates: int, seed_base: int, with_mortality: 
     }
 
 
-def summarize_configuration_a(context, result: dict) -> tuple[dict, list[str], bool]:
-    """Return the table row, the check lines and the verdict of configuration A."""
+def summarize_configuration_a(context, result: dict) -> tuple[dict, list[str], bool | None]:
+    """Return the table row, the check lines and the verdict of configuration A.
+
+    The verdict is None, "not judged", below `MIN_REPLICATES_JUDGED` replicates.
+    """
     mean, error, half = interval(result["tfr"])
     reference = propagated_reference_tfr(context)
     continuous = continuous_tfr(context)
@@ -487,6 +502,9 @@ def summarize_configuration_a(context, result: dict) -> tuple[dict, list[str], b
         f" {reference - continuous:+.4f} (reported, not gated)",
         f"A: most seekers in a tick {busiest} (limit {MAX_SEEKERS})",
     ]
+    if len(result["tfr"]) < MIN_REPLICATES_JUDGED:
+        notes.append(f"A: not judged, fewer than {MIN_REPLICATES_JUDGED} replicates")
+        return row, notes, None
     return row, notes, distance <= SEEKER_SD_LIMIT and busiest <= MAX_SEEKERS
 
 
@@ -550,12 +568,17 @@ def print_table(rows: list[dict]) -> None:
         print("  ".join(cell.ljust(width) for cell, width in zip(cells, widths)))
 
 
+VERDICT_WORDS = {True: "pass", False: "FAIL", None: "not judged"}
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Run both configurations; return 1 on the failure condition of either."""
+    """Run both configurations; return 0 only when both pass ("not judged" returns 1)."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--replicates", type=int, default=20)
     parser.add_argument("--seed-base", type=int, default=1)
     args = parser.parse_args(argv)
+    if args.replicates < MIN_REPLICATES:
+        parser.error(f"--replicates must be at least {MIN_REPLICATES}: a standard error needs two")
     template = load_template(TEMPLATE_NAME)
     context = build_context(template)
     print(
@@ -570,7 +593,7 @@ def main(argv: list[str] | None = None) -> int:
     print_table([row_a, row_b])
     print()
     print("\n".join([*notes_a, *notes_b]))
-    print(f"RESULT: A {'pass' if ok_a else 'FAIL'}, B {'pass' if ok_b else 'FAIL'}")
+    print(f"RESULT: A {VERDICT_WORDS[ok_a]}, B {VERDICT_WORDS[ok_b]}")
     return 0 if ok_a and ok_b else 1
 
 
