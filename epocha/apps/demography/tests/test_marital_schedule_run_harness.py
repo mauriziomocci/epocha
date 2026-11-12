@@ -17,6 +17,7 @@ import weakref
 from types import SimpleNamespace
 
 import scripts.measure_marital_schedule_run as run_script
+from epocha.apps.demography.fertility import annual_base_rate
 from epocha.apps.demography.template_loader import load_template
 
 # A month, the SC-006 tick length.
@@ -79,3 +80,47 @@ def test_the_recorders_are_reached_and_keep_no_mother_alive(monkeypatch):
     assert record.exposure > 0
     assert record.becker is not None  # becker_modulation reached as a module global
     assert survivors == [None, None]
+
+
+# Configuration A: realized rates per group against M * n(a) * c. One
+# thousand woman-years in a couple per group put every group 15-19 to 40-44
+# above the floor of 30 expected births and 45-49 under it (17.8).
+WOMAN_YEARS = 1000.0
+
+
+def configuration_a_groups(template: dict, **births_by_start) -> dict:
+    """Groups whose births equal the expected count, except the ones given."""
+    groups = {}
+    for start in run_script.GROUP_STARTS:
+        rate = annual_base_rate(start + 2.5, template["fertility"])
+        expected = rate * run_script.survival_correction(template) * WOMAN_YEARS
+        births = births_by_start.get(f"g{start}", round(expected))
+        groups[start] = SimpleNamespace(exposure=WOMAN_YEARS, births=births, weighted=0.0)
+    return groups
+
+
+def test_configuration_a_passes_when_births_follow_the_schedule():
+    template = load_template(run_script.TEMPLATE_NAME)
+    assert run_script.evaluate_configuration_a(configuration_a_groups(template), template) == []
+
+
+def test_configuration_a_fails_when_a_group_births_are_suppressed_below_30():
+    # 40-44 expects 123.7 births; 20 observed is under the old floor of 30
+    # observed births, which stopped judging exactly the suppressed group.
+    template = load_template(run_script.TEMPLATE_NAME)
+    groups = configuration_a_groups(template, g40=20)
+    assert run_script.evaluate_configuration_a(groups, template) == [40]
+
+
+def test_configuration_a_does_not_judge_a_group_under_30_expected_births():
+    template = load_template(run_script.TEMPLATE_NAME)
+    groups = configuration_a_groups(template, g45=0)
+    assert run_script.evaluate_configuration_a(groups, template) == []
+
+
+def test_configuration_a_fails_on_a_group_20_44_without_exposure():
+    template = load_template(run_script.TEMPLATE_NAME)
+    groups = configuration_a_groups(template)
+    groups[30] = SimpleNamespace(exposure=0.0, births=0, weighted=0.0)
+    groups[15] = SimpleNamespace(exposure=0.0, births=0, weighted=0.0)
+    assert run_script.evaluate_configuration_a(groups, template) == [30]

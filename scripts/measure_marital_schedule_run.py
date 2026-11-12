@@ -19,13 +19,17 @@ every tick as in a normal run.
 Two configurations, each one run:
 
 - A, every Becker coefficient 0.0, so the Becker factor (4.3) is exactly 1
-  whatever the wealth. Per five-year group the realized marital rate is the
-  births divided by the woman-years spent in a couple. Failure when a group
-  with at least 30 births is further than 3 Poisson standard errors
-  (sqrt(births) / woman-years) from M * n(a) * (1 - q_m * (1 - s_n)): the
-  factor, 0.9944 for the Christian era, corrects for `run_fertility_step`
-  writing the BIRTH event only when the newborn survives. Groups under 30
-  births are printed with their count and not judged.
+  whatever the wealth. Per five-year group 15-19 to 45-49 the realized marital
+  rate is the births divided by the woman-years spent in a couple. Failure
+  when a group with at least 30 EXPECTED births (woman-years times the
+  expected rate) is further than 3 Poisson standard errors (sqrt(births) /
+  woman-years) from M * n(a) * (1 - q_m * (1 - s_n)), or when a group 20-44
+  has no woman-year in a couple: the factor, 0.9944 for the Christian era,
+  corrects for `run_fertility_step` writing the BIRTH event only when the
+  newborn survives. The floor is on the expected births because a floor on
+  the observed ones would stop judging exactly a group whose births the model
+  suppressed. Groups under 30 expected births are printed with their count
+  and not judged.
 - B, the shipped seed Becker coefficients. Per group 20-49 the mean Becker
   factor E[m_BK | g] over the woman-years in a couple, the realized marital
   TMFR 20-49 = 5 * sum_g(B_g / E_g) / 0.9944, rho_BK = TMFR / T_m (spec,
@@ -122,8 +126,11 @@ MAX_POPULATION = 10**6
 # One seed (SC-006); the age draw keeps the couples integration run's seed.
 SIMULATION_SEED = 2026
 ZONES = 2
-# SC-006, configuration A: a group is judged from 30 births, at 3 standard errors.
-MIN_BIRTHS_JUDGED = 30
+# SC-006, configuration A: a group is judged from 30 EXPECTED births (woman-years
+# in a couple times the expected rate), at 3 standard errors. The floor is on the
+# expected count: on the observed one it would stop judging exactly the group
+# whose births the model suppressed.
+MIN_EXPECTED_BIRTHS_JUDGED = 30
 STANDARD_ERROR_LIMIT = 3.0
 # SC-006, configuration B and D-MF-09: the band of rho_BK (a Trinity heuristic).
 RHO_BAND = (0.90, 1.10)
@@ -135,6 +142,12 @@ GROUP_STARTS = (
     *(int(start) for start, _ in HENRY_NATURAL_FERTILITY),
 )
 TMFR_GROUP_STARTS = GROUP_STARTS[1:]  # 20-24 to 45-49, the T_m range
+# Configuration A fails when one of these groups has no woman-year in a couple:
+# with 2,000 founders over 30 years an empty one means that couples or the
+# exposure count are broken (an assumption, not a measurement at this size).
+# 15-19 (rare marriage under the Hajnal pattern) and 45-49 (17.8 expected
+# births per 1,000 woman-years, under the floor) may be empty.
+GROUPS_REQUIRING_EXPOSURE = tuple(start for start in TMFR_GROUP_STARTS if start < 45)
 
 
 class EmptyGroupError(Exception):
@@ -310,27 +323,46 @@ def survival_correction(template: dict) -> float:
     )
 
 
+def expected_marital_rate(start: int, template: dict) -> float:
+    """M * n(a) * (1 - q_m * (1 - s_n)) at the group's midpoint: the rate of written births."""
+    midpoint = start + FIVE_YEAR_GROUP_WIDTH / 2
+    return annual_base_rate(midpoint, template["fertility"]) * survival_correction(template)
+
+
+def judge_group_a(start: int, group, expected: float) -> tuple[str, bool]:
+    """The printed line of one group of configuration A and whether it fails."""
+    label = f"A {start}-{start + 4}"
+    if group.exposure == 0:
+        required = start in GROUPS_REQUIRING_EXPOSURE
+        return f"{label}: no woman-year in a couple{', FAIL' if required else ''}", required
+    expected_births = group.exposure * expected
+    realized = group.births / group.exposure
+    error = math.sqrt(group.births) / group.exposure
+    distance = abs(realized - expected) / error if error else math.inf
+    judged = expected_births >= MIN_EXPECTED_BIRTHS_JUDGED
+    fails = judged and distance > STANDARD_ERROR_LIMIT
+    verdict = ("FAIL" if fails else "judged") if judged else "not judged (< 30 expected)"
+    return (
+        f"{label}: births {group.births}, expected births {expected_births:.1f},"
+        f" woman-years {group.exposure:.1f}, realized {realized:.4f}, expected {expected:.4f},"
+        f" {distance:.2f} standard errors, {verdict}"
+    ), fails
+
+
 def evaluate_configuration_a(groups: dict, template: dict) -> list[int]:
-    """Print the realized rate of each group; return the groups beyond 3 standard errors."""
-    correction = survival_correction(template)
+    """Print the realized rate of each group; return the groups that fail.
+
+    A group fails when its expected births reach `MIN_EXPECTED_BIRTHS_JUDGED`
+    and its realized rate is further than 3 Poisson standard errors from the
+    expected one, or when it is in `GROUPS_REQUIRING_EXPOSURE` and has no
+    woman-year in a couple.
+    """
     failed = []
     for start, group in groups.items():
-        midpoint = start + FIVE_YEAR_GROUP_WIDTH / 2
-        expected = annual_base_rate(midpoint, template["fertility"]) * correction
-        if group.exposure == 0:
-            print(f"A {start}-{start + 4}: no woman-year in a couple")
-            continue
-        realized = group.births / group.exposure
-        error = math.sqrt(group.births) / group.exposure
-        judged = group.births >= MIN_BIRTHS_JUDGED
-        distance = abs(realized - expected) / error if error else math.inf
-        if judged and distance > STANDARD_ERROR_LIMIT:
+        line, fails = judge_group_a(start, group, expected_marital_rate(start, template))
+        print(line)
+        if fails:
             failed.append(start)
-        print(
-            f"A {start}-{start + 4}: births {group.births}, woman-years {group.exposure:.1f},"
-            f" realized {realized:.4f}, expected {expected:.4f},"
-            f" {distance:.2f} standard errors, {'judged' if judged else 'not judged (< 30)'}"
-        )
     return failed
 
 
