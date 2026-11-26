@@ -1,0 +1,28 @@
+# Registro dell'audit avversariale: stato di riferimento del fattore di Becker
+
+Verdetto corrente: **NOT CONVERGED** (round 1). La scelta del riferimento è bloccata sulla correzione dell'economia (`spine2.n20`, decisione D-26-E-9 della coordinazione). La spec non è approvabile.
+
+## Round 1 (2026-11-26, spec a `7277619`)
+
+Revisore indipendente, sola lettura; rapporto in `Diario/2026/11/2026-11-26/epocha-becker-riferimento/audit-round-1.md`. Righe del revisore, testuali:
+
+VERDICT: NOT CONVERGED (INCORRECT 2, UNJUSTIFIED 4, INCONSISTENT 2, MISSING 4)
+FINDINGS: R1-01 normalizza `industrial` senza fonte e contro D-BK-04 (Jones e Tertilt sono l'era industriale); R1-02 FR-004 non è implementabile (nessun discriminatore d'era, due canali, ordine impossibile con FR-005); R1-04 e R1-05 il riferimento per tick non segue dalle fonti e la sua difesa poggia sull'anomalia dell'economia.
+COVERAGE: partial. Non verificati: i testi primari di Jones e Tertilt, Becker 1960, Becker e Lewis 1973, Bengtsson e Dribe, la pagina `basehaz` e la sezione VI di Clark e Hamilton (PDF non leggibile); `template_loader.validate_template`, `scripts/measure_marital_schedule_run.py` oltre le righe 187-249 e i conteggi esatti di `test_demography_cost.py`; il §4.1.2 italiano; nessun test eseguito.
+
+Evidenza aggiuntiva arrivata fra il round 1 e la correzione: `Diario/2026/11/2026-11-26/epocha-becker-riferimento/diagnosi-economia.md` (economia del mondo di prova degenere dal tick 2).
+
+| Rilievo | Classe | Esito | Che cosa ho fatto |
+|---|---|---|---|
+| R1-01 `industrial` senza fonte | UNJUSTIFIED, S1 | Corretto | Ho verificato nella spec coniugale (riga di `industrial`) che 6,22 è un'euristica per tenere il TFR₀ a 3,997, senza fonte letta per il livello coniugale. Perimetro ristretto a `pre_industrial_christian` e `pre_industrial_islamic`, discriminate da un dato del template (`becker_reference`, FR-001) e non dalla presenza di `marital`. `pre_industrial_islamic` resta dentro perché adotta lo stesso livello naturale come euristica dichiarata (whitepaper §6.2); la ragione è scritta nella FAQ. |
+| R1-02 FR-004 non implementabile | INCONSISTENT, S1 | Corretto | Verificato su `fertility.py:285-290` (signature senza sezione `fertility`) e `orchestrator.py:405-419`. Un solo canale: argomento esplicito `log_reference` di `becker_modulation` (None = forma di oggi) e `becker_log_reference` di `tick_birth_probability`, che conosce la sezione e solleva `BeckerReferenceMissing` solo nel perimetro. `build_zone_fertility_context` non cambia; il pre-passaggio costruisce prima i contesti e poi il riferimento (FR-003..FR-005). |
+| R1-03 elenco dei test | INCORRECT, S2 | Corretto | Elenco rifatto dal codice: `test_integration_plan2.py` usa `modern_democracy` (fuori); `test_fertility_zone_context.py:229-260` usa i coefficienti di seme e con il nuovo canale passa lo stesso riferimento alle due chiamate, così l'invariante «il contesto è solo costo» resta; una sola semantica per la chiamata senza riferimento (forma di oggi in `becker_modulation`, errore in `tick_birth_probability` nel perimetro). |
+| R1-04 per tick non segue dalle fonti | UNJUSTIFIED, S2 | Corretto | Riscritto: le fonti fondano un riferimento di popolazione e di lungo periodo, non il passo per tick, che contraddice la fonte 3. Il per tick è ora la strada A del confronto, non la scelta. |
+| R1-05 dipendenza dall'anomalia | INCONSISTENT, S2 | Corretto | Tolte la frase di indipendenza, l'argomento della deriva, il valore 0,92 e il beneficio di US2 misurato; i numeri del mondo degenere stanno in una sezione propria, mai come argomento. Le Assumptions dicono che la scelta dipende dall'economia. |
+| R1-06 strada β = 0 scartata senza evidenza | UNJUSTIFIED, S2 | Corretto | La strada C è nel confronto preregistrato, con costi e perdite; è la scelta del criterio se la dispersione fra donne è sotto il 2%. |
+| R1-07 B3.2 senza condizioni, durata del tick | INCORRECT, S2 | Corretto | B3.2 scritta con la guardia 0,1 e la soglia 1e-6; SC-002(a) prova anche il caso alla guardia. Verificato che nessun file di `economy/` legge la durata del tick (`market.py:46-50`): la frase sulla durata è ora condizionale, la parentesi sbagliata è tolta. |
+| R1-08 frasi auditate del §4.1.2 | MISSING, S2 | Corretto | FR-009 aggiunge il Background (EN :831, IT :875) e le Semplificazioni (EN :898, IT :942) con la calibrazione con shock; FR-010 dice che con A o C B2-07 non si calibra con shock aggregati; «Che cosa si perde» dice che nessun canale aggregato resta con A e C. |
+| R1-09 SC-007 quasi tautologico | MISSING, S3 | Corretto | SC-007 dichiarato verifica di coerenza con A e C, misura vera con B; FR-011 chiede che la spec coniugale lo registri. |
+| R1-10 FR-007/SC-006 ridondanti | UNJUSTIFIED, S3 | Respinto in parte | Lo script resta (ora FR-006) perché è lo strumento del confronto preregistrato: dà D, G e `ρ_BK` per strada dai record, che SC-001 (test su dati costruiti) e FR-007 (solo `ρ_BK`) non danno. Tolto il suo ruolo di ripetere l'identità di SC-001 come criterio di successo. |
+| R1-11 casi limite | MISSING, S3 | Corretto | Aggiunti `zone` nullo (seguito nel codice, `context.py:80-83`) e clip non conservativo con una minoranza molto sopra la media, senza limite numerico dichiarato. |
+| R1-12 stato delle fonti 2 e 3 | MISSING, S3 | Corretto in parte | Galloway: precisato che misura le nascite totali, nuzialità compresa, e marcato come limite superiore di seconda mano. Clark e Hamilton sez. VI: la verifica sul working paper l'ho fatta io sul testo estratto (pp. 21-22) nello stadio 1; resta VERIFICATO sul working paper, non sulla versione pubblicata. |
