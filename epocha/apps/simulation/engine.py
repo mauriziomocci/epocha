@@ -35,6 +35,7 @@ from epocha.apps.agents.relationships import (
     evolve_relationships,
     update_relationship_from_interaction,
 )
+from epocha.apps.demography.orchestrator import minor_agent_ids
 from epocha.apps.simulation.snapshot import capture_and_detect
 from epocha.apps.world.economy import process_economy_tick
 from epocha.apps.world.government import process_political_cycle
@@ -502,7 +503,12 @@ class SimulationEngine:
             process_economy_tick(world, tick)
 
         # 2. Agent decisions (sequential fallback)
-        agents = list(Agent.objects.filter(simulation=self.simulation, is_alive=True))
+        # Minors are not called to the decision loop (see run_simulation_loop).
+        agents = list(
+            Agent.objects.filter(simulation=self.simulation, is_alive=True).exclude(
+                id__in=minor_agent_ids(self.simulation, tick)
+            )
+        )
         tick_events = []
         for agent in agents:
             agent.refresh_from_db()

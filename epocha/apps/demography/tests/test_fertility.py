@@ -576,3 +576,30 @@ def test_resolve_childbirth_event_keys_always_present():
         assert "mother_died" in result
         assert "newborn_survived" in result
         assert "death_cause" in result
+
+
+@pytest.mark.django_db
+def test_tick_birth_probability_rejects_a_tick_longer_than_a_year(female_agent):
+    """The fertility conversion shares mortality's domain and its one guard.
+
+    The annual rate is scaled linearly by `dt`, which a tick of two simulated
+    years would turn into a per-tick probability twice the annual one while a
+    mother can give birth at most once per tick. The conversion goes through
+    `orchestrator.years_per_tick`, the single point that computes `dt`.
+    """
+    from epocha.apps.demography import fertility as fertility_mod
+    from epocha.apps.demography.orchestrator import TickLongerThanAYearError
+
+    agent, sim, zone = female_agent
+    # birth_tick 0, two simulated years per tick: age 26 at tick 13.
+    with pytest.raises(TickLongerThanAYearError):
+        fertility_mod.tick_birth_probability(
+            agent,
+            _ERA_PARAMS_WITH_COUPLE_REQUIRED,
+            current_pop=50,
+            tick_duration_hours=8760.0,
+            demography_acceleration=2.0,
+            current_tick=13,
+            zone_context=fertility_mod.build_zone_fertility_context(sim, zone),
+            partnered_agent_ids={agent.id},
+        )

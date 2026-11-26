@@ -97,3 +97,35 @@ class TestGetLLMClient:
         client = get_chat_llm_client()
         assert isinstance(client, OpenAIProvider)
         assert client.model == "gpt-4o-mini"  # Fell back to main
+
+
+# Every provider the factories above can build, as (key setting, base URL
+# setting). A new provider added to `client.py` belongs here too.
+_LLM_PROVIDER_SETTINGS = [
+    ("EPOCHA_LLM_API_KEY", "EPOCHA_LLM_BASE_URL"),
+    ("EPOCHA_CHAT_LLM_API_KEY", "EPOCHA_CHAT_LLM_BASE_URL"),
+]
+
+
+@pytest.mark.parametrize(("key_setting", "base_url_setting"), _LLM_PROVIDER_SETTINGS)
+def test_the_test_settings_configure_no_reachable_llm_provider(key_setting, base_url_setting):
+    """No test can reach a real LLM endpoint through the factories.
+
+    `config/settings/test.py` blanks every key and base URL, so a test that
+    forgets to patch a factory fails at construction (`OpenAIProvider` with
+    no key) instead of sending a paid request with the developer's own key.
+    Round 16 of the Plan 4 phase-6 gate found a chat consumer test patching
+    the wrong factory and calling the real chat provider on every suite run.
+    The `settings` fixture of the tests above sets values and restores them;
+    this test reads the module-level configuration the whole suite runs on.
+
+    The comparison is reduced to a boolean before the assertion on purpose:
+    pytest prints the operands of a failed comparison, and the operand here
+    would be a real key.
+    """
+    from django.conf import settings
+
+    key_is_blank = getattr(settings, key_setting) == ""
+    base_url_is_blank = getattr(settings, base_url_setting) == ""
+    assert key_is_blank, f"{key_setting} is set in the test settings"
+    assert base_url_is_blank, f"{base_url_setting} is set in the test settings"

@@ -112,3 +112,30 @@ per comunicare i risultati a un pubblico non tecnico. Un grafico del
 Gini non emoziona. La storia di Marie che non puo' comprare il pane
 perche' il Gini e' a 0.72 emoziona. E' lo stesso dato, presentato
 come narrazione umana.
+
+## Update 2026-10-29 (user): the final products of an investigation
+
+Besides data visualization, an investigation ends in a narrative and/or a
+paper the user can read, "con dati e statistiche rigorose". Two products with
+different rules:
+- **Narrative** (racconto): illustrates ONE trajectory, readable by anyone;
+  states that it is one possible story among many; every fact it tells maps to
+  an event recorded in the simulation, never a detail invented by the writer.
+- **Paper**: reports the ENSEMBLE of runs: question, methods, assumptions,
+  outcomes as distributions with uncertainty, mechanisms, limits, and
+  reproducibility (seed, era template, code commit).
+For both: numbers and facts come from the data through explicit queries; the
+LLM only writes the prose around them (the tool-using report agent idea seen
+in MiroFish, credited when adopted: [[feedback-mirofish-ethics]]). Related:
+[[project-vision-psychohistory]], [[project-usecase-counterfactual-history]],
+[[project-dashboard-redesign]].
+
+Refined the same day (user): THREE written products, all in Italian AND
+English: (1) the narrative of one trajectory; (2) a readable report of the
+investigation with rigorous data and statistics; (3) a rigorous scientific
+paper, publication-grade: question, model described per the ODD protocol,
+methods, assumptions, ensemble results with uncertainty, validation and
+retrodiction, limits, reproducibility (seed, era template, commit), and
+references. Same rule for all three: numbers and facts from the data through
+explicit queries, the LLM writes only the prose; the two languages are kept in
+sync like the whitepapers.

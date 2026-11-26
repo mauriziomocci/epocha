@@ -1,12 +1,53 @@
 ---
 name: project_session_resume_2026_07_15
-description: "Stato di ripresa del progetto Epocha, aggiornato al 2026-08-12 con la chiusura del work item sui difetti di design della demografia"
+description: "Stato di ripresa del progetto Epocha: in testa lo stato al 2026-11-26 (fecondità coniugale ferma sui difetti dell'economia, spec di Becker parcheggiata), sotto lo storico del Plan 4 e dei difetti di design"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 7c7baa02-253c-4d77-885d-7497b3471918
   modified: 2026-08-12T12:30:24.862Z
 ---
+
+# AGGIORNAMENTO 2026-11-26 — fecondità coniugale, fattore di Becker, difetti dell'economia
+
+**Da leggere per prima** la nota di ripresa:
+`~/Documents/workspace/Diario/2026/11/2026-11-26/epocha-nota-di-ripresa.md`
+(quattro problemi in ordine di dipendenza, prossimi passi, file, trappole).
+In breve, stato al 2026-11-26:
+
+- **Difetti dell'economia quando nascono bambini** (§4.8 auditato; build map
+  `spine2.n20`): i neonati (ruolo `child` non mappato) producono dalla nascita
+  col ripiego di `economy/production.py:186-190`; il ciclo dei prezzi itera
+  contro quantità fisse (`economy/market.py:105-166`) e porta la sussistenza
+  al pavimento 0,01; l'avviso di tatonnement è fuorviante. Nessuna spec
+  aperta: e' il PRIMO passo, e serve il via dell'utente.
+- **Fecondità coniugale** (ramo `20261029-185654-marital-fertility`): SC-006
+  A passa, B fallisce con rho_BK 1,6162, ma quel numero misura il pavimento
+  dei prezzi, non Becker. L'utente ha scelto la strada (a) di D-MF-09.
+  T052-T057 fermi.
+- **Fattore di Becker** (ramo `20261126-163030-becker-reference-state`,
+  build map `spine2.n19`): spec in bozza, audit round 1 NOT CONVERGED, un
+  giro di correzioni fatto, PARCHEGGIATA finche' la configurazione B non e'
+  rimisurata su un'economia corretta (round usati 1 di 6).
+- **Scala dell'economia**: PR #22 bozza, misurata e auditata.
+- Ordine concordato come proposta: economia, nuova misura di B, Becker,
+  chiusura della fecondità coniugale. I merge (#18, #20, #21, #22 e i rami
+  in pila) restano all'utente. Le decisioni D-26-E-1..10 sono provvisorie.
+
+Lo stato di dettaglio vive nella build map ([[feedback-build-map-source-of-truth]]),
+non qui. Sotto, lo storico.
+
+# AGGIORNAMENTO 2026-09-26 (sera) — demografia Plan 4
+
+Work item in corso sul branch `20260826-144432-demography-plan4-wiring`, gate
+di fase 6 al **round 11: NOT CONVERGED**, quattro bloccanti (R1 nucleo diviso
+fra due zone attribuito alla zona del decisore; R2 mortalità per tick
+sottostimata fino al 5% da `q*dt`; R3 prosa del §4.1.5; R4 pupillo dello
+Stato, decisione di perimetro per l'utente), nessuno ancora corretto. Per
+riprendere leggere `specs/20260826-144432-demography-plan4-wiring/HANDOFF-2026-09-26-round11.md`
+e il documento di gate. Branch pushato su GitHub e PR in stato Draft verso
+`develop` (URL nel commit successivo all'handoff). Il merge è dell'utente.
+Vedi anche [[project-demography-couple-followups]] e [[project-public-website]].
 
 # SESSION RESUME — aggiornato il 2026-08-12
 

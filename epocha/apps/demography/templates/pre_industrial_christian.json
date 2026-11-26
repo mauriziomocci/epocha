@@ -248,5 +248,35 @@
   "migration": {
     "flight_trigger_ticks": 30,
     "adulthood_age": 16
+  },
+  "names": {
+    "male": [
+      "Giovanni",
+      "Pietro",
+      "Antonio",
+      "Matteo",
+      "Nicola",
+      "Domenico",
+      "Bartolomeo",
+      "Simone",
+      "Tommaso",
+      "Lorenzo",
+      "Iacopo",
+      "Guglielmo"
+    ],
+    "female": [
+      "Maria",
+      "Caterina",
+      "Margherita",
+      "Lucia",
+      "Agnese",
+      "Chiara",
+      "Francesca",
+      "Elena",
+      "Benedetta",
+      "Giovanna",
+      "Anna",
+      "Bartolomea"
+    ]
   }
 }

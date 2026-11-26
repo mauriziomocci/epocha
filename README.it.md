@@ -50,6 +50,12 @@ La dashboard è servita su `http://localhost:8000/dashboard/` al termine delle m
 docker compose -f docker-compose.local.yml exec web pytest --cov=epocha -v
 ```
 
+L'esecuzione predefinita non raggiunge mai la rete. I test marcati `network`, che scaricano il modello di embedding multilingue, sono esclusi da `addopts` in `pyproject.toml` e girano solo quando li si chiede con `pytest -m network`.
+
+### Vincoli di configurazione
+
+Due impostazioni vengono rifiutate invece che tollerate. `EPOCHA_INFO_FLOW_RELIABILITY_DECAY` deve stare nell'intervallo aperto (0, 1): qualunque altro valore ferma all'avvio ogni processo web e worker con `ImproperlyConfigured`, prima di qualsiasi tick e di qualsiasi chiamata LLM a pagamento. Il template d'era indicato da `demography_template` nella configurazione di una simulazione deve essere uno dei template distribuiti in `epocha/apps/demography/templates/` (`pre_industrial_christian`, `pre_industrial_islamic`, `industrial`, `modern_democracy`, `sci_fi`); qualunque altro nome, compreso un percorso come `../x`, viene rifiutato da `template_loader.load_template` con l'errore di template non distribuito prima di diventare un percorso di file.
+
 ### Provider LLM
 
 Predefinito: un server locale compatibile con OpenAI come LM Studio. Configura tramite variabili d'ambiente:
@@ -71,7 +77,8 @@ epocha/apps/
   agents/              Personalità, memoria, pipeline decisionale, reputazione, fazioni
   chat/                Conversazioni WebSocket in tempo reale con gli agenti
   dashboard/           UI server-rendered con miglioramento progressivo Alpine.js
-  demography/          Mortalità, fertilità, formazione delle coppie (audited)
+  demography/          Mortalità, fertilità, formazione delle coppie, eredità,
+                       migrazione e l'orchestratore per tick (auditati)
   economy/             Produzione, monetario, mercato, integrazione comportamentale (Behavioral audited)
   knowledge/           Knowledge graph: ingestione, embedding, ontologia, RAG
   llm_adapter/         Astrazione del provider con rate limiting e rotazione chiavi
@@ -86,7 +93,7 @@ docs/                  Spec, piani, whitepaper, backup di memoria
 
 | Modulo | Implementato | Audited |
 |---|---|---|
-| Demografia (Plan 1+2): mortalità, fertilità, coppia | sì — modelli testati in isolamento, non ancora invocati dal tick loop (Plan 4) | sì (CONVERGENTE 2026-04-18 round 4) |
+| Demografia (Plan 1+2): mortalità, fertilità, coppia | sì — invocati dal tick loop dal Plan 4 | sì (CONVERGENTE 2026-04-18 round 4) |
 | Economia Comportamentale (aspettative, credito, proprietà) | sì | sì (CONVERGENTE 2026-04-15) |
 | Economia base (produzione, monetario, mercato, distribuzione) | sì | sì (CONVERGENTE 2026-07-16 round 12) |
 | Reputazione (Castelfranchi-Conte-Paolucci 1998) | sì | sì (CONVERGENTE 2026-05-12 round 2) |
@@ -102,16 +109,20 @@ docs/                  Spec, piani, whitepaper, backup di memoria
 | Movimento (Chandler 1966; Braudel 1979) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
 | Fazioni (Olson 1965; Festinger 1950; Judge 2002; Baumeister 2001; Hackman 2002) | sì | sì (CONVERGENTE 2026-05-16 round 2) |
 | Knowledge Graph | sì | audit scientifico in attesa |
-| Demografia Plan 3+4 (Eredità + Migrazione + Integrazione Engine + Esecuzione validazione) | non ancora | n/a |
+| Demografia Plan 3 (Eredità + Migrazione) | sì — mergiata | sì (CONVERGENTE 2026-08-05 round 4) |
+| Demografia Plan 4 (Inizializzazione + Integrazione Engine) | sì — sul proprio ramo, in attesa del merge | sì (gate di fase 6 sul codice CONVERGENTE 2026-10-29 round 16) |
+| Campagna di validazione storica (esecuzione) | non ancora | n/a |
 | Mercati finanziari Economia (Spec 3) | non ancora | n/a |
 
 Il Knowledge Graph è l'unico modulo ancora in attesa del suo primo audit scientifico. Il layer base dell'economia è convergente sul round 12 (2026-07-16) ed è stato promosso a §4.8 del whitepaper, il che ha chiuso il re-pass di audit del batch del 2026-04-12 su tutti gli altri moduli. La lavagna aggiornata è la [build map](docs/build-map/epocha-build-map.html); il dettaglio scientifico sta nel whitepaper §9 Roadmap.
 
 ## Roadmap
 
-La priorità più alta è l'audit scientifico avversariale del Knowledge Graph, l'unico modulo rimasto nel §8 del whitepaper e l'elemento bloccante prima che calibrazione e validazione possano chiudersi. Sei cluster sono già convergenti e promossi a Metodi: la reputazione sul round 2 (2026-05-12) come §4.3, il cluster del passaparola — information flow, distortion, belief filter, affinity — sul round 2 (2026-05-16) come §4.4, il cluster politico — governo, tipi di governo, istituzioni, stratificazione, elezioni — sul round 2 (2026-05-16) come §4.5, il movimento sul round 2 (2026-05-16) come §4.6, le fazioni sul round 2 (2026-05-16) come §4.7 e il layer base dell'economia sul round 12 del suo primo audit (2026-07-16) come §4.8.
+Sei cluster sono convergenti e promossi a Metodi: la reputazione sul round 2 (2026-05-12) come §4.3, il cluster del passaparola — information flow, distortion, belief filter, affinity — sul round 2 (2026-05-16) come §4.4, il cluster politico — governo, tipi di governo, istituzioni, stratificazione, elezioni — sul round 2 (2026-05-16) come §4.5, il movimento sul round 2 (2026-05-16) come §4.6, le fazioni sul round 2 (2026-05-16) come §4.7 e il layer base dell'economia sul round 12 del suo primo audit (2026-07-16) come §4.8. Il Knowledge Graph è l'unico modulo rimasto nel §8 del whitepaper.
 
-Seguono la Demografia Plan 3 (eredità + migrazione) e la Plan 4, che cabla i modelli auditati di §4.1 dentro il tick loop dal vivo in cui ancora non entrano, semina la popolazione iniziale dal template dell'era ed esegue la campagna di validazione storica. Poi i mercati finanziari dell'economia (Spec 3, non ancora redatta) e l'esecuzione degli esperimenti di validazione. Lista completa nel whitepaper §9; stato corrente per fase nella [build map](docs/build-map/epocha-build-map.html).
+La Demografia Plan 3 (eredità + migrazione) è mergiata. La Plan 4 cabla i modelli auditati di §4.1 dentro il tick loop dal vivo e semina la popolazione iniziale dal template dell'era; il suo gate di fase 6 sul codice è convergente al round 16 (2026-10-29) e il ramo è in attesa del merge. Il gate è stato riaperto una volta, per un difetto della mortalità: il cablaggio passava allo schema di Heligman-Pollard l'età continua, quindi un neonato passava il primo anno su `q(0.02)`, `q(0.04)`, … e la mortalità infantile risultava 0,0083 contro `q(0) = 0,0291` con tick settimanali. Ora `q(x)` si legge all'età intera compiuta e resta fermo per tutto l'anno d'età (whitepaper §4.1), quindi i risultati prodotti prima di questa correzione non sono confrontabili con quelli successivi.
+
+L'ordine dei prossimi lavori è stato concordato il 2026-10-29. Primo, la formazione delle coppie a regole (Coale e McNeil 1972), prerequisito di ogni validazione, perché nelle ere pre-industriali una nascita richiede una coppia e dopo l'inizializzazione oggi le coppie si formano solo dagli intenti del LLM: la sua spec è approvata dalla Trinity sotto il profilo di autonomia del progetto, in via provvisoria, in attesa della conferma dell'utente (D-29-21), e l'implementazione è partita sul ramo `20261029-123404-rule-based-couples`. Secondo, la fertilità coniugale nelle ere che richiedono la coppia, prima di qualsiasi validazione: lo schema di Hadwiger è un tasso su tutte le donne, e applicato alle sole donne sposate dà un TFR (tasso di fecondità totale, i figli che una donna avrebbe nella sua vita fertile) di 2,394 contro l'intervallo di riferimento del whitepaper di 4,5-6,5. Terzo, la prima validazione storica, l'Inghilterra dal 1700 al 1750 contro Wrigley e Schofield (1981) per mortalità, fertilità ed età al matrimonio; cita solo i valori pubblicati, perché i dati leggibili da macchina che li sostengono sono distribuiti con termini non compatibili con Apache-2.0. Quarto, un solo rapporto di quella validazione fondato sui dati. Tutto il resto resta nella [build map](docs/build-map/epocha-build-map.html), non aperto finché non esiste il primo risultato di validazione: l'audit del Knowledge Graph, i mercati finanziari dell'economia (Spec 3), la dashboard comandata dalle API, il contesto degli agenti e la coerenza della chat, lo studio di fattibilità per la scala a miliardi di agenti, il modello demografico-strutturale con le esecuzioni d'insieme. L'unica eccezione è il comportamento per età lungo il corso della vita, la cui spec è approvata e la cui implementazione parte dopo il merge del Plan 4. Lista completa nel whitepaper §9.
 
 ## Contribuire
 
@@ -126,6 +137,7 @@ Seguono la Demografia Plan 3 (eredità + migrazione) e la Plan 4, che cabla i mo
   | Capitolo whitepaper | Codice |
   |---|---|
   | §4.1 Demografia | `epocha/apps/demography/{mortality,fertility,couple,inheritance,migration}.py` |
+  | §4.1.0 Orchestrazione per tick | `epocha/apps/demography/{orchestrator,initialization,snapshot,context}.py` |
   | §4.2 Economia — comportamentale | `epocha/apps/economy/{expectations,credit,banking,property_market}.py` |
   | §4.3 Reputazione | `epocha/apps/agents/reputation.py` |
   | §4.4 Propagazione del passaparola | `epocha/apps/agents/{information_flow,distortion,belief,affinity}.py` |

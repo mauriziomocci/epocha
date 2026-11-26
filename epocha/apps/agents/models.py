@@ -144,6 +144,23 @@ class Agent(models.Model):
         choices=DeathCause.choices,
         blank=True,
     )
+    # Number of consecutive ticks this agent's wealth has stayed below the
+    # zone subsistence threshold. The emergency-flight trigger
+    # (`demography/migration.py`, O'Rourke 1994 / Simon 1955 bounded
+    # rationality) compares it against the era template's
+    # `flight_trigger_ticks`, and until this column existed the trigger took
+    # the value as an argument nobody could supply in a live run, which made
+    # the whole forced-migration path unreachable outside unit tests.
+    #
+    # Persisted rather than held in memory because the tick loop is a set of
+    # Celery tasks: in-memory state does not outlive one of them.
+    consecutive_ticks_under_subsistence = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Consecutive ticks with wealth below the zone subsistence"
+            " threshold; resets to zero as soon as wealth rises above it."
+        ),
+    )
     other_parent_agent = models.ForeignKey(
         "self",
         null=True,

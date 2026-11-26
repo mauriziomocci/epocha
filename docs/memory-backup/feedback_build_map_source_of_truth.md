@@ -33,3 +33,5 @@ La **build map** e' la fonte di verita' di cosa e' costruito e cosa no in Epocha
 
 Correlate: [[whitepaper-doc-sync-rule]], [[whitepaper-promotion-pipeline]].
 **La mappa e' bilingue dal 2026-08-26**: italiano normativo, inglese mirror, un file solo con selettore, e una guardia strutturale (`epocha/apps/dashboard/tests/test_build_map_bilingual.py`) che fallisce se le lingue divergono. Si aggiornano INSIEME, nello stesso commit.
+
+Publishing pitfall (2026-11-05): the artifacts server now publishes through `publish_files` and refuses a page that does not begin with `<!DOCTYPE html>`; the repo file starts with `<meta charset>`, so the publish failed. Workaround used: publish a scratchpad copy with the doctype prepended to the SAME slug (`c81c0d24-313c-474b-8440-c22275e1cb15`, URL unchanged). Fixed 2026-11-06: the repo file now starts with `<!DOCTYPE html>` and is published directly from its repo path again (version 32).
