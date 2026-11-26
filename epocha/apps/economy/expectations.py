@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
+
 from epocha.apps.agents.models import Agent
 from epocha.apps.economy.models import AgentExpectation, GoodCategory, ZoneEconomy
 from epocha.apps.economy.monetary import aggregate_system_prices
@@ -232,6 +234,8 @@ def update_agent_expectations(simulation, tick: int) -> None:
         AgentExpectation.objects.bulk_create(to_create)
 
     if to_update:
+        # Batched: one statement over all rows costs time quadratic in the
+        # rows (spec FR-001, setting EPOCHA_BULK_UPDATE_BATCH_SIZE).
         AgentExpectation.objects.bulk_update(
             to_update,
             [
@@ -241,6 +245,7 @@ def update_agent_expectations(simulation, tick: int) -> None:
                 "lambda_rate",
                 "updated_at_tick",
             ],
+            batch_size=settings.EPOCHA_BULK_UPDATE_BATCH_SIZE,
         )
 
     logger.debug(

@@ -43,6 +43,8 @@ from __future__ import annotations
 import logging
 import statistics
 
+from django.conf import settings
+
 from epocha.apps.agents.models import Agent
 from epocha.apps.world.government import add_to_treasury
 from epocha.apps.world.models import Government
@@ -895,7 +897,13 @@ def process_economy_tick_new(simulation, tick: int) -> None:
         agents_to_update.append(agent)
 
     if agents_to_update:
-        Agent.objects.bulk_update(agents_to_update, ["wealth", "mood"])
+        # Batched: one statement over all rows costs time quadratic in the
+        # rows (spec FR-001, setting EPOCHA_BULK_UPDATE_BATCH_SIZE).
+        Agent.objects.bulk_update(
+            agents_to_update,
+            ["wealth", "mood"],
+            batch_size=settings.EPOCHA_BULK_UPDATE_BATCH_SIZE,
+        )
 
     # === STEP 8c: STABILITY FEEDBACK (inflation, system aggregate) ===
     # Alesina & Perotti (1996): political instability and income distribution.

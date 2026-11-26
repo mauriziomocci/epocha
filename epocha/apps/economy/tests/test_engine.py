@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 import epocha.apps.economy.engine as engine_module
 from epocha.apps.agents.models import Agent
@@ -26,6 +28,7 @@ from epocha.apps.economy.models import (
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import Government, World, Zone
+from epocha.common.testing import case_update_rows
 
 
 @pytest.fixture
@@ -231,6 +234,47 @@ class TestProcessEconomyTick:
             simulation=simulation,
             tick=1,
         ).exists()
+
+    @pytest.mark.parametrize(
+        ("batch_size", "expected_rows"),
+        [(2, [2, 2, 1]), (4, [4, 1])],
+    )
+    def test_wealth_and_mood_written_in_batches(
+        self,
+        settings,
+        simulation,
+        setup_economy,
+        batch_size,
+        expected_rows,
+    ):
+        """The 5 living agents with an inventory are written in batches.
+
+        One statement over all rows costs time quadratic in the rows
+        (spec FR-001). Both batch sizes leave a remainder on the 5 rows,
+        so a size hard-coded at the call site fails one of them.
+        """
+        for i in range(3):
+            agent = Agent.objects.create(
+                simulation=simulation,
+                name=f"Villager{i}",
+                role="farmer",
+                personality={"openness": 0.5},
+                location=Point(50, 50),
+                zone=setup_economy["zone"],
+                health=1.0,
+                wealth=50.0,
+            )
+            AgentInventory.objects.create(
+                agent=agent,
+                holdings={"subsistence": 5.0},
+                cash={"LVR": 50.0},
+            )
+        settings.EPOCHA_BULK_UPDATE_BATCH_SIZE = batch_size
+
+        with CaptureQueriesContext(connection) as ctx:
+            process_economy_tick_new(simulation, tick=1)
+
+        assert case_update_rows(ctx.captured_queries, Agent, 2) == expected_rows
 
     def test_agent_wealth_updated(
         self,

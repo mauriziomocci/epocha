@@ -8,6 +8,8 @@ Tests cover:
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from epocha.apps.agents.models import Agent
 from epocha.apps.economy.expectations import (
@@ -19,6 +21,7 @@ from epocha.apps.economy.models import AgentExpectation, GoodCategory, ZoneEcono
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import World, Zone
+from epocha.common.testing import case_update_rows
 
 # -- Pure function tests (no DB) --
 
@@ -420,6 +423,43 @@ class TestUpdateAgentExpectations:
         """No zone economies (so no prices) should not crash."""
         update_agent_expectations(simulation, tick=1)
         assert AgentExpectation.objects.count() == 0
+
+    @pytest.mark.parametrize(
+        ("batch_size", "expected_rows"),
+        [(2, [2, 2, 2]), (4, [4, 2])],
+    )
+    def test_update_writes_in_batches_of_the_batch_size(
+        self,
+        settings,
+        simulation,
+        zone,
+        zone_economy,
+        goods,
+        batch_size,
+        expected_rows,
+    ):
+        """The 6 updated rows are written in statements of at most the batch size.
+
+        One statement over all rows costs time quadratic in the rows
+        (spec FR-001); two batch sizes, one dividing the 6 rows and one
+        leaving a remainder, fail a size hard-coded at the call site.
+        """
+        for i in range(3):
+            Agent.objects.create(
+                simulation=simulation,
+                name=f"Agent{i}",
+                role="farmer",
+                personality={"openness": 0.5},
+                location=Point(50, 50),
+                zone=zone,
+            )
+        update_agent_expectations(simulation, tick=1)
+        settings.EPOCHA_BULK_UPDATE_BATCH_SIZE = batch_size
+
+        with CaptureQueriesContext(connection) as ctx:
+            update_agent_expectations(simulation, tick=2)
+
+        assert case_update_rows(ctx.captured_queries, AgentExpectation, 5) == expected_rows
 
     def test_multiple_agents(
         self,
