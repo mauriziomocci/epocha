@@ -302,8 +302,8 @@ def _class_fingerprints(simulation) -> tuple[str, str, int]:
     """Return fingerprint (b), the per-agent-id class hash and the tied-wealth count.
 
     (b) is tie-invariant (spec FR-006): the sorted multiset of
-    (``wealth.hex()``, ``social_class``) over living agents plus the mobility
-    memories sorted by (agent ``wealth.hex()``, content, emotional weight,
+    (``wealth.hex()``, ``social_class``) over living agents plus all the
+    memories of the living agents, sorted by (agent ``wealth.hex()``, content, emotional weight,
     tick). The per-agent-id hash and the count of agents sharing their
     wealth are information only (spec FR-004 limit).
     """
