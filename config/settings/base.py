@@ -226,6 +226,18 @@ EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD = env.float(
     "EPOCHA_GOVERNMENT_COUP_STABILITY_THRESHOLD", default=0.3
 )
 
+# --- Per-tick database writes ---
+# Rows per statement of the per-tick ``bulk_update`` calls (expectations, agent
+# wealth and mood, social classes). Django's ``bulk_update`` writes one CASE
+# branch per row per column and PostgreSQL scans the branches for every row,
+# so one statement over N rows costs about a * N^2 (measured 2026-11-12: 285 s
+# for 10,020 rows and five columns); batches of B rows cost about
+# N * (a * B + c + b / B). The measured table that fixes the default is in
+# specs/20261112-233606-economy-batched-writes/plan.md, section Measurements.
+# A tunable engineering heuristic: it changes the time taken, never the values
+# written. Django's bulk_update rejects a value below 1 with a ValueError.
+EPOCHA_BULK_UPDATE_BATCH_SIZE = env.int("EPOCHA_BULK_UPDATE_BATCH_SIZE", default=200)
+
 # --- Knowledge Graph ---
 # Master switch for the Knowledge Graph feature.
 EPOCHA_KG_ENABLED = env.bool("EPOCHA_KG_ENABLED", default=True)

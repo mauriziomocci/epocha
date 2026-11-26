@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from django.db import transaction
 
 from epocha.apps.agents.models import Agent, Memory
@@ -189,7 +190,13 @@ def update_social_classes(simulation) -> None:
                 )
             )
 
-    Agent.objects.bulk_update(agents_to_update, ["social_class"])
+    # Batched: one statement over all rows costs time quadratic in the rows
+    # (spec FR-002, setting EPOCHA_BULK_UPDATE_BATCH_SIZE).
+    Agent.objects.bulk_update(
+        agents_to_update,
+        ["social_class"],
+        batch_size=settings.EPOCHA_BULK_UPDATE_BATCH_SIZE,
+    )
     if memories_to_create:
         Memory.objects.bulk_create(memories_to_create)
 
