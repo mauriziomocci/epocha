@@ -39,7 +39,7 @@ docker compose --project-directory $W -p epocha-economy-scale \
 
 - [x] **T010**: Run `pytest epocha/apps/economy/ epocha/apps/world/ -v` and `ruff check . && ruff format --check .`: zero failures. Run the taste measures on the changed files (function length, nesting, complexity) and fix or justify each hit with file:line.
 
-- [ ] **T011**: Commit T004-T010 together: `perf(economy): write per-tick bulk updates in bounded batches`, `CHANGE:` paragraph with the measured 285 s, the chosen B, the three sites, the reuse statement for `case_update_rows`, the three red failure lines.
+- [x] **T011**: Commit T004-T010 together: `perf(economy): write per-tick bulk updates in bounded batches`, `CHANGE:` paragraph with the measured 285 s, the chosen B, the three sites, the reuse statement for `case_update_rows`, the three red failure lines.
 
 ## Phase 3: Measurement and judgment (SC-002 to SC-004)
 
