@@ -56,7 +56,11 @@ docker compose --project-directory $W -p epocha-economy-scale \
 ## Phase 4: Gate and closure
 
 - [ ] **T017**: Phase 6: adversarial code audit with `critical-analyzer` (Opus) on the branch diff, fix and re-audit until CONVERGED, then the user's validation. After the merge, update the frozen-at-commit pin of both whitepapers. Tell the coordinator to update build-map node `spine2.n14` on the Plan 4 branch (the three sites leave the node; the every-tick political cycle enters it as its own defect; `world/economy.py` stays). SC-005 is measured after the user decides to bring this branch into the marital-fertility branch, with a `cProfile` of one tick, and is reported with its number.
-  - Audit round 1: `VERDICT: NOT CONVERGED (2 INCONSISTENT, S3); quality gate passed: new code 9.5, touched legacy 9.5, architecture 10, docs 9.5; COVERAGE: full on the code delta, partial on runtime`; fixed in the commit `docs(economy): close the code audit findings on the batched writes`; delta re-audit pending.
+  - Audit round 1: `VERDICT: NOT CONVERGED (2 INCONSISTENT, S3); quality gate passed: new code 9.5, touched legacy 9.5, architecture 10, docs 9.5; COVERAGE: full on the code delta, partial on runtime`; fixed in the commit `docs(economy): close the code audit findings on the batched writes`; delta re-audit done (round 2).
+  - Audit round 2 (delta `bb22172..23217c5`): `VERDICT: CONVERGED; scores: new code 10, touched legacy 9.5, architecture 10, docs 10; FINDINGS: 3/3 round-1 findings resolved, 0 new; COVERAGE: full on the delta` (runtime numbers and the full suite were not re-measured by the auditor).
+  - Full suite and lint re-run by the coordinator on `23217c5` on 2026-11-26: 1588 passed, 0 failed, 3 warnings; `ruff check .` clean; `ruff format --check .` 326 files formatted. Confidence: unit tests and local measurements only.
+  - Phase-6 gate: closed provisionally on 2026-11-26 under the repository's autonomy profile (decision D-26-E-5 in the diary), pending the user's confirmation; the merge, the frozen-at-commit pin and the checkbox stay with the user.
+  - SC-005, first reading: on a local scratch merge of the marital-fertility branch (`9ecf056`) with this branch (`bb22172`), never pushed, the SC-006 configuration at 2,000 founders ran 7 ticks in 103 s, about 15 s per tick, against the 30 s of SC-005; no `cProfile` was taken, and the full 360-tick run is recorded on the marital-fertility branch.
 
 ## Dependencies
 
