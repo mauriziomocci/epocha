@@ -62,7 +62,6 @@ class TestOpenAIProvider:
 class TestGetLLMClient:
     @pytest.mark.django_db
     def test_returns_openai_provider(self, settings):
-        settings.EPOCHA_DEFAULT_LLM_PROVIDER = "openai"
         settings.EPOCHA_LLM_API_KEY = "test-key"
         settings.EPOCHA_LLM_MODEL = "gpt-4o-mini"
         settings.EPOCHA_LLM_BASE_URL = ""
@@ -72,7 +71,6 @@ class TestGetLLMClient:
 
     @pytest.mark.django_db
     def test_returns_provider_with_base_url(self, settings):
-        settings.EPOCHA_DEFAULT_LLM_PROVIDER = "openai"
         settings.EPOCHA_LLM_API_KEY = "test-key"
         settings.EPOCHA_LLM_MODEL = "qwen3-8b"
         settings.EPOCHA_LLM_BASE_URL = "http://localhost:1234/v1"
@@ -86,7 +84,6 @@ class TestGetLLMClient:
         """Chat client should fall back to main provider when not configured."""
         from epocha.apps.llm_adapter.client import get_chat_llm_client
 
-        settings.EPOCHA_DEFAULT_LLM_PROVIDER = "openai"
         settings.EPOCHA_LLM_API_KEY = "test-key"
         settings.EPOCHA_LLM_MODEL = "gpt-4o-mini"
         settings.EPOCHA_LLM_BASE_URL = ""

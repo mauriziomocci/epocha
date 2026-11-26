@@ -58,10 +58,9 @@ Due impostazioni vengono rifiutate invece che tollerate. `EPOCHA_INFO_FLOW_RELIA
 
 ### Provider LLM
 
-Predefinito: un server locale compatibile con OpenAI come LM Studio. Configura tramite variabili d'ambiente:
+Endpoint predefinito: l'API di OpenAI (`EPOCHA_LLM_BASE_URL` è vuoto). Per un server locale compatibile con OpenAI come LM Studio, imposta `EPOCHA_LLM_BASE_URL`. Configura tramite variabili d'ambiente:
 
 ```bash
-EPOCHA_DEFAULT_LLM_PROVIDER=openai
 EPOCHA_LLM_API_KEY=...
 EPOCHA_LLM_BASE_URL=http://host.docker.internal:1234/v1
 EPOCHA_LLM_MODEL=...

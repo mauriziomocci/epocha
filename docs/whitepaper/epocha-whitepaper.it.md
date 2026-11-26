@@ -564,8 +564,8 @@ onori lo schema OpenAI chat completions. La stessa classe serve perciò
 OpenAI propriamente detto, Google Gemini, Groq, OpenRouter, Together AI,
 Mistral e runner ospitati localmente come LM Studio e Ollama: cambiano
 solo `base_url`, identificatore del modello e key. La configurazione vive
-in `config/settings/base.py` sotto `EPOCHA_DEFAULT_LLM_PROVIDER`,
-`EPOCHA_LLM_API_KEY`, `EPOCHA_LLM_MODEL` e `EPOCHA_LLM_BASE_URL`, con un
+in `config/settings/base.py` sotto `EPOCHA_LLM_API_KEY`,
+`EPOCHA_LLM_MODEL` e `EPOCHA_LLM_BASE_URL`, con un
 set parallelo `EPOCHA_CHAT_LLM_*` usato da `get_chat_llm_client()` per le
 conversazioni con gli agenti; quando il provider di chat è configurato è
 incapsulato in un `FallbackProvider` che fa rollover trasparente sul

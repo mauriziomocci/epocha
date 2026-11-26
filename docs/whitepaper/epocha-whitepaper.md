@@ -527,8 +527,8 @@ honoring the OpenAI chat completions schema. The same class therefore
 serves OpenAI proper, Google Gemini, Groq, OpenRouter, Together AI,
 Mistral, and locally hosted runners such as LM Studio and Ollama: only
 the `base_url`, model identifier, and key change. Configuration lives
-in `config/settings/base.py` under `EPOCHA_DEFAULT_LLM_PROVIDER`,
-`EPOCHA_LLM_API_KEY`, `EPOCHA_LLM_MODEL`, and `EPOCHA_LLM_BASE_URL`,
+in `config/settings/base.py` under `EPOCHA_LLM_API_KEY`,
+`EPOCHA_LLM_MODEL`, and `EPOCHA_LLM_BASE_URL`,
 with a parallel `EPOCHA_CHAT_LLM_*` set used by `get_chat_llm_client()`
 for agent conversations; when the chat provider is configured it is
 wrapped in a `FallbackProvider` that transparently rolls over to the
