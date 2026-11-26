@@ -106,6 +106,28 @@ docs/whitepaper/epocha-whitepaper.it.md             # §4.2 sentence, 13 line ci
 
 To be filled by T003 and T014.
 
+### T003: batch size candidates (PD-01)
+
+Date 2026-11-26, base commit `3a688fb` (script and helper uncommitted at the time of the run), Apple M3 Pro (12 cores), macOS 27.2.1, Docker 29.8.2, `epocha-economy-scale` project, 2,000 founders, seed 20261112, 3 repetitions per candidate, run of `test_batch_size_candidates` as printed:
+
+```text
+FOUNDERS=2000 SEED=20261112 R=10000 REPETITIONS=3
+b (median one-row update) = 0.001208 s
+B=   5 statements= 2000 median_total=2.995 s per_statement=0.001497 s
+B=  10 statements= 1000 median_total=2.990 s per_statement=0.002990 s
+B=  15 statements=  667 median_total=2.618 s per_statement=0.003925 s
+B=  25 statements=  400 median_total=2.407 s per_statement=0.006018 s
+B=  50 statements=  200 median_total=2.540 s per_statement=0.012702 s
+B= 100 statements=  100 median_total=2.533 s per_statement=0.025334 s
+B= 200 statements=   50 median_total=2.589 s per_statement=0.051778 s
+B= 500 statements=   20 median_total=2.882 s per_statement=0.144119 s
+drift ratio (first candidate, second timing / median of first timings) = 1.143, within the tolerance of 0.20
+fit per statement t(B) = a*B^2 + c*B + b: a=9.933e-08 c=2.378e-04 b=3.770e-04 (report only)
+```
+
+PD-01 rules, in order: drift 1.143 is within 20%, no rerun; the minimum (B=25, 2.407 s) is not at a grid edge; the minimum is under 5 s, no escalation. Choice: the lowest median total is B=25; the candidates within 10% of it (at most 2.648 s) are 15, 25, 50, 100 and 200; ties go to the larger B, so **B = 200** (2.589 s, 7.6% above the minimum; 50 statements per 10,000 rows).
+
+
 ## Complexity Tracking
 
 No violation to justify.
