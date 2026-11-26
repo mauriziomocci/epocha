@@ -25,22 +25,28 @@ and a timing does not carry the row versions of the previous one.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import random
 import statistics
 import time
+from collections import Counter, deque
 
 import pytest
 from django.contrib.gis.geos import Point, Polygon
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
-from epocha.apps.agents.models import Agent
+from epocha.apps.agents.models import Agent, Memory
 from epocha.apps.economy.engine import process_economy_tick_new
 from epocha.apps.economy.initialization import initialize_economy
 from epocha.apps.economy.models import AgentExpectation
 from epocha.apps.simulation.models import Simulation
 from epocha.apps.users.models import User
 from epocha.apps.world.models import Government, World, Zone
+from epocha.apps.world.stratification import update_social_classes
+from epocha.common.testing import case_update_rows
 
 FOUNDERS = int(os.environ.get("ECONOMY_COST_FOUNDERS", "2000"))
 TICKS = int(os.environ.get("ECONOMY_COST_TICKS", "5"))
@@ -208,3 +214,154 @@ def test_batch_size_candidates():
     first = CANDIDATE_BATCH_SIZES[0]
     drift_ratio = _time_bulk_update(rows, first) / medians[first]
     _print_candidate_table(len(rows), medians, drift_ratio, _time_one_row_updates(rows))
+
+
+# -- test_economy_step_cost: spec SC-002 to SC-004 (plan PD-03) --
+
+# Fields written per row by the three batched sites.
+EXPECTATION_FIELD_COUNT = len(FIVE_FIELDS)
+AGENT_STEP_FIELD_COUNT = 2  # wealth, mood
+SOCIAL_CLASS_FIELD_COUNT = 1
+
+
+def _fingerprint(lines) -> str:
+    """Return the SHA-256 hex digest of ``lines`` joined by newlines."""
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def _update_statement_count(captured_queries) -> int:
+    """Return how many captured statements are ``UPDATE`` statements."""
+    return sum(1 for query in captured_queries if query["sql"].startswith("UPDATE"))
+
+
+def _rows_per_statement(captured_queries, model, field_count) -> dict[int, int]:
+    """Return ``{rows in a statement: number of such statements}`` for ``model``."""
+    return dict(sorted(Counter(case_update_rows(captured_queries, model, field_count)).items()))
+
+
+def _unbounded_query_log() -> None:
+    """Replace the connection's query log by an empty unbounded one.
+
+    Django keeps only the last 9000 statements (``queries_limit``) and
+    ``CaptureQueriesContext`` slices that log by position, so past the
+    limit it returns fewer statements than were run (or none). One economy
+    step at 2,000 founders runs about 12,000 ``UPDATE`` statements alone.
+    """
+    connection.queries_log = deque()
+
+
+def _timed_tick(simulation, tick: int):
+    """Run one economy step; return its seconds and its captured queries."""
+    _unbounded_query_log()
+    with CaptureQueriesContext(connection) as ctx:
+        started = time.perf_counter()
+        process_economy_tick_new(simulation, tick)
+        elapsed = time.perf_counter() - started
+    return elapsed, ctx.captured_queries
+
+
+def _print_tick_shape(tick, elapsed, queries) -> None:
+    """Print the time, the UPDATE count and the batched-statement shape of one tick."""
+    expectations = case_update_rows(queries, AgentExpectation, EXPECTATION_FIELD_COUNT)
+    wealth = case_update_rows(queries, Agent, AGENT_STEP_FIELD_COUNT)
+    print(
+        f"tick={tick} seconds={elapsed:.3f} updates={_update_statement_count(queries)} "
+        f"expectation_statements={len(expectations)} expectation_max_rows="
+        f"{max(expectations, default=0)} wealth_statements={len(wealth)} "
+        f"wealth_max_rows={max(wealth, default=0)}"
+    )
+
+
+def _step_fingerprint(simulation) -> str:
+    """Fingerprint (a) of spec FR-006: the values the economy step wrote.
+
+    Agents in ``id`` order by ordinal (wealth, mood), then expectations in
+    (agent ordinal, good code) order (the five fields); floats as
+    ``float.hex`` so the digest is bit-exact.
+    """
+    agents = list(Agent.objects.filter(simulation=simulation).order_by("id"))
+    ordinal = {agent.id: index for index, agent in enumerate(agents)}
+    lines = [f"A|{i}|{a.wealth.hex()}|{a.mood.hex()}" for i, a in enumerate(agents)]
+    expectations = AgentExpectation.objects.filter(agent__simulation=simulation).order_by(
+        "agent_id", "good_code"
+    )
+    lines += [
+        f"E|{ordinal[e.agent_id]}|{e.good_code}|{e.expected_price.hex()}|{e.trend_direction}|"
+        f"{e.confidence.hex()}|{e.lambda_rate.hex()}|{e.updated_at_tick}"
+        for e in expectations
+    ]
+    return _fingerprint(lines)
+
+
+def _living_agents(simulation) -> list[Agent]:
+    """Return the living agents in ``id`` order."""
+    return list(Agent.objects.filter(simulation=simulation, is_alive=True).order_by("id"))
+
+
+def _class_fingerprints(simulation) -> tuple[str, str, int]:
+    """Return fingerprint (b), the per-agent-id class hash and the tied-wealth count.
+
+    (b) is tie-invariant (spec FR-006): the sorted multiset of
+    (``wealth.hex()``, ``social_class``) over living agents plus the mobility
+    memories sorted by (agent ``wealth.hex()``, content, emotional weight,
+    tick). The per-agent-id hash and the count of agents sharing their
+    wealth are information only (spec FR-004 limit).
+    """
+    agents = _living_agents(simulation)
+    wealth_of = {agent.id: agent.wealth.hex() for agent in agents}
+    multiset = sorted(f"{a.wealth.hex()}|{a.social_class}" for a in agents)
+    memories = sorted(
+        (wealth_of[m.agent_id], m.content, m.emotional_weight.hex(), m.tick_created)
+        for m in Memory.objects.filter(agent__in=agents)
+    )
+    by_id = _fingerprint(f"{i}|{a.social_class}" for i, a in enumerate(agents))
+    tied = sum(count for count in Counter(wealth_of.values()).values() if count > 1)
+    return (
+        _fingerprint(multiset + [repr(memory) for memory in memories]),
+        by_id,
+        tied,
+    )
+
+
+def _print_class_step(simulation) -> None:
+    """Run ``update_social_classes`` once, untimed, and print its shape and fingerprints.
+
+    Premise of the tie invariance of (b) (spec FR-006): every founder still
+    has the model default class ``working``; the script fails otherwise.
+    """
+    classes = {agent.social_class for agent in _living_agents(simulation)}
+    assert classes == {"working"}, f"founders' classes before the call: {classes}"
+    _unbounded_query_log()
+    with CaptureQueriesContext(connection) as ctx:
+        update_social_classes(simulation)
+    rows = _rows_per_statement(ctx.captured_queries, Agent, SOCIAL_CLASS_FIELD_COUNT)
+    fingerprint_b, by_id, tied = _class_fingerprints(simulation)
+    print(f"social_class rows per statement {rows}")
+    print(f"fingerprint_b={fingerprint_b}")
+    print(f"info class_hash_by_agent_id={by_id} tied_wealth_agents={tied}")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_economy_step_cost():
+    """Plan PD-03: time the economy step and print the fingerprints of SC-004."""
+    simulation = founded_economy_simulation(FOUNDERS, SEED)
+    process_economy_tick_new(simulation, 1)
+    seconds = []
+    shapes = []
+    for tick in range(2, 2 + TICKS):
+        elapsed, queries = _timed_tick(simulation, tick)
+        _print_tick_shape(tick, elapsed, queries)
+        seconds.append(elapsed)
+        shapes.append(queries)
+    print(f"FOUNDERS={FOUNDERS} TICKS={TICKS} SEED={SEED} simulation.id={simulation.id}")
+    print(f"median_seconds={statistics.median(seconds):.3f}")
+    print(
+        f"expectation rows per statement "
+        f"{_rows_per_statement(shapes[-1], AgentExpectation, EXPECTATION_FIELD_COUNT)}"
+    )
+    print(
+        f"wealth_mood rows per statement "
+        f"{_rows_per_statement(shapes[-1], Agent, AGENT_STEP_FIELD_COUNT)}"
+    )
+    print(f"fingerprint_a={_step_fingerprint(simulation)}")
+    _print_class_step(simulation)

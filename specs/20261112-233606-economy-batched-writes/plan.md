@@ -127,6 +127,31 @@ fit per statement t(B) = a*B^2 + c*B + b: a=9.933e-08 c=2.378e-04 b=3.770e-04 (r
 
 PD-01 rules, in order: drift 1.143 is within 20%, no rerun; the minimum (B=25, 2.407 s) is not at a grid edge; the minimum is under 5 s, no escalation. Choice: the lowest median total is B=25; the candidates within 10% of it (at most 2.648 s) are 15, 25, 50, 100 and 200; ties go to the larger B, so **B = 200** (2.589 s, 7.6% above the minimum; 50 statements per 10,000 rows).
 
+### T014: base and head runs (PD-04, SC-002 to SC-004)
+
+Date 2026-11-26, same machine as above. Base: commit `2223968` in a temporary worktree with the script and `epocha/common/testing.py` copied unmodified (the query log of the connection is replaced by an unbounded one before each capture: Django keeps only the last 9000 statements and `CaptureQueriesContext` slices by position, so the first version of the script, which did not, returned empty shapes past five ticks at 200 founders and was discarded before any number below was taken). Head: commit `6c8b888` plus the script of T012; default B = 200 unless stated. Every run is a separate pytest invocation, `simulation.id` = 1 and seed 20261112 in all of them. The economy step is `process_economy_tick_new`, tick 1 untimed, ticks 2 to 1+TICKS timed.
+
+| Run | Founders | Ticks | Median s | Per tick s | UPDATE statements per tick | Expectation rows per statement | Wealth and mood rows per statement | Social-class rows per statement |
+|---|---|---|---|---|---|---|---|---|
+| base, run a | 200 | 5 | 1.521 | 1.412, 1.657, 1.731, 1.521, 1.346 | 1211 | {1000: 1} | {200: 1} | {200: 1} |
+| base, run b | 200 | 5 | 1.583 | 1.546, 1.802, 1.583, 1.854, 1.498 | 1211 | {1000: 1} | {200: 1} | {200: 1} |
+| base | 2000 | 2 | 379.637 | 303.951, 455.324 | 12011 | {10000: 1} | {2000: 1} | {2000: 1} |
+| head, B = 50 | 200 | 5 | 1.277 | not kept | not kept | {50: 20} | {50: 4} | {50: 4} |
+| head, B = 200 | 200 | 5 | 1.302 | 1.198, 1.290, 1.302, 1.302, 1.465 | 1215 | {200: 5} | {200: 1} | {200: 1} |
+| head, B = 200 | 2000 | 5 | 13.401 | 12.466, 13.401, 13.721, 14.033, 13.385 | 12069 | {200: 50} | {200: 10} | {200: 10} |
+| head, B = 200 | 2000 | 2 | 13.498 | 12.992, 14.004 | 12069 | {200: 50} | {200: 10} | {200: 10} |
+
+Fingerprints (spec FR-006), as printed:
+
+- 200 founders, 5 ticks: (a) `a425047cff5f8c8bf7d65a961444d5d7af9be5eb4a0007b0f07c5e587fdadcd3` and (b) `fff4aeacc139b289db9558581fb0a12518a0803be8793303da19a7834c0807f1` in both base runs, in head B = 50 and in head B = 200; per-agent-id class hash `bf1c8843401ea545a689a8ad08a10ad9be1aff4e18ea123e2e434f9fb574a0a8` in all four; tied-wealth agents 0.
+- 2,000 founders, 2 ticks (extra comparison, not required by T014): (a) `8500fd2248e672b90b06743a2dfe83ab72d29c187bf2aaa2b804b415655bc040` and (b) `c293344a5d8184a286fa71dcf6dce88b44dd598b8c94b4a50df80a54b07fe2b9` on base and on head; per-agent-id class hash `decb528c807d92142b5e58d0424c22fcca9816403399f0fad984fdd8fee9c7a4` on both; tied-wealth agents 0.
+- 2,000 founders, 5 ticks, head only: (a) `5c047c49f538a59d72f585db33cca6a05b7b60727a40283af393f1f4bd208399`, (b) `fe4bab87ad87ead43e1527660c0e60ed59ed437ffd5fb810207f183378624878` (no base run of five ticks at this size: it would take about 30 minutes).
+
+Verdicts:
+
+- **SC-004 (a) and (b): met.** Same `simulation.id` and seed; the two base runs agree on both fingerprints; head B = 50 (20, 4 and 4 statements, at least 2 at every site, so the batching was exercised) and head B = 200 equal the base on both; the 2,000-founder two-tick comparison is equal too. No difference in the informational class hash.
+- **SC-002: met.** Ratio of the head medians 13.401 / 1.302 = 10.29, at most 15. For the record, the base medians give 379.637 / 1.521 = 249.6 and 379.637 / 1.583 = 239.8.
+- **SC-003: met, with a thin margin.** Median 13.401 s at 2,000 founders, at most 15 s; the five ticks range from 12.466 to 14.033 s. Of the 12,069 `UPDATE` statements of a tick, 60 are the batched writes (50 expectation batches, 10 wealth and mood batches) and 12,009 are other statements, the one-row saves the audit estimated. At the one-row cost b of 1.208 ms measured in T003 they would take 14.5 s alone, more than the whole step, so b overestimates their cost inside the step; I did not measure their share of the step, so which part bounds the step now is not verified. SC-003 passes, so no `cProfile` run was made (T014 asks for it only on a failure).
 
 ## Complexity Tracking
 
