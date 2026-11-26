@@ -234,6 +234,37 @@ Fonti: Le Bon (1895) "The Crowd", Moscovici (1981) "The Age of the
 Crowd", Tajfel (1979) social identity theory, Tajfel & Turner (1986)
 intergroup conflict, Herman & Chomsky (1988) "Manufacturing Consent".
 
+**Revisione della Fase 10 del 2026-11-26** (domanda dell'utente su finestra
+di Overton e psicologia delle folle; carta bianca data in chat; dossier di
+verifica nel diario: `Diario/2026/11/2026-11-26/epocha-opinioni-e-folle.md`):
+- La frase "non modellabile come somma di decisioni individuali" e'
+  imprecisa: Granovetter (1978) modella la rivolta da soglie individuali.
+  Formulazione corretta: il comportamento collettivo non e' la somma di
+  decisioni individuali INDIPENDENTI; emerge da decisioni interdipendenti
+  (soglie, contagio, influenza) e dipende dall'intera distribuzione delle
+  disposizioni, non dalla media.
+- Le Bon (1895) resta solo come storia del problema: la tesi della mente
+  collettiva irrazionale non regge (Reicher 1996, Stott & Drury 2017). Il
+  meccanismo delle folle si prende dall'identita' sociale (Reicher 1984,
+  1996; Drury & Reicher), che e' una teoria verbale e chiede una
+  formalizzazione propria, con audit.
+- Finestra di Overton: euristica del Mackinac Center (meta' anni '90),
+  nessuna formalizzazione peer-reviewed trovata. Non va costruita come
+  regola: va MISURATA come grandezza emergente (intervallo delle posizioni
+  espresse in pubblico, confrontato con quello delle posizioni private).
+- Candidati formali a regole, costo fisso per agente con vicinato limitato,
+  nessuna chiamata LLM per persona: Granovetter (1978), Centola & Macy
+  (2007), Deffuant et al. (2000), Hegselmann & Krause (2002), DeGroot
+  (1974), Friedkin & Johnsen (1990), Kuran (1989), Epstein (2002). Verbali:
+  Noelle-Neumann (1974), Tajfel & Turner. Metadati verificati su Crossref;
+  le regole di aggiornamento di Hegselmann-Krause, DeGroot,
+  Friedkin-Johnsen e Kuran NON sono state rilette sulle fonti: vanno
+  verificate nella spec.
+- Da chiarire nella spec: "Tajfel (1979)" e' ambiguo; Moscovici (1981) e
+  Herman & Chomsky (1988) non sono stati verificati.
+- Etica: da Wikipedia (CC BY-SA) solo idee e puntatori alle fonti primarie.
+- Ordine: resta dopo la validazione storica; nessuna spec ne' ramo aperti.
+
 ## Fase 11 -- Commercio a lunga distanza e rotte
 
 **11. Rotte commerciali** -- la Via della Seta, le rotte atlantiche, le
