@@ -18,7 +18,10 @@ Sources:
   which gives the values of n(a)).
 - Alter, G., Newton, G., Oeppen, J. (2020). Re-introducing the Cambridge
   Group Family Reconstitutions. Historical Life Course Studies 9, 24-48
-  (read): the marital TFR 20-49 of 6.7, provisional, cumulated 1575-1849.
+  (verified on the publisher PDF on 2026-11-12): the 6.7 is the TMFR 20-49 of
+  the Reference sample (sec. 3.1.3, the baseline of a date-precision
+  sensitivity, 6.7 to 6.8), whose person-years at risk span 1575-1849
+  (Figure 11, Appendix Table 1); provisional.
 - Woods, R. (2000). The Demography of Victorian England and Wales. Cambridge
   University Press, ch. 1 (read, pp. 8-9): If = Ig * Im + Ih * (1 - Im).
 - Becker, G.S. (1991). A Treatise on the Family. Harvard University Press.
